@@ -1,0 +1,15 @@
+from fastapi import FastAPI
+from .admin import router as admin_router
+from .auth import router as auth_router
+from .settings import router as settings_router
+from .uploads import router as uploads_router
+
+
+def register_routes(app: FastAPI, agent=None):    
+    app.include_router(admin_router)
+    app.include_router(auth_router)
+    app.include_router(settings_router)
+    app.include_router(uploads_router)
+
+
+__all__ = ["register_routes"]

@@ -1,0 +1,56 @@
+"""
+Configuration module for L&T IPMS Conversational App
+Loads settings from environment variables
+"""
+
+from functools import lru_cache
+from pathlib import Path
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+
+
+class Settings(BaseSettings):
+    """Application settings loaded from environment variables"""
+    
+    # Database
+    DATABASE_URL: str
+    REDIS_URL: str = "redis://localhost:6379/0"
+    S3_DEFAULT_BUCKET: str = "ewms-invoices"
+    # LLM Configuration
+    BASE_URL: str ="http://localhost:8000"  # Base URL for the API
+    LLM_MODEL: str = "local-model"  # Model name for OpenAI-compatible API
+    LLM_TEMPERATURE: float = 0.7
+    LLM_MAX_TOKENS: int = 2048
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_MODEL: str = ""
+    OPENROUTER_API_URL: str = "https://openrouter.ai/api/v1/chat/completions"
+    OPENROUTER_JOB_TIMEOUT_SECONDS: int = 0
+    GEMINI_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
+    API_SLUG: str = "/api/v1"
+    SECRET_KEY: str = "dev-secret-key"
+    
+    # Cache settings
+    CACHE_TTL_SECONDS: int = 3600  # 1 hour default TTL for cached messages
+    
+    # API settings
+    API_TITLE: str = "Invoice Extraction API"
+    API_VERSION: str = "1.0.0"
+    
+    model_config = SettingsConfigDict(
+        env_file=str(BASE_DIR / ".env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Get cached settings instance"""
+    return Settings()
+
+
+# Export singleton for easy access
+settings = get_settings()

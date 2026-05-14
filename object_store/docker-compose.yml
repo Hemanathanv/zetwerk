@@ -1,0 +1,127 @@
+# =================================================================
+# ewms Document Storage Stack
+#
+# SeaweedFS S3-compatible object storage
+# Filestash REMOVED — use mc CLI or direct S3 API from FastAPI
+#
+# Ports:
+#   :8333  → S3 API   (boto3 / FastAPI uploads & downloads)
+#   :8111  → IAM API  (embedded — FastAPI manages users at runtime)
+#
+# Quick test after startup:
+#   curl http://localhost:8333
+#   curl http://localhost:8111
+# =================================================================
+
+name: ewms-storage
+
+services:
+
+  # ── 1. Master ──────────────────────────────────────────────
+  master:
+    image: chrislusf/seaweedfs:latest
+    container_name: ewms-seaweedfs-master
+    restart: unless-stopped
+    command: >
+      master
+      -ip=master
+      -ip.bind=0.0.0.0
+      -port=9333
+      -volumeSizeLimitMB=10240
+    networks:
+      - ewms-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9333/cluster/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── 2. Volume ──────────────────────────────────────────────
+  volume:
+    image: chrislusf/seaweedfs:latest
+    container_name: ewms-seaweedfs-volume
+    restart: unless-stopped
+    command: >
+      volume
+      -mserver=master:9333
+      -ip=volume
+      -ip.bind=0.0.0.0
+      -port=8080
+      -dir=/data/volumes
+      -max=100
+    volumes:
+      - ./data/volumes:/data/volumes
+    depends_on:
+      master:
+        condition: service_healthy
+    networks:
+      - ewms-net
+
+  # ── 3. Filer ───────────────────────────────────────────────
+  filer:
+    image: chrislusf/seaweedfs:latest
+    container_name: ewms-seaweedfs-filer
+    restart: unless-stopped
+    command: >
+      filer
+      -master=master:9333
+      -ip=filer
+      -ip.bind=0.0.0.0
+      -port=8888
+    volumes:
+      - ./data/filer:/data/filer
+    depends_on:
+      master:
+        condition: service_healthy
+      volume:
+        condition: service_started
+    networks:
+      - ewms-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8888/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── 4. S3 + embedded IAM ───────────────────────────────────
+  # -config         → static credentials (s3.json)
+  # -iam=true       → IAM API embedded on :8111
+  # -iam.config     → signing key for JWT tokens (iam.json)
+  # -iam.readOnly=false → allow FastAPI to create/delete users
+  s3:
+    image: chrislusf/seaweedfs:latest
+    container_name: ewms-seaweedfs-s3
+    restart: unless-stopped
+    ports:
+      - "8333:8333"   # S3 API
+      - "8111:8111"   # IAM API (embedded in S3 service)
+    command: >
+      s3
+      -filer=filer:8888
+      -ip.bind=0.0.0.0
+      -port=8333
+      -config=/etc/seaweedfs/s3.json
+      -iam=true
+      -iam.config=/etc/seaweedfs/iam.json
+      -iam.readOnly=false
+    volumes:
+      - ./config/s3.json:/etc/seaweedfs/s3.json:ro
+      - ./config/iam.json:/etc/seaweedfs/iam.json:ro
+    depends_on:
+      filer:
+        condition: service_healthy
+    networks:
+      - ewms-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://master:9333/cluster/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+
+networks:
+  ewms-net:
+    driver: bridge
+    name: ewms-network
