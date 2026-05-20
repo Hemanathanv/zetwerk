@@ -4,6 +4,7 @@
  */
 
 import type { SchemaRow } from "./sales-invoice-schema-types.js";
+import { buildPrismaBackedSingleLocationRule } from "./prisma-rule-helper.js";
 
 const ARRAY_SECTIONS = new Set(["Line Items"]);
 
@@ -186,6 +187,16 @@ function emptyTemplateObject(
 export function buildStructuredSalesInvoicePrompt(schema: SchemaRow[]): string {
   const template = buildStructuredTemplate(schema);
   const example = emptyTemplateObject(template);
+  const sectionsByField = new Map<string, string>();
+  for (const { jsonKey: sectionKey } of template.sections) {
+    for (const field of template.fieldsBySection.get(sectionKey) ?? []) {
+      sectionsByField.set(field.jsonKey, sectionKey);
+    }
+  }
+  const singleLocationRule = buildPrismaBackedSingleLocationRule({
+    modelName: "SalesInvoiceExtraction",
+    sectionsByField,
+  });
 
   const sectionLines: string[] = [];
   for (const { jsonKey, label } of template.sections) {
@@ -209,7 +220,7 @@ OUTPUT RULES (critical):
 3. **Raw values only**: every leaf value is a **string**, **boolean** (only for \`compliance.signature\`), or **null**. No confidence, evidence, notes, status, or reasoning in JSON.
 4. Use the **JSON keys** exactly as in the template (camelCase). Map PDF labels using schema field names and alternate labels.
 5. **lineItems**: one object per invoice line row; same property set each row.
-6. **Single location per concept** (schema is deduplicated): e.g. **GSTIN** only under \`compliance\`; **IEC** only under \`entities\`; **invoiceNo** / **invoiceDate** only under \`header\`; **buyerPoNo** / **buyerPoDate** only under \`header\`; bank/SWIFT/IFSC/**bankName** only under \`financial\`; shipping bill no/date only under \`header\`; **countryOfOrigin** only under \`shipment\`.
+6. ${singleLocationRule}
 7. **compliance.signature**: set **true** if any authorized signatory stamp, wet signature, or signature block is **visible** on the PDF; **false** only if clearly absent.
 8. **Line items — three distinct fields**: \`productCode\` = SKU / internal part code only (e.g. \`WB.G.FG.CB141.6085.1300.A.IN\`). \`productDescription\` = **short** product **name** only (e.g. “INTERIOR PILE”) — no full SKU, no long spec. \`productSpecification\` = **technical** spec only (dimensions, grade, material, finish, length) — **not** origin/certificate sentences (e.g. not “100% Indian steel, smelted in India”). **Never** put HSN in \`productDescription\` — use \`hsnCode\` / \`hsnCodeDestination\` only.
 9. **compliance.irnNumber**: when the PDF has an e-invoice **IRN** (label “IRN Number” / “IRN”, metadata block, or **QR** payload / embedded IRN string), you **must** extract it — do not omit when visible.

@@ -26,6 +26,44 @@ function getReviewStatus(document: DocumentRecord): ReviewStatus {
   return "pending";
 }
 
+function buildFallbackDocumentDetail(document: DocumentRecord): DocumentDetailRecord {
+  const createdAt = document.createdAt || new Date().toISOString();
+  return {
+    id: document.id,
+    docType: document.docType,
+    status: document.status,
+    bucket: document.bucket,
+    objectKey: document.objectKey,
+    fileName: document.fileName,
+    filePath: document.filePath,
+    contentType: document.contentType,
+    sizeBytes: document.sizeBytes,
+    checksum: null,
+    totalPages: document.pageCount,
+    uploadedBy: "",
+    isDeleted: false,
+    createdAt,
+    updatedAt: document.updatedAt || createdAt,
+    previewUrl: document.previewUrl,
+    pages: [
+      {
+        id: `${document.id}-fallback-page-1`,
+        documentId: document.id,
+        pageNo: 1,
+        bucket: document.bucket,
+        objectKey: document.objectKey,
+        sizeBytes: document.sizeBytes,
+        rawText: null,
+        isExtractionSource: true,
+        createdAt,
+        previewUrl: document.previewUrl,
+      },
+    ],
+    extraction: null,
+    salesInvoiceExtraction: null,
+  };
+}
+
 export default function OcrWorkflow() {
   const [, setLocation] = useLocation();
   const [isDocumentRouteMatch, routeParams] = useRoute<{ documentId: string }>("/document-ocr/:documentId");
@@ -51,6 +89,7 @@ export default function OcrWorkflow() {
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [activeDocument, setActiveDocument] = useState<DocumentDetailRecord | null>(null);
   const [loadingActiveDocument, setLoadingActiveDocument] = useState(false);
+  const [activeDocumentError, setActiveDocumentError] = useState<string | null>(null);
 
   const loadDocuments = async () => {
     setLoadingDocuments(true);
@@ -73,24 +112,31 @@ export default function OcrWorkflow() {
     const documentId = isDocumentRouteMatch ? routeParams?.documentId ?? null : null;
     if (!documentId) {
       setActiveDocument(null);
+      setActiveDocumentError(null);
       return;
     }
 
     const loadDocument = async () => {
       setLoadingActiveDocument(true);
+      setActiveDocumentError(null);
       try {
         const response = await documentApi.getById(documentId);
         setActiveDocument(response.data);
-      } catch (error) {
-        setActiveDocument(null);
-        setLocation("/document-ocr");
+      } catch (error: any) {
+        const fallback = documents.find((item) => item.id === documentId);
+        if (fallback) {
+          setActiveDocument(buildFallbackDocumentDetail(fallback));
+        } else {
+          setActiveDocument(null);
+        }
+        setActiveDocumentError(error?.response?.data?.detail || "Failed to load full document details.");
       } finally {
         setLoadingActiveDocument(false);
       }
     };
 
     loadDocument();
-  }, [isDocumentRouteMatch, routeParams?.documentId, setLocation]);
+  }, [documents, isDocumentRouteMatch, routeParams?.documentId]);
 
   const documentRows = useMemo<DocumentListRow[]>(
     () => documents.map((document) => ({ ...document, reviewStatus: getReviewStatus(document) })),
@@ -131,19 +177,31 @@ export default function OcrWorkflow() {
 
     const formData = new FormData();
     formData.append("file", selectedFile);
+    formData.append("docType", uploadDocType);
 
     setIsUploading(true);
     setUploadError(null);
 
+    let uploaded = false;
     try {
       await documentApi.upload(formData);
-      await loadDocuments();
+      uploaded = true;
       setSelectedFile(null);
       setUploadNotes("");
     } catch (error: any) {
-      setUploadError(error?.response?.data?.detail || "Unable to upload document right now.");
+      if (error?.code === "ECONNABORTED") {
+        setUploadError(
+          "Upload is taking too long. The file may still be processing on server. Refresh the table in a moment."
+        );
+      } else {
+        setUploadError(error?.response?.data?.detail || "Unable to upload document right now.");
+      }
     } finally {
       setIsUploading(false);
+    }
+
+    if (uploaded) {
+      void loadDocuments();
     }
   };
 
@@ -196,9 +254,16 @@ export default function OcrWorkflow() {
           Loading document details...
         </div>
       ) : activeDocument ? (
-        <div className="-m-6 h-[calc(100vh-112px)]">
-          <InlinePageViewer document={activeDocument} onClose={() => setLocation("/document-ocr")} />
-        </div>
+        <>
+          {activeDocumentError && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {activeDocumentError} Showing preview-only fallback.
+            </div>
+          )}
+          <div className="-m-6 h-[calc(100vh-112px)]">
+            <InlinePageViewer document={activeDocument} onClose={() => setLocation("/document-ocr")} />
+          </div>
+        </>
       ) : (
         <div className="space-y-4">
           <DocumentToolbar

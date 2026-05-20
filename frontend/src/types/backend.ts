@@ -8,6 +8,11 @@ export type DocType =
   | "ENTRY_SUMMARY_TARIFF_LINES"
   | "OCEAN_FREIGHT"
   | "FREIGHT_FORWARDER_BILL"
+  | "CUSTOMER_BROKER_BILL"
+  | "GRN_INBOUND"
+  | "PORT_TO_WH"
+  | "WH_TO_CUSTOMER"
+  | "US_SALES_INVOICE"
   | "US_CARGO_RELEASE_ORDER"
   | "US_CUSTOMS_RELEASE_ORDER"
   | "US_DELIVERY_ORDER"
@@ -23,6 +28,11 @@ export const DOC_TYPE_OPTIONS: Array<{ value: DocType; label: string }> = [
   { value: "ENTRY_SUMMARY_TARIFF_LINES", label: "Entry Summary Tariff Lines" },
   { value: "OCEAN_FREIGHT", label: "Ocean Freight" },
   { value: "FREIGHT_FORWARDER_BILL", label: "Freight Forwarder Bill" },
+  { value: "CUSTOMER_BROKER_BILL", label: "Customer Broker Bill" },
+  { value: "GRN_INBOUND", label: "GRN Inbound" },
+  { value: "PORT_TO_WH", label: "Port To WH" },
+  { value: "WH_TO_CUSTOMER", label: "WH To Customer" },
+  { value: "US_SALES_INVOICE", label: "US Sales Invoice" },
   { value: "US_CARGO_RELEASE_ORDER", label: "US Cargo Release Order" },
   { value: "US_CUSTOMS_RELEASE_ORDER", label: "US Customs Release Order" },
   { value: "US_DELIVERY_ORDER", label: "US Delivery Order" },
@@ -134,6 +144,7 @@ export type DocumentDetailRecord = {
   updatedAt: string;
   previewUrl: string | null;
   pages: DocumentPageRecord[];
+  extraction: SalesInvoiceExtractionRecord | null;
   salesInvoiceExtraction: SalesInvoiceExtractionRecord | null;
 };
 

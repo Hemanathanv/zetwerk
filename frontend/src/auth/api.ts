@@ -7,6 +7,8 @@ import type {
   UserProfile,
 } from '@/types/backend';
 
+const SESSION_TOKEN_KEY = 'session_token_fallback';
+
 // Create axios instance with default configuration
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
@@ -20,6 +22,11 @@ const api = axios.create({
 // Request interceptor for adding CSRF token if needed
 api.interceptors.request.use(
   (config) => {
+    const fallbackToken = window.localStorage.getItem(SESSION_TOKEN_KEY);
+    if (fallbackToken && !config.headers.Authorization) {
+      config.headers.Authorization = `Bearer ${fallbackToken}`;
+    }
+
     // Add CSRF token for state-changing requests (POST, PUT, PATCH, DELETE)
     if (['post', 'put', 'patch', 'delete'].includes(config.method?.toLowerCase() || '')) {
       const csrfToken = getCSRFToken();
@@ -159,6 +166,7 @@ const documentApi = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      timeout: 120000,
     }),
 };
 
@@ -180,4 +188,5 @@ const adminApi = {
 export { authApi };
 export { adminApi };
 export { documentApi };
+export { SESSION_TOKEN_KEY };
 export default api;

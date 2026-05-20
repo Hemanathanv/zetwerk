@@ -990,18 +990,112 @@ def _is_default_input_folder(input_path):
     return len(parts) >= 2 and parts[-2:] == ["data", "input"]
 
 
+# Provider caps the downloaded image content at 30 MB. We measure the
+# base64-encoded payload (what actually gets uploaded) and leave a margin.
+MAX_ENCODED_BYTES = 28 * 1024 * 1024
+MIN_RENDER_DPI = 90
+JPEG_QUALITY_STEPS = (85, 70, 55)
+
+
+def _encoded_len(raw_bytes):
+    # base64 produces 4 chars per 3 bytes, padded up to multiple of 4
+    return ((len(raw_bytes) + 2) // 3) * 4
+
+
+def _render_page_under_cap(page, requested_dpi, max_encoded=MAX_ENCODED_BYTES):
+    """Render a PDF page, downgrading format/quality/DPI until base64 payload fits.
+
+    Order: PNG @ requested DPI → JPEG (q85, q70, q55) @ requested DPI →
+    step DPI down 25% and retry. Stops at MIN_RENDER_DPI and returns the
+    smallest payload produced.
+    """
+    current_dpi = max(MIN_RENDER_DPI, int(requested_dpi))
+    smallest = None  # (raw_bytes, fmt, encoded_len)
+    while True:
+        pix = page.get_pixmap(dpi=current_dpi)
+        png_bytes = pix.tobytes("png")
+        if _encoded_len(png_bytes) <= max_encoded:
+            return png_bytes, "png"
+        for q in JPEG_QUALITY_STEPS:
+            jpeg_bytes = pix.tobytes("jpeg", jpg_quality=q)
+            enc_len = _encoded_len(jpeg_bytes)
+            if smallest is None or enc_len < smallest[2]:
+                smallest = (jpeg_bytes, "jpeg", enc_len)
+            if enc_len <= max_encoded:
+                return jpeg_bytes, "jpeg"
+        if current_dpi <= MIN_RENDER_DPI:
+            return smallest[0], smallest[1]
+        current_dpi = max(MIN_RENDER_DPI, int(current_dpi * 0.75))
+
+
 def pdf_to_images(pdf_path, dpi=300, max_pages=None):
     doc = fitz.open(pdf_path)
     images = []
     for idx, page in enumerate(doc):
         if max_pages is not None and idx >= max_pages:
             break
-        pix = page.get_pixmap(dpi=dpi)
-        img_bytes = pix.tobytes("png")
+        img_bytes, fmt = _render_page_under_cap(page, dpi)
         b64 = base64.b64encode(img_bytes).decode("ascii")
-        images.append(f"data:image/png;base64,{b64}")
+        images.append(f"data:image/{fmt};base64,{b64}")
     doc.close()
     return images
+
+
+# Max cumulative payload per chat-completions request (leaves headroom under
+# the provider's 30 MB cap for the prompt text + JSON framing overhead).
+MAX_REQUEST_ENCODED_BYTES = 27 * 1024 * 1024
+
+
+def chunk_images_by_request_cap(images, max_request_encoded=MAX_REQUEST_ENCODED_BYTES):
+    """Group images so each chunk's total encoded size stays under the cap.
+
+    Always returns at least one chunk. A single image larger than the cap
+    becomes its own chunk (the per-page renderer is responsible for making
+    sure that does not happen in practice).
+    """
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    current_size = 0
+    for img in images:
+        size = len(img)
+        if current and current_size + size > max_request_encoded:
+            chunks.append(current)
+            current = [img]
+            current_size = size
+        else:
+            current.append(img)
+            current_size += size
+    if current:
+        chunks.append(current)
+    return chunks or [[]]
+
+
+def merge_extracted_records(existing, incoming):
+    """Combine two parsed records produced from different page-chunks.
+
+    - Lists are concatenated (preserves line-item / other-reference order).
+    - For scalars, keep the first non-empty value seen across chunks.
+    - Nested dicts are merged recursively under the same rules.
+    """
+    if existing is None:
+        return incoming if isinstance(incoming, dict) else {}
+    if not isinstance(incoming, dict):
+        return existing
+
+    def is_empty(v):
+        return v is None or v == "" or v == [] or v == {}
+
+    for key, new_val in incoming.items():
+        if key not in existing or is_empty(existing.get(key)):
+            existing[key] = new_val
+            continue
+        old_val = existing[key]
+        if isinstance(old_val, list) and isinstance(new_val, list):
+            existing[key] = old_val + new_val
+        elif isinstance(old_val, dict) and isinstance(new_val, dict):
+            existing[key] = merge_extracted_records(old_val, new_val)
+        # else: keep first non-empty scalar
+    return existing
 
 
 def _stringify_response_content(value):
@@ -1766,39 +1860,126 @@ def extract_records_with_sources(
             run_metrics["pdfs_attempted"] += 1
             run_metrics["pages"] += len(images)
 
-            content = [{"type": "text", "text": "Extract the document using the instructions."}]
-            for img in images:
-                content.append({"type": "image_url", "image_url": {"url": img, "detail": "high"}})
+            image_chunks = chunk_images_by_request_cap(images)
+            if len(image_chunks) > 1:
+                print(
+                    f"  Splitting into {len(image_chunks)} requests "
+                    f"to stay under provider payload cap "
+                    f"(pages per chunk: {[len(c) for c in image_chunks]})"
+                )
 
-            response = None
-            last_exc = None
-            for attempt in range(1, max_attempts + 1):
+            data = None
+            parse_error_text = ""
+            total_input_tokens = 0
+            total_output_tokens = 0
+            raw_text = ""
+
+            for chunk_idx, image_chunk in enumerate(image_chunks, start=1):
+                chunk_label = (
+                    f"{source_name}"
+                    if len(image_chunks) == 1
+                    else f"{source_name} (chunk {chunk_idx}/{len(image_chunks)})"
+                )
+                if chunk_idx == 1 or data is None:
+                    user_text = "Extract the document using the instructions."
+                else:
+                    header_summary = {
+                        k: v
+                        for k, v in data.items()
+                        if not isinstance(v, (list, dict)) and v not in (None, "")
+                    }
+                    user_text = (
+                        "This is a CONTINUATION of the SAME document that was already started "
+                        "in a previous request. The header/scalar fields have ALREADY been "
+                        "extracted correctly from earlier pages and must NOT be re-extracted "
+                        "or changed.\n\n"
+                        "Already-extracted header fields (for context only — do NOT echo "
+                        "these back):\n"
+                        f"{json.dumps(header_summary, indent=2, ensure_ascii=False)}\n\n"
+                        "From the continuation pages provided below, extract ONLY the ARRAY "
+                        "fields defined in the schema (e.g. lineItems, otherReferences) — i.e. "
+                        "additional rows / entries that physically appear on these specific "
+                        "pages. Do NOT re-emit rows that already came from earlier pages.\n\n"
+                        "Return one JSON object whose array fields contain only the NEW "
+                        "entries found on these pages. Leave every scalar/header field as "
+                        "null. Do not invent, duplicate, or restate header values."
+                    )
+
+                content = [{"type": "text", "text": user_text}]
+                for img in image_chunk:
+                    content.append({"type": "image_url", "image_url": {"url": img, "detail": "high"}})
+
+                response = None
+                last_exc = None
+                for attempt in range(1, max_attempts + 1):
+                    try:
+                        response = client.chat.completions.create(
+                            model=model,
+                            messages=[
+                                {"role": "system", "content": prompt_text},
+                                {"role": "user", "content": content},
+                            ],
+                            temperature=0,
+                        )
+                        break
+                    except Exception as exc:
+                        last_exc = exc
+                        if is_credit_error(exc):
+                            raise
+                        if attempt >= max_attempts:
+                            raise
+                        print(
+                            f"[WARN] API call failed for {chunk_label} "
+                            f"(attempt {attempt}/{max_attempts}): {exc}. Retrying..."
+                        )
+                        if retry_delay_seconds > 0:
+                            time.sleep(retry_delay_seconds)
+                if response is None and last_exc is not None:
+                    raise last_exc
+
+                chunk_in, chunk_out = extract_usage_tokens(response)
+                total_input_tokens += chunk_in
+                total_output_tokens += chunk_out
+
+                chunk_raw_text = _stringify_response_content(response.choices[0].message.content)
+                raw_text = chunk_raw_text  # keep last chunk's raw text for downstream error surfaces
+
+                chunk_data = None
                 try:
-                    response = client.chat.completions.create(
-                        model=model,
-                        messages=[
-                            {"role": "system", "content": prompt_text},
-                            {"role": "user", "content": content},
-                        ],
-
-                        temperature=0,
-                    )
-                    break
+                    chunk_data = extract_json(chunk_raw_text)
                 except Exception as exc:
-                    last_exc = exc
-                    if is_credit_error(exc):
-                        raise
-                    if attempt >= max_attempts:
-                        raise
-                    print(
-                        f"[WARN] API call failed for {source_name} "
-                        f"(attempt {attempt}/{max_attempts}): {exc}. Retrying..."
-                    )
-                    if retry_delay_seconds > 0:
-                        time.sleep(retry_delay_seconds)
-            if response is None and last_exc is not None:
-                raise last_exc
-            input_tokens, output_tokens = extract_usage_tokens(response)
+                    run_metrics["json_parse_failures"] += 1
+                    parse_error_text = str(exc)
+                    run_metrics["json_repair_attempts"] += 1
+                    try:
+                        repaired_data, _ = attempt_json_repair_with_model(
+                            client=client,
+                            model=model,
+                            raw_text=chunk_raw_text,
+                        )
+                    except Exception as repair_exc:
+                        print(
+                            f"[WARN] JSON repair call failed for {chunk_label}: {repair_exc}"
+                        )
+                        repaired_data = None
+
+                    if repaired_data is not None:
+                        chunk_data = repaired_data
+                        run_metrics["json_repair_successes"] += 1
+                        print(f"[INFO] Auto-repaired JSON formatting for {chunk_label}.")
+
+                if chunk_data is not None:
+                    data = merge_extracted_records(data, chunk_data)
+
+            if data is None:
+                data = {
+                    "parse_error": parse_error_text,
+                    "flags": [f"json_parse_error: {parse_error_text}"],
+                    "raw_response": raw_text,
+                }
+
+            input_tokens = total_input_tokens
+            output_tokens = total_output_tokens
             run_metrics["input_tokens"] += input_tokens
             run_metrics["output_tokens"] += output_tokens
             page_usage_rows.extend(
@@ -1812,38 +1993,6 @@ def extract_records_with_sources(
                     output_tokens=output_tokens,
                 )
             )
-
-            raw_text = _stringify_response_content(response.choices[0].message.content)
-            parse_error_text = ""
-            try:
-                data = extract_json(raw_text)
-            except Exception as exc:
-                run_metrics["json_parse_failures"] += 1
-                parse_error_text = str(exc)
-                repaired_data = None
-
-                run_metrics["json_repair_attempts"] += 1
-                try:
-                    repaired_data, _ = attempt_json_repair_with_model(
-                        client=client,
-                        model=model,
-                        raw_text=raw_text,
-                    )
-                except Exception as repair_exc:
-                    print(
-                        f"[WARN] JSON repair call failed for {source_name}: {repair_exc}"
-                    )
-
-                if repaired_data is not None:
-                    data = repaired_data
-                    run_metrics["json_repair_successes"] += 1
-                    print(f"[INFO] Auto-repaired JSON formatting for {source_name}.")
-                else:
-                    data = {
-                        "parse_error": parse_error_text,
-                        "flags": [f"json_parse_error: {parse_error_text}"],
-                        "raw_response": raw_text,
-                    }
 
             if not _record_has_meaningful_payload(data):
                 run_metrics["empty_json_outputs"] += 1

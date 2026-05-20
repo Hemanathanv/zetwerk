@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     S3_DEFAULT_BUCKET: str = "ewms-invoices"
     # LLM Configuration
-    BASE_URL: str ="http://localhost:8000"  # Base URL for the API
+    BASE_URL: str ="http://192.168.10.100:8000"  # Base URL for the API
     LLM_MODEL: str = "local-model"  # Model name for OpenAI-compatible API
     LLM_TEMPERATURE: float = 0.7
     LLM_MAX_TOKENS: int = 2048
@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     API_SLUG: str = "/api/v1"
     SECRET_KEY: str = "dev-secret-key"
+    SESSION_COOKIE_SECURE: bool = False
+    SESSION_COOKIE_SAMESITE: str = "lax"
+    SESSION_COOKIE_DOMAIN: str = ""
     
     # Cache settings
     CACHE_TTL_SECONDS: int = 3600  # 1 hour default TTL for cached messages

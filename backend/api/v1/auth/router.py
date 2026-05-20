@@ -14,6 +14,11 @@ from pydantic import BaseModel, EmailStr
 router = APIRouter(prefix=settings.API_SLUG + "/auth", tags=["Auth"])
 
 
+def _cookie_domain() -> Optional[str]:
+    domain = (settings.SESSION_COOKIE_DOMAIN or "").strip()
+    return domain or None
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -108,8 +113,9 @@ async def login(request: LoginRequest, response: Response):
         key="session_token",
         value=token,
         httponly=True,
-        secure=True,  # Set to True in production with HTTPS
-        samesite="lax",
+        secure=settings.SESSION_COOKIE_SECURE,
+        samesite=settings.SESSION_COOKIE_SAMESITE,
+        domain=_cookie_domain(),
         max_age=7 * 24 * 60 * 60,  # 7 days
     )
     return {
@@ -142,7 +148,12 @@ async def logout(
             pass  # Session might not exist
     
     # Clear cookie
-    response.delete_cookie(key="session_token")
+    response.delete_cookie(
+        key="session_token",
+        domain=_cookie_domain(),
+        samesite=settings.SESSION_COOKIE_SAMESITE,
+        secure=settings.SESSION_COOKIE_SECURE,
+    )
     
     return {"status": "success", "message": "Logged out"}
 

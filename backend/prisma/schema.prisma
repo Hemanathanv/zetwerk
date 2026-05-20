@@ -143,6 +143,11 @@ enum DocType {
   ENTRY_SUMMARY_TARIFF_LINES
   OCEAN_FREIGHT
   FREIGHT_FORWARDER_BILL
+  CUSTOMER_BROKER_BILL
+  GRN_INBOUND
+  PORT_TO_WH
+  WH_TO_CUSTOMER
+  US_SALES_INVOICE
   US_CARGO_RELEASE_ORDER
   US_CUSTOMS_RELEASE_ORDER
   US_DELIVERY_ORDER
@@ -199,6 +204,11 @@ model Document {
   oceanFreightExtraction           OceanFreightExtraction?
   packingListExtraction            PackingListExtraction?
   freightForwarderBillExtraction   FreightForwarderBillExtraction?
+  customerBrokerBillExtraction     CustomerBrokerBillExtraction?
+  grnInboundExtraction             GrnInboundExtraction?
+  portToWhExtraction               PortToWhExtraction?
+  whToCustomerExtraction           WhToCustomerExtraction?
+  usSalesInvoiceExtraction         UsSalesInvoiceExtraction?
   usCargoReleaseExtraction         UsCargoReleaseExtraction?
   usCustomsReleaseExtraction       UsCustomsReleaseExtraction?
   usDeliveryOrderExtraction        UsDeliveryOrderExtraction?
@@ -394,6 +404,7 @@ model BillOfLading {
   id                  String    @id @default(uuid())
   documentId          String    @unique @map("document_id")
 
+  documentTitle           String? @map("document_title")
   bolNumber               String? @map("bol_number")
   shipmentReferenceNumber String? @map("shipment_reference_number")
   negotiability           String?
@@ -484,9 +495,9 @@ model BillOfLading {
   exportShippingBillDate   String? @map("export_shipping_bill_date")
 
   // Array sections
-  exportInvoices Json? @map("export_invoices")
-  containers     Json?
-  shippingBills  Json? @map("shipping_bills")
+  exportInvoices BillOfLadingExportInvoice[]
+  containers     BillOfLadingContainer[]
+  shippingBills  BillOfLadingShippingBill[]
 
   rawData             Json?     @map("raw_data")            // full AI dump
   extractedAt         DateTime? @map("extracted_at")
@@ -587,7 +598,7 @@ model EntrySummaryExtraction {
   brokerImporterFileNumber String? @map("broker_importer_file_number")
 
   // Line Items (array)
-  lineItems Json? @map("line_items")
+  lineItems EntrySummaryLineItem[]
 
   rawData             Json?     @map("raw_data")            // full AI dump
   extractedAt         DateTime? @map("extracted_at")
@@ -616,7 +627,7 @@ model EntrySummaryTariffLineExtraction {
   lineHtsusNumber            String? @map("line_htsus_number")
 
   // Tariff Lines (array — one object per tariff sub-line)
-  tariffLines Json? @map("tariff_lines")
+  tariffLines EntrySummaryTariffLineItem[]
 
   rawData             Json?     @map("raw_data")            // full AI dump
   extractedAt         DateTime? @map("extracted_at")
@@ -699,11 +710,11 @@ model OceanFreightExtraction {
   cargoChargeable  String? @map("cargo_chargeable")
 
   // Containers
-  containersList       Json?   @map("containers_list")
+  containersList       OceanFreightContainer[]
   containersTotalCount String? @map("containers_total_count")
 
   // Tax Summary
-  taxSummaryEntries Json? @map("tax_summary_entries")
+  taxSummaryEntries OceanFreightTaxSummaryEntry[]
 
   // Totals
   subtotalUsd   String? @map("subtotal_usd")
@@ -722,7 +733,7 @@ model OceanFreightExtraction {
   bankIfscCode        String? @map("bank_ifsc_code")
 
   // Charges (array)
-  charges Json?
+  charges OceanFreightCharge[]
 
   rawData             Json?     @map("raw_data")            // full AI dump
   extractedAt         DateTime? @map("extracted_at")
@@ -787,7 +798,7 @@ model PackingListExtraction {
   dinNumber            String? @map("din_number")
 
   // Line Items (array)
-  lineItems Json? @map("line_items")
+  lineItems PackingListLineItem[]
 
   rawData             Json?     @map("raw_data")            // full AI dump
   extractedAt         DateTime? @map("extracted_at")
@@ -866,6 +877,7 @@ model SalesInvoiceExtraction {
   portOfLoading             String? @map("port_of_loading")
   vesselFlightNo            String? @map("vessel_flight_no")
   grossWeight               String? @map("gross_weight")
+  totalQuantity             String? @map("total_quantity")
   packageDescription        String? @map("package_description")
   preCarriageBy             String? @map("pre_carriage_by")
   marksAndNumbers           String? @map("marks_and_numbers")
@@ -882,7 +894,7 @@ model SalesInvoiceExtraction {
   receivablesAssignmentBeneficiary String? @map("receivables_assignment_beneficiary")
 
   // Line Items (array)
-  lineItems Json? @map("line_items")
+  lineItems SalesInvoiceLineItem[]
 
   rawData             Json?     @map("raw_data")            // full AI dump
   extractedAt         DateTime? @map("extracted_at")
@@ -896,6 +908,301 @@ model SalesInvoiceExtraction {
   @@schema("aiextraction")
   @@index([invoiceNo], map: "idx_sales_invoice_no")
   @@map("sales_invoice_extractions")
+}
+
+model CustomerBrokerBillExtraction {
+  id                         String    @id @default(uuid())
+  documentId                 String    @unique @map("document_id")
+
+  // Header
+  invoiceNumber              String? @map("invoice_number")
+  invoiceDate                String? @map("invoice_date")
+  customerId                 String? @map("customer_id")
+  paymentTerms               String? @map("payment_terms")
+  dueDate                    String? @map("due_date")
+
+  // Parties
+  billTo                     String? @map("bill_to")
+  billToAddress              String? @map("bill_to_address")
+  shipper                    String?
+  consignee                  String?
+
+  // Shipment
+  vesselVoyage               String? @map("vessel_voyage")
+  origin                     String?
+  destination                String?
+  originEtdDestinationEta    String? @map("origin_etd_destination_eta")
+  oceanBol                   String? @map("ocean_bol")
+  houseBol                   String? @map("house_bol")
+  bookingNumber              String? @map("booking_number")
+  imoLloyds                  String? @map("imo_lloyds")
+  containers                 String?
+  goodsDescription           String? @map("goods_description")
+  weightPiecesUnits          String? @map("weight_pieces_units")
+  volume                     String?
+  poNumberProjectReference   String? @map("po_number_project_reference")
+  supplierInvoiceNumbers     String? @map("supplier_invoice_numbers")
+  declarationNumber          String? @map("declaration_number")
+  entryNumber                String? @map("entry_number")
+
+  // Totals and payment
+  subtotal                   String?
+  totalAmount                String? @map("total_amount")
+  bankName                   String? @map("bank_name")
+  accountNumberAbaRouting    String? @map("account_number_aba_routing")
+  swiftCodeWireReference     String? @map("swift_code_wire_reference")
+  remitToAddress             String? @map("remit_to_address")
+  contactName                String? @map("contact_name")
+  contactPhone               String? @map("contact_phone")
+
+  // Line Items (array)
+  lineItems CustomerBrokerBillLineItem[]
+
+  rawData                    Json?     @map("raw_data")
+  extractedAt                DateTime? @map("extracted_at")
+  reviewedBy                 String?   @map("reviewed_by")
+  reviewedAt                 DateTime? @map("reviewed_at")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+
+  document                   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@index([invoiceNumber], map: "idx_customer_broker_bill_invoice_number")
+  @@map("customer_broker_bill_extractions")
+}
+
+model GrnInboundExtraction {
+  id                         String    @id @default(uuid())
+  documentId                 String    @unique @map("document_id")
+
+  // Header and references
+  documentType               String? @map("document_type")
+  logisticsProvider          String? @map("logistics_provider")
+  accountName                String? @map("account_name")
+  documentTitle              String? @map("document_title")
+  containerNumber            String? @map("container_number")
+  containerSize              String? @map("container_size")
+  containerType              String? @map("container_type")
+  sealNumber                 String? @map("seal_number")
+  truckingCo                 String? @map("trucking_co")
+  freightBillNumber          String? @map("freight_bill_number")
+  brokerReference            String? @map("broker_reference")
+  customerReference          String? @map("customer_reference")
+  location                   String?
+  tiTie                      String? @map("ti_tie")
+  beam                       String?
+  dateReceived               String? @map("date_received")
+  rateQuoteNumber            String? @map("rate_quote_number")
+
+  // Cargo and handling
+  floorLoaded                String? @map("floor_loaded")
+  frozen                     String?
+  palletizedCargo            String? @map("palletized_cargo")
+  numberOfPallets            String? @map("number_of_pallets")
+  companyOwnedPallets        String? @map("company_owned_pallets")
+  totalPieces                String? @map("total_pieces")
+  typeOfPackaging            String? @map("type_of_packaging")
+  totalPartsCount            String? @map("total_parts_count")
+  pcsLine1                   String? @map("pcs_line_1")
+  dimensions                 String?
+  weight                     String?
+
+  // Footer
+  receivedBy                 String? @map("received_by")
+  numberOfEmployees          String? @map("number_of_employees")
+  totalReceivingTime         String? @map("total_receiving_time")
+  notes                      String?
+  liabilityLimit             String? @map("liability_limit")
+
+  // Destination marks (array)
+  destinationMarks GrnInboundDestinationMark[]
+
+  rawData                    Json?     @map("raw_data")
+  extractedAt                DateTime? @map("extracted_at")
+  reviewedBy                 String?   @map("reviewed_by")
+  reviewedAt                 DateTime? @map("reviewed_at")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+
+  document                   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@index([freightBillNumber], map: "idx_grn_inbound_freight_bill_number")
+  @@map("grn_inbound_extractions")
+}
+
+model PortToWhExtraction {
+  id                         String    @id @default(uuid())
+  documentId                 String    @unique @map("document_id")
+
+  // Header and references
+  invoice                    String?
+  invoiceDate                String? @map("invoice_date")
+  dueDate                    String? @map("due_date")
+  paymentTerms               String? @map("payment_terms")
+  vendor                     String?
+  shipmentId                 String? @map("shipment_id")
+  orderNumber                String? @map("order_number")
+  customerReferenceNumber    String? @map("customer_reference_number")
+
+  // Route and equipment
+  pickupLocation             String? @map("pickup_location")
+  pickupDate                 String? @map("pickup_date")
+  deliveryLocation           String? @map("delivery_location")
+  deliveryDate               String? @map("delivery_date")
+  containerType              String? @map("container_type")
+  mbl                        String?
+  containerNumber            String? @map("container_number")
+  weightLbs                  String? @map("weight_lbs")
+
+  // Totals and charges
+  subtotal                   String?
+  tax1                       String?
+  tax2                       String?
+  totalCharge                String? @map("total_charge")
+  storageDays                String? @map("storage_days")
+  permitWeight               String? @map("permit_weight")
+
+  // Line Items (array)
+  lineItems PortToWhLineItem[]
+
+  rawData                    Json?     @map("raw_data")
+  extractedAt                DateTime? @map("extracted_at")
+  reviewedBy                 String?   @map("reviewed_by")
+  reviewedAt                 DateTime? @map("reviewed_at")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+
+  document                   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@index([invoice], map: "idx_port_to_wh_invoice")
+  @@map("port_to_wh_extractions")
+}
+
+model WhToCustomerExtraction {
+  id                         String    @id @default(uuid())
+  documentId                 String    @unique @map("document_id")
+
+  // Header and parties
+  invoiceNumber              String? @map("invoice_number")
+  vendor                     String?
+  invoiceDate                String? @map("invoice_date")
+  dueDate                    String? @map("due_date")
+  paymentTerms               String? @map("payment_terms")
+  billTo                     String? @map("bill_to")
+  billToAddress              String? @map("bill_to_address")
+  poNumber                   String? @map("po_number")
+  shipmentNumber             String? @map("shipment_number")
+  shipper                    String?
+  shipperAddress             String? @map("shipper_address")
+  consignee                  String?
+  consigneeAddress           String? @map("consignee_address")
+
+  // Route and cargo
+  pickupDate                 String? @map("pickup_date")
+  deliveryDate               String? @map("delivery_date")
+  departureLocation          String? @map("departure_location")
+  destinationLocation        String? @map("destination_location")
+  commodityDescription       String? @map("commodity_description")
+  piecesUnits                String? @map("pieces_units")
+  weightLbs                  String? @map("weight_lbs")
+  volumeFt3                  String? @map("volume_ft3")
+  dimensions                 String?
+  serviceType                String? @map("service_type")
+
+  // Totals and payment
+  fscPercent                 String? @map("fsc_percent")
+  fscAmount                  String? @map("fsc_amount")
+  totalAmount                String? @map("total_amount")
+  contactName                String? @map("contact_name")
+  contactPhone               String? @map("contact_phone")
+  contactEmail               String? @map("contact_email")
+  bankName                   String? @map("bank_name")
+  accountNumber              String? @map("account_number")
+  routingNumber              String? @map("routing_number")
+  swift                      String?
+  remitToAddress             String? @map("remit_to_address")
+
+  // Arrays
+  lineItems       WhToCustomerLineItem[]
+  otherReferences WhToCustomerOtherReference[]
+
+  rawData                    Json?     @map("raw_data")
+  extractedAt                DateTime? @map("extracted_at")
+  reviewedBy                 String?   @map("reviewed_by")
+  reviewedAt                 DateTime? @map("reviewed_at")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+
+  document                   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@index([invoiceNumber], map: "idx_wh_to_customer_invoice_number")
+  @@map("wh_to_customer_extractions")
+}
+
+model UsSalesInvoiceExtraction {
+  id                         String    @id @default(uuid())
+  documentId                 String    @unique @map("document_id")
+
+  // Seller
+  sellerCompany              String? @map("seller_company")
+  sellerStreet               String? @map("seller_street")
+  sellerCity                 String? @map("seller_city")
+  sellerState                String? @map("seller_state")
+  sellerZip                  String? @map("seller_zip")
+  sellerCountry              String? @map("seller_country")
+  sellerEmail                String? @map("seller_email")
+
+  // Invoice details
+  invoiceDocumentType        String? @map("invoice_document_type")
+  date                       String?
+  invoiceNo                  String? @map("invoice_no")
+  soNo                       String? @map("so_no")
+  poNo                       String? @map("po_no")
+  paymentTerms               String? @map("payment_terms")
+
+  // Bill to / ship to
+  billToEmail                String? @map("bill_to_email")
+  shipToCompany              String? @map("ship_to_company")
+  shipToStreet               String? @map("ship_to_street")
+  shipToCity                 String? @map("ship_to_city")
+  shipToState                String? @map("ship_to_state")
+  shipToZip                  String? @map("ship_to_zip")
+  shipToCountry              String? @map("ship_to_country")
+
+  // Totals
+  salesSubtotal              String? @map("sales_subtotal")
+  totalDiscount              String? @map("total_discount")
+  totalCharges               String? @map("total_charges")
+  netAmount                  String? @map("net_amount")
+  salesTax                   String? @map("sales_tax")
+  total                      String?
+  paymentsCredit             String? @map("payments_credit")
+  balanceDue                 String? @map("balance_due")
+
+  // Payment instructions
+  bankName                   String? @map("bank_name")
+  accountNumber              String? @map("account_number")
+  swiftCode                  String? @map("swift_code")
+
+  // Line Items (array)
+  lineItems UsSalesInvoiceLineItem[]
+
+  rawData                    Json?     @map("raw_data")
+  extractedAt                DateTime? @map("extracted_at")
+  reviewedBy                 String?   @map("reviewed_by")
+  reviewedAt                 DateTime? @map("reviewed_at")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+
+  document                   Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@index([invoiceNo], map: "idx_us_sales_invoice_invoice_no")
+  @@map("us_sales_invoice_extractions")
 }
 
 
@@ -1001,11 +1308,11 @@ model FreightForwarderBillExtraction {
   cargoChargeable    String? @map("cargo_chargeable")
 
   // Containers
-  containersList       Json?   @map("containers_list")
+  containersList       FreightForwarderContainer[]
   containersTotalCount String? @map("containers_total_count")
 
   // Tax Summary
-  taxSummaryEntries Json? @map("tax_summary_entries")
+  taxSummaryEntries FreightForwarderTaxSummaryEntry[]
 
   // Totals
   totalsCurrency String? @map("totals_currency")
@@ -1049,7 +1356,7 @@ model FreightForwarderBillExtraction {
   footerDigSigSignatureTime     String? @map("footer_dig_sig_signature_time")
 
   // Charges (array)
-  charges Json?
+  charges FreightForwarderCharge[]
 
   rawData             Json?     @map("raw_data")            // full AI dump
   extractedAt         DateTime? @map("extracted_at")
@@ -1308,7 +1615,7 @@ model UsPackingListExtraction {
   propertyValueDeclaredShipper String? @map("property_value_declared_shipper")
 
   // Line Items (array)
-  lineItems Json? @map("line_items")
+  lineItems UsPackingListLineItem[]
 
   rawData             Json?     @map("raw_data")            // full AI dump
   extractedAt         DateTime? @map("extracted_at")
@@ -1336,9 +1643,18 @@ model ShippingBillExtraction {
   sbNo                 String? @map("sb_no")
   sbDate               String? @map("sb_date")
   iecBr                String? @map("iec_br")
+  gstinType            String? @map("gstin_type")
+  cbCode               String? @map("cb_code")
   exporterNameAddress  String? @map("exporter_name_address")
   consigneeNameAddress String? @map("consignee_name_address")
   cbName               String? @map("cb_name")
+  pkgCount             String? @map("pkg_count")
+  leoNo                String? @map("leo_no")
+  leoDate              String? @map("leo_date")
+  brcRealisationDate   String? @map("brc_realisation_date")
+  rotnNoDate           String? @map("rotn_no_date")
+  vesselName           String? @map("vessel_name")
+  sezUnitDetails       String? @map("sez_unit_details")
   portOfLoading        String? @map("port_of_loading")
   portOfDischarge      String? @map("port_of_discharge")
   countryOfFinalDest   String? @map("country_of_final_dest")
@@ -1347,12 +1663,80 @@ model ShippingBillExtraction {
   itemCount            String? @map("item_count")
   contCount            String? @map("cont_count")
 
-  // Full structured parts
-  part1ShippingBillSummary Json? @map("part1_shipping_bill_summary")
-  part2InvoiceDetails      Json? @map("part2_invoice_details")
-  part3ItemDetails         Json? @map("part3_item_details")
-  part4ExportSchemeDetails Json? @map("part4_export_scheme_details")
-  part5Declarations        Json? @map("part5_declarations")
+  // Section A status
+  sectionAStatusMode                    String? @map("section_a_status_mode")
+  sectionAStatusAssess                  String? @map("section_a_status_assess")
+  sectionAStatusExmn                    String? @map("section_a_status_exmn")
+  sectionAStatusJobbing                 String? @map("section_a_status_jobbing")
+  sectionAStatusMeis                    String? @map("section_a_status_meis")
+  sectionAStatusDbk                     String? @map("section_a_status_dbk")
+  sectionAStatusRodtp                   String? @map("section_a_status_rodtp")
+  sectionAStatusLicence                 String? @map("section_a_status_licence")
+  sectionAStatusDfrc                    String? @map("section_a_status_dfrc")
+  sectionAStatusReExp                   String? @map("section_a_status_re_exp")
+  sectionAStatusLut                     String? @map("section_a_status_lut")
+  sectionAStatusPortOfLoading           String? @map("section_a_status_port_of_loading")
+  sectionAStatusStateOfOrigin           String? @map("section_a_status_state_of_origin")
+  sectionAStatusPortOfDischarge         String? @map("section_a_status_port_of_discharge")
+  sectionAStatusCountryOfFinalDestination String? @map("section_a_status_country_of_final_destination")
+  sectionAStatusPortOfFinalDestination  String? @map("section_a_status_port_of_final_destination")
+  sectionAStatusCountryOfDischarge      String? @map("section_a_status_country_of_discharge")
+
+  // Section B declarant
+  sectionBDeclarantExporterNameAndAddress String? @map("section_b_declarant_exporter_name_and_address")
+  sectionBDeclarantType                   String? @map("section_b_declarant_type")
+  sectionBDeclarantAdCode                 String? @map("section_b_declarant_ad_code")
+  sectionBDeclarantRbiWaiverNoAndDt       String? @map("section_b_declarant_rbi_waiver_no_and_dt")
+  sectionBDeclarantCbName                 String? @map("section_b_declarant_cb_name")
+  sectionBDeclarantAeo                    String? @map("section_b_declarant_aeo")
+  sectionBDeclarantConsigneeNameAndAddress String? @map("section_b_declarant_consignee_name_and_address")
+  sectionBDeclarantGstinType              String? @map("section_b_declarant_gstin_type")
+  sectionBDeclarantForexBankAcNo          String? @map("section_b_declarant_forex_bank_ac_no")
+  sectionBDeclarantDbkBankAcNo            String? @map("section_b_declarant_dbk_bank_ac_no")
+  sectionBDeclarantIfscNo                 String? @map("section_b_declarant_ifsc_no")
+
+  // Section B transaction parties
+  sectionBTransactionPartiesExporterNameAndAddress String? @map("section_b_transaction_parties_exporter_name_and_address")
+  sectionBTransactionPartiesBuyerNameAndAddress    String? @map("section_b_transaction_parties_buyer_name_and_address")
+  sectionBTransactionPartiesThirdPartyNameAndAddress String? @map("section_b_transaction_parties_third_party_name_and_address")
+  sectionBTransactionPartiesBuyerAeoStatus         String? @map("section_b_transaction_parties_buyer_aeo_status")
+
+  // Section C value summary
+  sectionCValueSummaryFobValue      String? @map("section_c_value_summary_fob_value")
+  sectionCValueSummaryFreight       String? @map("section_c_value_summary_freight")
+  sectionCValueSummaryInsurance     String? @map("section_c_value_summary_insurance")
+  sectionCValueSummaryDiscount      String? @map("section_c_value_summary_discount")
+  sectionCValueSummaryCommission    String? @map("section_c_value_summary_commission")
+  sectionCValueSummaryDeductions    String? @map("section_c_value_summary_deductions")
+  sectionCValueSummaryPc            String? @map("section_c_value_summary_pc")
+  sectionCValueSummaryDuty          String? @map("section_c_value_summary_duty")
+  sectionCValueSummaryCess          String? @map("section_c_value_summary_cess")
+  sectionCValueSummaryDiscou        String? @map("section_c_value_summary_discou")
+  sectionCValueSummaryCom           String? @map("section_c_value_summary_com")
+  sectionCValueSummaryDiscounts     String? @map("section_c_value_summary_discounts")
+  sectionCValueSummaryPackingCharges String? @map("section_c_value_summary_packing_charges")
+  sectionCValueSummaryDbkClaim      String? @map("section_c_value_summary_dbk_claim")
+  sectionCValueSummaryIgstAmt       String? @map("section_c_value_summary_igst_amt")
+  sectionCValueSummaryCessAmt       String? @map("section_c_value_summary_cess_amt")
+  sectionCValueSummaryIgstValue     String? @map("section_c_value_summary_igst_value")
+  sectionCValueSummaryRoDtepAmt     String? @map("section_c_value_summary_ro_dtep_amt")
+  sectionCValueSummaryRosctlAmt     String? @map("section_c_value_summary_rosctl_amt")
+
+  // Section D export promotion
+  sectionDExportPromotionDbkClaim   String? @map("section_d_export_promotion_dbk_claim")
+  sectionDExportPromotionIgstAmt    String? @map("section_d_export_promotion_igst_amt")
+  sectionDExportPromotionCessAmt    String? @map("section_d_export_promotion_cess_amt")
+  sectionDExportPromotionIgstValue  String? @map("section_d_export_promotion_igst_value")
+  sectionDExportPromotionRoDtepAmt  String? @map("section_d_export_promotion_ro_dtep_amt")
+  sectionDExportPromotionRosctlAmt  String? @map("section_d_export_promotion_rosctl_amt")
+  sectionDExportPromotionRodtpAmt   String? @map("section_d_export_promotion_rodtp_amt")
+
+  // Repeating sections
+  part1ShippingBillSummary ShippingBillPart1Summary[]
+  part2InvoiceDetails      ShippingBillInvoiceRef[]
+  part3ItemDetails         ShippingBillItemDetail[]
+  part4ExportSchemeDetails ShippingBillPart4ExportSchemeDetail[]
+  part5Declarations        ShippingBillPart5Declaration[]
 
   rawData             Json?     @map("raw_data")            // full AI dump
   extractedAt         DateTime? @map("extracted_at")
@@ -1447,11 +1831,11 @@ model ChaBillExtraction {
 
   // Containers
   containersRaw String? @map("containers_raw")
-  containers    Json?
+  containers    ChaBillContainer[]
 
   // Repeating arrays
-  charges    Json?
-  taxSummary Json? @map("tax_summary")
+  charges    ChaBillCharge[]
+  taxSummary ChaBillTaxSummaryEntry[]
 
   // Totals
   totalsSubtotal           String? @map("totals_subtotal")
@@ -1464,7 +1848,7 @@ model ChaBillExtraction {
   totalsNetAmount          String? @map("totals_net_amount")
 
   // Bank Details (array — multiple accounts possible)
-  bankDetails Json? @map("bank_details")
+  bankDetails ChaBillBankDetail[]
 
   // Additional
   lutBondReference String? @map("lut_bond_reference")
@@ -1489,7 +1873,7 @@ model ChaBillExtraction {
 
   // Extraction metadata
   extractionConfidence String? @map("extraction_confidence")
-  flags                Json?
+  flags                ChaBillFlag[]
 
   rawData             Json?     @map("raw_data")            // full AI dump
   extractedAt         DateTime? @map("extracted_at")
@@ -1505,3 +1889,674 @@ model ChaBillExtraction {
   @@map("cha_bill_extractions")
 }
 
+model BillOfLadingExportInvoice {
+  id            String       @id @default(uuid())
+  billOfLadingId String      @map("bill_of_lading_id")
+  itemIndex     String?      @map("item_index")
+  invoiceNumber String?      @map("invoice_number")
+  invoiceDate   String?      @map("invoice_date")
+
+  billOfLading  BillOfLading @relation(fields: [billOfLadingId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("bill_of_lading_export_invoices")
+}
+
+model BillOfLadingContainer {
+  id             String       @id @default(uuid())
+  billOfLadingId String       @map("bill_of_lading_id")
+  itemIndex      String?      @map("item_index")
+  number         String?
+  type           String?
+  sealNumber     String?      @map("seal_number")
+  grossWeightKg  String?      @map("gross_weight_kg")
+  netWeightKg    String?      @map("net_weight_kg")
+  packages       String?
+  volumeCbm      String?      @map("volume_cbm")
+  mode           String?
+
+  billOfLading   BillOfLading @relation(fields: [billOfLadingId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("bill_of_lading_containers")
+}
+
+model BillOfLadingShippingBill {
+  id                 String       @id @default(uuid())
+  billOfLadingId     String       @map("bill_of_lading_id")
+  itemIndex          String?      @map("item_index")
+  shippingBillNumber String?      @map("shipping_bill_number")
+  shippingBillDate   String?      @map("shipping_bill_date")
+
+  billOfLading       BillOfLading @relation(fields: [billOfLadingId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("bill_of_lading_shipping_bills")
+}
+
+model SalesInvoiceLineItem {
+  id                   String                  @id @default(uuid())
+  salesInvoiceId       String                  @map("sales_invoice_id")
+  hsnCode              String?                 @map("hsn_code")
+  hsnCodeDestination   String?                 @map("hsn_code_destination")
+  productCode          String?                 @map("product_code")
+  productDescription   String?                 @map("product_description")
+  productSpecification String?                 @map("product_specification")
+  productPartNumber    String?                 @map("product_part_number")
+  productSku           String?                 @map("product_sku")
+  productMarks         String?                 @map("product_marks")
+  noOfPackages         String?                 @map("no_of_packages")
+  quantity             String?
+  unit                 String?
+  rate                 String?
+  lineTotal            String?                 @map("line_total")
+  taxRate              String?                 @map("tax_rate")
+  taxAmountPerLine     String?                 @map("tax_amount_per_line")
+  kindOfPkg            String?                 @map("kind_of_pkg")
+  containerNo          String?                 @map("container_no")
+  sealNo               String?                 @map("seal_no")
+  boCode               String?                 @map("bo_code")
+
+  salesInvoice         SalesInvoiceExtraction  @relation(fields: [salesInvoiceId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("sales_invoice_line_items")
+}
+
+model CustomerBrokerBillLineItem {
+  id                     String                     @id @default(uuid())
+  customerBrokerBillId   String                     @map("customer_broker_bill_id")
+  chargeDescription      String?                    @map("charge_description")
+  quantity               String?
+  unitPrice              String?                    @map("unit_price")
+  amount                 String?
+
+  customerBrokerBill     CustomerBrokerBillExtraction @relation(fields: [customerBrokerBillId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("customer_broker_bill_line_items")
+}
+
+model GrnInboundDestinationMark {
+  id                     String                 @id @default(uuid())
+  grnInboundId           String                 @map("grn_inbound_id")
+  piecesPerBundle        String?                @map("pieces_per_bundle")
+  bundleCount            String?                @map("bundle_count")
+  totalPieces            String?                @map("total_pieces")
+  color                  String?
+  rawLabel               String?                @map("raw_label")
+
+  grnInbound             GrnInboundExtraction   @relation(fields: [grnInboundId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("grn_inbound_destination_marks")
+}
+
+model PortToWhLineItem {
+  id                     String             @id @default(uuid())
+  portToWhId             String             @map("port_to_wh_id")
+  chargeDescription      String?            @map("charge_description")
+  units                  String?
+  unitRate               String?            @map("unit_rate")
+  subtotal               String?
+
+  portToWh               PortToWhExtraction @relation(fields: [portToWhId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("port_to_wh_line_items")
+}
+
+model WhToCustomerLineItem {
+  id                     String                  @id @default(uuid())
+  whToCustomerId         String                  @map("wh_to_customer_id")
+  chargeDescription      String?                 @map("charge_description")
+  rateType               String?                 @map("rate_type")
+  ratePerUnit            String?                 @map("rate_per_unit")
+  quantity               String?
+  amount                 String?
+
+  whToCustomer           WhToCustomerExtraction  @relation(fields: [whToCustomerId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("wh_to_customer_line_items")
+}
+
+model WhToCustomerOtherReference {
+  id                     String                  @id @default(uuid())
+  whToCustomerId         String                  @map("wh_to_customer_id")
+  label                  String?
+  value                  String?
+
+  whToCustomer           WhToCustomerExtraction  @relation(fields: [whToCustomerId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("wh_to_customer_other_references")
+}
+
+model UsSalesInvoiceLineItem {
+  id                     String                   @id @default(uuid())
+  usSalesInvoiceId       String                   @map("us_sales_invoice_id")
+  itemId                 String?                  @map("item_id")
+  custPartNum            String?                  @map("cust_part_num")
+  description            String?
+  remarks                String?
+  bolNo                  String?                  @map("bol_no")
+  qty                    String?
+  unit                   String?
+  unitPrice              String?                  @map("unit_price")
+  salesTaxPercent        String?                  @map("sales_tax_percent")
+  discountPercent        String?                  @map("discount_percent")
+  discountAmount         String?                  @map("discount_amount")
+  amount                 String?
+
+  usSalesInvoice         UsSalesInvoiceExtraction @relation(fields: [usSalesInvoiceId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("us_sales_invoice_line_items")
+}
+
+model PackingListLineItem {
+  id                   String                @id @default(uuid())
+  packingListId        String                @map("packing_list_id")
+  hsnCode              String?               @map("hsn_code")
+  productCode          String?               @map("product_code")
+  productDescription   String?               @map("product_description")
+  productSpecification String?               @map("product_specification")
+  productMarks         String?               @map("product_marks")
+  qtyPerBundle         String?               @map("qty_per_bundle")
+  noOfBundles          String?               @map("no_of_bundles")
+  totalQtyInPcs        String?               @map("total_qty_in_pcs")
+  netWeightKgs         String?               @map("net_weight_kgs")
+  grossWeightKgs       String?               @map("gross_weight_kgs")
+  kindOfPkg            String?               @map("kind_of_pkg")
+
+  packingList          PackingListExtraction @relation(fields: [packingListId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("packing_list_line_items")
+}
+
+model EntrySummaryLineItem {
+  id                     String                 @id @default(uuid())
+  entrySummaryId         String                 @map("entry_summary_id")
+  lineNo                 String?                @map("line_no")
+  invoiceNumber          String?                @map("invoice_number")
+  units                  String?
+  merchandiseDescription String?                @map("merchandise_description")
+  htsusNumber            String?                @map("htsus_number")
+  grossWeightKg          String?                @map("gross_weight_kg")
+  netQuantity            String?                @map("net_quantity")
+  netQuantityUnit        String?                @map("net_quantity_unit")
+  enteredValue           String?                @map("entered_value")
+  charges                String?
+  relationship           String?
+  htsusRate              String?                @map("htsus_rate")
+  htsusDuty              String?                @map("htsus_duty")
+  invoiceValueUsd        String?                @map("invoice_value_usd")
+  deductionCharge        String?                @map("deduction_charge")
+  totalEnteredValueInvoice String?              @map("total_entered_value_invoice")
+  mpfRate                String?                @map("mpf_rate")
+  mpfAmount              String?                @map("mpf_amount")
+  hmfRate                String?                @map("hmf_rate")
+  hmfAmount              String?                @map("hmf_amount")
+
+  entrySummary           EntrySummaryExtraction @relation(fields: [entrySummaryId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("entry_summary_line_items")
+}
+
+model EntrySummaryTariffLineItem {
+  id                            String                           @id @default(uuid())
+  entrySummaryTariffLineId      String                           @map("entry_summary_tariff_line_id")
+  htsusNumber                   String?                          @map("htsus_number")
+  description                   String?
+  grossWeight                   String?                          @map("gross_weight")
+  netQuantity                   String?                          @map("net_quantity")
+  netQuantityUnit               String?                          @map("net_quantity_unit")
+  enteredValue                  String?                          @map("entered_value")
+  rate                          String?
+  dutyAmount                    String?                          @map("duty_amount")
+
+  entrySummaryTariffLine        EntrySummaryTariffLineExtraction @relation(fields: [entrySummaryTariffLineId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("entry_summary_tariff_line_items")
+}
+
+model OceanFreightContainer {
+  id                  String                 @id @default(uuid())
+  oceanFreightId      String                 @map("ocean_freight_id")
+  containerDetail     String?                @map("container_detail")
+
+  oceanFreight        OceanFreightExtraction @relation(fields: [oceanFreightId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("ocean_freight_containers")
+}
+
+model OceanFreightTaxSummaryEntry {
+  id                  String                 @id @default(uuid())
+  oceanFreightId      String                 @map("ocean_freight_id")
+  summaryEntry        String?                @map("summary_entry")
+
+  oceanFreight        OceanFreightExtraction @relation(fields: [oceanFreightId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("ocean_freight_tax_summary_entries")
+}
+
+model OceanFreightCharge {
+  id                    String                 @id @default(uuid())
+  oceanFreightId        String                 @map("ocean_freight_id")
+  lineNumber            String?                @map("line_number")
+  sacHsnCode            String?                @map("sac_hsn_code")
+  description           String?
+  currency              String?
+  ratePerUnit           String?                @map("rate_per_unit")
+  units                 String?
+  roe                   String?
+  currencyAmount        String?                @map("currency_amount")
+  taxableAmountInr      String?                @map("taxable_amount_inr")
+  amountUsd             String?                @map("amount_usd")
+  igstRate              String?                @map("igst_rate")
+  igstAmount            String?                @map("igst_amount")
+  cgstRate              String?                @map("cgst_rate")
+  cgstAmount            String?                @map("cgst_amount")
+  sgstRate              String?                @map("sgst_rate")
+  sgstAmount            String?                @map("sgst_amount")
+  detentionDetails      String?                @map("detention_details")
+  taxInfo               String?                @map("tax_info")
+
+  oceanFreight          OceanFreightExtraction @relation(fields: [oceanFreightId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("ocean_freight_charges")
+}
+
+model FreightForwarderContainer {
+  id                        String                         @id @default(uuid())
+  freightForwarderBillId    String                         @map("freight_forwarder_bill_id")
+  containerDetail           String?                        @map("container_detail")
+
+  freightForwarderBill      FreightForwarderBillExtraction @relation(fields: [freightForwarderBillId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("freight_forwarder_containers")
+}
+
+model FreightForwarderTaxSummaryEntry {
+  id                        String                         @id @default(uuid())
+  freightForwarderBillId    String                         @map("freight_forwarder_bill_id")
+  summaryEntry              String?                        @map("summary_entry")
+
+  freightForwarderBill      FreightForwarderBillExtraction @relation(fields: [freightForwarderBillId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("freight_forwarder_tax_summary_entries")
+}
+
+model FreightForwarderCharge {
+  id                        String                         @id @default(uuid())
+  freightForwarderBillId    String                         @map("freight_forwarder_bill_id")
+  lineNumber                String?                        @map("line_number")
+  sacHsnCode                String?                        @map("sac_hsn_code")
+  description               String?
+  currency                  String?
+  ratePerUnit               String?                        @map("rate_per_unit")
+  units                     String?
+  roe                       String?
+  foreignCurrencyCode       String?                        @map("foreign_currency_code")
+  foreignCurrencyAmount     String?                        @map("foreign_currency_amount")
+  taxableAmountInr          String?                        @map("taxable_amount_inr")
+  amountInr                 String?                        @map("amount_inr")
+  igstRate                  String?                        @map("igst_rate")
+  igstAmount                String?                        @map("igst_amount")
+  cgstRate                  String?                        @map("cgst_rate")
+  cgstAmount                String?                        @map("cgst_amount")
+  sgstRate                  String?                        @map("sgst_rate")
+  sgstAmount                String?                        @map("sgst_amount")
+  detentionDetails          String?                        @map("detention_details")
+  taxInfo                   String?                        @map("tax_info")
+
+  freightForwarderBill      FreightForwarderBillExtraction @relation(fields: [freightForwarderBillId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("freight_forwarder_charges")
+}
+
+model UsPackingListLineItem {
+  id                         String                 @id @default(uuid())
+  usPackingListId            String                 @map("us_packing_list_id")
+  lineNo                     String?                @map("line_no")
+  partNumber                 String?                @map("part_number")
+  itemDescription            String?                @map("item_description")
+  quantity                   String?
+  unit                       String?
+  bundleCount                String?                @map("bundle_count")
+  piecesCount                String?                @map("pieces_count")
+  grossWeight                String?                @map("gross_weight")
+  netWeight                  String?                @map("net_weight")
+  marksAndNumbers            String?                @map("marks_and_numbers")
+
+  usPackingList              UsPackingListExtraction @relation(fields: [usPackingListId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("us_packing_list_line_items")
+}
+
+model ShippingBillPart1Summary {
+  id                    String                 @id @default(uuid())
+  shippingBillId        String                 @map("shipping_bill_id")
+  summaryEntry          String?                @map("summary_entry")
+
+  shippingBill          ShippingBillExtraction @relation(fields: [shippingBillId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("shipping_bill_part1_summaries")
+}
+
+model ShippingBillInvoiceRef {
+  id                    String                  @id @default(uuid())
+  shippingBillId        String                  @map("shipping_bill_id")
+  sno                   String?
+  invoiceNoAndDate      String?                 @map("invoice_no_and_date")
+  poNoAndDate           String?                 @map("po_no_and_date")
+  locNoAndDate          String?                 @map("loc_no_and_date")
+  contractNoAndDate     String?                 @map("contract_no_and_date")
+  adCode                String?                 @map("ad_code")
+  invterm               String?
+
+  shippingBill          ShippingBillExtraction  @relation(fields: [shippingBillId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("shipping_bill_invoice_refs")
+}
+
+model ShippingBillItemDetail {
+  id                    String                  @id @default(uuid())
+  shippingBillId        String                  @map("shipping_bill_id")
+  invsn                 String?
+  itemsn                String?
+  hsCd                  String?                 @map("hs_cd")
+  description           String?
+  quantity              String?
+  uqc                   String?
+  rate                  String?
+  valueFc               String?                 @map("value_fc")
+  fobInr                String?                 @map("fob_inr")
+  pmv                   String?
+  dutyAmt               String?                 @map("duty_amt")
+  cessRt                String?                 @map("cess_rt")
+  cesAmt                String?                 @map("ces_amt")
+  dbkclmd               String?
+  igstStat              String?                 @map("igst_stat")
+  igstValue             String?                 @map("igst_value")
+  igstAmount            String?                 @map("igst_amount")
+  schcod                String?
+  schemeDescription     String?                 @map("scheme_description")
+  sqcMsr                String?                 @map("sqc_msr")
+  sqcUqc                String?                 @map("sqc_uqc")
+  stateOfOrigin         String?                 @map("state_of_origin")
+  districtOfOrigin      String?                 @map("district_of_origin")
+  ptAbroad              String?                 @map("pt_abroad")
+  ftaBenefitAvailed     String?                 @map("fta_benefit_availed")
+  rewardBenefit         String?                 @map("reward_benefit")
+  thirdPartyItem        String?                 @map("third_party_item")
+
+  shippingBill          ShippingBillExtraction  @relation(fields: [shippingBillId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("shipping_bill_item_details")
+}
+
+model ShippingBillPart4ExportSchemeDetail {
+  id                    String                 @id @default(uuid())
+  shippingBillId        String                 @map("shipping_bill_id")
+  schemeEntry           String?                @map("scheme_entry")
+
+  shippingBill          ShippingBillExtraction @relation(fields: [shippingBillId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("shipping_bill_part4_export_scheme_details")
+}
+
+model ShippingBillPart5Declaration {
+  id                    String                 @id @default(uuid())
+  shippingBillId        String                 @map("shipping_bill_id")
+  declarationEntry      String?                @map("declaration_entry")
+
+  shippingBill          ShippingBillExtraction @relation(fields: [shippingBillId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("shipping_bill_part5_declarations")
+}
+
+model ChaBillContainer {
+  id                String            @id @default(uuid())
+  chaBillId         String            @map("cha_bill_id")
+  containerDetail   String?           @map("container_detail")
+
+  chaBill           ChaBillExtraction @relation(fields: [chaBillId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("cha_bill_containers")
+}
+
+model ChaBillCharge {
+  id                    String            @id @default(uuid())
+  chaBillId             String            @map("cha_bill_id")
+  lineNumber            String?           @map("line_number")
+  sacHsnCode            String?           @map("sac_hsn_code")
+  description           String?
+  currency              String?
+  ratePerUnit           String?           @map("rate_per_unit")
+  units                 String?
+  roe                   String?
+  foreignCurrencyCode   String?           @map("foreign_currency_code")
+  foreignCurrencyAmount String?           @map("foreign_currency_amount")
+  taxableAmountInr      String?           @map("taxable_amount_inr")
+  amountInr             String?           @map("amount_inr")
+  igstRate              String?           @map("igst_rate")
+  igstAmount            String?           @map("igst_amount")
+  cgstRate              String?           @map("cgst_rate")
+  cgstAmount            String?           @map("cgst_amount")
+  sgstRate              String?           @map("sgst_rate")
+  sgstAmount            String?           @map("sgst_amount")
+  detentionDetails      String?           @map("detention_details")
+  taxInfo               String?           @map("tax_info")
+
+  chaBill               ChaBillExtraction @relation(fields: [chaBillId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("cha_bill_charges")
+}
+
+model ChaBillTaxSummaryEntry {
+  id                String            @id @default(uuid())
+  chaBillId         String            @map("cha_bill_id")
+  summaryEntry      String?           @map("summary_entry")
+
+  chaBill           ChaBillExtraction @relation(fields: [chaBillId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("cha_bill_tax_summary_entries")
+}
+
+model ChaBillBankDetail {
+  id                String            @id @default(uuid())
+  chaBillId         String            @map("cha_bill_id")
+  beneficiaryName   String?           @map("beneficiary_name")
+  bankName          String?           @map("bank_name")
+  accountNumber     String?           @map("account_number")
+  swiftCode         String?           @map("swift_code")
+  ifscCode          String?           @map("ifsc_code")
+  iban              String?
+  routingNumber     String?           @map("routing_number")
+  branch            String?
+
+  chaBill           ChaBillExtraction @relation(fields: [chaBillId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("cha_bill_bank_details")
+}
+
+model ChaBillFlag {
+  id                String            @id @default(uuid())
+  chaBillId         String            @map("cha_bill_id")
+  flag              String?
+
+  chaBill           ChaBillExtraction @relation(fields: [chaBillId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("cha_bill_flags")
+}
+
+model SteelSupplierDeclarationExtraction {
+  id                    String    @id @default(uuid())
+  documentId            String    @unique @map("document_id")
+
+  companyName           String?   @map("company_name")
+  cin                   String?
+  registeredAddress     String?   @map("registered_address")
+  gstNumber             String?   @map("gst_number")
+  email                 String?
+  phone                 String?
+
+  certificationStatement      String? @map("certification_statement")
+  certificationReferenceType  String? @map("certification_reference_type")
+  certificationReferenceNumber String? @map("certification_reference_number")
+  signatoryName               String? @map("signatory_name")
+  signatoryTitle              String? @map("signatory_title")
+  signatoryEmail              String? @map("signatory_email")
+  certificationDate           String? @map("certification_date")
+  stampCompanyName            String? @map("stamp_company_name")
+  stampSignatoryName          String? @map("stamp_signatory_name")
+  stampDesignation            String? @map("stamp_designation")
+  stampDinNumber              String? @map("stamp_din_number")
+  signature                   String?
+
+  products              SteelSupplierDeclarationProduct[]
+
+  rawData               Json?     @map("raw_data")
+  extractedAt           DateTime? @map("extracted_at")
+  reviewedBy            String?   @map("reviewed_by")
+  reviewedAt            DateTime? @map("reviewed_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@schema("aiextraction")
+  @@map("steel_supplier_declaration_extractions")
+}
+
+model SteelSupplierDeclarationProduct {
+  id                         String                           @id @default(uuid())
+  steelSupplierDeclarationId String                           @map("steel_supplier_declaration_id")
+  partNumber                 String?                          @map("part_number")
+  usHtsCode                  String?                          @map("us_hts_code")
+  containsSteel              String?                          @map("contains_steel")
+  meltedPouredInUs           String?                          @map("melted_poured_in_us")
+  finishedPartPriceUsd       String?                          @map("finished_part_price_usd")
+  steelContentValueUsd       String?                          @map("steel_content_value_usd")
+  steelContentWeightKg       String?                          @map("steel_content_weight_kg")
+  invoiceNumbersRaw          String?                          @map("invoice_numbers_raw")
+  invoiceNumbers             String?                          @map("invoice_numbers")
+
+  steelSupplierDeclaration   SteelSupplierDeclarationExtraction @relation(fields: [steelSupplierDeclarationId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("steel_supplier_declaration_products")
+}
+
+model SsdReferenceInvoiceExtraction {
+  id                           String    @id @default(uuid())
+  documentId                   String    @unique @map("document_id")
+
+  certificationReferenceNumber String?   @map("certification_reference_number")
+  certificationReferenceType   String?   @map("certification_reference_type")
+
+  referenceInvoices            SsdReferenceInvoiceItem[]
+
+  rawData                      Json?     @map("raw_data")
+  extractedAt                  DateTime? @map("extracted_at")
+  reviewedBy                   String?   @map("reviewed_by")
+  reviewedAt                   DateTime? @map("reviewed_at")
+  createdAt                    DateTime  @default(now()) @map("created_at")
+  updatedAt                    DateTime  @updatedAt @map("updated_at")
+
+  @@schema("aiextraction")
+  @@map("ssd_reference_invoice_extractions")
+}
+
+model SsdReferenceInvoiceItem {
+  id                           String                       @id @default(uuid())
+  ssdReferenceInvoiceId        String                       @map("ssd_reference_invoice_id")
+  invoiceNumber                String?                      @map("invoice_number")
+  invoiceDate                  String?                      @map("invoice_date")
+
+  ssdReferenceInvoice          SsdReferenceInvoiceExtraction @relation(fields: [ssdReferenceInvoiceId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("ssd_reference_invoice_items")
+}
+
+model DeliveryDeductionSheetExtraction {
+  id                   String    @id @default(uuid())
+  documentId           String    @unique @map("document_id")
+
+  companyName          String?   @map("company_name")
+  cin                  String?
+  registeredAddress    String?   @map("registered_address")
+  gstNumber            String?   @map("gst_number")
+  email                String?
+  phone                String?
+
+  bookingNumber        String?   @map("booking_number")
+  bolNumber            String?   @map("bol_number")
+  liner                String?
+  vesselName           String?   @map("vessel_name")
+
+  soldTo               String?   @map("sold_to")
+  consignee            String?
+  portOfLoading        String?   @map("port_of_loading")
+
+  originCharges        DeliveryDeductionOriginCharge[]
+  referenceInvoices    DeliveryDeductionReferenceInvoice[]
+
+  rawData              Json?     @map("raw_data")
+  extractedAt          DateTime? @map("extracted_at")
+  reviewedBy           String?   @map("reviewed_by")
+  reviewedAt           DateTime? @map("reviewed_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@schema("aiextraction")
+  @@map("delivery_deduction_sheet_extractions")
+}
+
+model DeliveryDeductionOriginCharge {
+  id                        String                           @id @default(uuid())
+  deliveryDeductionSheetId  String                           @map("delivery_deduction_sheet_id")
+  description               String?
+  numContainers             String?                          @map("num_containers")
+  totalCargoWeightMt        String?                          @map("total_cargo_weight_mt")
+  inrTotal                  String?                          @map("inr_total")
+  usdTotal                  String?                          @map("usd_total")
+
+  deliveryDeductionSheet    DeliveryDeductionSheetExtraction @relation(fields: [deliveryDeductionSheetId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("delivery_deduction_origin_charges")
+}
+
+model DeliveryDeductionReferenceInvoice {
+  id                        String                           @id @default(uuid())
+  deliveryDeductionSheetId  String                           @map("delivery_deduction_sheet_id")
+  invoiceNumber             String?                          @map("invoice_number")
+  invoiceDate               String?                          @map("invoice_date")
+
+  deliveryDeductionSheet    DeliveryDeductionSheetExtraction @relation(fields: [deliveryDeductionSheetId], references: [id], onDelete: Cascade)
+
+  @@schema("aiextraction")
+  @@map("delivery_deduction_reference_invoices")
+}

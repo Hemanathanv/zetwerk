@@ -123,13 +123,19 @@ async def get_current_user(
     
     prisma = await get_prisma()
     
-    session = await prisma.session.find_first(
-        where={
-            "token": token,
-            "expiresAt": {"gt": utc_now()}
-        },
-        include={"user": True}
-    )
+    try:
+        session = await prisma.session.find_first(
+            where={
+                "token": token,
+                "expiresAt": {"gt": utc_now()}
+            },
+            include={"user": True}
+        )
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Authentication service unavailable",
+        )
     
     if not session or not session.user:
         raise HTTPException(

@@ -3,6 +3,7 @@
  */
 
 import type { SchemaRow } from "./packing-list-schema-types.js";
+import { buildPrismaBackedSingleLocationRule } from "./prisma-rule-helper.js";
 
 const ARRAY_SECTIONS = new Set(["Line Items"]);
 
@@ -147,6 +148,16 @@ function emptyTemplateObject(template: PackingListStructuredTemplate): Record<st
 export function buildStructuredPackingListPrompt(schema: SchemaRow[]): string {
   const template = buildStructuredTemplate(schema);
   const example = emptyTemplateObject(template);
+  const sectionsByField = new Map<string, string>();
+  for (const { jsonKey: sectionKey } of template.sections) {
+    for (const field of template.fieldsBySection.get(sectionKey) ?? []) {
+      sectionsByField.set(field.jsonKey, sectionKey);
+    }
+  }
+  const singleLocationRule = buildPrismaBackedSingleLocationRule({
+    modelName: "PackingListExtraction",
+    sectionsByField,
+  });
 
   const sectionLines: string[] = [];
   for (const { jsonKey, label } of template.sections) {
@@ -173,7 +184,7 @@ OUTPUT RULES (critical):
 6. **compliance.signature**: **true** if any authorized signatory stamp, wet signature, or signature block is **visible**; **false** only if clearly absent.
 7. **Line items**: \`productDescription\` = short name; \`productSpecification\` = technical spec (dimensions, grade, material, finish) — **not** origin/certificate marketing text. **HSN** only in \`hsnCode\`. \`productCode\` = SKU/part code.
 8. **totals**: fill document-level totals when printed (\`totalBundles\`, \`totalQty\`, weights); use **null** only when the PDF has no such total line.
-9. **entities** vs **header**: if the same exporter name appears in both blocks, you may repeat the text; **IEC** and party addresses belong under \`entities\`; invoice/PO refs under \`header\`.
+9. ${singleLocationRule}
 10. **shipment**: logistics legs (ports, vessel/flight, countries) as printed.
 11. Amounts/dates/weights may be print-style strings; **post-processing** normalizes numbers, dates (DD-Mon-YYYY where applicable), HSN dots, address comma spacing, and \`compliance.signature\` boolean.
 

@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useLocation } from 'wouter';
-import { authApi } from './api';
+import { authApi, SESSION_TOKEN_KEY } from './api';
 import type { AuthUser, UserProfile } from '@/types/backend';
 
 interface AuthContextType {
@@ -28,6 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(response.data.user);
     } catch (error) {
       console.error('Auth check failed:', error);
+      window.localStorage.removeItem(SESSION_TOKEN_KEY);
       setUser(null);
     } finally {
       setLoading(false);
@@ -51,6 +52,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string) => {
     try {
       const response = await authApi.login(email, password);
+      const token = response.data?.token;
+      if (typeof token === 'string' && token.trim()) {
+        window.localStorage.setItem(SESSION_TOKEN_KEY, token);
+      }
       setUser(response.data.user);
       setLocation('/dashboard');
     } catch (error) {
@@ -62,10 +67,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     try {
       await authApi.logout();
+      window.localStorage.removeItem(SESSION_TOKEN_KEY);
       setUser(null);
       setLocation('/login');
     } catch (error) {
       console.error('Logout failed:', error);
+      window.localStorage.removeItem(SESSION_TOKEN_KEY);
       setUser(null);
       setLocation('/login');
     }

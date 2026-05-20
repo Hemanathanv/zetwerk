@@ -21,6 +21,9 @@ import { Textarea } from "@/components/ui/textarea";
 import type { DocumentDetailRecord, DocumentPageRecord, JsonValue } from "@/types/backend";
 
 type EditableSections = Record<string, Record<string, string>>;
+type ArrayRows = Array<Record<string, JsonValue>>;
+type ArraySection = { key: string; rows: ArrayRows };
+type ArrayFieldSchema = Record<string, string[]>;
 
 export function InlinePageViewer({
   document,
@@ -32,12 +35,13 @@ export function InlinePageViewer({
   const pages = document.pages.length ? document.pages : [buildFallbackPage(document)];
   const [selectedPageIndex, setSelectedPageIndex] = useState(0);
   const [editableSections, setEditableSections] = useState<EditableSections>({});
-  const [lineItems, setLineItems] = useState<Array<Record<string, JsonValue>>>([]);
+  const [arraySections, setArraySections] = useState<ArraySection[]>([]);
 
   useEffect(() => {
     setSelectedPageIndex(0);
-    setEditableSections(buildEditableSections(document.salesInvoiceExtraction?.rawData ?? null));
-    setLineItems(document.salesInvoiceExtraction?.lineItems ?? []);
+    const activeExtraction = document.extraction ?? document.salesInvoiceExtraction;
+    setEditableSections(buildEditableSections(activeExtraction?.rawData ?? null));
+    setArraySections(buildArraySections(activeExtraction, document.docType));
   }, [document]);
 
   const selectedPage = pages[selectedPageIndex];
@@ -46,27 +50,9 @@ export function InlinePageViewer({
     ? buildPdfPreviewUrl(document.previewUrl, selectedPage.pageNo)
     : selectedPage.previewUrl ?? document.previewUrl;
 
-  const lineItemColumns = useMemo<ColDef[]>(() => {
-    const keys = Array.from(
-      new Set(lineItems.flatMap((item) => Object.keys(item)))
-    );
-
-    return keys.map((key) => ({
-      headerName: prettifyLabel(key),
-      field: key,
-      editable: true,
-      minWidth: 140,
-      flex: 1,
-    }));
-  }, [lineItems]);
-
-  const gridRows = useMemo(
-    () =>
-      lineItems.map((item, index) => ({
-        id: String(index),
-        ...item,
-      })),
-    [lineItems]
+  const totalArrayRows = useMemo(
+    () => arraySections.reduce((count, section) => count + section.rows.length, 0),
+    [arraySections]
   );
 
   return (
@@ -87,8 +73,9 @@ export function InlinePageViewer({
         </Button>
       </div>
 
-      <div className="grid flex-1 overflow-hidden xl:grid-cols-[1.08fr_0.92fr]">
-        <section className="flex min-h-0 flex-col border-r border-border bg-muted/20">
+      <div className="flex-1 overflow-x-auto overflow-y-hidden">
+        <div className="grid h-full min-w-[1180px] xl:grid-cols-[1.08fr_0.92fr]">
+        <section className="flex min-h-0 min-w-0 flex-col border-r border-border bg-muted/20">
           <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
             <div className="flex items-center gap-2">
               <Button
@@ -193,7 +180,7 @@ export function InlinePageViewer({
           </div>
         </section>
 
-        <ScrollArea className="h-full">
+        <ScrollArea className="h-full min-w-0">
             <div className="space-y-4 p-4">
               <section className="rounded-xl border border-border bg-card p-4">
                 <h3 className="text-sm font-semibold">Document Metadata</h3>
@@ -207,27 +194,39 @@ export function InlinePageViewer({
 
               <section className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">Extracted Line Items</h3>
-                  <Badge variant="outline">{gridRows.length} rows</Badge>
+                  <h3 className="text-sm font-semibold">Extracted Tables</h3>
+                  <Badge variant="outline">{totalArrayRows} rows</Badge>
                 </div>
-                {gridRows.length === 0 ? (
-                  <p className="mt-3 text-sm text-muted-foreground">No line items available for this document yet.</p>
+                {arraySections.length === 0 ? (
+                  <p className="mt-3 text-sm text-muted-foreground">No extracted table rows available for this document yet.</p>
                 ) : (
-                  <div className="mt-3">
-                    <AgGridTable
-                      columnDefs={lineItemColumns}
-                      rowData={gridRows as unknown as Record<string, unknown>[]}
-                      defaultColDef={{
-                        editable: true,
-                        sortable: false,
-                        filter: false,
-                        resizable: true,
-                        flex: 1,
-                        minWidth: 120,
-                      }}
-                      height={300}
-                      rowHeight={40}
-                    />
+                  <div className="mt-3 space-y-3">
+                    {arraySections.map((section) => {
+                      const columns = buildColumns(section.rows, section.key, document.docType);
+                      const rows = buildGridRows(section.rows, columns);
+                      return (
+                        <div key={section.key} className="rounded-lg border border-border p-3">
+                          <div className="mb-2 flex items-center justify-between">
+                            <p className="text-sm font-medium">{prettifyLabel(section.key)}</p>
+                            <Badge variant="secondary">{section.rows.length} rows</Badge>
+                          </div>
+                          <AgGridTable
+                            columnDefs={columns}
+                            rowData={rows as unknown as Record<string, unknown>[]}
+                            defaultColDef={{
+                              editable: true,
+                              sortable: false,
+                              filter: false,
+                              resizable: true,
+                              flex: 1,
+                              minWidth: 120,
+                            }}
+                            height={280}
+                            rowHeight={40}
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </section>
@@ -273,6 +272,7 @@ export function InlinePageViewer({
               </section>
             </div>
         </ScrollArea>
+        </div>
       </div>
     </div>
   );
@@ -361,7 +361,7 @@ function buildEditableSections(rawData: JsonValue | null): EditableSections {
   const sections: EditableSections = {};
 
   for (const [key, value] of Object.entries(rawData)) {
-    if (key === "lineItems" || key.startsWith("_")) {
+    if (key === "lineItems" || key.startsWith("_") || Array.isArray(value)) {
       continue;
     }
 
@@ -377,6 +377,331 @@ function buildEditableSections(rawData: JsonValue | null): EditableSections {
   }
 
   return sections;
+}
+
+const ARRAY_FIELD_SCHEMA_BY_DOC_TYPE: Record<DocumentDetailRecord["docType"], ArrayFieldSchema> = {
+  SALES_INVOICE: {
+    lineItems: [
+      "hsnCode",
+      "hsnCodeDestination",
+      "productCode",
+      "productDescription",
+      "productSpecification",
+      "productPartNumber",
+      "productSku",
+      "productMarks",
+      "noOfPackages",
+      "quantity",
+      "unit",
+      "rate",
+      "lineTotal",
+      "taxRate",
+      "taxAmountPerLine",
+      "kindOfPkg",
+      "containerNo",
+      "sealNo",
+      "boCode",
+    ],
+  },
+  BILL_OF_LADING: {
+    exportInvoices: ["itemIndex", "invoiceNumber", "invoiceDate"],
+    containers: ["itemIndex", "number", "type", "sealNumber", "grossWeightKg", "netWeightKg", "packages", "volumeCbm", "mode"],
+    shippingBills: ["itemIndex", "shippingBillNumber", "shippingBillDate"],
+  },
+  PACKING_LIST: {
+    lineItems: [
+      "hsnCode",
+      "productCode",
+      "productDescription",
+      "productSpecification",
+      "productMarks",
+      "qtyPerBundle",
+      "noOfBundles",
+      "totalQtyInPcs",
+      "netWeightKgs",
+      "grossWeightKgs",
+      "kindOfPkg",
+    ],
+  },
+  ENTRY_SUMMARY: {
+    lineItems: [
+      "lineNo",
+      "invoiceNumber",
+      "units",
+      "merchandiseDescription",
+      "htsusNumber",
+      "grossWeightKg",
+      "netQuantity",
+      "netQuantityUnit",
+      "enteredValue",
+      "charges",
+      "relationship",
+      "htsusRate",
+      "htsusDuty",
+      "invoiceValueUsd",
+      "deductionCharge",
+      "totalEnteredValueInvoice",
+      "mpfRate",
+      "mpfAmount",
+      "hmfRate",
+      "hmfAmount",
+    ],
+  },
+  ENTRY_SUMMARY_TARIFF_LINES: {
+    tariffLines: ["htsusNumber", "description", "grossWeight", "netQuantity", "netQuantityUnit", "enteredValue", "rate", "dutyAmount"],
+  },
+  OCEAN_FREIGHT: {
+    containersList: ["containerDetail"],
+    taxSummaryEntries: ["summaryEntry"],
+    charges: [
+      "lineNumber",
+      "sacHsnCode",
+      "description",
+      "currency",
+      "ratePerUnit",
+      "units",
+      "roe",
+      "currencyAmount",
+      "taxableAmountInr",
+      "amountUsd",
+      "igstRate",
+      "igstAmount",
+      "cgstRate",
+      "cgstAmount",
+      "sgstRate",
+      "sgstAmount",
+      "detentionDetails",
+      "taxInfo",
+    ],
+  },
+  FREIGHT_FORWARDER_BILL: {
+    containersList: ["containerDetail"],
+    taxSummaryEntries: ["summaryEntry"],
+    charges: [
+      "lineNumber",
+      "sacHsnCode",
+      "description",
+      "currency",
+      "ratePerUnit",
+      "units",
+      "roe",
+      "foreignCurrencyCode",
+      "foreignCurrencyAmount",
+      "taxableAmountInr",
+      "amountInr",
+      "igstRate",
+      "igstAmount",
+      "cgstRate",
+      "cgstAmount",
+      "sgstRate",
+      "sgstAmount",
+      "detentionDetails",
+      "taxInfo",
+    ],
+  },
+  CUSTOMER_BROKER_BILL: {
+    lineItems: ["chargeDescription", "quantity", "unitPrice", "amount"],
+  },
+  GRN_INBOUND: {
+    destinationMarks: ["piecesPerBundle", "bundleCount", "totalPieces", "color", "rawLabel"],
+  },
+  PORT_TO_WH: {
+    lineItems: ["chargeDescription", "units", "unitRate", "subtotal"],
+  },
+  WH_TO_CUSTOMER: {
+    lineItems: ["chargeDescription", "rateType", "ratePerUnit", "quantity", "amount"],
+    otherReferences: ["label", "value"],
+  },
+  US_SALES_INVOICE: {
+    lineItems: [
+      "itemId",
+      "custPartNum",
+      "description",
+      "remarks",
+      "bolNo",
+      "qty",
+      "unit",
+      "unitPrice",
+      "salesTaxPercent",
+      "discountPercent",
+      "discountAmount",
+      "amount",
+    ],
+  },
+  US_CARGO_RELEASE_ORDER: {},
+  US_CUSTOMS_RELEASE_ORDER: {},
+  US_DELIVERY_ORDER: {},
+  US_PACKING_LIST: {
+    lineItems: [
+      "lineNo",
+      "partNumber",
+      "itemDescription",
+      "quantity",
+      "unit",
+      "bundleCount",
+      "piecesCount",
+      "grossWeight",
+      "netWeight",
+      "marksAndNumbers",
+    ],
+  },
+  SHIPPING_BILL: {
+    part1ShippingBillSummary: ["summaryEntry"],
+    part2InvoiceDetails: ["sno", "invoiceNoAndDate", "poNoAndDate", "locNoAndDate", "contractNoAndDate", "adCode", "invterm"],
+    part3ItemDetails: [
+      "invsn",
+      "itemsn",
+      "hsCd",
+      "description",
+      "quantity",
+      "uqc",
+      "rate",
+      "valueFc",
+      "fobInr",
+      "pmv",
+      "dutyAmt",
+      "cessRt",
+      "cesAmt",
+      "dbkclmd",
+      "igstStat",
+      "igstValue",
+      "igstAmount",
+      "schcod",
+      "schemeDescription",
+      "sqcMsr",
+      "sqcUqc",
+      "stateOfOrigin",
+      "districtOfOrigin",
+      "ptAbroad",
+      "ftaBenefitAvailed",
+      "rewardBenefit",
+      "thirdPartyItem",
+    ],
+    part4ExportSchemeDetails: ["schemeEntry"],
+    part5Declarations: ["declarationEntry"],
+  },
+  CHA_BILL: {
+    containers: ["containerDetail"],
+    charges: [
+      "lineNumber",
+      "sacHsnCode",
+      "description",
+      "currency",
+      "ratePerUnit",
+      "units",
+      "roe",
+      "foreignCurrencyCode",
+      "foreignCurrencyAmount",
+      "taxableAmountInr",
+      "amountInr",
+      "igstRate",
+      "igstAmount",
+      "cgstRate",
+      "cgstAmount",
+      "sgstRate",
+      "sgstAmount",
+      "detentionDetails",
+      "taxInfo",
+    ],
+    taxSummary: ["summaryEntry"],
+    bankDetails: ["beneficiaryName", "bankName", "accountNumber", "swiftCode", "ifscCode", "iban", "routingNumber", "branch"],
+    flags: ["flag"],
+  },
+};
+
+function getExpectedFields(docType: DocumentDetailRecord["docType"], sectionKey: string): string[] {
+  return ARRAY_FIELD_SCHEMA_BY_DOC_TYPE[docType]?.[sectionKey] ?? [];
+}
+
+function buildColumns(rows: ArrayRows, sectionKey: string, docType: DocumentDetailRecord["docType"]): ColDef[] {
+  const keys = Array.from(new Set(rows.flatMap((item) => Object.keys(item))));
+  const resolvedKeys = keys.length ? keys : getExpectedFields(docType, sectionKey);
+  return resolvedKeys.map((key) => ({
+    headerName: prettifyLabel(key),
+    field: key,
+    editable: true,
+    minWidth: 140,
+    flex: 1,
+  }));
+}
+
+function buildGridRows(rows: ArrayRows, columns: ColDef[]): Record<string, unknown>[] {
+  const fieldNames = columns
+    .map((column) => (typeof column.field === "string" ? column.field : ""))
+    .filter(Boolean);
+
+  if (rows.length === 0) {
+    const placeholder = Object.fromEntries(fieldNames.map((field) => [field, ""]));
+    return [{ id: "__empty__", ...placeholder }];
+  }
+
+  return rows.map((item, index) => ({
+    id: String(index),
+    ...Object.fromEntries(fieldNames.map((field) => [field, item[field] ?? ""])),
+    ...item,
+  }));
+}
+
+function buildArraySections(
+  extraction: DocumentDetailRecord["extraction"] | DocumentDetailRecord["salesInvoiceExtraction"],
+  docType: DocumentDetailRecord["docType"]
+): ArraySection[] {
+  if (!extraction) return [];
+
+  const sections = new Map<string, ArrayRows>();
+  const preferredOrder = [
+    "lineItems",
+    "destinationMarks",
+    "otherReferences",
+    "exportInvoices",
+    "containers",
+    "shippingBills",
+    "tariffLines",
+    "part1ShippingBillSummary",
+    "part2InvoiceDetails",
+    "part3ItemDetails",
+    "part4ExportSchemeDetails",
+    "part5Declarations",
+    "containersList",
+    "charges",
+    "taxSummary",
+    "taxSummaryEntries",
+    "bankDetails",
+    "flags",
+  ];
+  const configuredSections = Object.keys(ARRAY_FIELD_SCHEMA_BY_DOC_TYPE[docType] ?? {});
+
+  const asRows = (value: JsonValue): ArrayRows =>
+    Array.isArray(value)
+      ? value.filter((item): item is Record<string, JsonValue> => !!item && typeof item === "object" && !Array.isArray(item))
+      : [];
+
+  if (Array.isArray(extraction.lineItems)) {
+    sections.set("lineItems", extraction.lineItems);
+  }
+
+  if (extraction.rawData && typeof extraction.rawData === "object" && !Array.isArray(extraction.rawData)) {
+    for (const [key, value] of Object.entries(extraction.rawData)) {
+      if (!Array.isArray(value)) continue;
+      sections.set(key, asRows(value));
+    }
+  }
+  for (const key of configuredSections) {
+    if (!sections.has(key)) {
+      sections.set(key, []);
+    }
+  }
+
+  const orderedKeys = Array.from(sections.keys()).sort((a, b) => {
+    const ai = preferredOrder.indexOf(a);
+    const bi = preferredOrder.indexOf(b);
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+
+  return orderedKeys.map((key) => ({ key, rows: sections.get(key) ?? [] }));
 }
 
 function stringifyFieldValue(value: JsonValue) {
