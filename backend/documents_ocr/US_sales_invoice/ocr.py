@@ -6,12 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from prisma import Json
 
 from documents_ocr.US_sales_invoice.prompt import build_us_sales_invoice_prompt
+from documents_ocr.schema_loader import load_extraction_schema
 
 
-SCALAR_FIELDS = ['sellerCompany', 'sellerStreet', 'sellerCity', 'sellerState', 'sellerZip', 'sellerCountry', 'sellerEmail', 'invoiceDocumentType', 'date', 'invoiceNo', 'soNo', 'poNo', 'paymentTerms', 'billToEmail', 'shipToCompany', 'shipToStreet', 'shipToCity', 'shipToState', 'shipToZip', 'shipToCountry', 'salesSubtotal', 'totalDiscount', 'totalCharges', 'netAmount', 'salesTax', 'total', 'paymentsCredit', 'balanceDue', 'bankName', 'accountNumber', 'swiftCode']
-ARRAY_FIELDS = ['lineItems']
-ARRAY_ITEM_FIELDS: dict[str, list[str]] = {'lineItems': ['itemId', 'custPartNum', 'description', 'remarks', 'bolNo', 'qty', 'unit', 'unitPrice', 'salesTaxPercent', 'discountPercent', 'discountAmount', 'amount']}
-
+_SCHEMA = load_extraction_schema(parent_model="UsSalesInvoiceExtraction")
+SCALAR_FIELDS = _SCHEMA.scalar_fields
+ARRAY_FIELDS = _SCHEMA.array_fields
+ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
 
 
 def _section_for_field(field_name: str) -> str:
@@ -68,7 +69,7 @@ class UsSalesInvoiceStructuredResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     __array_field_schema__: ClassVar[dict[str, list[str]]] = ARRAY_ITEM_FIELDS
 
-    source: str | None = "OpenRouter"
+    source: str | None = None
     documentType: str | None = "US Sales Invoice"
     compliance: ComplianceSection = Field(default_factory=ComplianceSection)
     entities: EntitiesSection = Field(default_factory=EntitiesSection)

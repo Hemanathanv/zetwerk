@@ -6,13 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from prisma import Json
 
 from documents_ocr.Ocean_freight.prompt import build_ocean_freight_prompt
+from documents_ocr.schema_loader import load_extraction_schema
 
 
-SCALAR_FIELDS = ['issuerCompanyName','issuerAddress','issuerPhone','issuerEmail','issuerWebsite','issuerVatNumber','issuerGstNumber','issuerPanNumber','issuerCinNumber','issuerLutNumber','issuerTanNumber','invoiceNumber','invoiceDate','dueDate','paymentTerms','payReference','customerId','shipmentNumber','consolNumber','jobNumber','jobDate','irn','documentVariant','subInvoiceIndex','customerName','customerAddress','customerAgentCode','shipper','consignee','vesselName','voyageNumber','imoNumber','vesselFlag','loadingPort','dischargingPort','etd','eta','blDate','cpDate','oceanBol','houseBol','mawb','hawb','projectName','goodsDescription','orderReference','note','cargoWeightKg','cargoWeightUnit','cargoVolumeCbm','cargoNumPackages','cargoChargeable','containersTotalCount','subtotalUsd','addCgst','addSgst','totalUsd','amountInWords','bankBeneficiaryName','bankName','bankAccountNumber','bankSwiftCode','bankIban','bankRoutingNumber','bankIfscCode']
-ARRAY_FIELDS = ['containersList','taxSummaryEntries','charges']
-ARRAY_ITEM_FIELDS: dict[str, list[str]] = {field_name: [] for field_name in ARRAY_FIELDS}
-
-
+_SCHEMA = load_extraction_schema(parent_model="OceanFreightExtraction")
+SCALAR_FIELDS = _SCHEMA.scalar_fields
+ARRAY_FIELDS = _SCHEMA.array_fields
+ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
 
 
 def _section_for_field(field_name: str) -> str:
@@ -69,7 +69,7 @@ class OceanFreightStructuredResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     __array_field_schema__: ClassVar[dict[str, list[str]]] = ARRAY_ITEM_FIELDS
 
-    source: str | None = "OpenRouter"
+    source: str | None = None
     documentType: str | None = "Ocean Freight"
     compliance: ComplianceSection = Field(default_factory=ComplianceSection)
     entities: EntitiesSection = Field(default_factory=EntitiesSection)

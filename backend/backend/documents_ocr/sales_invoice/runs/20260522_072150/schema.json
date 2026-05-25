@@ -1,0 +1,1019 @@
+{
+  "$defs": {
+    "ComplianceSection": {
+      "additionalProperties": true,
+      "properties": {
+        "cinNo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cinno"
+        },
+        "gstin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gstin"
+        },
+        "irnNumber": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Irnnumber"
+        },
+        "panNo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Panno"
+        },
+        "signature": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signature"
+        },
+        "iec": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Iec"
+        },
+        "lutArnNo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lutarnno"
+        },
+        "digitalSignatureDate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Digitalsignaturedate"
+        },
+        "digitalSignatureLocation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Digitalsignaturelocation"
+        },
+        "digitalSignatureTimestamp": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Digitalsignaturetimestamp"
+        },
+        "digitalSignatureStatus": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Digitalsignaturestatus"
+        }
+      },
+      "title": "ComplianceSection",
+      "type": "object"
+    },
+    "EntitiesSection": {
+      "additionalProperties": true,
+      "properties": {
+        "buyerName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Buyername"
+        },
+        "buyerAddress": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Buyeraddress"
+        },
+        "consigneeName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consigneename"
+        },
+        "consigneeAddress": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consigneeaddress"
+        },
+        "exporterName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exportername"
+        },
+        "exporterAddress": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exporteraddress"
+        },
+        "notifyParty": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notifyparty"
+        },
+        "bankName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bankname"
+        },
+        "buyerPoNo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Buyerpono"
+        },
+        "buyerPoDate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Buyerpodate"
+        },
+        "exporterEmail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exporteremail"
+        },
+        "signatoryName": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signatoryname"
+        }
+      },
+      "title": "EntitiesSection",
+      "type": "object"
+    },
+    "FinancialSection": {
+      "additionalProperties": true,
+      "properties": {
+        "bankAccountNo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bankaccountno"
+        },
+        "bankBranch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bankbranch"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "ifscCode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ifsccode"
+        },
+        "swiftCode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Swiftcode"
+        },
+        "incoterms": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Incoterms"
+        },
+        "paymentTerms": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paymentterms"
+        },
+        "taxAmount": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Taxamount"
+        },
+        "cess": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cess"
+        },
+        "taxableValue": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Taxablevalue"
+        },
+        "totalAmount": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Totalamount"
+        },
+        "portOfDischarge": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portofdischarge"
+        },
+        "totalQuantity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Totalquantity"
+        }
+      },
+      "title": "FinancialSection",
+      "type": "object"
+    },
+    "FooterSection": {
+      "additionalProperties": true,
+      "properties": {
+        "signatoryDesignation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signatorydesignation"
+        },
+        "dinNumber": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dinnumber"
+        }
+      },
+      "title": "FooterSection",
+      "type": "object"
+    },
+    "HeaderSection": {
+      "additionalProperties": true,
+      "properties": {
+        "adCode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Adcode"
+        },
+        "rotationNo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rotationno"
+        },
+        "shipTo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shipto"
+        },
+        "invoiceNo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invoiceno"
+        },
+        "invoiceDate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invoicedate"
+        },
+        "zetwerkRef": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Zetwerkref"
+        },
+        "shippingBillNo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shippingbillno"
+        },
+        "shippingBillDate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shippingbilldate"
+        },
+        "invoiceType": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invoicetype"
+        },
+        "issueDate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Issuedate"
+        },
+        "otherReferences": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Otherreferences"
+        },
+        "dispatchedThrough": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dispatchedthrough"
+        }
+      },
+      "title": "HeaderSection",
+      "type": "object"
+    },
+    "SalesInvoiceLineItem": {
+      "additionalProperties": true,
+      "properties": {
+        "productCode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Productcode"
+        },
+        "productDescription": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Productdescription"
+        },
+        "productSpecification": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Productspecification"
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantity"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rate"
+        },
+        "lineTotal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Linetotal"
+        },
+        "hsnCode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hsncode"
+        },
+        "noOfPackages": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Noofpackages"
+        },
+        "kindOfPkg": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kindofpkg"
+        },
+        "productMarks": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Productmarks"
+        },
+        "containerNo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Containerno"
+        },
+        "sealNo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sealno"
+        },
+        "boCode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bocode"
+        }
+      },
+      "title": "SalesInvoiceLineItem",
+      "type": "object"
+    },
+    "ShipmentSection": {
+      "additionalProperties": true,
+      "properties": {
+        "countryOfFinalDestination": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Countryoffinaldestination"
+        },
+        "countryOfOrigin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Countryoforigin"
+        },
+        "finalDestination": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finaldestination"
+        },
+        "placeOfReceipt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Placeofreceipt"
+        },
+        "portOfLoading": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portofloading"
+        },
+        "vesselFlightNo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vesselflightno"
+        },
+        "grossWeight": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Grossweight"
+        },
+        "packageDescription": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Packagedescription"
+        },
+        "preCarriageBy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Precarriageby"
+        },
+        "marksAndNumbers": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Marksandnumbers"
+        },
+        "receivablesAssignmentNotice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Receivablesassignmentnotice"
+        },
+        "receivablesAssignmentBeneficiary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Receivablesassignmentbeneficiary"
+        }
+      },
+      "title": "ShipmentSection",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "source": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": "OpenRouter",
+      "title": "Source"
+    },
+    "documentType": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": "Sales Invoices",
+      "title": "Documenttype"
+    },
+    "compliance": {
+      "$ref": "#/$defs/ComplianceSection"
+    },
+    "entities": {
+      "$ref": "#/$defs/EntitiesSection"
+    },
+    "financial": {
+      "$ref": "#/$defs/FinancialSection"
+    },
+    "header": {
+      "$ref": "#/$defs/HeaderSection"
+    },
+    "shipment": {
+      "$ref": "#/$defs/ShipmentSection"
+    },
+    "footer": {
+      "$ref": "#/$defs/FooterSection"
+    },
+    "lineItems": {
+      "items": {
+        "$ref": "#/$defs/SalesInvoiceLineItem"
+      },
+      "title": "Lineitems",
+      "type": "array"
+    }
+  },
+  "title": "SalesInvoiceStructuredResult",
+  "type": "object"
+}

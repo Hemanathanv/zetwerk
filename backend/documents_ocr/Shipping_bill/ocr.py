@@ -6,13 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from prisma import Json
 
 from documents_ocr.Shipping_bill.prompt import build_shipping_bill_prompt
+from documents_ocr.schema_loader import load_extraction_schema
 
 
-SCALAR_FIELDS = ['portCode','portName','sbNo','sbDate','iecBr','exporterNameAddress','consigneeNameAddress','cbName','portOfLoading','portOfDischarge','countryOfFinalDest','grossWeightKgs','invCount','itemCount','contCount']
-ARRAY_FIELDS = ['part1ShippingBillSummary','part2InvoiceDetails','part3ItemDetails','part4ExportSchemeDetails','part5Declarations']
-ARRAY_ITEM_FIELDS: dict[str, list[str]] = {field_name: [] for field_name in ARRAY_FIELDS}
-
-
+_SCHEMA = load_extraction_schema(parent_model="ShippingBillExtraction")
+SCALAR_FIELDS = _SCHEMA.scalar_fields
+ARRAY_FIELDS = _SCHEMA.array_fields
+ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
 
 
 def _section_for_field(field_name: str) -> str:
@@ -69,7 +69,7 @@ class ShippingBillStructuredResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     __array_field_schema__: ClassVar[dict[str, list[str]]] = ARRAY_ITEM_FIELDS
 
-    source: str | None = "OpenRouter"
+    source: str | None = None
     documentType: str | None = "Shipping Bill"
     compliance: ComplianceSection = Field(default_factory=ComplianceSection)
     entities: EntitiesSection = Field(default_factory=EntitiesSection)

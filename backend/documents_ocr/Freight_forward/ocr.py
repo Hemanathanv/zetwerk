@@ -6,13 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from prisma import Json
 
 from documents_ocr.Freight_forward.prompt import build_freight_forward_prompt
+from documents_ocr.schema_loader import load_extraction_schema
 
 
-SCALAR_FIELDS = ['issuerCompanyName','issuerAddress','issuerPhone','issuerEmail','issuerWebsite','issuerVatNumber','issuerGstNumber','issuerPanNumber','issuerCinNumber','issuerLutNumber','issuerTanNumber','issuerStateCode','invoiceNumber','invoiceDate','currency','dueDate','paymentTerms','payReference','customerId','shipmentNumber','consolNumber','jobNumber','jobDate','irn','irnAckNumber','irnAckTime','documentVariant','pageInfo','customerName','customerAttentionName','customerAddress','customerAgentCode','customerGstNumber','customerPanNumber','customerClientGid','customerCode','customerStateCode','customerPlaceOfSupply','customerRcm','shipper','shipperAddress','consignee','consigneeAddress','consigneeContact','secondNotify','importCustomsBroker','transportMode','shipmentType','cargoType','incoTerms','origin','placeOfReceipt','placeOfAcceptance','loadingPort','dischargingPort','placeOfDelivery','destination','etd','eta','blDate','cpDate','vesselName','voyageNumber','imoNumber','vesselFlag','carrier','oceanBol','houseBol','mawb','hawb','projectName','orderReference','goodsDescription','hsCode','sbNumbers','sbDates','customerInvoiceNumbers','customerInvoiceDates','note','cargoGrossWeightKg','cargoWeightUnit','cargoNetWeightKg','cargoVolumeCbm','cargoNumPackages','cargoPackageType','cargoChargeable','containersTotalCount','totalsCurrency','subtotalInr','igstAmount','addCgst','addSgst','totalInr','netPayable','amountInWords','bankBeneficiaryName','bankName','bankAccountNumber','bankSwiftCode','bankIfscCode','bankIban','bankRoutingNumber','bankBranch','addlBankBeneficiaryName','addlBankName','addlBankAccountNumber','addlBankSwiftCode','addlBankIfscCode','addlBankIban','addlBankRoutingNumber','addlBankBranch','footerRegisteredOfficeAddress','footerTermsAndConditions','footerDigitalSignature','footerIssuedBy','footerPrintedBy','footerDigSigSignedBy','footerDigSigOnBehalfOf','footerDigSigSignatureDate','footerDigSigSignatureTime']
-ARRAY_FIELDS = ['containersList','taxSummaryEntries','charges']
-ARRAY_ITEM_FIELDS: dict[str, list[str]] = {field_name: [] for field_name in ARRAY_FIELDS}
-
-
+_SCHEMA = load_extraction_schema(parent_model="FreightForwarderBillExtraction")
+SCALAR_FIELDS = _SCHEMA.scalar_fields
+ARRAY_FIELDS = _SCHEMA.array_fields
+ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
 
 
 def _section_for_field(field_name: str) -> str:
@@ -69,7 +69,7 @@ class FreightForwardStructuredResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     __array_field_schema__: ClassVar[dict[str, list[str]]] = ARRAY_ITEM_FIELDS
 
-    source: str | None = "OpenRouter"
+    source: str | None = None
     documentType: str | None = "Freight Forward"
     compliance: ComplianceSection = Field(default_factory=ComplianceSection)
     entities: EntitiesSection = Field(default_factory=EntitiesSection)

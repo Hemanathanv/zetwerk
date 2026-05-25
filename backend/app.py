@@ -9,7 +9,7 @@ from cache import close_redis, get_redis
 from helpers.config import settings
 from db import close_prisma, get_prisma
 from documents_ocr.queue import (
-    OpenrouterWorkerSettings,
+    OcrWorkerSettings,
     UploadWorkerSettings,
     close_arq_redis,
 )
@@ -50,14 +50,14 @@ async def lifespan(app: FastAPI):
             on_startup=UploadWorkerSettings.on_startup,
             on_shutdown=UploadWorkerSettings.on_shutdown,
         )
-        openrouter_worker = Worker(
-            functions=OpenrouterWorkerSettings.functions,
-            redis_settings=OpenrouterWorkerSettings.redis_settings,
-            queue_name=OpenrouterWorkerSettings.queue_name,
-            job_timeout=OpenrouterWorkerSettings.job_timeout,
-            max_tries=OpenrouterWorkerSettings.max_tries,
-            on_startup=OpenrouterWorkerSettings.on_startup,
-            on_shutdown=OpenrouterWorkerSettings.on_shutdown,
+        ocr_worker = Worker(
+            functions=OcrWorkerSettings.functions,
+            redis_settings=OcrWorkerSettings.redis_settings,
+            queue_name=OcrWorkerSettings.queue_name,
+            job_timeout=OcrWorkerSettings.job_timeout,
+            max_tries=OcrWorkerSettings.max_tries,
+            on_startup=OcrWorkerSettings.on_startup,
+            on_shutdown=OcrWorkerSettings.on_shutdown,
         )
         worker_tasks = [
             asyncio.create_task(
@@ -65,8 +65,8 @@ async def lifespan(app: FastAPI):
                 name="arq-ocr-upload-worker",
             ),
             asyncio.create_task(
-                openrouter_worker.async_run(),
-                name="arq-ocr-openrouter-worker",
+                ocr_worker.async_run(),
+                name="arq-ocr-worker",
             ),
         ]
     else:

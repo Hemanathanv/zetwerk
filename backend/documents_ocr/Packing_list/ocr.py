@@ -6,13 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from prisma import Json
 
 from documents_ocr.Packing_list.prompt import build_packing_list_prompt
+from documents_ocr.schema_loader import load_extraction_schema
 
 
-SCALAR_FIELDS = ['gstin','signature','buyerName','buyerAddress','consigneeName','consigneeAddress','exporterName','exporterAddress','iec','shipTo','invoiceNo','invoiceDate','buyerPoNo','buyerPoDate','zetwerkRef','otherReferences','pickupAddress','totalBundles','totalQty','totalNetWeightKgs','totalGrossWeightKgs','countryOfFinalDestination','countryOfOrigin','finalDestination','placeOfReceipt','portOfDischarge','portOfLoading','vesselFlightNo','preCarriageBy','signatoryDesignation','signatoryName','dinNumber']
-ARRAY_FIELDS = ['lineItems']
-ARRAY_ITEM_FIELDS: dict[str, list[str]] = {field_name: [] for field_name in ARRAY_FIELDS}
-
-
+_SCHEMA = load_extraction_schema(parent_model="PackingListExtraction")
+SCALAR_FIELDS = _SCHEMA.scalar_fields
+ARRAY_FIELDS = _SCHEMA.array_fields
+ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
 
 
 def _section_for_field(field_name: str) -> str:
@@ -69,7 +69,7 @@ class PackingListStructuredResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     __array_field_schema__: ClassVar[dict[str, list[str]]] = ARRAY_ITEM_FIELDS
 
-    source: str | None = "OpenRouter"
+    source: str | None = None
     documentType: str | None = "Packing List"
     compliance: ComplianceSection = Field(default_factory=ComplianceSection)
     entities: EntitiesSection = Field(default_factory=EntitiesSection)

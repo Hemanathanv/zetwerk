@@ -1,17 +1,204 @@
+"""Prompt generation for WH to Customer OCR.
+
+Self-contained, FLAT structure: every scalar field is a top-level key in the
+TEMPLATE the LLM sees. Section grouping inside the pydantic model is for
+persistence only — exposing sections to the LLM caused fields to silently
+drop when the heuristic bucketed them into the wrong section.
+
+To improve extraction for a specific WH to Customer field that's coming back null
+or mis-formatted, add an entry to CURATED_EXAMPLES below with the format
+you want the LLM to mimic.
+"""
+
+from __future__ import annotations
+
 import json
 from typing import Any, get_args, get_origin
 
 from pydantic import BaseModel
 
 
+# ---------------------------------------------------------------------------
+# Field examples — what the TEMPLATE shows the LLM as a format anchor.
+# LLMs reproduce the SHAPE of example values (date style, ID pattern, units),
+# so realistic placeholders produce far better extraction than bare `null`s.
+# ---------------------------------------------------------------------------
+
+# Field-name -> example. Wins over heuristics. For fields with strict formats
+# (regulatory IDs, ISO codes, container/HSN/port patterns). Add entries here
+# when you spot LLM mis-formats in real runs of WH to Customer docs.
+CURATED_EXAMPLES: dict[str, str] = {
+    "gstin": "29ABCDE1234F1Z5",
+    "gstNumber": "29ABCDE1234F1Z5",
+    "panNo": "ABCDE1234F",
+    "panNumber": "ABCDE1234F",
+    "cinNo": "U70200KA2020PTC123456",
+    "cinNumber": "U70200KA2020PTC123456",
+    "iec": "0312345678",
+    "iecNumber": "0312345678",
+    "irn": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+    "irnNumber": "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456",
+    "lutArnNo": "AD0723240012345",
+    "lutNumber": "AD0723240012345",
+    "tanNumber": "BLRX12345Y",
+    "adCode": "0510079",
+    "vatNumber": "GB123456789",
+    "hsnCode": "73089030",
+    "hsnCodeDestination": "73089030",
+    "hsCode": "73089030",
+    "htsCode": "7308.30.5050",
+    "usHsnc": "7308.30.5050",
+    "lineHtsusNumber": "7308.30.5050",
+    "swiftCode": "HDFCINBBXXX",
+    "bankSwiftCode": "HDFCINBBXXX",
+    "swift": "HDFCINBBXXX",
+    "ifscCode": "HDFC0001234",
+    "bankIfscCode": "HDFC0001234",
+    "bankIban": "GB29NWBK60161331926819",
+    "bankRoutingNumber": "021000021",
+    "routingNumber": "021000021",
+    "accountNumber": "00123456789012",
+    "bankAccountNo": "00123456789012",
+    "bankAccountNumber": "00123456789012",
+    "bankName": "HDFC Bank Ltd",
+    "bankBranch": "Whitefield, Bangalore",
+    "containerNumber": "MSCU1234567",
+    "containerNo": "MSCU1234567",
+    "sealNumber": "SEAL789456",
+    "sealNo": "SEAL789456",
+    "vesselName": "MAERSK SENTOSA",
+    "vesselFlag": "Singapore",
+    "voyageNumber": "VOY-2024-128W",
+    "vesselVoyageNumber": "VOY-2024-128W",
+    "imoNumber": "9778791",
+    "imoLloyds": "9778791",
+    "mawb": "020-12345678",
+    "hawb": "HAWB123456789",
+    "blDate": "15-Mar-2024",
+    "oceanBol": "MEDUMK1234567",
+    "houseBol": "HBL-IN-2024-0987",
+    "bolNumber": "MEDUMK1234567",
+    "portOfLoading": "NHAVA SHEVA (INNSA1)",
+    "loadingPort": "NHAVA SHEVA (INNSA1)",
+    "portOfDischarge": "LOS ANGELES (USLAX)",
+    "dischargingPort": "LOS ANGELES (USLAX)",
+    "placeOfReceipt": "BANGALORE, INDIA",
+    "placeOfAcceptance": "BANGALORE, INDIA",
+    "placeOfDelivery": "LOS ANGELES, CA, USA",
+    "finalDestination": "LOS ANGELES, CA, USA",
+    "transhipmentPlace": "SINGAPORE",
+    "countryOfOrigin": "INDIA",
+    "countryOfFinalDestination": "UNITED STATES",
+    "incoterms": "FOB",
+    "incoTerms": "FOB",
+    "paymentTerms": "Net 30 days from B/L date",
+    "currency": "USD",
+    "vesselFlightNo": "MAERSK SENTOSA / 128W",
+    "signature": "true",
+    "negotiability": "NEGOTIABLE",
+    "documentCategory": "ORIGINAL",
+    "freightPayableAt": "BANGALORE, INDIA",
+    "freightType": "PREPAID",
+    "freightAmount": "1250.00",
+    "fobCharges": "FOB MUMBAI",
+    "totalPackages": "10",
+    "totalContainers": "2",
+    "numberOfOriginals": "3",
+    "issuancePlace": "BANGALORE, INDIA",
+    "issuanceDate": "15-Mar-2024",
+    "packageSummary": "10 WOODEN CASES",
+    "grossWeight": "12450.500",
+    "grossWeightKg": "12450.500",
+    "netWeight": "11890.000",
+    "netWeightKg": "11890.000",
+    "grossWeightUnit": "KGS",
+    "netWeightUnit": "KGS",
+    "weight": "12450.500 KGS",
+    "weightLbs": "27450.50",
+    "measurementCbm": "28.450",
+    "cargoVolumeCbm": "28.450",
+    "volumeFt3": "1004.5",
+    "volume": "28.450 CBM",
+    "cargoWeightKg": "12450.500",
+    "cargoNetWeightKg": "11890.000",
+    "cargoGrossWeightKg": "12450.500",
+}
+
+
+# Ordered (token_set, example). First match wins, so specific tokens (date,
+# email, address) come before generic ones (number, no, code).
+HEURISTIC_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("date", "etd", "eta"), "15-Mar-2024"),
+    (("timestamp",), "11:58:14"),
+    (("email",), "operations@example.com"),
+    (("phone", "contactphone"), "+1-555-123-4567"),
+    (("website",), "https://example.com"),
+    (("address",), "1234 Industrial Park Rd, Houston, TX 77002, USA"),
+    (("city",), "Houston"),
+    (("state",), "TX"),
+    (("zip",), "77002"),
+    (("country",), "INDIA"),
+    (("amount", "subtotal", "duty", "tax", "value", "balance", "discount", "credit", "rate", "cost", "fee"), "12500.00"),
+    (("percent",), "5.00"),
+    (("days",), "30"),
+    (("quantity", "qty", "pieces", "pcs", "packages", "bundles", "pallets", "count", "units"), "150"),
+    (("contactname", "signatoryname", "declarantname", "receivedby", "preparedby", "name"), "Acme Logistics Pvt Ltd"),
+    (("designation", "title"), "Director"),
+    (("invoiceno", "invoicenumber"), "INV-2024-00123"),
+    (("ponumber", "pono", "buyerpono"), "PO-2024-987654"),
+    (("sono",), "SO-2024-456"),
+    (("ordernumber", "orderreference"), "ORD-2024-7890"),
+    (("shipmentnumber", "shipmentid"), "SHP-2024-1122"),
+    (("jobnumber",), "JOB-2024-5566"),
+    (("entrynumber",), "112-3456789-0"),
+    (("filercodeentrynumber",), "ABC-1234567-8"),
+    (("declarationnumber",), "DECL-2024-77889"),
+    (("rotationno",), "ROT-2024-0042"),
+    (("bookingnumber",), "BKG-2024-3344"),
+    (("consolnumber",), "CONS-2024-2211"),
+    (("ackreference", "referencenumber", "customerreference", "brokerreference", "ourreference",
+      "customerid"), "REF-2024-9988"),
+    (("zetwerkref",), "ZW-2024-12345"),
+    (("shippingbillno", "shippingbillnumber"), "1234567"),
+    (("freightbillnumber",), "FB-2024-7766"),
+    (("dinnumber",), "01234567"),
+    (("description", "remarks", "notes", "note", "goods"), "Steel structural components, IS 2062 Grade E250, ASTM A36"),
+    (("specification",), "MS Steel plate, 12mm thick, 2500x1250 mm, Grade IS 2062 E250"),
+    (("marks",), "ZWK-PO-987654 / 1 OF 10"),
+    (("packaging", "kindofpkg"), "WOODEN CASES"),
+    (("packagesummary", "packagedescription"), "10 WOODEN CASES"),
+    (("partcode", "productcode", "itemcode", "boCode", "portcode", "formcode"), "WB-G-FG-CB141-6085"),
+    (("number", "no", "ref", "id", "code", "index"), "REF-2024-9988"),
+)
+
+
+def example_for_field(field_name: str) -> str:
+    """Realistic example value for the given camelCase field name."""
+    if field_name in CURATED_EXAMPLES:
+        return CURATED_EXAMPLES[field_name]
+    lowered = field_name.lower()
+    for tokens, example in HEURISTIC_RULES:
+        for token in tokens:
+            if token in lowered:
+                return example
+    return "Sample value"
+
+
+# ---------------------------------------------------------------------------
+# Pydantic-model introspection -> FLAT example payload
+# ---------------------------------------------------------------------------
+
 def _unwrap_annotation(annotation: Any) -> Any:
+    """Strip Optional[...] / Union[..., None] wrappers only."""
     origin = get_origin(annotation)
     if origin is None:
         return annotation
-
-    args = [arg for arg in get_args(annotation) if arg is not type(None)]
-    if len(args) == 1:
-        return _unwrap_annotation(args[0])
+    args = get_args(annotation)
+    if type(None) not in args:
+        return annotation
+    non_none_args = [arg for arg in args if arg is not type(None)]
+    if len(non_none_args) == 1:
+        return non_none_args[0]
     return annotation
 
 
@@ -26,16 +213,10 @@ def _is_list_of_models(annotation: Any) -> bool:
     if origin not in (list, tuple):
         return False
     args = get_args(target)
-    return bool(args) and _is_model_type(args[0])
-
-
-def _field_name_to_label(name: str) -> str:
-    label = []
-    for index, char in enumerate(name):
-        if index > 0 and char.isupper() and not name[index - 1].isupper():
-            label.append(" ")
-        label.append(char)
-    return "".join(label).strip()
+    if not args:
+        return False
+    item = _unwrap_annotation(args[0])
+    return isinstance(item, type) and issubclass(item, BaseModel)
 
 
 def _array_field_schema(model: type[BaseModel]) -> dict[str, list[str]]:
@@ -43,42 +224,15 @@ def _array_field_schema(model: type[BaseModel]) -> dict[str, list[str]]:
     return schema if isinstance(schema, dict) else {}
 
 
-def _build_section_mapping(model: type[BaseModel]) -> list[str]:
-    lines: list[str] = []
-    array_schema = _array_field_schema(model)
-
-    for field_name, field_info in model.model_fields.items():
-        annotation = field_info.annotation
-
-        if _is_model_type(annotation):
-            nested_model = _unwrap_annotation(annotation)
-            nested_fields = ", ".join(nested_model.model_fields.keys())
-            lines.append(
-                f"- `{field_name}` is an object section for {_field_name_to_label(field_name)} with fields: {nested_fields}."
-            )
-            continue
-
-        if _is_list_of_models(annotation):
-            item_model = _unwrap_annotation(get_args(_unwrap_annotation(annotation))[0])
-            item_fields = ", ".join(item_model.model_fields.keys())
-            lines.append(
-                f"- `{field_name}` is an array of objects. Each row must use these fields: {item_fields}."
-            )
-            continue
-
-        if field_name in array_schema:
-            item_fields = ", ".join(array_schema[field_name])
-            lines.append(
-                f"- `{field_name}` is an array of objects. Each row must use these fields: {item_fields}."
-            )
-            continue
-
-        lines.append(f"- `{field_name}` is a top-level field.")
-
-    return lines
+def _example_value_for_leaf(field_name: str, default: Any) -> Any:
+    """Use the model's default if it's a real string (enum-like); else an example."""
+    if isinstance(default, str) and default.strip():
+        return default
+    return example_for_field(field_name)
 
 
-def _build_example_payload(model: type[BaseModel]) -> dict[str, Any]:
+def _build_flat_example_payload(model: type[BaseModel]) -> dict[str, Any]:
+    """All scalar fields lift to top-level keys. Arrays stay nested."""
     example: dict[str, Any] = {}
     array_schema = _array_field_schema(model)
 
@@ -86,63 +240,57 @@ def _build_example_payload(model: type[BaseModel]) -> dict[str, Any]:
         annotation = field_info.annotation
 
         if _is_model_type(annotation):
+            # Section sub-model: lift its scalar fields to the top level.
             nested_model = _unwrap_annotation(annotation)
-            example[field_name] = {
-                nested_name: None for nested_name in nested_model.model_fields.keys()
-            }
+            for nested_name, nested_info in nested_model.model_fields.items():
+                nested_default = nested_info.default
+                if nested_info.is_required() or nested_default.__class__.__name__ == "PydanticUndefinedType":
+                    nested_default = None
+                example[nested_name] = _example_value_for_leaf(nested_name, nested_default)
             continue
 
         if _is_list_of_models(annotation):
             item_model = _unwrap_annotation(get_args(_unwrap_annotation(annotation))[0])
             example[field_name] = [
-                {nested_name: None for nested_name in item_model.model_fields.keys()}
+                {nested_name: example_for_field(nested_name) for nested_name in item_model.model_fields.keys()}
             ]
             continue
 
         if field_name in array_schema:
             example[field_name] = [
-                {nested_name: None for nested_name in array_schema[field_name]}
+                {nested_name: example_for_field(nested_name) for nested_name in array_schema[field_name]}
             ]
             continue
 
         default = field_info.default
         if field_info.is_required() or default.__class__.__name__ == "PydanticUndefinedType":
             default = None
-        example[field_name] = default
+        example[field_name] = _example_value_for_leaf(field_name, default)
+
+    for array_name, nested_fields in array_schema.items():
+        if array_name in example:
+            continue
+        example[array_name] = [
+            {nested_name: example_for_field(nested_name) for nested_name in nested_fields}
+        ]
 
     return example
 
 
-def _collect_paths(model: type[BaseModel]) -> set[str]:
-    paths: set[str] = set()
+def _collect_array_names(model: type[BaseModel]) -> list[str]:
+    arrays: list[str] = []
     array_schema = _array_field_schema(model)
-
     for field_name, field_info in model.model_fields.items():
-        annotation = field_info.annotation
+        if _is_list_of_models(field_info.annotation):
+            arrays.append(field_name)
+        elif field_name in array_schema:
+            arrays.append(field_name)
 
-        if _is_model_type(annotation):
-            nested_model = _unwrap_annotation(annotation)
-            paths.add(field_name)
-            for nested_name in nested_model.model_fields.keys():
-                paths.add(f"{field_name}.{nested_name}")
-            continue
+    for array_name in array_schema:
+        if array_name not in arrays:
+            arrays.append(array_name)
 
-        if _is_list_of_models(annotation):
-            item_model = _unwrap_annotation(get_args(_unwrap_annotation(annotation))[0])
-            paths.add(field_name)
-            for nested_name in item_model.model_fields.keys():
-                paths.add(f"{field_name}.{nested_name}")
-            continue
-
-        if field_name in array_schema:
-            paths.add(field_name)
-            for nested_name in array_schema[field_name]:
-                paths.add(f"{field_name}.{nested_name}")
-            continue
-
-        paths.add(field_name)
-
-    return paths
+    return arrays
 
 
 def _resolve_document_type(model: type[BaseModel], fallback: str) -> str:
@@ -155,148 +303,68 @@ def _resolve_document_type(model: type[BaseModel], fallback: str) -> str:
     return fallback
 
 
-def _build_output_rules(model: type[BaseModel], document_type: str) -> str:
-    paths = _collect_paths(model)
-    has = paths.__contains__
+def _build_output_rules(model: type[BaseModel], document_type: str, extractor_label: str) -> str:
+    arrays = _collect_array_names(model)
 
     rules: list[str] = [
-        "Respond with **one JSON object only** (no markdown fences).",
-        f'Top-level keys **must** include `source`: "OpenRouter" and `documentType`: "{document_type}".',
-        "**Raw values only**: every leaf value is a **string**, **boolean** (only for `compliance.signature`), or **null**. No confidence, evidence, notes, status, or reasoning in JSON.",
-        "Use the **JSON keys** exactly as in the template (camelCase). Map PDF labels using schema field names and alternate labels.",
-        "Include **every schema key exactly once** in the output JSON; never omit keys even when values are unavailable.",
+        "Return **one JSON object only** (no markdown fences, no commentary).",
+        f'Top-level JSON must include `source`: "OpenRouter" and `documentType`: "{document_type}".',
+        "**Every key from the TEMPLATE must appear in the output, in the same place, with the same name.** Do not rename, drop, or wrap keys.",
+        "**Every scalar leaf is a string** (camelCase keys, string values). Use `null` only when the field is genuinely absent from the PDF.",
+        "**TEMPLATE values are FORMAT EXAMPLES** (date style, ID patterns, units) — do not copy them. Replace each example with the actual value visible in the PDF. If you cannot find a value, use `null`.",
+        "Map PDF labels to the schema field name using semantic match (e.g. \"B/L No.\" -> `bolNumber`, \"Vessel/Voyage\" -> `vesselName`/`vesselVoyageNumber`). Synonyms and abbreviations count.",
+        "Extract every visible value. Do not skip fields that look unimportant; partial extraction is the most common failure mode.",
     ]
 
-    if has("lineItems"):
-        rules.append("**lineItems**: one object per invoice/document line row; same property set each row.")
-
-    single_location_chunks: list[str] = []
-    if has("compliance.gstin"):
-        single_location_chunks.append("**GSTIN** only under `compliance`")
-    if has("entities.iec"):
-        single_location_chunks.append("**IEC** only under `entities`")
-    if has("header.invoiceNo") or has("header.invoiceDate"):
-        single_location_chunks.append("**invoiceNo** / **invoiceDate** only under `header`")
-    if has("header.buyerPoNo") or has("header.buyerPoDate"):
-        single_location_chunks.append("**buyerPoNo** / **buyerPoDate** only under `header`")
-    if any(has(path) for path in ("financial.bankName", "financial.swiftCode", "financial.ifscCode")):
-        single_location_chunks.append("bank/SWIFT/IFSC/**bankName** only under `financial`")
-    if has("header.shippingBillNo") or has("header.shippingBillDate"):
-        single_location_chunks.append("shipping bill no/date only under `header`")
-    if has("shipment.countryOfOrigin"):
-        single_location_chunks.append("**countryOfOrigin** only under `shipment`")
-
-    if single_location_chunks:
+    if arrays:
+        names = ", ".join(f"`{n}`" for n in arrays)
         rules.append(
-            "**Single location per concept** (schema is deduplicated): " + "; ".join(single_location_chunks) + "."
+            f"**Arrays ({names})**: emit one object per row visible in the PDF, with the same property set in each row. Fill every cell in each row; use `null` only for cells that are truly blank."
         )
-
-    if has("compliance.signature"):
-        rules.append(
-            "**compliance.signature**: set **true** if any authorized signatory stamp, wet signature, or signature block is **visible** on the PDF; **false** only if clearly absent."
-        )
-
-    if all(has(path) for path in ("lineItems.productCode", "lineItems.productDescription", "lineItems.productSpecification")):
-        rules.append(
-            "**Line items — three distinct fields**: `productCode` = SKU / internal part code only (e.g. `WB.G.FG.CB141.6085.1300.A.IN`). `productDescription` = **short** product **name** only (e.g. \"INTERIOR PILE\") — no full SKU, no long spec. `productSpecification` = **technical** spec only (dimensions, grade, material, finish, length) — **not** origin/certificate sentences. **Never** put HSN in `productDescription` — use `hsnCode` / `hsnCodeDestination` only."
-        )
-
-    if has("compliance.irnNumber"):
-        rules.append(
-            "**compliance.irnNumber**: when the PDF has an e-invoice **IRN** (label \"IRN Number\" / \"IRN\", metadata block, or **QR** payload / embedded IRN string), you **must** extract it — do not omit when visible."
-        )
-
-    if has("financial.incoterms"):
-        rules.append(
-            "**financial.incoterms**: incoterm **code** only (e.g. FOB, EXW) when possible; put longer terms-of-delivery prose in `financial.paymentTerms` if needed."
-        )
-
-    if has("header.invoiceType"):
-        rules.append(
-            "**header.invoiceType**: for Zetwerk-style PDFs, use the **full export/supply banner** (e.g. \"SUPPLY MEANT FOR EXPORT ON PAYMENT OF INTEGRATED TAX\"), **not** the generic section heading \"Tax Invoice\"."
-        )
-
-    if has("lineItems.rate"):
-        rule = "**lineItems**: use **`rate` only** for unit price (no separate `unitPrice`)."
-        optional_chunks: list[str] = []
-        if has("lineItems.noOfPackages"):
-            optional_chunks.append("Fill **`noOfPackages`** per line when shown")
-        if has("lineItems.kindOfPkg"):
-            optional_chunks.append("Fill **`kindOfPkg`** (e.g. PKGS) when shown")
-        if has("lineItems.productMarks"):
-            optional_chunks.append("Put per-line marks in **`productMarks`**")
-        if has("lineItems.boCode"):
-            optional_chunks.append("Extract **`boCode`** from BO Code")
-        if has("lineItems.containerNo") and has("lineItems.sealNo"):
-            optional_chunks.append("Split combined CONTAINER NO / SEAL NO into **`containerNo`** and **`sealNo`**")
-        if has("shipment.marksAndNumbers") and has("lineItems.productMarks"):
-            optional_chunks.append("If only one line, set `shipment.marksAndNumbers` to `null` and keep marks in that line's `productMarks`")
-        if optional_chunks:
-            rule = rule + " " + "; ".join(optional_chunks) + "."
-        rules.append(rule)
-
-    if has("footer.digitalSignatureTimestamp") and has("footer.digitalSignatureDate"):
-        rules.append(
-            "**footer.digitalSignatureTimestamp**: **clock time only** (e.g. `11:58:14`, `20:48:50`) — **no** date in this field; use `footer.digitalSignatureDate` for the date."
-        )
-
-    if has("entities.buyerAddress"):
-        rules.append(
-            "**entities.buyerAddress**: fill when buyer block has an address distinct from consignee; may match consignee when same party."
-        )
-
-    if has("footer.receivablesAssignmentBeneficiary") and has("footer.receivablesAssignmentNotice"):
-        rules.append(
-            "**footer.receivablesAssignmentBeneficiary**: if the PDF includes a **receivables assignment** clause (same text as `receivablesAssignmentNotice`), you **must** extract the **named assignee entity** into `receivablesAssignmentBeneficiary` — never leave it null when the clause is present."
-        )
-
-    post_process_chunks: list[str] = ["Amounts/dates: you may output print-style strings"]
-    if has("financial.currency"):
-        post_process_chunks.append("ISO currency normalization")
-    if has("header.invoiceDate"):
-        post_process_chunks.append("DD-Mon-YYYY date normalization")
-    if has("lineItems.hsnCode") or has("lineItems.hsnCodeDestination"):
-        post_process_chunks.append("HSN dots/format cleanup")
-    if has("entities.consigneeAddress") or has("entities.buyerAddress"):
-        post_process_chunks.append("consignee/buyer address comma spacing")
-    if has("footer.digitalSignatureTimestamp"):
-        post_process_chunks.append("time-only digital signature timestamp")
-    if has("shipment.marksAndNumbers") and has("lineItems.productMarks"):
-        post_process_chunks.append("single-line shipment marks -> line + null shipment")
-    if has("lineItems.productSpecification"):
-        post_process_chunks.append("strip origin phrasing from `productSpecification`")
-    if has("footer.receivablesAssignmentNotice") and has("footer.receivablesAssignmentBeneficiary"):
-        post_process_chunks.append("infer beneficiary from notice text when missing")
-    rules.append(
-        "**Post-processing aware**: "
-        + ", ".join(post_process_chunks[:-1])
-        + (", and " + post_process_chunks[-1] if len(post_process_chunks) > 1 else post_process_chunks[0])
-        + "."
-    )
 
     numbered = [f"{index}. {rule}" for index, rule in enumerate(rules, start=1)]
     return "OUTPUT RULES (critical):\n" + "\n".join(numbered)
 
 
 def _build_dynamic_ocr_prompt(*, response_model: type[BaseModel], extractor_label: str) -> str:
-    schema = response_model.model_json_schema()
-    section_mapping = _build_section_mapping(response_model)
-    example_payload = _build_example_payload(response_model)
+    example_payload = _build_flat_example_payload(response_model)
     document_type = _resolve_document_type(response_model, extractor_label)
 
-    intro = f"You are a precision extractor for {extractor_label} documents."
-    rules = _build_output_rules(response_model, document_type)
+    intro = f"You are a precision OCR extractor for {extractor_label} documents. Extract every field visible in the PDF."
+    rules = _build_output_rules(response_model, document_type, extractor_label)
 
     return "\n\n".join(
         [
             intro,
             rules,
-            "SECTION MAPPING:\n" + "\n".join(section_mapping),
-            "TEMPLATE (shape and keys — replace values from the PDF):\n" + json.dumps(example_payload, indent=2),
-            "JSON SCHEMA:\n" + json.dumps(schema, indent=2),
+            "TEMPLATE (the exact JSON shape to return — replace example values with real values from the PDF; use null when truly absent):\n"
+            + json.dumps(example_payload, indent=2),
+        ]
+    )
+
+
+def _build_wh_reference_disambiguation_rules() -> str:
+    return "\n".join(
+        [
+            "REFERENCE FIELD DISAMBIGUATION (strict):",
+            "1. `poNumber` uses a STRICT allow-list of labels only: \"PO\", \"Subject\", \"CUST REF NO.\", \"Customer Ref #\".",
+            "2. Case-insensitive matching is allowed; trailing punctuation/whitespace is allowed. No other labels qualify for `poNumber`.",
+            "3. Never map these labels to `poNumber`: \"Customer Reference\", \"Customer Ref\" (without \"#\"), \"Cust Ref\", \"Reference\", \"Ref #\", \"Ref No\", \"Our Ref\", \"Your Ref\", \"PO #\", \"PO Number\", \"Purchase Order\", \"Order #\", \"Order Number\", \"SO\", \"SO Number\", \"BOL\", \"BOL #\", \"Ship Ref\", \"Ship Ref #\", \"Packing Slip\", \"File #\", \"Job #\", \"Remarks\", \"Remark\", \"Notes\", \"Note\", \"Comments\", \"Description\", \"Memo\", \"Special Instructions\", \"Terms\", \"Message\".",
+            "4. If the only candidate is from an excluded label, set `poNumber` to null and capture that label/value under `otherReferences`.",
+            "5. `poNumber` must look like a compact reference identifier (alphanumeric, may include dashes/slashes), not a free-text sentence. If prose-like, set `poNumber` to null.",
+            "6. `otherReferences` is a JSON ARRAY; emit one object per distinct labeled OTHER reference on the document.",
+            "7. For each `otherReferences` entry, use: `label` = exact label text as printed; `value` = exact value text as printed.",
+            "8. Do not include entries in `otherReferences` for allow-list `poNumber` labels, for Shipment # labels, or for remarks/notes/comments labels.",
+            "9. Do not join multiple references into one string. Do not use separators like \" | \" or commas across different labels.",
+            "10. If one label has multiple values printed, keep those values together in that single entry's `value` exactly as printed.",
+            "11. If no OTHER references appear, return `otherReferences`: [].",
         ]
     )
 
 
 def build_wh_to_customer_prompt(response_model: type[BaseModel]) -> str:
-    return _build_dynamic_ocr_prompt(response_model=response_model, extractor_label="WH to Customer")
+    base_prompt = _build_dynamic_ocr_prompt(response_model=response_model, extractor_label="WH to Customer")
+    return base_prompt + "\n\n" + _build_wh_reference_disambiguation_rules()
+
+
+__all__ = ["build_wh_to_customer_prompt"]

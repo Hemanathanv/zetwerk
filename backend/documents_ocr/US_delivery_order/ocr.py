@@ -6,13 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from prisma import Json
 
 from documents_ocr.US_delivery_order.prompt import build_us_delivery_order_prompt
+from documents_ocr.schema_loader import load_extraction_schema
 
 
-SCALAR_FIELDS = ['shipperName','shipperAddress','shipperContact','consigneeName','consigneeAddress','consigneeContact','billToParty','billToAddress','billToContact','deliveryOrderDate','doReferenceNumberDamco','doFileNumberKpm','itNumber','itDate','customerReference','importingCarrier','deliveringCarrier','carriersLocalAgent','portOfLoadingOrigin','portOfDischargeDestination','finalDestination','blOrAwbNumber','masterNumber','houseBillNumbers','arrivalDate','freeTimeExpirationDate','flightVoyage','entryNumber','cargoDescriptionCommodity','hsCode','numberOfPackages','containerNumber','containerSealNumbers','totalWeightKg','totalWeightUnit','pickupLocation','deliveryLocation','issuedByCustomsBroker','deliveryClerkPreparer','freightChargesAccount','sealStatus','conditionStatement','carrierSignatureRequirement','consigneeSignatureRequirement']
-ARRAY_FIELDS = []
-ARRAY_ITEM_FIELDS: dict[str, list[str]] = {field_name: [] for field_name in ARRAY_FIELDS}
-
-
+_SCHEMA = load_extraction_schema(parent_model="UsDeliveryOrderExtraction")
+SCALAR_FIELDS = _SCHEMA.scalar_fields
+ARRAY_FIELDS = _SCHEMA.array_fields
+ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
 
 
 def _section_for_field(field_name: str) -> str:
@@ -69,7 +69,7 @@ class UsDeliveryOrderStructuredResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     __array_field_schema__: ClassVar[dict[str, list[str]]] = ARRAY_ITEM_FIELDS
 
-    source: str | None = "OpenRouter"
+    source: str | None = None
     documentType: str | None = "US Delivery Order"
     compliance: ComplianceSection = Field(default_factory=ComplianceSection)
     entities: EntitiesSection = Field(default_factory=EntitiesSection)

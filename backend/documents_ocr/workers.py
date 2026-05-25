@@ -12,7 +12,7 @@ BACKEND_DIR = CURRENT_FILE.parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from documents_ocr.queue import OpenrouterWorkerSettings, UploadWorkerSettings
+from documents_ocr.queue import OcrWorkerSettings, UploadWorkerSettings
 
 
 async def _run_upload_worker() -> None:
@@ -29,16 +29,16 @@ async def _run_upload_worker() -> None:
     await worker.async_run()
 
 
-async def _run_openrouter_worker() -> None:
-    print("[workers] starting ARQ openrouter worker", flush=True)
+async def _run_ocr_worker() -> None:
+    print("[workers] starting ARQ ocr worker", flush=True)
     worker = Worker(
-        functions=OpenrouterWorkerSettings.functions,
-        redis_settings=OpenrouterWorkerSettings.redis_settings,
-        queue_name=OpenrouterWorkerSettings.queue_name,
-        job_timeout=OpenrouterWorkerSettings.job_timeout,
-        max_tries=OpenrouterWorkerSettings.max_tries,
-        on_startup=OpenrouterWorkerSettings.on_startup,
-        on_shutdown=OpenrouterWorkerSettings.on_shutdown,
+        functions=OcrWorkerSettings.functions,
+        redis_settings=OcrWorkerSettings.redis_settings,
+        queue_name=OcrWorkerSettings.queue_name,
+        job_timeout=OcrWorkerSettings.job_timeout,
+        max_tries=OcrWorkerSettings.max_tries,
+        on_startup=OcrWorkerSettings.on_startup,
+        on_shutdown=OcrWorkerSettings.on_shutdown,
     )
     await worker.async_run()
 
@@ -48,15 +48,15 @@ async def _run_named_worker(name: str) -> None:
         await _run_upload_worker()
         return
 
-    if name == "openrouter_worker":
-        await _run_openrouter_worker()
+    if name == "ocr_worker":
+        await _run_ocr_worker()
         return
 
     if name == "both":
         print("[workers] starting both ARQ workers", flush=True)
         await asyncio.gather(
             _run_upload_worker(),
-            _run_openrouter_worker(),
+            _run_ocr_worker(),
         )
         return
 
@@ -65,7 +65,7 @@ async def _run_named_worker(name: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run OCR ARQ workers")
-    parser.add_argument("worker", choices=["upload_worker", "openrouter_worker", "both"])
+    parser.add_argument("worker", choices=["upload_worker", "ocr_worker", "both"])
     args = parser.parse_args()
     asyncio.run(_run_named_worker(args.worker))
 

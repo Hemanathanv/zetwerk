@@ -6,13 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from prisma import Json
 
 from documents_ocr.Entry_summary.prompt import build_entry_summary_prompt
+from documents_ocr.schema_loader import load_extraction_schema
 
 
-SCALAR_FIELDS = ['filerCodeEntryNumber','entryType','summaryDate','suretyNumber','bondType','portCode','entryDate','teamNumber','summaryStatus','formVersion','formNumber','importingCarrier','modeOfTransport','importDate','blOrAwbNumber','additionalBLs','houseBill','subhouseBill','billQty','billQtyUnit','manufacturerId','exportingCountry','exportDate','itNumber','itDate','missingDocs','foreignPortOfLading','usPortOfUnlading','countryOfOrigin','locationOfGoods','consigneeNumber','importerNumber','referenceNumber','ultimateConsigneeName','ultimateConsigneeAddress','ultimateConsigneeCity','ultimateConsigneeState','ultimateConsigneeZip','importerOfRecordName','importerOfRecordAddress','importerOfRecordCity','importerOfRecordState','importerOfRecordZip','countryOfMeltAndPour','primaryCountryOfSmelt','secondaryCountryOfSmelt','countryOfCast','mpfTotal','hmfTotal','totalOtherFees','totalEnteredValue','totalDuty','totalTax','totalOther','grandTotal','declarantName','declarantCompany','declarantTitle','declarantDate','isOwner','isPurchase','brokerName','brokerAddress','brokerPhone','brokerImporterFileNumber']
-ARRAY_FIELDS = ['lineItems']
-ARRAY_ITEM_FIELDS: dict[str, list[str]] = {field_name: [] for field_name in ARRAY_FIELDS}
-
-
+_SCHEMA = load_extraction_schema(parent_model="EntrySummaryExtraction")
+SCALAR_FIELDS = _SCHEMA.scalar_fields
+ARRAY_FIELDS = _SCHEMA.array_fields
+ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
 
 
 def _section_for_field(field_name: str) -> str:
@@ -69,7 +69,7 @@ class EntrySummaryStructuredResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     __array_field_schema__: ClassVar[dict[str, list[str]]] = ARRAY_ITEM_FIELDS
 
-    source: str | None = "OpenRouter"
+    source: str | None = None
     documentType: str | None = "Entry Summary"
     compliance: ComplianceSection = Field(default_factory=ComplianceSection)
     entities: EntitiesSection = Field(default_factory=EntitiesSection)

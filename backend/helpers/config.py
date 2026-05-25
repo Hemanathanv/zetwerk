@@ -22,10 +22,13 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "local-model"  # Model name for OpenAI-compatible API
     LLM_TEMPERATURE: float = 0.7
     LLM_MAX_TOKENS: int = 2048
-    OPENROUTER_API_KEY: str = ""
-    OPENROUTER_MODEL: str = ""
-    OPENROUTER_API_URL: str = "https://openrouter.ai/api/v1/chat/completions"
-    OPENROUTER_JOB_TIMEOUT_SECONDS: int = 0
+    OCR_JOB_TIMEOUT_SECONDS: int = 0
+    OCR_MAX_REQUEST_ENCODED_BYTES: int = 27 * 1024 * 1024
+    OCR_GEMINI_HTTP_TIMEOUT_SECONDS: int = 900
+    OCR_GEMINI_MAX_ATTEMPTS: int = 7
+    OCR_GEMINI_RETRY_BACKOFF_SECONDS: float = 2.0
+    API_KEY: str = ""
+    MODEL: str = ""
     GEMINI_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     GROQ_API_KEY: str = ""

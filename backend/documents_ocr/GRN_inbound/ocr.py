@@ -6,12 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from prisma import Json
 
 from documents_ocr.GRN_inbound.prompt import build_grn_inbound_prompt
+from documents_ocr.schema_loader import load_extraction_schema
 
 
-SCALAR_FIELDS = ['documentType', 'logisticsProvider', 'accountName', 'documentTitle', 'containerNumber', 'containerSize', 'containerType', 'sealNumber', 'truckingCo', 'freightBillNumber', 'brokerReference', 'customerReference', 'location', 'tiTie', 'beam', 'dateReceived', 'rateQuoteNumber', 'floorLoaded', 'frozen', 'palletizedCargo', 'numberOfPallets', 'companyOwnedPallets', 'totalPieces', 'typeOfPackaging', 'totalPartsCount', 'pcsLine1', 'dimensions', 'weight', 'receivedBy', 'numberOfEmployees', 'totalReceivingTime', 'notes', 'liabilityLimit']
-ARRAY_FIELDS = ['destinationMarks']
-ARRAY_ITEM_FIELDS: dict[str, list[str]] = {'destinationMarks': ['piecesPerBundle', 'bundleCount', 'totalPieces', 'color', 'rawLabel']}
-
+_SCHEMA = load_extraction_schema(parent_model="GrnInboundExtraction")
+SCALAR_FIELDS = _SCHEMA.scalar_fields
+ARRAY_FIELDS = _SCHEMA.array_fields
+ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
 
 
 def _section_for_field(field_name: str) -> str:
@@ -68,7 +69,7 @@ class GrnInboundStructuredResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     __array_field_schema__: ClassVar[dict[str, list[str]]] = ARRAY_ITEM_FIELDS
 
-    source: str | None = "OpenRouter"
+    source: str | None = None
     documentType: str | None = "GRN Inbound"
     compliance: ComplianceSection = Field(default_factory=ComplianceSection)
     entities: EntitiesSection = Field(default_factory=EntitiesSection)

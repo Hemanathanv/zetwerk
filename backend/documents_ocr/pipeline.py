@@ -4,6 +4,7 @@ import ast
 import http.client
 import json
 import re
+import socket
 import time
 from dataclasses import dataclass
 from typing import Any, TypedDict
@@ -255,32 +256,18 @@ class OcrImageChunk(TypedDict):
     includes_first_page: bool
 
 
-MAX_REQUEST_ENCODED_BYTES = 27 * 1024 * 1024
+MAX_REQUEST_ENCODED_BYTES = max(1 * 1024 * 1024, int(getattr(settings, "OCR_MAX_REQUEST_ENCODED_BYTES", 27 * 1024 * 1024)))
 MAX_HEADER_CONTEXT_FIELDS = 120
 
 
-def _normalize_base_url(url: str | None) -> str:
-    cleaned = (url or "https://openrouter.ai/api/v1/chat/completions").strip().rstrip("/")
-    for suffix in ("/chat/completions", "/v1/chat/completions", "/responses", "/v1/responses"):
-        if cleaned.endswith(suffix):
-            cleaned = cleaned[: -len(suffix)]
-            break
-    if cleaned.endswith("/v1"):
-        return cleaned
-    return cleaned + "/v1"
-
-
-def _load_openrouter_config() -> tuple[str, str, str]:
-    api_key = (settings.OPENROUTER_API_KEY or "").strip()
-    model = (settings.OPENROUTER_MODEL or "").strip()
-    base_url = _normalize_base_url(settings.OPENROUTER_API_URL)
-
+def _load_gemini_config() -> tuple[str, str]:
+    api_key = (settings.API_KEY or "").strip()
+    model = (settings.MODEL or "").strip()
     if not api_key:
-        raise RuntimeError("Missing OPENROUTER_API_KEY for OCR")
+        raise RuntimeError("Missing API_KEY for Gemini OCR")
     if not model:
-        raise RuntimeError("Missing OPENROUTER_MODEL for OCR")
-
-    return api_key, model, base_url
+        raise RuntimeError("Missing MODEL for Gemini OCR")
+    return api_key, model
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -361,15 +348,122 @@ def _extract_json(text: str) -> dict[str, Any]:
     raise ValueError("Could not parse JSON object from OCR response")
 
 
-def _image_content_item(image_bytes: bytes, mime_type: str = "image/png") -> dict[str, Any]:
+def _image_gemini_part(image_bytes: bytes, mime_type: str = "image/png") -> dict[str, Any]:
     encoded = base64.b64encode(image_bytes).decode("utf-8")
-    return {
-        "type": "image_url",
-        "image_url": {
-            "url": f"data:{mime_type};base64,{encoded}",
-            "detail": "high",
+    return {"inline_data": {"mime_type": mime_type, "data": encoded}}
+
+
+def _run_gemini_ocr_chunk(
+    *,
+    page_images: list[PageImage],
+    prompt: str,
+    user_text: str,
+) -> dict[str, Any]:
+    api_key, model = _load_gemini_config()
+    attempts = max(1, int(getattr(settings, "OCR_GEMINI_MAX_ATTEMPTS", 7) or 7))
+    timeout_seconds = max(60, int(getattr(settings, "OCR_GEMINI_HTTP_TIMEOUT_SECONDS", 900) or 900))
+    retry_backoff_base = max(0.5, float(getattr(settings, "OCR_GEMINI_RETRY_BACKOFF_SECONDS", 2.0) or 2.0))
+
+    parts: list[dict[str, Any]] = [
+        {"text": prompt},
+        *[_image_gemini_part(img["bytes"], img["mime_type"]) for img in page_images],
+        {"text": user_text},
+    ]
+    payload = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {
+            "temperature": 0,
+            "responseMimeType": "application/json",
+            "maxOutputTokens": 65536,
         },
     }
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    req = request.Request(
+        url=url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    for attempt in range(1, attempts + 1):
+        try:
+            with request.urlopen(req, timeout=timeout_seconds) as response:
+                body = response.read().decode("utf-8")
+            break
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            # 5xx = Google-side transient (502/503/504), 429 = rate limit. Retry with backoff.
+            # 4xx (other than 429) = bad request / auth — won't change on retry, fail fast.
+            is_retryable = exc.code >= 500 or exc.code == 429
+            if not is_retryable or attempt >= attempts:
+                raise RuntimeError(f"Gemini OCR error {exc.code}: {detail or exc.reason}") from exc
+            backoff_s = min(30.0, retry_backoff_base * (2 ** (attempt - 1)))
+            print(
+                f"[pipeline][gemini-retry] attempt={attempt}/{attempts} status={exc.code} backoff_s={backoff_s}",
+                flush=True,
+            )
+            time.sleep(backoff_s)
+        except (http.client.IncompleteRead, TimeoutError, socket.timeout, error.URLError) as exc:
+            timeout_like = isinstance(exc, (TimeoutError, socket.timeout, http.client.IncompleteRead))
+            if isinstance(exc, error.URLError):
+                reason = getattr(exc, "reason", None)
+                timeout_like = isinstance(reason, (TimeoutError, socket.timeout)) or "timed out" in str(reason).lower()
+
+            if not timeout_like:
+                raise RuntimeError(f"Failed to call Gemini OCR: {exc}") from exc
+            if attempt >= attempts:
+                raise RuntimeError(
+                    "Failed to call Gemini OCR after retries due to timeout/network stall. "
+                    f"attempts={attempts} timeout_seconds={timeout_seconds} "
+                    f"chunk_pages={len(page_images)} max_request_encoded={MAX_REQUEST_ENCODED_BYTES}. "
+                    "Try lowering OCR_MAX_REQUEST_ENCODED_BYTES to force smaller chunks."
+                ) from exc
+            backoff_s = min(20.0, retry_backoff_base * attempt)
+            print(
+                f"[pipeline][gemini-retry] attempt={attempt}/{attempts} timeout/network backoff_s={backoff_s}",
+                flush=True,
+            )
+            time.sleep(backoff_s)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to call Gemini OCR: {exc}") from exc
+
+    response_payload = json.loads(body)
+    candidates = response_payload.get("candidates") or []
+    if not candidates:
+        raise RuntimeError("Gemini returned no candidates")
+
+    finish_reason = candidates[0].get("finishReason")
+    content = candidates[0].get("content") or {}
+    text_parts = content.get("parts") or []
+    text = "".join(part.get("text", "") for part in text_parts if isinstance(part, dict))
+
+    if finish_reason == "MAX_TOKENS":
+        # Output got truncated — JSON will be invalid. Fail clearly instead of
+        # raising an opaque parse error so chunking/limit can be tuned upstream.
+        raise RuntimeError(
+            f"Gemini OCR response truncated (finishReason=MAX_TOKENS, completion_tokens="
+            f"{(response_payload.get('usageMetadata') or {}).get('candidatesTokenCount')}). "
+            "Reduce pages per chunk via MAX_REQUEST_ENCODED_BYTES."
+        )
+
+    try:
+        parsed = _extract_json(text) if text.strip() else {}
+    except Exception as exc:
+        preview = (text or "").strip().replace("\n", " ")[:500]
+        raise RuntimeError(
+            f"Could not parse Gemini OCR JSON (finishReason={finish_reason}). "
+            f"model_output_preview={preview!r}"
+        ) from exc
+
+    usage_meta = response_payload.get("usageMetadata") or {}
+    parsed["_usage"] = {
+        "prompt_tokens": usage_meta.get("promptTokenCount", 0),
+        "completion_tokens": usage_meta.get("candidatesTokenCount", 0),
+        "total_tokens": usage_meta.get("totalTokenCount", 0),
+    }
+    parsed["_model"] = model
+    return parsed
 
 
 def _select_processor(*, bucket: str, module: str, document: Any) -> OcrProcessor | None:
@@ -543,97 +637,7 @@ def _merge_usage(existing: dict[str, Any], incoming: Any) -> dict[str, Any]:
     return merged
 
 
-def _run_openrouter_ocr_chunk(
-    *,
-    page_images: list[PageImage],
-    prompt: str,
-    user_text: str,
-) -> dict[str, Any]:
-    api_key, model, base_url = _load_openrouter_config()
-    payload = {
-        "model": model,
-        "temperature": 0,
-        "response_format": {"type": "json_object"},
-        "messages": [
-            {"role": "system", "content": prompt},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": user_text},
-                    *[
-                        _image_content_item(image["bytes"], image["mime_type"])
-                        for image in page_images
-                    ],
-                ],
-            },
-        ],
-    }
-
-    req = request.Request(
-        url=f"{base_url}/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-
-    attempts = 3
-    for attempt in range(1, attempts + 1):
-        try:
-            with request.urlopen(req, timeout=180) as response:
-                body = response.read().decode("utf-8")
-            break
-        except error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="ignore")
-            raise RuntimeError(f"OCR provider error {exc.code}: {detail or exc.reason}") from exc
-        except (http.client.IncompleteRead, TimeoutError) as exc:
-            if attempt >= attempts:
-                raise RuntimeError(f"Failed to call OCR provider: {exc}") from exc
-            time.sleep(1.5 * attempt)
-        except Exception as exc:
-            raise RuntimeError(f"Failed to call OCR provider: {exc}") from exc
-
-    response_payload = json.loads(body)
-    choices = response_payload.get("choices") or []
-    if not choices:
-        raise RuntimeError("OCR provider returned no choices")
-
-    message = choices[0].get("message") or {}
-    content = message.get("content")
-    if isinstance(content, list):
-        text = "".join(part.get("text", "") for part in content if isinstance(part, dict))
-    else:
-        text = str(content or "")
-
-    # Compatibility fallbacks across provider variants where text may be stored
-    # outside message.content or returned as an empty string.
-    if not text.strip():
-        choice_text = choices[0].get("text")
-        if isinstance(choice_text, str) and choice_text.strip():
-            text = choice_text
-    if not text.strip():
-        output_text = response_payload.get("output_text")
-        if isinstance(output_text, str) and output_text.strip():
-            text = output_text
-
-    try:
-        if not text.strip():
-            # Graceful fallback: persist an empty extraction shape instead of
-            # failing the full OCR pipeline when provider returns blank output.
-            parsed = {}
-        else:
-            parsed = _extract_json(text)
-    except Exception as exc:
-        preview = (text or "").strip().replace("\n", " ")[:500]
-        raise RuntimeError(f"Could not parse OCR JSON. model_output_preview={preview!r}") from exc
-    parsed["_usage"] = response_payload.get("usage") or {}
-    parsed["_model"] = response_payload.get("model") or model
-    return parsed
-
-
-def run_openrouter_ocr(*, page_images: list[PageImage], prompt: str) -> dict[str, Any]:
+def run_ocr(*, page_images: list[PageImage], prompt: str) -> dict[str, Any]:
     chunks = _chunk_page_images_for_ocr(page_images)
     if not chunks:
         return {"_usage": {}, "_model": None}
@@ -655,7 +659,7 @@ def run_openrouter_ocr(*, page_images: list[PageImage], prompt: str) -> dict[str
             total_chunks=len(chunks),
             merged_so_far=merged_payload,
         )
-        chunk_result = _run_openrouter_ocr_chunk(
+        chunk_result = _run_gemini_ocr_chunk(
             page_images=chunk["images"],
             prompt=prompt,
             user_text=user_text,
@@ -739,9 +743,9 @@ async def run_post_upload_ocr(
     print(f"[pipeline][status] documentId={document.id} status=PROCESSING", flush=True)
 
     try:
-        # OpenRouter call is blocking (urllib); run it in a thread so API loop stays responsive.
+        # Gemini call is blocking (urllib); run it in a thread so API loop stays responsive.
         raw_result = await asyncio.to_thread(
-            run_openrouter_ocr,
+            run_ocr,
             page_images=images,
             prompt=processor.build_prompt(),
         )
@@ -801,9 +805,12 @@ async def run_post_upload_ocr(
         return {"status": "failed", "reason": f"persist_error: {exc}"}
 
 
+run_openrouter_ocr = run_ocr  # noqa: E305 — backward-compat alias for sub-package callers
+
 __all__ = [
     "ValidationError",
     "load_page_images_for_document",
+    "run_ocr",
     "run_openrouter_ocr",
     "run_post_upload_ocr",
 ]

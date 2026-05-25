@@ -1,64 +1,12 @@
 from datetime import datetime, timezone
-from pathlib import Path
 import re
-from typing import Any
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from prisma import Json
 
 from documents_ocr.sales_invoice.prompt import build_sales_invoice_prompt
-
-
-PRISMA_MODEL_NAME = "SalesInvoiceExtraction"
-PRISMA_SCHEMA_FILE = Path(__file__).resolve().parents[2] / "prisma" / "schema.prisma"
-PRISMA_EXCLUDED_FIELDS = {
-    "id",
-    "documentId",
-    "rawData",
-    "extractedAt",
-    "reviewedBy",
-    "reviewedAt",
-    "createdAt",
-    "updatedAt",
-    "document",
-}
-ARRAY_FIELDS = ["lineItems"]
-
-
-def _load_model_fields_from_prisma(*, model_name: str, schema_path: Path) -> list[str]:
-    text = schema_path.read_text(encoding="utf-8")
-    lines = text.splitlines()
-    in_model = False
-
-    fields: list[str] = []
-    for raw_line in lines:
-        line = raw_line.strip()
-
-        if not in_model:
-            if line.startswith(f"model {model_name} ") and line.endswith("{"):
-                in_model = True
-            continue
-
-        if line == "}":
-            break
-
-        if not line or line.startswith("//") or line.startswith("@@"):
-            continue
-
-        # Prisma field lines begin with `<name> <type>`.
-        parts = line.split()
-        if len(parts) < 2:
-            continue
-        field_name = parts[0]
-        if field_name.startswith("@") or field_name in PRISMA_EXCLUDED_FIELDS:
-            continue
-        fields.append(field_name)
-
-    if not in_model:
-        raise RuntimeError(f"Model {model_name} not found in Prisma schema: {schema_path}")
-    if not fields:
-        raise RuntimeError(f"No fields parsed for model {model_name} from {schema_path}")
-    return fields
+from documents_ocr.schema_loader import load_extraction_schema
 
 
 def _section_for_field(field_name: str) -> str:
@@ -158,7 +106,7 @@ def _build_section_field_map(scalar_fields: list[str]) -> dict[str, list[str]]:
         "footer": [],
     }
     for field_name in scalar_fields:
-        if field_name in ARRAY_FIELDS:
+        if field_name in ARRAY_FIELDS or field_name == "documentType":
             continue
         mapping[_section_for_field(field_name)].append(field_name)
     return mapping
@@ -172,8 +120,10 @@ def _build_section_model(name: str, fields: list[str]) -> type[BaseModel]:
     return type(name, (BaseModel,), namespace)
 
 
-SCHEMA_FIELDS = _load_model_fields_from_prisma(model_name=PRISMA_MODEL_NAME, schema_path=PRISMA_SCHEMA_FILE)
-SCALAR_FIELDS = [field for field in SCHEMA_FIELDS if field not in ARRAY_FIELDS]
+_SCHEMA = load_extraction_schema(parent_model="SalesInvoiceExtraction")
+SCALAR_FIELDS = _SCHEMA.scalar_fields
+ARRAY_FIELDS = _SCHEMA.array_fields
+ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
 SECTION_FIELD_MAP = _build_section_field_map(SCALAR_FIELDS)
 
 ComplianceSection = _build_section_model("ComplianceSection", SECTION_FIELD_MAP["compliance"])
@@ -184,29 +134,11 @@ ShipmentSection = _build_section_model("ShipmentSection", SECTION_FIELD_MAP["shi
 FooterSection = _build_section_model("FooterSection", SECTION_FIELD_MAP["footer"])
 
 
-class SalesInvoiceLineItem(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    productCode: str | None = None
-    productDescription: str | None = None
-    productSpecification: str | None = None
-    quantity: str | None = None
-    unit: str | None = None
-    rate: str | None = None
-    lineTotal: str | None = None
-    hsnCode: str | None = None
-    noOfPackages: str | None = None
-    kindOfPkg: str | None = None
-    productMarks: str | None = None
-    containerNo: str | None = None
-    sealNo: str | None = None
-    boCode: str | None = None
-
-
 class SalesInvoiceStructuredResult(BaseModel):
     model_config = ConfigDict(extra="allow")
+    __array_field_schema__: ClassVar[dict[str, list[str]]] = ARRAY_ITEM_FIELDS
 
-    source: str | None = "OpenRouter"
+    source: str | None = None
     documentType: str | None = "Sales Invoices"
     compliance: ComplianceSection = Field(default_factory=ComplianceSection)
     entities: EntitiesSection = Field(default_factory=EntitiesSection)
@@ -214,7 +146,7 @@ class SalesInvoiceStructuredResult(BaseModel):
     header: HeaderSection = Field(default_factory=HeaderSection)
     shipment: ShipmentSection = Field(default_factory=ShipmentSection)
     footer: FooterSection = Field(default_factory=FooterSection)
-    lineItems: list[SalesInvoiceLineItem] = Field(default_factory=list)
+    lineItems: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def matches_sales_invoice(*, bucket: str, module: str, document: Any) -> bool:
@@ -246,6 +178,39 @@ def _coerce_string(value: Any) -> str | None:
     return text or None
 
 
+def normalize_array_field_payload(*, value: Any, expected_fields: list[str]) -> list[dict[str, Any]]:
+    if value is None:
+        source_items: list[dict[str, Any]] = []
+    elif isinstance(value, dict):
+        source_items = [value]
+    elif isinstance(value, list):
+        source_items = [item for item in value if isinstance(item, dict)]
+    else:
+        source_items = []
+
+    if not expected_fields:
+        normalized: list[dict[str, Any]] = []
+        for item in source_items:
+            normalized_item: dict[str, Any] = {}
+            for key, raw in item.items():
+                normalized_item[key] = raw if raw is None or isinstance(raw, str) else _coerce_string(raw)
+            normalized.append(normalized_item)
+        return normalized
+
+    normalized_items: list[dict[str, Any]] = []
+    for item in source_items:
+        normalized_item: dict[str, Any] = {}
+        for field_name in expected_fields:
+            raw = item.get(field_name)
+            normalized_item[field_name] = raw if raw is None or isinstance(raw, str) else _coerce_string(raw)
+        for key, raw in item.items():
+            if key in normalized_item:
+                continue
+            normalized_item[key] = raw if raw is None or isinstance(raw, str) else _coerce_string(raw)
+        normalized_items.append(normalized_item)
+    return normalized_items
+
+
 def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(payload or {})
 
@@ -259,27 +224,11 @@ def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 section_payload[field_name] = _coerce_string(value)
         normalized[section_name] = section_payload
 
-    line_items = normalized.get("lineItems")
-    if line_items is None:
-        normalized["lineItems"] = []
-    elif isinstance(line_items, dict):
-        normalized["lineItems"] = [line_items]
-    elif isinstance(line_items, list):
-        normalized_items: list[dict[str, Any]] = []
-        for item in line_items:
-            if isinstance(item, dict):
-                normalized_item: dict[str, Any] = {}
-                for key, value in item.items():
-                    if value is None:
-                        normalized_item[key] = None
-                    elif isinstance(value, str):
-                        normalized_item[key] = value
-                    else:
-                        normalized_item[key] = _coerce_string(value)
-                normalized_items.append(normalized_item)
-        normalized["lineItems"] = normalized_items
-    else:
-        normalized["lineItems"] = []
+    for field_name in ARRAY_FIELDS:
+        normalized[field_name] = normalize_array_field_payload(
+            value=normalized.get(field_name),
+            expected_fields=ARRAY_ITEM_FIELDS.get(field_name, []),
+        )
 
     return normalized
 
@@ -306,7 +255,12 @@ def to_prisma_data(
     for field_name in SCALAR_FIELDS:
         data[field_name] = _coerce_string(flattened_scalars.get(field_name))
 
-    data["lineItems"] = Json([item.model_dump(mode="json", exclude_none=True) for item in result.lineItems])
+    for field_name in ARRAY_FIELDS:
+        value = payload.get(field_name)
+        if value is None:
+            data[field_name] = None
+        else:
+            data[field_name] = Json(value)
     data["rawData"] = Json(raw_data)
     data["extractedAt"] = datetime.now(timezone.utc)
     return data

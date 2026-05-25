@@ -6,11 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from prisma import Json
 
 from documents_ocr.Bill_of_lading.prompt import build_bill_of_lading_prompt
+from documents_ocr.schema_loader import load_extraction_schema
 
 
-SCALAR_FIELDS = ['bolNumber','shipmentReferenceNumber','negotiability','projectName','shipsRemarks','documentCategory','carrierCompanyName','carrierMtoRegistrationNumber','carrierFmcNumber','shipperName','shipperAddress','consigneeName','consigneeAddress','consigneeContactName','consigneePhone','consigneeEmail','notifyPartyName','notifyPartyAddress','notifyPartyEmail','notifyPartyPhone','secondNotifyName','secondNotifyAddress','deliveryAgentName','deliveryAgentAddress','deliveryAgentPhone','deliveryAgentEmail','placeOfAcceptance','portOfLoading','placeOfReceipt','countryOfOrigin','portOfDischarge','finalDestination','placeOfDelivery','transhipmentPlace','vesselName','vesselVoyageNumber','shippedOnBoardDate','vesselCarrierName','marksAndNumbers','packageSummary','totalPackages','totalContainers','goodsDescription','grossWeight','grossWeightUnit','netWeight','netWeightUnit','measurementCbm','usHsnc','iecNumber','freightAmount','freightPayableAt','freightType','fobCharges','issuancePlace','issuanceDate','numberOfOriginals','charterPartyDate','exportInvoiceNumber','exportInvoiceDate','exportShippingBillNumber','exportShippingBillDate']
-ARRAY_FIELDS = ['exportInvoices','containers','shippingBills']
-ARRAY_ITEM_FIELDS: dict[str, list[str]] = {field_name: [] for field_name in ARRAY_FIELDS}
+_SCHEMA = load_extraction_schema(parent_model="BillOfLading")
+SCALAR_FIELDS = _SCHEMA.scalar_fields
+ARRAY_FIELDS = _SCHEMA.array_fields
+ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
 
 
 
@@ -69,7 +71,7 @@ class BillOfLadingStructuredResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     __array_field_schema__: ClassVar[dict[str, list[str]]] = ARRAY_ITEM_FIELDS
 
-    source: str | None = "OpenRouter"
+    source: str | None = None
     documentType: str | None = "Bill of Lading"
     compliance: ComplianceSection = Field(default_factory=ComplianceSection)
     entities: EntitiesSection = Field(default_factory=EntitiesSection)

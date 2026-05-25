@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from pypdf import PdfReader
 
 from db import get_prisma
-from documents_ocr.queue import enqueue_openrouter_job, enqueue_upload_job
+from documents_ocr.queue import enqueue_ocr_job, enqueue_upload_job
 from helpers.config import settings
 from helpers.dependencies import get_current_user
 from objectstore import (
@@ -810,8 +810,8 @@ async def retry_document_ocr(document_id: str, user=Depends(get_current_user)):
         data={"status": "REPROCESSING"},
     )
 
-    # Retry route intentionally bypasses upload queue and triggers only openrouter stage.
-    await enqueue_openrouter_job(
+    # Retry route intentionally bypasses upload queue and triggers only the OCR stage.
+    await enqueue_ocr_job(
         document_id=document_id,
         bucket=str(document.bucket),
         module=DEFAULT_MODULE,
@@ -822,5 +822,5 @@ async def retry_document_ocr(document_id: str, user=Depends(get_current_user)):
         status="success",
         message="Document OCR retry queued",
         documentId=document_id,
-        queue="openrouter_worker",
+        queue="ocr_worker",
     )

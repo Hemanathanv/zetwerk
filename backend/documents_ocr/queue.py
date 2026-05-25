@@ -14,9 +14,9 @@ from documents_ocr.pipeline import run_post_upload_ocr
 from objectstore import build_object_key, download_bytes, upload_bytes
 
 UPLOAD_QUEUE = "arq:documents_ocr:upload_worker"
-OPENROUTER_QUEUE = "arq:documents_ocr:openrouter_worker"
+OCR_QUEUE = "arq:documents_ocr:ocr_worker"
 UPLOAD_JOB_NAME = "process_upload_job"
-OPENROUTER_JOB_NAME = "process_openrouter_job"
+OCR_JOB_NAME = "process_ocr_job"
 PROCESSING_STALE_SECONDS = 15 * 60
 POPPLER_BIN = Path("/usr/bin")
 
@@ -57,7 +57,7 @@ async def enqueue_upload_job(*, document_id: str, bucket: str, module: str) -> N
     )
 
 
-async def enqueue_openrouter_job(
+async def enqueue_ocr_job(
     *,
     document_id: str,
     bucket: str,
@@ -72,17 +72,17 @@ async def enqueue_openrouter_job(
     }
     redis = await get_arq_redis()
     print(
-        f"[arq][enqueue] queue={OPENROUTER_QUEUE} job={OPENROUTER_JOB_NAME} payload={payload}",
+        f"[arq][enqueue] queue={OCR_QUEUE} job={OCR_JOB_NAME} payload={payload}",
         flush=True,
     )
-    job_id = f"openrouter:{document_id}:{uuid4().hex}"
+    job_id = f"ocr:{document_id}:{uuid4().hex}"
     await redis.enqueue_job(
-        OPENROUTER_JOB_NAME,
+        OCR_JOB_NAME,
         payload,
-        _queue_name=OPENROUTER_QUEUE,
+        _queue_name=OCR_QUEUE,
         _job_id=job_id,
     )
-    print(f"[arq][enqueue] queue={OPENROUTER_QUEUE} job_id={job_id}", flush=True)
+    print(f"[arq][enqueue] queue={OCR_QUEUE} job_id={job_id}", flush=True)
 
 
 async def process_upload_job(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
@@ -118,9 +118,9 @@ async def process_upload_job(ctx: dict[str, Any], payload: dict[str, Any]) -> di
         data={"status": "QUEUED"},
     )
     print(f"[arq][upload] status->QUEUED documentId={document_id}", flush=True)
-    await enqueue_openrouter_job(document_id=document_id, bucket=bucket, module=module)
-    print(f"[arq][upload] enqueued_next queue={OPENROUTER_QUEUE} documentId={document_id}", flush=True)
-    return {"status": "queued", "next": OPENROUTER_QUEUE, "documentId": document_id}
+    await enqueue_ocr_job(document_id=document_id, bucket=bucket, module=module)
+    print(f"[arq][upload] enqueued_next queue={OCR_QUEUE} documentId={document_id}", flush=True)
+    return {"status": "queued", "next": OCR_QUEUE, "documentId": document_id}
 
 
 async def _ensure_document_pages(*, prisma, document: Any, module: str) -> None:
@@ -187,24 +187,24 @@ async def _ensure_document_pages(*, prisma, document: Any, module: str) -> None:
         )
 
 
-async def process_openrouter_job(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+async def process_ocr_job(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     prisma = await get_prisma()
     document_id = str(payload["documentId"])
     bucket = str(payload["bucket"])
     module = str(payload["module"])
     force_reprocess = bool(payload.get("forceReprocess", False))
     print(
-        f"[arq][openrouter] start documentId={document_id} bucket={bucket} module={module}",
+        f"[arq][ocr] start documentId={document_id} bucket={bucket} module={module}",
         flush=True,
     )
 
     document = await prisma.document.find_unique(where={"id": document_id})
     if not document:
-        print(f"[arq][openrouter] skipped documentId={document_id} reason=document_not_found", flush=True)
+        print(f"[arq][ocr] skipped documentId={document_id} reason=document_not_found", flush=True)
         return {"status": "skipped", "reason": "document_not_found", "documentId": document_id}
     if str(getattr(document, "status", "")) == "EXTRACTED":
         print(
-            f"[arq][openrouter] skipped documentId={document_id} reason=already_extracted",
+            f"[arq][ocr] skipped documentId={document_id} reason=already_extracted",
             flush=True,
         )
         return {"status": "skipped", "reason": "already_extracted", "documentId": document_id}
@@ -216,12 +216,12 @@ async def process_openrouter_job(ctx: dict[str, Any], payload: dict[str, Any]) -
         is_stale = processing_age_s is not None and processing_age_s >= PROCESSING_STALE_SECONDS
         if force_reprocess or is_stale:
             print(
-                f"[arq][openrouter] reprocess documentId={document_id} reason={'force' if force_reprocess else 'stale_processing'} age_s={processing_age_s}",
+                f"[arq][ocr] reprocess documentId={document_id} reason={'force' if force_reprocess else 'stale_processing'} age_s={processing_age_s}",
                 flush=True,
             )
         else:
             print(
-                f"[arq][openrouter] skipped documentId={document_id} reason=already_processing",
+                f"[arq][ocr] skipped documentId={document_id} reason=already_processing",
                 flush=True,
             )
             return {"status": "skipped", "reason": "already_processing", "documentId": document_id}
@@ -241,12 +241,12 @@ async def process_openrouter_job(ctx: dict[str, Any], payload: dict[str, Any]) -
                 data={"status": "UPLOADED"},
             )
             print(
-                f"[arq][openrouter] timeout_cancelled documentId={document_id} status->UPLOADED",
+                f"[arq][ocr] timeout_cancelled documentId={document_id} status->UPLOADED",
                 flush=True,
             )
         except Exception as update_exc:
             print(
-                f"[arq][openrouter] timeout_cancelled update_failed documentId={document_id} error={update_exc}",
+                f"[arq][ocr] timeout_cancelled update_failed documentId={document_id} error={update_exc}",
                 flush=True,
             )
         return {"status": "failed", "reason": "timeout_cancelled", "documentId": document_id}
@@ -257,12 +257,12 @@ async def process_openrouter_job(ctx: dict[str, Any], payload: dict[str, Any]) -
                 data={"status": "UPLOADED"},
             )
             print(
-                f"[arq][openrouter] failed documentId={document_id} status->UPLOADED error={exc}",
+                f"[arq][ocr] failed documentId={document_id} status->UPLOADED error={exc}",
                 flush=True,
             )
         except Exception as update_exc:
             print(
-                f"[arq][openrouter] failed update_failed documentId={document_id} error={update_exc}",
+                f"[arq][ocr] failed update_failed documentId={document_id} error={update_exc}",
                 flush=True,
             )
         return {"status": "failed", "reason": str(exc), "documentId": document_id}
@@ -304,29 +304,29 @@ class UploadWorkerSettings:
     on_shutdown = shutdown
 
 
-class OpenrouterWorkerSettings:
-    functions = [process_openrouter_job]
+class OcrWorkerSettings:
+    functions = [process_ocr_job]
     redis_settings = get_arq_redis_settings()
-    queue_name = OPENROUTER_QUEUE
+    queue_name = OCR_QUEUE
     # 0 or negative means no timeout (wait until provider responds).
-    job_timeout = settings.OPENROUTER_JOB_TIMEOUT_SECONDS if settings.OPENROUTER_JOB_TIMEOUT_SECONDS > 0 else None
+    job_timeout = settings.OCR_JOB_TIMEOUT_SECONDS if settings.OCR_JOB_TIMEOUT_SECONDS > 0 else None
     max_tries = 1
     on_startup = startup
     on_shutdown = shutdown
 
 
 __all__ = [
-    "OPENROUTER_JOB_NAME",
-    "OPENROUTER_QUEUE",
+    "OCR_JOB_NAME",
+    "OCR_QUEUE",
     "UPLOAD_JOB_NAME",
     "UPLOAD_QUEUE",
     "UploadWorkerSettings",
-    "OpenrouterWorkerSettings",
+    "OcrWorkerSettings",
     "close_arq_redis",
-    "enqueue_openrouter_job",
+    "enqueue_ocr_job",
     "enqueue_upload_job",
     "get_arq_redis",
     "get_arq_redis_settings",
-    "process_openrouter_job",
+    "process_ocr_job",
     "process_upload_job",
 ]

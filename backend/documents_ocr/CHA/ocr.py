@@ -6,13 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from prisma import Json
 
 from documents_ocr.CHA.prompt import build_cha_prompt
+from documents_ocr.schema_loader import load_extraction_schema
 
 
-SCALAR_FIELDS = ['documentType','taxType','issuerCompanyName','issuerAddress','issuerCin','issuerPan','issuerGstin','issuerPhone','issuerEmail','issuerWebsite','issuerMsmeUdyam','issuerStateCode','documentTitle','invoiceNumber','invoiceDate','dueDate','paymentTerms','copyType','irn','irnAckNumber','irnAckTime','customerName','customerAddress','customerGstin','customerPan','customerCustomerId','customerStateCode','customerStateOfSupply','customerPlaceOfSupply','customerReverseCharge','customerShipmentNumber','shipmentShipper','shipmentShipperAddress','shipmentConsignee','shipmentConsigneeAddress','shipmentOrderReference','shipmentIncoterm','shipmentGoodsDescription','shipmentCommodityNote','shipmentGrossWeight','shipmentGrossWeightUnit','shipmentVolume','shipmentChargeableWeight','shipmentPackages','shipmentVesselVoyageImo','shipmentVesselName','shipmentMbl','shipmentHbl','shipmentImportCustomsBroker','shipmentOrigin','shipmentEtd','shipmentDestination','shipmentEta','jobNumber','jobDate','jobDocNumber','jobPolPod','jobProjectName','jobPreparedBy','jobApprovedBy','containersRaw','totalsSubtotal','totalsIgstAmount','totalsCgstAmount','totalsSgstAmount','totalsGrandTotalInr','totalsInvoiceAmountPage2','totalsAmountInWords','totalsNetAmount','lutBondReference','digitalSignature','bookingNumber','remarks','qrRawJwt','qrIssuer','qrSellerGstin','qrBuyerGstin','qrDocNo','qrDocType','qrDocDate','qrTotalInvValue','qrItemCount','qrMainHsnCode','qrIrn','qrIrnDate','qrSignatureAlgorithm','extractionConfidence']
-ARRAY_FIELDS = ['containers','charges','taxSummary','bankDetails','flags']
-ARRAY_ITEM_FIELDS: dict[str, list[str]] = {field_name: [] for field_name in ARRAY_FIELDS}
-
-
+_SCHEMA = load_extraction_schema(parent_model="ChaBillExtraction")
+SCALAR_FIELDS = _SCHEMA.scalar_fields
+ARRAY_FIELDS = _SCHEMA.array_fields
+ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
 
 
 def _section_for_field(field_name: str) -> str:
@@ -69,7 +69,7 @@ class ChaBillStructuredResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     __array_field_schema__: ClassVar[dict[str, list[str]]] = ARRAY_ITEM_FIELDS
 
-    source: str | None = "OpenRouter"
+    source: str | None = None
     documentType: str | None = "CHA Bill"
     compliance: ComplianceSection = Field(default_factory=ComplianceSection)
     entities: EntitiesSection = Field(default_factory=EntitiesSection)

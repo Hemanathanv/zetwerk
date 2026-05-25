@@ -6,12 +6,13 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from prisma import Json
 
 from documents_ocr.Customer_broker_bill.prompt import build_customer_broker_bill_prompt
+from documents_ocr.schema_loader import load_extraction_schema
 
 
-SCALAR_FIELDS = ['invoiceNumber', 'invoiceDate', 'customerId', 'paymentTerms', 'dueDate', 'billTo', 'billToAddress', 'shipper', 'consignee', 'vesselVoyage', 'origin', 'destination', 'originEtdDestinationEta', 'oceanBol', 'houseBol', 'bookingNumber', 'imoLloyds', 'containers', 'goodsDescription', 'weightPiecesUnits', 'volume', 'poNumberProjectReference', 'supplierInvoiceNumbers', 'declarationNumber', 'entryNumber', 'subtotal', 'totalAmount', 'bankName', 'accountNumberAbaRouting', 'swiftCodeWireReference', 'remitToAddress', 'contactName', 'contactPhone']
-ARRAY_FIELDS = ['lineItems']
-ARRAY_ITEM_FIELDS: dict[str, list[str]] = {'lineItems': ['chargeDescription', 'quantity', 'unitPrice', 'amount']}
-
+_SCHEMA = load_extraction_schema(parent_model="CustomerBrokerBillExtraction")
+SCALAR_FIELDS = _SCHEMA.scalar_fields
+ARRAY_FIELDS = _SCHEMA.array_fields
+ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
 
 
 def _section_for_field(field_name: str) -> str:
@@ -68,7 +69,7 @@ class CustomerBrokerBillStructuredResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     __array_field_schema__: ClassVar[dict[str, list[str]]] = ARRAY_ITEM_FIELDS
 
-    source: str | None = "OpenRouter"
+    source: str | None = None
     documentType: str | None = "Customer Broker Bill"
     compliance: ComplianceSection = Field(default_factory=ComplianceSection)
     entities: EntitiesSection = Field(default_factory=EntitiesSection)

@@ -404,7 +404,6 @@ model BillOfLading {
   id                  String    @id @default(uuid())
   documentId          String    @unique @map("document_id")
 
-  documentTitle           String? @map("document_title")
   bolNumber               String? @map("bol_number")
   shipmentReferenceNumber String? @map("shipment_reference_number")
   negotiability           String?
@@ -980,7 +979,6 @@ model GrnInboundExtraction {
   documentType               String? @map("document_type")
   logisticsProvider          String? @map("logistics_provider")
   accountName                String? @map("account_name")
-  documentTitle              String? @map("document_title")
   containerNumber            String? @map("container_number")
   containerSize              String? @map("container_size")
   containerType              String? @map("container_type")
@@ -1774,7 +1772,6 @@ model ChaBillExtraction {
   issuerStateCode   String? @map("issuer_state_code")
 
   // Invoice Identification
-  documentTitle String? @map("document_title")
   invoiceNumber String? @map("invoice_number")
   invoiceDate   String? @map("invoice_date")
   dueDate       String? @map("due_date")
