@@ -1,9 +1,14 @@
 from datetime import datetime, timezone
+import json
 import re
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from prisma import Json
+try:
+    from prisma import Json
+except ImportError:
+    def Json(value: Any) -> Any:
+        return value
 
 from documents_ocr.CHA.prompt import build_cha_prompt
 from documents_ocr.schema_loader import load_extraction_schema
@@ -110,15 +115,234 @@ def _coerce_string(value: Any) -> str | None:
     return text or None
 
 
-def normalize_array_field_payload(*, value: Any, expected_fields: list[str]) -> list[dict[str, Any]]:
+_CONTAINER_NUMBER_RE = re.compile(r"\b[A-Z]{4}\d{7}\b", re.IGNORECASE)
+_CONTAINER_TYPE_RE = re.compile(r"\b(?:20|40|45)\s?(?:GP|HC|HQ|DV|DC|RF|OT|FR|NOR|STD|ST|FT|RH)?\b", re.IGNORECASE)
+
+
+FIELD_ALIASES: dict[str, dict[str, tuple[str, ...]]] = {
+    "charges": {
+        "lineNumber": ("line_number", "lineNo", "line_no", "srNo", "sr_no"),
+        "sacHsnCode": ("sac_hsn_code", "hsnSac", "hsn_sac", "hsnCode", "hsn_code"),
+        "description": ("chargeDescription", "charge_description", "particulars", "charge", "name"),
+        "quantity": ("qty",),
+        "ratePerUnit": ("rate_per_unit", "rate", "unitRate", "unit_rate"),
+        "rate": ("rate_per_unit", "rate", "unitRate", "unit_rate"),
+        "currencyAmount": ("currency_amount", "foreignCurrencyAmount", "foreign_currency_amount"),
+        "foreignCurrencyAmount": ("foreign_currency_amount", "currencyAmount", "currency_amount"),
+        "taxableAmount": ("taxable_amount", "taxableAmountInr", "taxable_amount_inr"),
+        "taxableAmountInr": ("taxable_amount_inr", "taxableAmount", "taxable_amount"),
+        "taxRatePct": ("tax_rate_pct", "taxRate", "tax_rate", "igstRate", "igst_rate"),
+        "amountInr": ("amount_inr", "totalAmount", "total_amount"),
+        "totalAmount": ("total_amount", "amountInr", "amount_inr"),
+        "roundOff": ("round_off",),
+        "igstRate": ("igst_rate",),
+        "igstAmount": ("igst_amount",),
+        "cgstRate": ("cgst_rate",),
+        "cgstAmount": ("cgst_amount",),
+        "sgstRate": ("sgst_rate",),
+        "sgstAmount": ("sgst_amount",),
+        "detentionDetails": ("detention_details",),
+        "taxInfo": ("tax_info",),
+    },
+    "taxSummary": {
+        "summaryEntry": ("summary_entry",),
+        "hsnSac": ("hsn_sac", "hsnSac", "sacHsnCode", "sac_hsn_code"),
+        "taxableAmount": ("taxable_amount", "taxableAmountInr", "taxable_amount_inr"),
+        "igst": ("igst_amount", "igstAmount"),
+        "cgst": ("cgst_amount", "cgstAmount"),
+        "sgst": ("sgst_amount", "sgstAmount"),
+        "totalAmount": ("total_amount", "amountInr", "amount_inr"),
+    },
+    "bankDetails": {
+        "beneficiaryName": ("beneficiary_name", "accountName", "account_name"),
+        "bankName": ("bank_name",),
+        "accountNumber": ("account_number",),
+        "branchCode": ("branch_code",),
+        "swiftCode": ("swift_code",),
+        "ifscCode": ("ifsc_code",),
+        "routingNumber": ("routing_number",),
+        "branchAddress": ("branch_address",),
+        "accountType": ("account_type",),
+    },
+}
+
+
+def _clean_text(value: Any) -> str | None:
+    text = _coerce_string(value)
+    if text is None:
+        return None
+    return re.sub(r"\s+", " ", text).strip(" ,;/")
+
+
+def _parse_json_like(value: str) -> Any | None:
+    stripped = value.strip()
+    if not stripped or stripped[0] not in "[{":
+        return None
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+
+
+def _array_source_items(value: Any) -> list[Any]:
     if value is None:
-        source_items: list[dict[str, Any]] = []
-    elif isinstance(value, dict):
-        source_items = [value]
-    elif isinstance(value, list):
-        source_items = [item for item in value if isinstance(item, dict)]
-    else:
-        source_items = []
+        return []
+    if isinstance(value, str):
+        parsed = _parse_json_like(value)
+        if parsed is not None:
+            return _array_source_items(parsed)
+        return [value]
+    if isinstance(value, dict):
+        for key in ("items", "rows", "list", "data"):
+            nested = value.get(key)
+            if nested is not None:
+                return _array_source_items(nested)
+        return [value]
+    if isinstance(value, list):
+        return value
+    return []
+
+
+def _get_alias_value(item: dict[str, Any], field_name: str, aliases: dict[str, tuple[str, ...]]) -> Any:
+    if field_name in item:
+        return item.get(field_name)
+    for alias in aliases.get(field_name, ()):
+        if alias in item:
+            return item.get(alias)
+    return None
+
+
+def _normalize_structured_rows(*, value: Any, expected_fields: list[str], aliases: dict[str, tuple[str, ...]] | None = None) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for raw_item in _array_source_items(value):
+        if not isinstance(raw_item, dict):
+            continue
+        normalized_item: dict[str, Any] = {}
+        for field_name in expected_fields:
+            raw = _get_alias_value(raw_item, field_name, aliases or {})
+            normalized_item[field_name] = raw if raw is None or isinstance(raw, str) else _coerce_string(raw)
+        rows.append(normalized_item)
+    return rows
+
+
+def _format_container_detail(number: str | None, container_type: str | None) -> str | None:
+    if number and container_type:
+        return f"{number}-{container_type}"
+    return number or container_type
+
+
+def _split_container_detail(value: Any) -> dict[str, str | None] | None:
+    if isinstance(value, dict):
+        number = _clean_text(
+            value.get("containerNumber")
+            or value.get("containerNo")
+            or value.get("container_no")
+            or value.get("number")
+            or value.get("no")
+        )
+        container_type = _clean_text(
+            value.get("containerType")
+            or value.get("containerSizeType")
+            or value.get("container_type")
+            or value.get("type")
+            or value.get("sizeType")
+        )
+        detail = _clean_text(
+            value.get("containerDetail")
+            or value.get("container")
+            or value.get("detail")
+            or value.get("value")
+        )
+        if detail and (not number or not container_type):
+            parsed = _split_container_detail(detail)
+            if parsed:
+                number = number or parsed.get("containerNumber")
+                container_type = container_type or parsed.get("containerType")
+        if not detail:
+            detail = _format_container_detail(number, container_type)
+        if not any((number, container_type, detail)):
+            return None
+        return {
+            "containerDetail": detail,
+            "containerNumber": number,
+            "containerType": container_type,
+        }
+
+    text = _clean_text(value)
+    if not text:
+        return None
+
+    parsed_json = _parse_json_like(text)
+    if parsed_json is not None:
+        rows = _collect_container_rows(parsed_json)
+        return rows[0] if rows else None
+
+    number_match = _CONTAINER_NUMBER_RE.search(text)
+    number = number_match.group(0).upper() if number_match else None
+    remainder = text
+    if number_match:
+        remainder = (text[: number_match.start()] + " " + text[number_match.end() :]).strip(" -/:,;")
+
+    type_match = _CONTAINER_TYPE_RE.search(remainder)
+    container_type = type_match.group(0).upper().replace(" ", "") if type_match else None
+    if not container_type and remainder and number:
+        container_type = remainder.split("/", 1)[0].strip(" -/:,;") or None
+
+    return {
+        "containerDetail": _format_container_detail(number, container_type) or text,
+        "containerNumber": number,
+        "containerType": container_type,
+    }
+
+
+def _collect_container_rows(value: Any) -> list[dict[str, str | None]]:
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        for key in ("containers", "items", "list", "rows"):
+            nested = value.get(key)
+            if nested is not None:
+                return _collect_container_rows(nested)
+        parsed = _split_container_detail(value)
+        return [parsed] if parsed else []
+    if isinstance(value, list):
+        rows: list[dict[str, str | None]] = []
+        for item in value:
+            rows.extend(_collect_container_rows(item))
+        return rows
+
+    text = _clean_text(value)
+    if not text:
+        return []
+    parsed_json = _parse_json_like(text)
+    if parsed_json is not None:
+        return _collect_container_rows(parsed_json)
+
+    parts = [part.strip() for part in re.split(r"\s*,\s*", text) if part.strip()]
+    if len(parts) > 1:
+        rows: list[dict[str, str | None]] = []
+        for part in parts:
+            parsed = _split_container_detail(part)
+            if parsed:
+                rows.append(parsed)
+        return rows
+
+    parsed = _split_container_detail(text)
+    return [parsed] if parsed else []
+
+
+def _normalize_containers_payload(*, value: Any, expected_fields: list[str]) -> list[dict[str, Any]]:
+    rows = _collect_container_rows(value)
+    fields = expected_fields or ["containerDetail", "containerNumber", "containerType"]
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        item = {field_name: row.get(field_name) for field_name in fields}
+        normalized.append(item)
+    return normalized
+
+
+def normalize_array_field_payload(*, value: Any, expected_fields: list[str]) -> list[dict[str, Any]]:
+    source_items = [item for item in _array_source_items(value) if isinstance(item, dict)]
 
     if not expected_fields:
         normalized: list[dict[str, Any]] = []
@@ -145,6 +369,12 @@ def normalize_array_field_payload(*, value: Any, expected_fields: list[str]) -> 
 
 def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(payload or {})
+    if normalized.get("taxSummary") is None and normalized.get("tax_summary") is not None:
+        normalized["taxSummary"] = normalized.get("tax_summary")
+    if normalized.get("bankDetails") is None and normalized.get("bank_details") is not None:
+        normalized["bankDetails"] = normalized.get("bank_details")
+    if normalized.get("containers") is None and normalized.get("containersRaw") is not None:
+        normalized["containers"] = normalized.get("containersRaw")
 
     for section_name, field_names in SECTION_FIELD_MAP.items():
         section_payload = dict(normalized.get(section_name) or {})
@@ -157,10 +387,27 @@ def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
         normalized[section_name] = section_payload
 
     for field_name in ARRAY_FIELDS:
-        normalized[field_name] = normalize_array_field_payload(
-            value=normalized.get(field_name),
-            expected_fields=ARRAY_ITEM_FIELDS.get(field_name, []),
-        )
+        expected_fields = ARRAY_ITEM_FIELDS.get(field_name, [])
+        if field_name == "containers":
+            normalized[field_name] = _normalize_containers_payload(
+                value=normalized.get(field_name),
+                expected_fields=expected_fields,
+            )
+        elif field_name in FIELD_ALIASES:
+            normalized[field_name] = _normalize_structured_rows(
+                value=normalized.get(field_name),
+                expected_fields=expected_fields,
+                aliases=FIELD_ALIASES[field_name],
+            )
+            if field_name == "charges":
+                for index, row in enumerate(normalized[field_name], start=1):
+                    if not _clean_text(row.get("lineNumber")):
+                        row["lineNumber"] = str(index)
+        else:
+            normalized[field_name] = normalize_array_field_payload(
+                value=normalized.get(field_name),
+                expected_fields=expected_fields,
+            )
 
     return normalized
 

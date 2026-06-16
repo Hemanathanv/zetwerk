@@ -8,7 +8,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["auth","public","dashboard","aiextraction"]
+  schemas  = ["auth","public","dashboard","aiextraction","docgen"]
   url      = env("DATABASE_URL")
 }
 
@@ -170,6 +170,34 @@ enum DocumentStatus {
   @@schema("public")
 }
 
+enum DocGenerationStatus {
+  DRAFT
+  IN_REVIEW
+  CONFIRMED
+  GENERATED
+  ARCHIVED
+
+  @@schema("docgen")
+}
+
+enum DocGenerationMappingType {
+  direct
+  derived
+  contextual
+  manual
+  conditional
+
+  @@schema("docgen")
+}
+
+enum DocGenerationSeverity {
+  critical
+  warning
+  info
+
+  @@schema("docgen")
+}
+
 
 model Document {
   id          String         @id @default(uuid())
@@ -222,6 +250,143 @@ model Document {
   @@index([uploadedBy])
   @@schema("public")
   @@map("documents")
+}
+
+model DocGenerationSchema {
+  id               String   @id @default(uuid())
+  generatedDocType String   @map("generated_doc_type")
+  displayName      String   @map("display_name")
+  schemaVersion    Int      @default(1) @map("schema_version")
+  triggerCondition String?  @map("trigger_condition")
+  sourceDocs       Json     @map("source_docs")
+  humanAction      String?  @map("human_action")
+  totalFields      Int      @default(0) @map("total_fields")
+  autoPopulated    Int      @default(0) @map("auto_populated")
+  calculated       Int      @default(0)
+  manualInput      Int      @default(0) @map("manual_input")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  rules  DocGenerationFieldRule[]
+  drafts DocGenerationDraft[]
+
+  @@unique([generatedDocType, schemaVersion])
+  @@index([generatedDocType])
+  @@schema("docgen")
+  @@map("schemas")
+}
+
+model DocGenerationFieldRule {
+  id                 String                    @id @default(uuid())
+  schemaId           String                    @map("schema_id")
+  sectionLabel       String                    @map("section_label")
+  sortOrder          Int                       @default(0) @map("sort_order")
+  targetField        String                    @map("target_field")
+  targetLabel        String                    @map("target_label")
+  sourceDoc          String                    @map("source_doc")
+  sourceField        String?                   @map("source_field")
+  sourceLabel        String?                   @map("source_label")
+  mappingType        DocGenerationMappingType  @map("mapping_type")
+  transformation     String?
+  validation         String?
+  validationSeverity DocGenerationSeverity?    @map("validation_severity")
+  mono               Boolean                   @default(false)
+  createdAt          DateTime                  @default(now()) @map("created_at")
+  updatedAt          DateTime                  @updatedAt @map("updated_at")
+
+  schema DocGenerationSchema @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+
+  @@index([schemaId])
+  @@schema("docgen")
+  @@map("field_rules")
+}
+
+model DocGenerationDraft {
+  id               String              @id @default(uuid())
+  generatedDocType String              @map("generated_doc_type")
+  schemaId         String?             @map("schema_id")
+  schemaVersion    Int                 @default(1) @map("schema_version")
+  status           DocGenerationStatus @default(DRAFT)
+  sourceDocumentIds Json                @map("source_document_ids")
+  renderedPayload   Json                @map("rendered_payload")
+  createdBy        String              @map("created_by")
+  confirmedBy      String?             @map("confirmed_by")
+  confirmedAt      DateTime?           @map("confirmed_at")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  schema      DocGenerationSchema?           @relation(fields: [schemaId], references: [id], onDelete: SetNull)
+  fields      DocGenerationDraftField[]
+  lineItems   DocGenerationDraftLineItem[]
+  allocations DocGenerationContainerAllocation[]
+
+  @@index([generatedDocType])
+  @@index([createdBy])
+  @@index([status])
+  @@schema("docgen")
+  @@map("drafts")
+}
+
+model DocGenerationDraftField {
+  id                 String                   @id @default(uuid())
+  draftId            String                   @map("draft_id")
+  sectionLabel       String                   @map("section_label")
+  targetField        String                   @map("target_field")
+  targetLabel        String                   @map("target_label")
+  value              String?
+  sourceDoc          String                   @map("source_doc")
+  sourceDocumentId   String?                  @map("source_document_id")
+  sourceField        String?                  @map("source_field")
+  sourceLabel        String?                  @map("source_label")
+  mappingType        DocGenerationMappingType @map("mapping_type")
+  validation         String?
+  validationSeverity DocGenerationSeverity?   @map("validation_severity")
+  validationStatus   String                   @default("pending") @map("validation_status")
+  overrideValue      String?                  @map("override_value")
+  overrideReason     String?                  @map("override_reason")
+  mono               Boolean                  @default(false)
+  sortOrder          Int                      @default(0) @map("sort_order")
+  createdAt          DateTime                 @default(now()) @map("created_at")
+  updatedAt          DateTime                 @updatedAt @map("updated_at")
+
+  draft DocGenerationDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@index([draftId])
+  @@schema("docgen")
+  @@map("draft_fields")
+}
+
+model DocGenerationDraftLineItem {
+  id        String   @id @default(uuid())
+  draftId   String   @map("draft_id")
+  lineNo    Int      @map("line_no")
+  payload   Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  draft DocGenerationDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@index([draftId])
+  @@schema("docgen")
+  @@map("draft_line_items")
+}
+
+model DocGenerationContainerAllocation {
+  id              String   @id @default(uuid())
+  draftId         String   @map("draft_id")
+  containerNumber String?  @map("container_number")
+  sealNumber      String?  @map("seal_number")
+  payload         Json
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  draft DocGenerationDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@index([draftId])
+  @@index([containerNumber])
+  @@schema("docgen")
+  @@map("container_allocations")
 }
 
 // FIX #4 #5 — Added back-relations for ExtractionLog and AiUsageRecord
@@ -879,7 +1044,6 @@ model SalesInvoiceExtraction {
   totalQuantity             String? @map("total_quantity")
   packageDescription        String? @map("package_description")
   preCarriageBy             String? @map("pre_carriage_by")
-  marksAndNumbers           String? @map("marks_and_numbers")
 
   // Footer
   signatoryDesignation             String? @map("signatory_designation")
@@ -1827,7 +1991,6 @@ model ChaBillExtraction {
   jobApprovedBy  String? @map("job_approved_by")
 
   // Containers
-  containersRaw String? @map("containers_raw")
   containers    ChaBillContainer[]
 
   // Repeating arrays
@@ -1939,11 +2102,11 @@ model SalesInvoiceLineItem {
   productCode          String?                 @map("product_code")
   productDescription   String?                 @map("product_description")
   productSpecification String?                 @map("product_specification")
-  productPartNumber    String?                 @map("product_part_number")
-  productSku           String?                 @map("product_sku")
   productMarks         String?                 @map("product_marks")
+  packageDescription   String?                 @map("package_description")
   noOfPackages         String?                 @map("no_of_packages")
   quantity             String?
+  quantityTotal        String?                 @map("quantity_total")
   unit                 String?
   rate                 String?
   lineTotal            String?                 @map("line_total")
@@ -2066,6 +2229,8 @@ model PackingListLineItem {
   netWeightKgs         String?               @map("net_weight_kgs")
   grossWeightKgs       String?               @map("gross_weight_kgs")
   kindOfPkg            String?               @map("kind_of_pkg")
+  containerNo          String?               @map("container_no")
+  sealNo               String?               @map("seal_no")
 
   packingList          PackingListExtraction @relation(fields: [packingListId], references: [id], onDelete: Cascade)
 
@@ -2175,6 +2340,8 @@ model FreightForwarderContainer {
   id                        String                         @id @default(uuid())
   freightForwarderBillId    String                         @map("freight_forwarder_bill_id")
   containerDetail           String?                        @map("container_detail")
+  containerNumber           String?                        @map("container_number")
+  containerType             String?                        @map("container_type")
 
   freightForwarderBill      FreightForwarderBillExtraction @relation(fields: [freightForwarderBillId], references: [id], onDelete: Cascade)
 
@@ -2333,6 +2500,8 @@ model ChaBillContainer {
   id                String            @id @default(uuid())
   chaBillId         String            @map("cha_bill_id")
   containerDetail   String?           @map("container_detail")
+  containerNumber   String?           @map("container_number")
+  containerType     String?           @map("container_type")
 
   chaBill           ChaBillExtraction @relation(fields: [chaBillId], references: [id], onDelete: Cascade)
 
@@ -2346,14 +2515,21 @@ model ChaBillCharge {
   lineNumber            String?           @map("line_number")
   sacHsnCode            String?           @map("sac_hsn_code")
   description           String?
+  quantity              String?
   currency              String?
   ratePerUnit           String?           @map("rate_per_unit")
+  rate                  String?
   units                 String?
   roe                   String?
   foreignCurrencyCode   String?           @map("foreign_currency_code")
   foreignCurrencyAmount String?           @map("foreign_currency_amount")
+  currencyAmount        String?           @map("currency_amount")
+  taxableAmount         String?           @map("taxable_amount")
   taxableAmountInr      String?           @map("taxable_amount_inr")
+  taxRatePct            String?           @map("tax_rate_pct")
   amountInr             String?           @map("amount_inr")
+  totalAmount           String?           @map("total_amount")
+  roundOff              String?           @map("round_off")
   igstRate              String?           @map("igst_rate")
   igstAmount            String?           @map("igst_amount")
   cgstRate              String?           @map("cgst_rate")
@@ -2373,6 +2549,13 @@ model ChaBillTaxSummaryEntry {
   id                String            @id @default(uuid())
   chaBillId         String            @map("cha_bill_id")
   summaryEntry      String?           @map("summary_entry")
+  hsnSac            String?           @map("hsn_sac")
+  taxableAmount     String?           @map("taxable_amount")
+  rate              String?
+  igst              String?
+  cgst              String?
+  sgst              String?
+  totalAmount       String?           @map("total_amount")
 
   chaBill           ChaBillExtraction @relation(fields: [chaBillId], references: [id], onDelete: Cascade)
 
@@ -2386,11 +2569,14 @@ model ChaBillBankDetail {
   beneficiaryName   String?           @map("beneficiary_name")
   bankName          String?           @map("bank_name")
   accountNumber     String?           @map("account_number")
+  branchCode        String?           @map("branch_code")
   swiftCode         String?           @map("swift_code")
   ifscCode          String?           @map("ifsc_code")
   iban              String?
   routingNumber     String?           @map("routing_number")
   branch            String?
+  branchAddress     String?           @map("branch_address")
+  accountType       String?           @map("account_type")
 
   chaBill           ChaBillExtraction @relation(fields: [chaBillId], references: [id], onDelete: Cascade)
 
@@ -2556,4 +2742,60 @@ model DeliveryDeductionReferenceInvoice {
 
   @@schema("aiextraction")
   @@map("delivery_deduction_reference_invoices")
+}
+
+// -----------------------------------------------------------------
+// DASHBOARD - SHIPMENT 360 / SAFECUBE TRACKING
+// -----------------------------------------------------------------
+
+model SafeCubeShipment {
+  id                String   @id @default(uuid())
+  shipmentNumber    String   @unique @map("shipment_number")
+  shipmentType      String?  @map("shipment_type")
+  sealine           String?
+  status            String?
+  currentStage      Int      @default(1) @map("current_stage")
+  currentStageName  String?  @map("current_stage_name")
+  currentLocation   Json?    @map("current_location")
+  liveCoordinates   Json?    @map("live_coordinates")
+  ais               Json?
+  route             Json?
+  locations         Json?
+  vessels           Json?
+  containers        Json?
+  rawData           Json?    @map("raw_data")
+  fetchedAt         DateTime @default(now()) @map("fetched_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  events            SafeCubeTrackingEvent[]
+
+  @@index([shipmentNumber])
+  @@index([status])
+  @@index([fetchedAt])
+  @@schema("dashboard")
+  @@map("safecube_shipments")
+}
+
+model SafeCubeTrackingEvent {
+  id              String            @id @default(uuid())
+  shipmentId      String            @map("shipment_id")
+  containerNumber String?           @map("container_number")
+  eventCode       String?           @map("event_code")
+  status          String?
+  description     String?
+  location        Json?
+  facility        Json?
+  occurredAt      DateTime?         @map("occurred_at")
+  isActual        Boolean?          @map("is_actual")
+  rawData         Json?             @map("raw_data")
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  shipment        SafeCubeShipment  @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+
+  @@index([shipmentId])
+  @@index([containerNumber])
+  @@index([occurredAt])
+  @@schema("dashboard")
+  @@map("safecube_tracking_events")
 }

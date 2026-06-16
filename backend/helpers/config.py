@@ -24,9 +24,13 @@ class Settings(BaseSettings):
     LLM_MAX_TOKENS: int = 2048
     OCR_JOB_TIMEOUT_SECONDS: int = 0
     OCR_MAX_REQUEST_ENCODED_BYTES: int = 27 * 1024 * 1024
+    OCR_API_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
     OCR_GEMINI_HTTP_TIMEOUT_SECONDS: int = 900
     OCR_GEMINI_MAX_ATTEMPTS: int = 7
     OCR_GEMINI_RETRY_BACKOFF_SECONDS: float = 2.0
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_API_URL: str = "https://openrouter.ai/api/v1/chat/completions"
+    OPENROUTER_MODEL_PRO: str = ""
     API_KEY: str = ""
     MODEL: str = ""
     GEMINI_API_KEY: str = ""

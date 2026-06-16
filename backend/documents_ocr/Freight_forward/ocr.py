@@ -1,9 +1,14 @@
 from datetime import datetime, timezone
+import json
 import re
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from prisma import Json
+try:
+    from prisma import Json
+except ImportError:
+    def Json(value: Any) -> Any:
+        return value
 
 from documents_ocr.Freight_forward.prompt import build_freight_forward_prompt
 from documents_ocr.schema_loader import load_extraction_schema
@@ -108,6 +113,166 @@ def _coerce_string(value: Any) -> str | None:
     return text or None
 
 
+_CONTAINER_NUMBER_RE = re.compile(r"\b[A-Z]{4}\d{7}\b", re.IGNORECASE)
+_CONTAINER_TYPE_RE = re.compile(r"\b(?:20|40|45)\s?(?:GP|HC|HQ|DV|DC|RF|OT|FR|NOR|STD|ST|FT|RH)?\b", re.IGNORECASE)
+
+
+def _clean_text(value: Any) -> str | None:
+    text = _coerce_string(value)
+    if text is None:
+        return None
+    return re.sub(r"\s+", " ", text).strip(" ,;/")
+
+
+def _parse_json_like(value: str) -> Any | None:
+    stripped = value.strip()
+    if not stripped or stripped[0] not in "[{":
+        return None
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+
+
+def _split_container_detail(value: Any) -> dict[str, str | None] | None:
+    if isinstance(value, dict):
+        number = _clean_text(
+            value.get("containerNumber")
+            or value.get("containerNo")
+            or value.get("container_no")
+            or value.get("number")
+            or value.get("no")
+        )
+        container_type = _clean_text(
+            value.get("containerType")
+            or value.get("containerSizeType")
+            or value.get("container_type")
+            or value.get("type")
+            or value.get("sizeType")
+        )
+        detail = _clean_text(
+            value.get("containerDetail")
+            or value.get("container")
+            or value.get("detail")
+            or value.get("value")
+        )
+        if detail and (not number or not container_type):
+            parsed = _split_container_detail(detail)
+            if parsed:
+                number = number or parsed.get("containerNumber")
+                container_type = container_type or parsed.get("containerType")
+                detail = detail or parsed.get("containerDetail")
+        if not detail:
+            detail = _format_container_detail(number, container_type)
+        if not any((number, container_type, detail)):
+            return None
+        return {
+            "containerDetail": detail,
+            "containerNumber": number,
+            "containerType": container_type,
+        }
+
+    text = _clean_text(value)
+    if not text:
+        return None
+
+    parsed_json = _parse_json_like(text)
+    if parsed_json is not None:
+        rows = _collect_container_rows(parsed_json)
+        return rows[0] if rows else None
+
+    number_match = _CONTAINER_NUMBER_RE.search(text)
+    number = number_match.group(0).upper() if number_match else None
+    remainder = text
+    if number_match:
+        remainder = (text[: number_match.start()] + " " + text[number_match.end() :]).strip(" -/:,;")
+
+    type_match = _CONTAINER_TYPE_RE.search(remainder)
+    container_type = type_match.group(0).upper().replace(" ", "") if type_match else None
+    if not container_type and remainder and number:
+        container_type = remainder.strip(" -/:,;") or None
+
+    return {
+        "containerDetail": _format_container_detail(number, container_type) or text,
+        "containerNumber": number,
+        "containerType": container_type,
+    }
+
+
+def _format_container_detail(number: str | None, container_type: str | None) -> str | None:
+    if number and container_type:
+        return f"{number}/{container_type}"
+    return number or container_type
+
+
+def _collect_container_rows(value: Any) -> list[dict[str, str | None]]:
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        for key in ("containersList", "containers", "list", "items"):
+            nested = value.get(key)
+            if nested is not None:
+                return _collect_container_rows(nested)
+        parsed = _split_container_detail(value)
+        return [parsed] if parsed else []
+    if isinstance(value, list):
+        rows: list[dict[str, str | None]] = []
+        for item in value:
+            rows.extend(_collect_container_rows(item))
+        return rows
+
+    text = _clean_text(value)
+    if not text:
+        return []
+    parsed_json = _parse_json_like(text)
+    if parsed_json is not None:
+        return _collect_container_rows(parsed_json)
+
+    parts = [part.strip() for part in re.split(r"\s*,\s*", text) if part.strip()]
+    if len(parts) > 1:
+        rows: list[dict[str, str | None]] = []
+        for part in parts:
+            parsed = _split_container_detail(part)
+            if parsed:
+                rows.append(parsed)
+        return rows
+
+    parsed = _split_container_detail(text)
+    return [parsed] if parsed else []
+
+
+def _normalize_containers_payload(*, value: Any, expected_fields: list[str]) -> list[dict[str, Any]]:
+    rows = _collect_container_rows(value)
+    fields = expected_fields or ["containerDetail", "containerNumber", "containerType"]
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        item = {field_name: row.get(field_name) for field_name in fields}
+        for key, raw in row.items():
+            if key not in item:
+                item[key] = raw
+        normalized.append(item)
+    return normalized
+
+
+def _normalize_charge_rows(*, value: Any, expected_fields: list[str]) -> list[dict[str, Any]]:
+    rows = normalize_array_field_payload(value=value, expected_fields=expected_fields)
+    normalized: list[dict[str, Any]] = []
+    for index, row in enumerate(rows, start=1):
+        description = _clean_text(
+            row.get("description")
+            or row.get("chargeDescription")
+            or row.get("charge")
+            or row.get("particulars")
+            or row.get("name")
+        )
+        if description is not None:
+            row["description"] = description
+        if not _clean_text(row.get("lineNumber")):
+            row["lineNumber"] = str(index)
+        normalized.append(row)
+    return normalized
+
+
 def normalize_array_field_payload(*, value: Any, expected_fields: list[str]) -> list[dict[str, Any]]:
     if value is None:
         source_items: list[dict[str, Any]] = []
@@ -143,6 +308,10 @@ def normalize_array_field_payload(*, value: Any, expected_fields: list[str]) -> 
 
 def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(payload or {})
+    if normalized.get("containersList") is None and normalized.get("containers") is not None:
+        normalized["containersList"] = normalized.get("containers")
+    if normalized.get("containersTotalCount") is None and normalized.get("totalContainers") is not None:
+        normalized["containersTotalCount"] = normalized.get("totalContainers")
 
     for section_name, field_names in SECTION_FIELD_MAP.items():
         section_payload = dict(normalized.get(section_name) or {})
@@ -155,10 +324,22 @@ def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
         normalized[section_name] = section_payload
 
     for field_name in ARRAY_FIELDS:
-        normalized[field_name] = normalize_array_field_payload(
-            value=normalized.get(field_name),
-            expected_fields=ARRAY_ITEM_FIELDS.get(field_name, []),
-        )
+        expected_fields = ARRAY_ITEM_FIELDS.get(field_name, [])
+        if field_name == "containersList":
+            normalized[field_name] = _normalize_containers_payload(
+                value=normalized.get(field_name),
+                expected_fields=expected_fields,
+            )
+        elif field_name == "charges":
+            normalized[field_name] = _normalize_charge_rows(
+                value=normalized.get(field_name),
+                expected_fields=expected_fields,
+            )
+        else:
+            normalized[field_name] = normalize_array_field_payload(
+                value=normalized.get(field_name),
+                expected_fields=expected_fields,
+            )
 
     return normalized
 

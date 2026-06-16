@@ -1,114 +1,115 @@
-import { useMemo, useState } from "react";
-import { Bell, Moon, PlusCircle, Search, Sun, Upload } from "lucide-react";
-import { useLocation } from "wouter";
-import { useTheme } from "next-themes";
-import { Button } from "@/components/ui/button";
-
-const searchPlaceholders: Record<string, string> = {
-  dashboard: "Search document IDs, file names, or statuses...",
-  "document-ocr": "Search document IDs, file names, page text, or extraction data...",
-  settings: "Search profile fields or settings...",
-  admin: "Search users, permissions, buckets, or roles...",
-};
+import { useState } from 'react';
+import { Search, Bell, Sun, Moon, LogOut, Upload } from 'lucide-react';
+import { useTheme } from 'next-themes';
+import { useLocation } from 'wouter';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/contexts/AuthContext';
+import { useUpload } from '@/contexts/UploadContext';
 
 export function TopHeader() {
-  const [searchValue, setSearchValue] = useState("");
-  const [location, setLocation] = useLocation();
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const [searchValue, setSearchValue] = useState('');
+  const { theme, setTheme } = useTheme();
+  const { user, logout } = useAuth();
+  const { openUpload } = useUpload();
+  const [, navigate] = useLocation();
 
-  const sectionKey = useMemo(() => {
-    if (location.startsWith("/document-ocr")) return "document-ocr";
-    if (location.startsWith("/settings")) return "settings";
-    if (location.startsWith("/admin/")) return "admin";
-    return "dashboard";
-  }, [location]);
-
-  const placeholder = searchPlaceholders[sectionKey];
-  const activeTheme = theme === "system" ? resolvedTheme : theme;
+  function handleLogout() {
+    logout();
+    navigate('/');
+  }
 
   return (
     <header
-      className="sticky top-0 z-20 flex items-center gap-3 border-b bg-background px-4 py-3"
-      style={{ borderColor: "hsl(var(--border))" }}
+      className="sticky top-0 z-20 flex items-center gap-3 px-4 py-3 border-b bg-background"
+      style={{ borderColor: 'hsl(var(--border))' }}
       data-testid="top-header"
     >
-      <div className="relative flex-1">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      {/* Search */}
+      <div className="flex-1 relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
         <input
           type="search"
-          placeholder={placeholder}
+          placeholder="Search Shipment ID, BOL, Booking No, Invoice..."
           value={searchValue}
-          onChange={(event) => setSearchValue(event.target.value)}
-          className="w-full rounded-md border bg-background py-2 pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
-          style={{ borderColor: "hsl(var(--border))" }}
+          onChange={(e) => setSearchValue(e.target.value)}
+          className="w-full pl-9 pr-4 py-2 text-sm rounded-md border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+          style={{ borderColor: 'hsl(var(--border))' }}
           data-testid="input-search"
         />
       </div>
 
+      {/* Right cluster */}
       <div className="flex items-center gap-2">
-        <div
-          className="rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400"
-          data-testid="sync-status"
+
+        {/* Upload button */}
+        <Button
+          size="sm"
+          className="gap-1.5 h-8 text-xs font-semibold px-3"
+          onClick={openUpload}
+          data-testid="global-upload-button"
         >
-          <div className="flex items-center gap-1.5">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            </span>
-            <span className="hidden sm:inline">OCR Pipeline</span>
-            <span>Live</span>
-          </div>
+          <Upload className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Upload</span>
+        </Button>
+
+        {/* Shipsy sync */}
+        <div
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border text-xs font-medium bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-400"
+          data-testid="shipsy-sync-status"
+        >
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+          </span>
+          <span className="hidden sm:inline">Shipsy Sync </span>Live
         </div>
 
+        {/* Notification bell */}
         <Button
           variant="ghost"
           size="icon"
           className="relative h-8 w-8 text-muted-foreground hover:text-foreground"
+          onClick={() => navigate('/notifications')}
           data-testid="button-notifications"
         >
-          <Bell className="h-4 w-4" />
-          <span
-            className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] font-bold leading-none text-white"
-            style={{ backgroundColor: "hsl(var(--destructive))" }}
-          >
-            4
-          </span>
+          <Bell className="w-4 h-4" />
         </Button>
 
+        {/* Dark mode toggle */}
         <Button
           variant="ghost"
           size="icon"
           className="h-8 w-8 text-muted-foreground hover:text-foreground"
-          onClick={() => setTheme(activeTheme === "dark" ? "light" : "dark")}
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
           data-testid="button-theme-toggle"
         >
-          {activeTheme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </Button>
 
-        {/* <div className="mx-0.5 h-5 w-px bg-border" />
-
-        <Button
-          size="sm"
-          className="h-8 gap-1.5 text-xs"
-          data-testid="button-create-document"
-          onClick={() => setLocation("/document-ocr")}
-        >
-          <PlusCircle className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">New Document</span>
-          <span className="sm:hidden">New</span>
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 gap-1.5 text-xs"
-          data-testid="button-upload-document"
-          onClick={() => setLocation("/document-ocr")}
-        >
-          <Upload className="h-3.5 w-3.5" />
-          <span className="hidden md:inline">Upload Document</span>
-          <span className="md:hidden">Upload</span>
-        </Button> */}
+        {/* User info + logout */}
+        {user && (
+          <div className="flex items-center gap-2 pl-2 border-l" style={{ borderColor: 'hsl(var(--border))' }}>
+            <div className="text-right hidden sm:block">
+              <p className="text-xs font-medium text-foreground leading-tight">{user.fullName}</p>
+              {user.role && (
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 mt-0.5">
+                  {user.role.name}
+                </Badge>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              onClick={handleLogout}
+              data-testid="button-logout-header"
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
       </div>
     </header>
   );

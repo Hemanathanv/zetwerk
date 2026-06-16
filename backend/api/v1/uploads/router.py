@@ -139,6 +139,12 @@ class RetryOcrResponse(BaseModel):
     queue: str
 
 
+class ApproveDocumentResponse(BaseModel):
+    status: str
+    message: str
+    documentId: str
+
+
 def _storage_path(bucket: str, object_key: str) -> str:
     return f"s3://{bucket}/{object_key}"
 
@@ -823,4 +829,43 @@ async def retry_document_ocr(document_id: str, user=Depends(get_current_user)):
         message="Document OCR retry queued",
         documentId=document_id,
         queue="ocr_worker",
+    )
+
+
+@router.post("/documents/{document_id}/approve", response_model=ApproveDocumentResponse)
+async def approve_document_extraction(document_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    document = await prisma.document.find_first(
+        where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
+    )
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    doc_type = str(document.docType)
+    accessor = DOC_TYPE_TO_EXTRACTION_ACCESSOR.get(doc_type)
+    if not accessor:
+        raise HTTPException(status_code=400, detail=f"Approval is not configured for {doc_type}")
+
+    model_accessor = getattr(prisma, accessor, None)
+    if model_accessor is None:
+        raise HTTPException(status_code=400, detail=f"Extraction model is not available for {doc_type}")
+
+    extraction = await model_accessor.find_unique(where={"documentId": document_id})
+    if not extraction:
+        raise HTTPException(status_code=404, detail="Extraction data not found for this document")
+
+    reviewed_at = datetime.now()
+    await model_accessor.update(
+        where={"documentId": document_id},
+        data={"reviewedBy": user.id, "reviewedAt": reviewed_at},
+    )
+    await prisma.document.update(
+        where={"id": document_id},
+        data={"status": "REVIEWED"},
+    )
+
+    return ApproveDocumentResponse(
+        status="success",
+        message="Document extraction approved",
+        documentId=document_id,
     )

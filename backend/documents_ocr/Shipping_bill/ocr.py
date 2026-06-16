@@ -3,7 +3,11 @@ import re
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from prisma import Json
+try:
+    from prisma import Json
+except ImportError:  # pragma: no cover - local schema tests can run before Prisma client generation.
+    def Json(value: Any) -> Any:
+        return value
 
 from documents_ocr.Shipping_bill.prompt import build_shipping_bill_prompt
 from documents_ocr.schema_loader import load_extraction_schema
@@ -110,6 +114,53 @@ def _coerce_string(value: Any) -> str | None:
     return text or None
 
 
+def _parse_count(value: Any) -> int | None:
+    text = _coerce_string(value)
+    if not text:
+        return None
+    match = re.search(r"\d+", text)
+    if not match:
+        return None
+    try:
+        return int(match.group(0))
+    except ValueError:
+        return None
+
+
+def _promote_zetwerk_shape_aliases(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(payload or {})
+
+    if normalized.get("part3ItemDetails") is None and isinstance(normalized.get("items"), list):
+        normalized["part3ItemDetails"] = normalized["items"]
+
+    metadata = normalized.get("metadata")
+    if isinstance(metadata, dict):
+        for field_name in SCALAR_FIELDS:
+            if normalized.get(field_name) is None and metadata.get(field_name) is not None:
+                normalized[field_name] = metadata.get(field_name)
+
+    return normalized
+
+
+def _ensure_item_row_count(
+    *,
+    items: list[dict[str, Any]],
+    expected_count: int | None,
+    expected_fields: list[str],
+) -> list[dict[str, Any]]:
+    if expected_count is None or expected_count <= len(items):
+        return items
+
+    fields = expected_fields or ARRAY_ITEM_FIELDS.get("part3ItemDetails", [])
+    padded = list(items)
+    for index in range(len(padded) + 1, expected_count + 1):
+        row = {field_name: None for field_name in fields}
+        if "itemsn" in row:
+            row["itemsn"] = str(index)
+        padded.append(row)
+    return padded
+
+
 def normalize_array_field_payload(*, value: Any, expected_fields: list[str]) -> list[dict[str, Any]]:
     if value is None:
         source_items: list[dict[str, Any]] = []
@@ -144,7 +195,7 @@ def normalize_array_field_payload(*, value: Any, expected_fields: list[str]) -> 
 
 
 def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(payload or {})
+    normalized = _promote_zetwerk_shape_aliases(payload)
 
     for section_name, field_names in SECTION_FIELD_MAP.items():
         section_payload = dict(normalized.get(section_name) or {})
@@ -161,6 +212,19 @@ def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
             value=normalized.get(field_name),
             expected_fields=ARRAY_ITEM_FIELDS.get(field_name, []),
         )
+        if field_name == "part3ItemDetails":
+            item_count = None
+            for section_payload in normalized.values():
+                if isinstance(section_payload, dict) and section_payload.get("itemCount") is not None:
+                    item_count = _parse_count(section_payload.get("itemCount"))
+                    break
+            if item_count is None:
+                item_count = _parse_count(normalized.get("itemCount"))
+            normalized[field_name] = _ensure_item_row_count(
+                items=normalized[field_name],
+                expected_count=item_count,
+                expected_fields=ARRAY_ITEM_FIELDS.get(field_name, []),
+            )
 
     return normalized
 

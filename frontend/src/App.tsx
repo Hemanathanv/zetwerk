@@ -1,60 +1,138 @@
-import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ThemeProvider } from "next-themes";
-import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { AuthProvider } from "@/auth/AuthContext";
-import { ProtectedRoute, PublicRoute } from "@/auth/ProtectedRoute";
-import NotFound from "@/pages/not-found";
-import MainPage from "@/pages/MainPage";
-import { LoginPage } from "@/pages/LoginPage";
-import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
-import ResetPasswordPage from "@/pages/ResetPasswordPage";
+import { Switch, Route, Router as WouterRouter, Redirect } from 'wouter';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ThemeProvider } from 'next-themes';
+import { Toaster } from '@/components/ui/toaster';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { SidebarProvider, useSidebar } from '@/contexts/SidebarContext';
+import { AuthProvider, useAuth } from '@/contexts/AuthContext';
+import { UploadProvider } from '@/contexts/UploadContext';
+import { Sidebar } from '@/components/Sidebar';
+import { TopHeader } from '@/components/TopHeader';
+import { UploadSheet } from '@/components/UploadSheet';
+import { LoginPage } from '@/pages/LoginPage';
+import { DashboardPage } from '@/pages/DashboardPage';
+import { ShipmentsPage } from '@/pages/ShipmentsPage';
+import { ShipmentDetailPage } from '@/pages/ShipmentDetailPage';
+import { DocumentsPage } from '@/pages/DocumentsPage';
+import { DocumentDetailPage } from '@/pages/DocumentDetailPage';
+import { InvoicesPage } from '@/pages/InvoicesPage';
+import { NotificationsPage } from '@/pages/NotificationsPage';
+import { TasksPage } from '@/pages/TasksPage';
+import { AccountingPage } from '@/pages/AccountingPage';
+import { DocumentGeneratePage } from '@/pages/DocumentGeneratePage';
+import { CreateShipmentPage } from '@/pages/CreateShipmentPage';
+import { UploadProcessPage } from '@/pages/UploadProcessPage';
+import AdminView from '@/app/AdminView';
+import SettingsView from '@/app/SettingsView';
 
 const queryClient = new QueryClient();
 
-function Router() {
+function AdminUsersRoute() {
+  return <AdminView section="users" />;
+}
+
+function AdminStorageRoute() {
+  return <AdminView section="storage" />;
+}
+
+function AdminPermissionsRoute() {
+  return <AdminView section="permissions" />;
+}
+
+function AppLayout() {
+  const { isOpen } = useSidebar();
+  const sidebarWidth = isOpen ? 240 : 60;
+
+  return (
+    <div className="flex h-screen w-full overflow-hidden bg-background">
+      <Sidebar />
+      <div
+        className="flex flex-col flex-1 min-w-0 overflow-hidden transition-all duration-200"
+        style={{ marginLeft: sidebarWidth }}
+      >
+        <TopHeader />
+        <main className="flex-1 overflow-y-auto">
+          <Switch>
+            <Route path="/dashboard" component={DashboardPage} />
+            <Route path="/shipments/new" component={CreateShipmentPage} />
+            <Route path="/shipments/:id" component={ShipmentDetailPage} />
+            <Route path="/shipments" component={ShipmentsPage} />
+            <Route path="/tracking" component={ShipmentDetailPage} />
+            <Route path="/documents/generate/:type" component={DocumentGeneratePage} />
+            <Route path="/documents/upload/:id/approve" component={DocumentDetailPage} />
+            <Route path="/documents/upload/:id" component={DocumentDetailPage} />
+            <Route path="/documents/upload" component={UploadProcessPage} />
+            <Route path="/documents/:id" component={DocumentsPage} />
+            <Route path="/documents" component={DocumentsPage} />
+            <Route path="/invoices" component={InvoicesPage} />
+            <Route path="/notifications" component={NotificationsPage} />
+            <Route path="/settings" component={SettingsView} />
+            <Route path="/tasks" component={TasksPage} />
+            <Route path="/accounting" component={AccountingPage} />
+            <Route path="/inventory" component={ShipmentsPage} />
+            <Route path="/reports" component={DashboardPage} />
+            <Route path="/projects/:id" component={DashboardPage} />
+            <Route path="/projects" component={DashboardPage} />
+            <Route path="/admin/users" component={AdminUsersRoute} />
+            <Route path="/admin/storage" component={AdminStorageRoute} />
+            <Route path="/admin/permissions" component={AdminPermissionsRoute} />
+            <Route>
+              <Redirect to="/dashboard" />
+            </Route>
+          </Switch>
+        </main>
+      </div>
+      {/* Global upload sheet — available from any page */}
+      <UploadSheet />
+    </div>
+  );
+}
+
+function AuthenticatedApp() {
+  return (
+    <SidebarProvider>
+      <UploadProvider>
+        <AppLayout />
+      </UploadProvider>
+    </SidebarProvider>
+  );
+}
+
+function AppRoutes() {
+  const { isAuthenticated, loading } = useAuth();
+
+  if (loading) return null;
+
   return (
     <Switch>
-      {/* Public Routes */}
-      <PublicRoute path="/login" component={LoginPage} />
-      <PublicRoute path="/forgot-password" component={ForgotPasswordPage} />
-      <PublicRoute path="/reset-password" component={ResetPasswordPage} />
-
-      {/* Protected Routes */}
-      <ProtectedRoute path="/" component={() => <Redirect to="/dashboard" />} />
-      <ProtectedRoute path="/dashboard" component={MainPage} />
-      <ProtectedRoute path="/document-ocr" component={MainPage} />
-      <ProtectedRoute path="/document-ocr/:documentId" component={MainPage} />
-      <ProtectedRoute path="/settings" component={MainPage} />
-      <ProtectedRoute path="/admin/users" component={MainPage} />
-      <ProtectedRoute path="/admin/storage" component={MainPage} />
-      <ProtectedRoute path="/admin/permissions" component={MainPage} />
-
-      {/* 404 Not Found */}
-      <Route component={NotFound} />
+      <Route path="/login">
+        {isAuthenticated ? <Redirect to="/dashboard" /> : <LoginPage />}
+      </Route>
+      <Route path="/">
+        {isAuthenticated ? <Redirect to="/dashboard" /> : <LoginPage />}
+      </Route>
+      <Route>
+        {isAuthenticated ? <AuthenticatedApp /> : <Redirect to="/" />}
+      </Route>
     </Switch>
   );
 }
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+    <ThemeProvider attribute="class" defaultTheme="light" storageKey="logisai-theme">
+      <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <AuthProvider>
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <Router />
-            </WouterRouter>
-            <Toaster />
-          </AuthProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+            <AuthProvider>
+              <AppRoutes />
+            </AuthProvider>
+          </WouterRouter>
+          <Toaster />
         </TooltipProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 }
 
 export default App;
-
-
-

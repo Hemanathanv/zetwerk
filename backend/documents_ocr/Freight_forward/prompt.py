@@ -308,7 +308,7 @@ def _build_output_rules(model: type[BaseModel], document_type: str, extractor_la
 
     rules: list[str] = [
         "Return **one JSON object only** (no markdown fences, no commentary).",
-        f'Top-level JSON must include `source`: "OpenRouter" and `documentType`: "{document_type}".',
+        f'Top-level JSON must include `documentType`: "{document_type}".',
         "**Every key from the TEMPLATE must appear in the output, in the same place, with the same name.** Do not rename, drop, or wrap keys.",
         "**Every scalar leaf is a string** (camelCase keys, string values). Use `null` only when the field is genuinely absent from the PDF.",
         "**TEMPLATE values are FORMAT EXAMPLES** (date style, ID patterns, units) — do not copy them. Replace each example with the actual value visible in the PDF. If you cannot find a value, use `null`.",
@@ -320,6 +320,14 @@ def _build_output_rules(model: type[BaseModel], document_type: str, extractor_la
         names = ", ".join(f"`{n}`" for n in arrays)
         rules.append(
             f"**Arrays ({names})**: emit one object per row visible in the PDF, with the same property set in each row. Fill every cell in each row; use `null` only for cells that are truly blank."
+        )
+    if "containersList" in arrays:
+        rules.append(
+            "**containersList**: return one object per visible container. Split combined entries into `containerNumber` and `containerType` (for example `HASU5195236 40HC` or `HASU5195236/40HC` -> `containerNumber`: `HASU5195236`, `containerType`: `40HC`). Do not return a raw JSON string or comma-separated list."
+        )
+    if "charges" in arrays:
+        rules.append(
+            "**charges**: extract every visible charge row and every charge `description` from the table. Do not stop after the first charge. If a charge description wraps onto the next line, append it to the same row unless the next line clearly starts a new charge row. If the document shows N charge rows, output N objects in `charges`."
         )
 
     numbered = [f"{index}. {rule}" for index, rule in enumerate(rules, start=1)]

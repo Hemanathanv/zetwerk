@@ -308,7 +308,7 @@ def _build_output_rules(model: type[BaseModel], document_type: str, extractor_la
 
     rules: list[str] = [
         "Return **one JSON object only** (no markdown fences, no commentary).",
-        f'Top-level JSON must include `source`: "OpenRouter" and `documentType`: "{document_type}".',
+        f'Top-level JSON must include `documentType`: "{document_type}".',
         "**Every key from the TEMPLATE must appear in the output, in the same place, with the same name.** Do not rename, drop, or wrap keys.",
         "**Every scalar leaf is a string** (camelCase keys, string values). Use `null` only when the field is genuinely absent from the PDF.",
         "**TEMPLATE values are FORMAT EXAMPLES** (date style, ID patterns, units) — do not copy them. Replace each example with the actual value visible in the PDF. If you cannot find a value, use `null`.",
@@ -320,6 +320,22 @@ def _build_output_rules(model: type[BaseModel], document_type: str, extractor_la
         names = ", ".join(f"`{n}`" for n in arrays)
         rules.append(
             f"**Arrays ({names})**: emit one object per row visible in the PDF, with the same property set in each row. Fill every cell in each row; use `null` only for cells that are truly blank."
+        )
+    if "containers" in arrays:
+        rules.append(
+            "**containers**: do not return a raw container string. Emit one object per visible container and split combined text into `containerNumber` and `containerType` using the `container no-type` rule (for example `TXGU5683192 - 40HC`, `TXGU5683192/40HC/0`, or `TXGU5683192 40HC` -> `containerNumber`: `TXGU5683192`, `containerType`: `40HC`)."
+        )
+    if "charges" in arrays:
+        rules.append(
+            "**charges**: extract every visible charge row into separate fields. Map JSON/table labels like `line_number`, `sac_hsn_code`, `quantity`, `rate`, `currency_amount`, `taxable_amount`, `tax_rate_pct`, `total_amount`, and `round_off` into the matching charge object fields. Do not collapse the charges table into a JSON string."
+        )
+    if "taxSummary" in arrays:
+        rules.append(
+            "**taxSummary**: extract every tax summary row into separate fields such as `hsnSac`, `taxableAmount`, `rate`, `igst`, `cgst`, `sgst`, and `totalAmount`. Do not collapse the tax summary into `summaryEntry` unless the PDF only shows one unstructured text value."
+        )
+    if "bankDetails" in arrays:
+        rules.append(
+            "**bankDetails**: extract bank accounts into separate fields such as `bankName`, `branchCode`, `swiftCode`, `accountNumber`, `ifscCode`, `branchAddress`, and `accountType`. Do not return bank details as a JSON string."
         )
 
     numbered = [f"{index}. {rule}" for index, rule in enumerate(rules, start=1)]

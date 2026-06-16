@@ -161,6 +161,7 @@ const documentApi = {
   list: () => api.get<DocumentRecord[]>('/uploads/documents'),
   getById: (documentId: string) => api.get<DocumentDetailRecord>(`/uploads/documents/${documentId}`),
   retry: (documentId: string) => api.post(`/uploads/documents/${documentId}/retry`),
+  approve: (documentId: string) => api.post(`/uploads/documents/${documentId}/approve`),
   upload: (formData: FormData) =>
     api.post('/uploads/upload', formData, {
       headers: {
@@ -171,6 +172,25 @@ const documentApi = {
 };
 
 const adminApi = {
+  listUsers: () => api.get<{ ok: boolean; data: Array<{
+    id: string;
+    email: string;
+    fullName: string;
+    status: string;
+    lastLoginAt: string | null;
+    role: { id: string; name: string; roleCategory: string } | null;
+  }> }>('/admin/users'),
+  listRoles: () => api.get<{ ok: boolean; data: Array<{
+    id: string;
+    name: string;
+    roleCategory: string;
+  }> }>('/admin/roles'),
+  inviteUser: (payload: {
+    email: string;
+    fullName: string;
+    roleId: string;
+    password?: string;
+  }) => api.post<{ ok: boolean; error?: string }>('/admin/users/invite', payload),
   listBuckets: () => api.get<{ buckets: string[] }>('/admin/storage/buckets'),
   listStorage: (bucket: string, prefix = '') =>
     api.get<AdminStorageListing>('/admin/storage', {

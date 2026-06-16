@@ -308,7 +308,7 @@ def _build_output_rules(model: type[BaseModel], document_type: str, extractor_la
 
     rules: list[str] = [
         "Return **one JSON object only** (no markdown fences, no commentary).",
-        f'Top-level JSON must include `source`: "OpenRouter" and `documentType`: "{document_type}".',
+        f'Top-level JSON must include `documentType`: "{document_type}".',
         "**Every key from the TEMPLATE must appear in the output, in the same place, with the same name.** Do not rename, drop, or wrap keys.",
         "**Every scalar leaf is a string** (camelCase keys, string values). Use `null` only when the field is genuinely absent from the PDF.",
         "**TEMPLATE values are FORMAT EXAMPLES** (date style, ID patterns, units) — do not copy them. Replace each example with the actual value visible in the PDF. If you cannot find a value, use `null`.",

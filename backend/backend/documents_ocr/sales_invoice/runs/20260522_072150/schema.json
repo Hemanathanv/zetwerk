@@ -973,7 +973,7 @@
           "type": "null"
         }
       ],
-      "default": "OpenRouter",
+      "default": null,
       "title": "Source"
     },
     "documentType": {

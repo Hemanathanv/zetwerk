@@ -308,12 +308,18 @@ def _build_output_rules(model: type[BaseModel], document_type: str, extractor_la
 
     rules: list[str] = [
         "Return **one JSON object only** (no markdown fences, no commentary).",
-        f'Top-level JSON must include `source`: "OpenRouter" and `documentType`: "{document_type}".',
+        f'Top-level JSON must include `documentType`: "{document_type}".',
         "**Every key from the TEMPLATE must appear in the output, in the same place, with the same name.** Do not rename, drop, or wrap keys.",
         "**Every scalar leaf is a string** (camelCase keys, string values). Use `null` only when the field is genuinely absent from the PDF.",
         "**TEMPLATE values are FORMAT EXAMPLES** (date style, ID patterns, units) — do not copy them. Replace each example with the actual value visible in the PDF. If you cannot find a value, use `null`.",
         "Map PDF labels to the schema field name using semantic match (e.g. \"B/L No.\" -> `bolNumber`, \"Vessel/Voyage\" -> `vesselName`/`vesselVoyageNumber`). Synonyms and abbreviations count.",
         "Extract every visible value. Do not skip fields that look unimportant; partial extraction is the most common failure mode.",
+        "`signature`: set `true` if any authorized signatory stamp, wet signature, digital signature block, or visible signature mark appears on the PDF; set `false` only when clearly absent.",
+        "`invoiceType`: for Zetwerk-style invoices, capture the full export/supply banner such as \"SUPPLY MEANT FOR EXPORT ON PAYMENT OF INTEGRATED TAX\". If only the generic title is visible, use \"Tax Invoice\" instead of leaving it blank.",
+        "Line item product fields: `productCode` is only the SKU/internal code; `productDescription` is the short product name only; `productSpecification` is technical spec only (dimensions, grade, material, finish, length). Never put HSN in `productDescription`; use `hsnCode`/`hsnCodeDestination`.",
+        "Package fields: keep `packageDescription` descriptive only. If the PDF shows a count such as \"12 PKGS\" or \"3 Boxes\", put the number in `noOfPackages` and the package type in `kindOfPkg` instead of copying the count into `packageDescription`.",
+        "`quantityTotal`: if the invoice line table has a quantity column, set `quantityTotal` on every line-item row to the sum of all line-item `quantity` values for the document.",
+        "Use `rate` only for unit price; do not emit `unitPrice`. Put per-line marks in `productMarks`. Extract `boCode` from BO Code and split combined CONTAINER NO / SEAL NO values into `containerNo` and `sealNo`.",
     ]
 
     if arrays:

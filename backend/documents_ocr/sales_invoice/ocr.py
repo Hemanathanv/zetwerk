@@ -3,7 +3,11 @@ import re
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from prisma import Json
+try:
+    from prisma import Json
+except ImportError:  # pragma: no cover - local schema tests can run before Prisma client generation.
+    def Json(value: Any) -> Any:
+        return value
 
 from documents_ocr.sales_invoice.prompt import build_sales_invoice_prompt
 from documents_ocr.schema_loader import load_extraction_schema
@@ -126,6 +130,21 @@ ARRAY_FIELDS = _SCHEMA.array_fields
 ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
 SECTION_FIELD_MAP = _build_section_field_map(SCALAR_FIELDS)
 
+PRODUCT_CODE_PATTERN = re.compile(r"\b[A-Z]{1,4}(?:\.[A-Z0-9]+){3,}\b")
+SPEC_DIMENSION_PATTERN = re.compile(
+    r"\b(?:[A-Z]?\d+(?:\.\d+)?\s*[Xx]\s*\d+(?:\.\d+)?"
+    r"(?:\s*[Xx]\s*\d+(?:\.\d+)?)?)"
+    r"(?:\s*(?:FT|MM|CM|IN|M|KG|LB))?\b"
+)
+SPEC_MARKER_PATTERN = re.compile(
+    r"(?:^|,\s*)(HDG|GALV(?:ANIZED)?|GRADE|ASTM|COATED|PAINTED|FINISH|WHITE|BLACK|ZINC|ALLOY|STAINLESS|MILD\s+STEEL)\b",
+    re.IGNORECASE,
+)
+PACKAGE_COUNT_PATTERN = re.compile(
+    r"^(\d+)\s*(?:x\s*)?(PKGS?|PKG|PACKAGES?|NOS?|NO\.?|PCS?|BOX(?:ES)?|CARTONS?)\b(?:\s*[:\-]?\s*(.*))?$",
+    re.IGNORECASE,
+)
+
 ComplianceSection = _build_section_model("ComplianceSection", SECTION_FIELD_MAP["compliance"])
 EntitiesSection = _build_section_model("EntitiesSection", SECTION_FIELD_MAP["entities"])
 FinancialSection = _build_section_model("FinancialSection", SECTION_FIELD_MAP["financial"])
@@ -178,6 +197,201 @@ def _coerce_string(value: Any) -> str | None:
     return text or None
 
 
+def _clean_text(value: Any) -> str:
+    text = _coerce_string(value)
+    return re.sub(r"\s+", " ", text).strip() if text else ""
+
+
+def _split_description_and_spec(text: str) -> tuple[str, str]:
+    text = _clean_text(text)
+    if not text:
+        return "", ""
+
+    dim_match = SPEC_DIMENSION_PATTERN.search(text)
+    if dim_match and dim_match.start() > 2:
+        left = text[: dim_match.start()].strip(" ,;:-")
+        right = text[dim_match.start() :].strip(" ,;:-")
+        if left and right:
+            return left, right
+
+    marker_match = SPEC_MARKER_PATTERN.search(text)
+    if marker_match and marker_match.start() > 2:
+        left = text[: marker_match.start()].strip(" ,;:-")
+        right = text[marker_match.start() :].strip(" ,;:-")
+        if left and right:
+            return left, right
+
+    if "," in text:
+        parts = [part.strip(" ,;:-") for part in text.split(",") if part.strip(" ,;:-")]
+        for idx in range(1, len(parts)):
+            if SPEC_MARKER_PATTERN.search(parts[idx]) or SPEC_DIMENSION_PATTERN.search(parts[idx]):
+                return ", ".join(parts[:idx]).strip(), ", ".join(parts[idx:]).strip()
+
+    return text, ""
+
+
+def _strip_hsn_from_description(value: Any) -> str | None:
+    text = _clean_text(value)
+    if not text:
+        return None
+    text = re.sub(r"\b\d{4}\.\d{2}\.\d{2}\b", " ", text)
+    text = re.sub(r"\b\d{8,10}\b", " ", text)
+    return re.sub(r"\s+", " ", text).strip() or None
+
+
+def _strip_origin_certification_from_spec(value: Any) -> str | None:
+    text = _clean_text(value)
+    if not text:
+        return None
+    patterns = (
+        r"\b100%\s*Indian\s+steel[^,;.]*(?:[,;.]|$)",
+        r"\bsmelted\s+in\s+India[^,;.]*(?:[,;.]|$)",
+        r"\b(?:made|manufactured|produced)\s+in\s+India[^,;.]*(?:[,;.]|$)",
+        r"\bcountry\s+of\s+origin[^,;.]*(?:[,;.]|$)",
+        r"\bcertificate\s+of\s+origin[^,;.]*(?:[,;.]|$)",
+        r"\bCOO\s*[:-]\s*[^,;.]+(?:[,;.]|$)",
+        r"\b(?:fully\s+)?Indian\s+origin[^,;.]*(?:[,;.]|$)",
+    )
+    for pattern in patterns:
+        text = re.sub(pattern, " ", text, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", text).strip(" ,.;") or None
+
+
+def _normalize_package_count(value: Any) -> str | None:
+    text = _clean_text(value)
+    if not text:
+        return None
+    match = re.match(r"^(\d+)", text)
+    return match.group(1) if match else text
+
+
+def _parse_numeric_quantity(value: Any) -> float | None:
+    text = _clean_text(value)
+    if not text:
+        return None
+    match = re.search(r"-?\d[\d,]*(?:\.\d+)?", text)
+    if not match:
+        return None
+    try:
+        return float(match.group(0).replace(",", ""))
+    except ValueError:
+        return None
+
+
+def _format_quantity_total(value: float) -> str:
+    if float(value).is_integer():
+        return str(int(value))
+    return f"{value:.3f}".rstrip("0").rstrip(".")
+
+
+def _normalize_signature(value: Any) -> str | None:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    text = _clean_text(value)
+    if not text:
+        return None
+    lowered = text.lower()
+    if lowered in {"true", "yes", "y", "1", "x", "checked"} or text in {"☒", "✓", "✔"}:
+        return "true"
+    if lowered in {"false", "no", "n", "0"}:
+        return "false"
+    if re.search(r"sign|stamp|authori", text, flags=re.IGNORECASE):
+        return "true"
+    return text
+
+
+def _repair_line_item_fields(item: dict[str, Any]) -> dict[str, Any]:
+    item.pop("productPartNumber", None)
+    item.pop("productSku", None)
+    item.pop("unitPrice", None)
+
+    code = _clean_text(item.get("productCode"))
+    description = _clean_text(item.get("productDescription"))
+    specification = _clean_text(item.get("productSpecification"))
+
+    if not code:
+        for source_name, source_value in (("description", description), ("specification", specification)):
+            if not source_value:
+                continue
+            leading = PRODUCT_CODE_PATTERN.match(source_value)
+            if not leading:
+                continue
+            code = leading.group(0)
+            remainder = source_value[leading.end() :].strip(" ,;:-")
+            if source_name == "description":
+                description = remainder
+            else:
+                specification = remainder
+            break
+
+    if code:
+        leading = PRODUCT_CODE_PATTERN.match(code)
+        if leading:
+            trailing = code[leading.end() :].strip(" ,;:-")
+            code = leading.group(0)
+            if trailing and not description:
+                description = trailing
+
+    if description:
+        leading = PRODUCT_CODE_PATTERN.match(description)
+        if leading:
+            if not code:
+                code = leading.group(0)
+            description = description[leading.end() :].strip(" ,;:-")
+
+    if description and not specification:
+        split_description, split_specification = _split_description_and_spec(description)
+        if split_specification:
+            description = split_description
+            specification = split_specification
+    elif specification and not description:
+        split_description, split_specification = _split_description_and_spec(specification)
+        if split_description and split_specification:
+            description = split_description
+            specification = split_specification
+
+    item["productCode"] = code or None
+    item["productDescription"] = _strip_hsn_from_description(description)
+    item["productSpecification"] = _strip_origin_certification_from_spec(specification)
+
+    package_description = _clean_text(item.get("packageDescription"))
+    if package_description:
+        package_match = PACKAGE_COUNT_PATTERN.match(package_description)
+        if package_match:
+            if not _clean_text(item.get("noOfPackages")):
+                item["noOfPackages"] = package_match.group(1)
+            if not _clean_text(item.get("kindOfPkg")):
+                kind = package_match.group(2).replace(".", "").upper()
+                item["kindOfPkg"] = "PKGS" if kind.startswith("PKG") else kind
+            trailing = _clean_text(package_match.group(3))
+            item["packageDescription"] = trailing or None
+        elif package_description.isdigit() and not _clean_text(item.get("noOfPackages")):
+            item["noOfPackages"] = package_description
+            item["packageDescription"] = None
+
+    if item.get("noOfPackages") is not None:
+        item["noOfPackages"] = _normalize_package_count(item.get("noOfPackages"))
+
+    return item
+
+
+def _with_quantity_total(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    total = 0.0
+    has_quantity = False
+    for item in items:
+        quantity = _parse_numeric_quantity(item.get("quantity"))
+        if quantity is None:
+            continue
+        total += quantity
+        has_quantity = True
+    if not has_quantity:
+        return items
+    formatted_total = _format_quantity_total(total)
+    for item in items:
+        item["quantityTotal"] = formatted_total
+    return items
+
+
 def normalize_array_field_payload(*, value: Any, expected_fields: list[str]) -> list[dict[str, Any]]:
     if value is None:
         source_items: list[dict[str, Any]] = []
@@ -222,6 +436,12 @@ def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
             value = section_payload.get(field_name)
             if value is not None and not isinstance(value, str):
                 section_payload[field_name] = _coerce_string(value)
+            if field_name == "signature":
+                section_payload[field_name] = _normalize_signature(section_payload.get(field_name))
+            if field_name == "invoiceType" and not _clean_text(section_payload.get(field_name)):
+                section_payload[field_name] = "Tax Invoice"
+        if section_name == "shipment":
+            section_payload.pop("marksAndNumbers", None)
         normalized[section_name] = section_payload
 
     for field_name in ARRAY_FIELDS:
@@ -229,6 +449,10 @@ def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
             value=normalized.get(field_name),
             expected_fields=ARRAY_ITEM_FIELDS.get(field_name, []),
         )
+        if field_name == "lineItems":
+            normalized[field_name] = _with_quantity_total(
+                [_repair_line_item_fields(item) for item in normalized[field_name]]
+            )
 
     return normalized
 

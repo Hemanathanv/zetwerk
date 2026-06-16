@@ -1,0 +1,1223 @@
+{
+  "input_number": "HAMU3451677",
+  "request_type": "container",
+  "scac_used": "HLCU",
+  "auto_detect": {
+    "request_id": "req_b68d7abf-cf93-40dc-94f7-11e05e94505d",
+    "number_type": "container",
+    "validation": {
+      "type": "container",
+      "is_valid": true,
+      "check_digit_passed": true,
+      "parsed_number": null,
+      "reason": null
+    },
+    "shipping_line": {
+      "decision": "auto_select",
+      "selected": {
+        "scac": "HLCU",
+        "name": "Hapag-Lloyd",
+        "confidence": 1.0
+      },
+      "candidates": [
+        {
+          "scac": "HLCU",
+          "name": "Hapag-Lloyd",
+          "confidence": 1.0
+        }
+      ]
+    }
+  },
+  "tracking_request": {
+    "tracking_request_id": "8fe73785-a0d8-4abd-82f2-757da5f79027",
+    "status": "already_exists"
+  },
+  "details": {
+    "tracking_request_id": "8fe73785-a0d8-4abd-82f2-757da5f79027",
+    "tracking_request": {
+      "data": {
+        "id": "8fe73785-a0d8-4abd-82f2-757da5f79027",
+        "type": "tracking_request",
+        "attributes": {
+          "request_number": "HAMU3451677",
+          "request_type": "container",
+          "scac": "HLCU",
+          "ref_numbers": [],
+          "shipment_tags": [],
+          "created_at": "2026-06-03T07:16:55Z",
+          "updated_at": "2026-06-03T07:17:34Z",
+          "status": "created",
+          "failed_reason": null,
+          "is_retrying": false,
+          "retry_count": null
+        },
+        "relationships": {
+          "tracked_object": {
+            "data": {
+              "id": "72841066-5346-44fc-b526-001f87c2d2c3",
+              "type": "shipment"
+            }
+          },
+          "customer": {
+            "data": null
+          },
+          "user": {
+            "data": null
+          }
+        },
+        "links": {
+          "self": "/v2/tracking_requests/8fe73785-a0d8-4abd-82f2-757da5f79027"
+        }
+      },
+      "links": {
+        "self": "https://api.terminal49.com/v2/tracking_requests/8fe73785-a0d8-4abd-82f2-757da5f79027"
+      },
+      "included": [
+        {
+          "id": "72841066-5346-44fc-b526-001f87c2d2c3",
+          "type": "shipment",
+          "attributes": {
+            "created_at": "2026-06-03T07:17:33Z",
+            "ref_numbers": [],
+            "tags": [],
+            "bill_of_lading_number": "HAMU3451677",
+            "normalized_number": "HAMU3451677",
+            "shipping_line_scac": "HLCU",
+            "shipping_line_name": "Hapag-Lloyd",
+            "shipping_line_short_name": "Hapag-Lloyd",
+            "customer_name": "SPR Consultech",
+            "port_of_lading_locode": "INMUN",
+            "port_of_lading_name": "Mundra",
+            "port_of_discharge_locode": "USORF",
+            "port_of_discharge_name": "Virginia",
+            "pod_vessel_name": "TUCAPEL",
+            "pod_vessel_imo": "9569970",
+            "pod_voyage_number": "6120",
+            "destination_locode": "USMES",
+            "destination_name": "Minneapolis",
+            "destination_timezone": "America/Chicago",
+            "destination_ata_at": null,
+            "destination_eta_at": "2026-07-03T05:00:00Z",
+            "pol_etd_at": null,
+            "pol_atd_at": "2026-05-26T07:29:24Z",
+            "pol_timezone": "Asia/Kolkata",
+            "pod_eta_at": "2026-06-28T12:00:00Z",
+            "pod_original_eta_at": "2026-06-28T12:00:00Z",
+            "pol_original_etd_at": null,
+            "destination_original_eta_at": "2026-07-03T05:00:00Z",
+            "pod_ata_at": null,
+            "pod_timezone": "America/New_York",
+            "line_tracking_last_attempted_at": "2026-06-03T07:17:33Z",
+            "line_tracking_last_succeeded_at": "2026-06-03T07:17:33Z",
+            "line_tracking_stopped_at": null,
+            "line_tracking_stopped_reason": null
+          },
+          "links": {
+            "self": "/v2/shipments/72841066-5346-44fc-b526-001f87c2d2c3"
+          },
+          "relationships": {
+            "port_of_lading": {
+              "data": {
+                "id": "7913a279-5fdc-4a51-8964-408ed328e5e3",
+                "type": "port"
+              }
+            },
+            "port_of_discharge": {
+              "data": {
+                "id": "c4554ebb-5476-4b5e-b79f-1e873f7b86fa",
+                "type": "port"
+              }
+            },
+            "pod_terminal": {
+              "data": {
+                "id": "4636c1c6-abc9-401f-ab4b-9a73a5f171a8",
+                "type": "terminal"
+              }
+            },
+            "destination": {
+              "data": {
+                "id": "59d41ef7-57e7-4edc-b0e4-55919e8fa186",
+                "type": "port"
+              }
+            },
+            "destination_terminal": {
+              "data": null
+            },
+            "line_tracking_stopped_by_user": {
+              "data": null
+            },
+            "containers": {
+              "data": [
+                {
+                  "id": "eac2bcfa-ae29-47ca-800e-fee18526fb9a",
+                  "type": "container"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "shipment_id": "72841066-5346-44fc-b526-001f87c2d2c3",
+    "shipment_raw": {
+      "data": {
+        "id": "72841066-5346-44fc-b526-001f87c2d2c3",
+        "type": "shipment",
+        "attributes": {
+          "created_at": "2026-06-03T07:17:33Z",
+          "ref_numbers": [],
+          "tags": [],
+          "bill_of_lading_number": "HAMU3451677",
+          "normalized_number": "HAMU3451677",
+          "shipping_line_scac": "HLCU",
+          "shipping_line_name": "Hapag-Lloyd",
+          "shipping_line_short_name": "Hapag-Lloyd",
+          "customer_name": "SPR Consultech",
+          "port_of_lading_locode": "INMUN",
+          "port_of_lading_name": "Mundra",
+          "port_of_discharge_locode": "USORF",
+          "port_of_discharge_name": "Virginia",
+          "pod_vessel_name": "TUCAPEL",
+          "pod_vessel_imo": "9569970",
+          "pod_voyage_number": "6120",
+          "destination_locode": "USMES",
+          "destination_name": "Minneapolis",
+          "destination_timezone": "America/Chicago",
+          "destination_ata_at": null,
+          "destination_eta_at": "2026-07-03T05:00:00Z",
+          "pol_etd_at": null,
+          "pol_atd_at": "2026-05-26T07:29:24Z",
+          "pol_timezone": "Asia/Kolkata",
+          "pod_eta_at": "2026-06-28T12:00:00Z",
+          "pod_original_eta_at": "2026-06-28T12:00:00Z",
+          "pol_original_etd_at": null,
+          "destination_original_eta_at": "2026-07-03T05:00:00Z",
+          "pod_ata_at": null,
+          "pod_timezone": "America/New_York",
+          "line_tracking_last_attempted_at": "2026-06-03T07:17:33Z",
+          "line_tracking_last_succeeded_at": "2026-06-03T07:17:33Z",
+          "line_tracking_stopped_at": null,
+          "line_tracking_stopped_reason": null
+        },
+        "links": {
+          "self": "/v2/shipments/72841066-5346-44fc-b526-001f87c2d2c3"
+        },
+        "relationships": {
+          "port_of_lading": {
+            "data": {
+              "id": "7913a279-5fdc-4a51-8964-408ed328e5e3",
+              "type": "port"
+            }
+          },
+          "port_of_discharge": {
+            "data": {
+              "id": "c4554ebb-5476-4b5e-b79f-1e873f7b86fa",
+              "type": "port"
+            }
+          },
+          "pod_terminal": {
+            "data": {
+              "id": "4636c1c6-abc9-401f-ab4b-9a73a5f171a8",
+              "type": "terminal"
+            }
+          },
+          "destination": {
+            "data": {
+              "id": "59d41ef7-57e7-4edc-b0e4-55919e8fa186",
+              "type": "port"
+            }
+          },
+          "destination_terminal": {
+            "data": null
+          },
+          "line_tracking_stopped_by_user": {
+            "data": null
+          },
+          "containers": {
+            "data": [
+              {
+                "id": "eac2bcfa-ae29-47ca-800e-fee18526fb9a",
+                "type": "container"
+              }
+            ]
+          }
+        }
+      },
+      "links": {
+        "self": "https://api.terminal49.com/v2/shipments/72841066-5346-44fc-b526-001f87c2d2c3?include=containers%2Cport_of_lading%2Cport_of_discharge%2Cdestination%2Cpod_terminal"
+      },
+      "included": [
+        {
+          "id": "eac2bcfa-ae29-47ca-800e-fee18526fb9a",
+          "type": "container",
+          "attributes": {
+            "number": "HAMU3451677",
+            "seal_number": null,
+            "created_at": "2026-06-03T07:17:33Z",
+            "ref_numbers": [],
+            "pod_arrived_at": null,
+            "pod_discharged_at": null,
+            "final_destination_full_out_at": null,
+            "holds_at_pod_terminal": [],
+            "available_for_pickup": false,
+            "delivered_at": null,
+            "current_status": "on_ship",
+            "empty_out_at": "2026-05-13T17:50:00Z",
+            "pol_full_in_at": "2026-05-18T04:40:00Z",
+            "pol_vessel_loaded_at": "2026-05-24T20:06:00Z",
+            "pol_vessel_departed_at": "2026-05-26T07:29:24Z",
+            "equipment_type": "dry",
+            "equipment_length": 40,
+            "equipment_height": "high_cube",
+            "pod_full_out_at": null,
+            "empty_terminated_at": null,
+            "terminal_checked_at": null,
+            "fees_at_pod_terminal": [],
+            "pickup_lfd": null,
+            "pickup_appointment_at": null,
+            "pod_full_out_chassis_number": null,
+            "location_at_pod_terminal": null,
+            "pod_last_tracking_request_at": null,
+            "shipment_last_tracking_request_at": "2026-06-03T07:17:33Z",
+            "rail_last_tracking_request_at": null,
+            "availability_known": false,
+            "pod_timezone": "America/New_York",
+            "final_destination_timezone": "America/Chicago",
+            "weight_in_lbs": 0.0,
+            "empty_terminated_timezone": "America/Chicago",
+            "pod_rail_carrier_scac": null,
+            "ind_rail_carrier_scac": null,
+            "pod_rail_loaded_at": null,
+            "pod_rail_departed_at": null,
+            "ind_rail_unloaded_at": null,
+            "ind_facility_holds": null,
+            "ind_facility_fees": null,
+            "ind_facility_lfd_on": null,
+            "ind_eta_at": "2026-07-03T05:00:00Z",
+            "ind_eta_source_summary": {
+              "sources": [
+                {
+                  "at": "2026-07-03T05:00:00Z",
+                  "source": "shipping_line",
+                  "selected": true
+                }
+              ],
+              "selected_source": "shipping_line"
+            },
+            "ind_ata_at": null,
+            "import_deadlines": {
+              "pickup_lfd_terminal": null,
+              "pickup_lfd_rail": null,
+              "pickup_lfd_line": null
+            },
+            "ssl_lfd": null
+          },
+          "relationships": {
+            "shipment": {
+              "data": {
+                "id": "72841066-5346-44fc-b526-001f87c2d2c3",
+                "type": "shipment"
+              }
+            },
+            "pickup_facility": {
+              "data": null
+            },
+            "pod_terminal": {
+              "data": {
+                "id": "4636c1c6-abc9-401f-ab4b-9a73a5f171a8",
+                "type": "terminal"
+              }
+            },
+            "transport_events": {
+              "data": [
+                {
+                  "id": "b4c7575f-408b-4793-b07b-d1a766770885",
+                  "type": "transport_event"
+                },
+                {
+                  "id": "d88d01c0-77d5-4034-99b0-79780355a403",
+                  "type": "transport_event"
+                },
+                {
+                  "id": "087a672f-4e92-4ad1-ac98-3dbedd8f0022",
+                  "type": "transport_event"
+                },
+                {
+                  "id": "af8722a3-d586-4031-a798-3a3be59192e3",
+                  "type": "transport_event"
+                },
+                {
+                  "id": "cc313446-5f46-4813-a701-0f589dca1adf",
+                  "type": "transport_event"
+                },
+                {
+                  "id": "7afd0b46-4ef2-4e43-9d1e-60650a19bdd9",
+                  "type": "transport_event"
+                }
+              ]
+            },
+            "raw_events": {
+              "data": [
+                {
+                  "id": "6b41cdeb-d049-4bae-a3f3-08c0a6b65b2b",
+                  "type": "raw_event"
+                },
+                {
+                  "id": "e487f8a8-b09d-4737-8210-5afbe7caae5a",
+                  "type": "raw_event"
+                },
+                {
+                  "id": "ddc64434-fc01-4825-9205-dbe822053981",
+                  "type": "raw_event"
+                },
+                {
+                  "id": "0aae5c32-106a-4f9d-b552-f911fb035d17",
+                  "type": "raw_event"
+                },
+                {
+                  "id": "3619d8e1-e14a-4fa1-ab22-0cc437bf241e",
+                  "type": "raw_event"
+                },
+                {
+                  "id": "dd2f7d9a-81b6-4c99-9f3c-e49ccb983734",
+                  "type": "raw_event"
+                },
+                {
+                  "id": "d514bbdb-a503-4347-9394-8821878d0a1c",
+                  "type": "raw_event"
+                },
+                {
+                  "id": "37d40d7e-5134-461d-ae34-c52de45dd491",
+                  "type": "raw_event"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "7913a279-5fdc-4a51-8964-408ed328e5e3",
+          "type": "port",
+          "attributes": {
+            "id": "7913a279-5fdc-4a51-8964-408ed328e5e3",
+            "name": "Mundra",
+            "code": "INMUN",
+            "state_abbr": "GJ",
+            "city": "Mundra",
+            "country_code": "IN",
+            "latitude": "22.741371975",
+            "longitude": "69.697404352",
+            "time_zone": "Asia/Kolkata"
+          },
+          "relationships": {
+            "terminals": {
+              "data": [
+                {
+                  "id": "eacc5756-c05c-42a5-a9fb-6d6985eb6987",
+                  "type": "terminal"
+                },
+                {
+                  "id": "d151f74c-2f81-4d26-8f5e-500c6cacaf37",
+                  "type": "terminal"
+                },
+                {
+                  "id": "e0ef9beb-8bc3-4bf8-b1c8-c77b0b42b929",
+                  "type": "terminal"
+                },
+                {
+                  "id": "ca79eb7b-4032-46a2-8a3e-37e8ba5e1c67",
+                  "type": "terminal"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "c4554ebb-5476-4b5e-b79f-1e873f7b86fa",
+          "type": "port",
+          "attributes": {
+            "id": "c4554ebb-5476-4b5e-b79f-1e873f7b86fa",
+            "name": "Virginia",
+            "code": "USORF",
+            "state_abbr": "VA",
+            "city": "Norfolk",
+            "country_code": "US",
+            "latitude": "36.910719502",
+            "longitude": "-76.324600462",
+            "time_zone": "America/New_York"
+          },
+          "relationships": {
+            "terminals": {
+              "data": [
+                {
+                  "id": "359c10f2-b69b-481d-b26e-d030b03fa9bf",
+                  "type": "terminal"
+                },
+                {
+                  "id": "4636c1c6-abc9-401f-ab4b-9a73a5f171a8",
+                  "type": "terminal"
+                },
+                {
+                  "id": "7f65d03f-b3be-40b4-a080-b931cbcc8f84",
+                  "type": "terminal"
+                },
+                {
+                  "id": "79424668-3fa6-4281-a94f-8fd461b945ab",
+                  "type": "terminal"
+                },
+                {
+                  "id": "2fae67a7-a238-44db-8502-53fb4f5bf142",
+                  "type": "terminal"
+                },
+                {
+                  "id": "a23aa451-be2c-403b-9a97-4ac6051426a6",
+                  "type": "terminal"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "59d41ef7-57e7-4edc-b0e4-55919e8fa186",
+          "type": "port",
+          "attributes": {
+            "id": "59d41ef7-57e7-4edc-b0e4-55919e8fa186",
+            "name": "Minneapolis",
+            "code": "USMES",
+            "state_abbr": "MN",
+            "city": "Minneapolis",
+            "country_code": "US",
+            "latitude": "44.977753",
+            "longitude": "-93.2650108",
+            "time_zone": "America/Chicago"
+          },
+          "relationships": {
+            "terminals": {
+              "data": [
+                {
+                  "id": "45449c60-0ce1-4f1c-b696-74c618d7b82b",
+                  "type": "terminal"
+                },
+                {
+                  "id": "6a0e7a89-4974-43e7-a3f9-ea8fef202e66",
+                  "type": "terminal"
+                },
+                {
+                  "id": "62576393-6f23-4755-bc8d-48a6f03f8f84",
+                  "type": "terminal"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "id": "4636c1c6-abc9-401f-ab4b-9a73a5f171a8",
+          "type": "terminal",
+          "attributes": {
+            "id": "4636c1c6-abc9-401f-ab4b-9a73a5f171a8",
+            "nickname": "Norfolk (NIT)",
+            "name": "Norfolk International Terminals",
+            "firms_code": "L005",
+            "smdg_code": "NIT",
+            "bic_facility_code": "USORFVITA",
+            "provided_data": {
+              "pickup_lfd": true,
+              "pod_full_out_at": true,
+              "pickup_lfd_notes": "",
+              "available_for_pickup": true,
+              "fees_at_pod_terminal": false,
+              "holds_at_pod_terminal": true,
+              "pickup_appointment_at": false,
+              "location_at_pod_terminal": true,
+              "available_for_pickup_notes": "",
+              "fees_at_pod_terminal_notes": "",
+              "holds_at_pod_terminal_notes": "",
+              "pickup_appointment_at_notes": "",
+              "pod_full_out_chassis_number": false,
+              "location_at_pod_terminal_notes": "",
+              "pod_full_out_chassis_number_notes": ""
+            },
+            "street": "7737 Hampton Blvd.",
+            "city": "Norfolk",
+            "state": "Virginia",
+            "state_abbr": "VA",
+            "zip": "23505",
+            "country": "United States",
+            "facility_type": "ocean_terminal"
+          },
+          "relationships": {
+            "port": {
+              "data": {
+                "id": "c4554ebb-5476-4b5e-b79f-1e873f7b86fa",
+                "type": "port"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "shipment": {
+      "shipment_id": "72841066-5346-44fc-b526-001f87c2d2c3",
+      "attributes": {
+        "created_at": "2026-06-03T07:17:33Z",
+        "ref_numbers": [],
+        "tags": [],
+        "bill_of_lading_number": "HAMU3451677",
+        "normalized_number": "HAMU3451677",
+        "shipping_line_scac": "HLCU",
+        "shipping_line_name": "Hapag-Lloyd",
+        "shipping_line_short_name": "Hapag-Lloyd",
+        "customer_name": "SPR Consultech",
+        "port_of_lading_locode": "INMUN",
+        "port_of_lading_name": "Mundra",
+        "port_of_discharge_locode": "USORF",
+        "port_of_discharge_name": "Virginia",
+        "pod_vessel_name": "TUCAPEL",
+        "pod_vessel_imo": "9569970",
+        "pod_voyage_number": "6120",
+        "destination_locode": "USMES",
+        "destination_name": "Minneapolis",
+        "destination_timezone": "America/Chicago",
+        "destination_ata_at": null,
+        "destination_eta_at": "2026-07-03T05:00:00Z",
+        "pol_etd_at": null,
+        "pol_atd_at": "2026-05-26T07:29:24Z",
+        "pol_timezone": "Asia/Kolkata",
+        "pod_eta_at": "2026-06-28T12:00:00Z",
+        "pod_original_eta_at": "2026-06-28T12:00:00Z",
+        "pol_original_etd_at": null,
+        "destination_original_eta_at": "2026-07-03T05:00:00Z",
+        "pod_ata_at": null,
+        "pod_timezone": "America/New_York",
+        "line_tracking_last_attempted_at": "2026-06-03T07:17:33Z",
+        "line_tracking_last_succeeded_at": "2026-06-03T07:17:33Z",
+        "line_tracking_stopped_at": null,
+        "line_tracking_stopped_reason": null
+      },
+      "port_of_lading": {
+        "id": "7913a279-5fdc-4a51-8964-408ed328e5e3",
+        "name": "Mundra",
+        "code": "INMUN",
+        "state_abbr": "GJ",
+        "city": "Mundra",
+        "country_code": "IN",
+        "latitude": "22.741371975",
+        "longitude": "69.697404352",
+        "time_zone": "Asia/Kolkata"
+      },
+      "port_of_discharge": {
+        "id": "c4554ebb-5476-4b5e-b79f-1e873f7b86fa",
+        "name": "Virginia",
+        "code": "USORF",
+        "state_abbr": "VA",
+        "city": "Norfolk",
+        "country_code": "US",
+        "latitude": "36.910719502",
+        "longitude": "-76.324600462",
+        "time_zone": "America/New_York"
+      },
+      "destination": {
+        "id": "59d41ef7-57e7-4edc-b0e4-55919e8fa186",
+        "name": "Minneapolis",
+        "code": "USMES",
+        "state_abbr": "MN",
+        "city": "Minneapolis",
+        "country_code": "US",
+        "latitude": "44.977753",
+        "longitude": "-93.2650108",
+        "time_zone": "America/Chicago"
+      },
+      "pod_terminal": {
+        "id": "4636c1c6-abc9-401f-ab4b-9a73a5f171a8",
+        "nickname": "Norfolk (NIT)",
+        "name": "Norfolk International Terminals",
+        "firms_code": "L005",
+        "smdg_code": "NIT",
+        "bic_facility_code": "USORFVITA",
+        "provided_data": {
+          "pickup_lfd": true,
+          "pod_full_out_at": true,
+          "pickup_lfd_notes": "",
+          "available_for_pickup": true,
+          "fees_at_pod_terminal": false,
+          "holds_at_pod_terminal": true,
+          "pickup_appointment_at": false,
+          "location_at_pod_terminal": true,
+          "available_for_pickup_notes": "",
+          "fees_at_pod_terminal_notes": "",
+          "holds_at_pod_terminal_notes": "",
+          "pickup_appointment_at_notes": "",
+          "pod_full_out_chassis_number": false,
+          "location_at_pod_terminal_notes": "",
+          "pod_full_out_chassis_number_notes": ""
+        },
+        "street": "7737 Hampton Blvd.",
+        "city": "Norfolk",
+        "state": "Virginia",
+        "state_abbr": "VA",
+        "zip": "23505",
+        "country": "United States",
+        "facility_type": "ocean_terminal"
+      },
+      "containers": [
+        {
+          "id": "eac2bcfa-ae29-47ca-800e-fee18526fb9a",
+          "number": "HAMU3451677",
+          "seal_number": null,
+          "created_at": "2026-06-03T07:17:33Z",
+          "ref_numbers": [],
+          "pod_arrived_at": null,
+          "pod_discharged_at": null,
+          "final_destination_full_out_at": null,
+          "holds_at_pod_terminal": [],
+          "available_for_pickup": false,
+          "delivered_at": null,
+          "current_status": "on_ship",
+          "empty_out_at": "2026-05-13T17:50:00Z",
+          "pol_full_in_at": "2026-05-18T04:40:00Z",
+          "pol_vessel_loaded_at": "2026-05-24T20:06:00Z",
+          "pol_vessel_departed_at": "2026-05-26T07:29:24Z",
+          "equipment_type": "dry",
+          "equipment_length": 40,
+          "equipment_height": "high_cube",
+          "pod_full_out_at": null,
+          "empty_terminated_at": null,
+          "terminal_checked_at": null,
+          "fees_at_pod_terminal": [],
+          "pickup_lfd": null,
+          "pickup_appointment_at": null,
+          "pod_full_out_chassis_number": null,
+          "location_at_pod_terminal": null,
+          "pod_last_tracking_request_at": null,
+          "shipment_last_tracking_request_at": "2026-06-03T07:17:33Z",
+          "rail_last_tracking_request_at": null,
+          "availability_known": false,
+          "pod_timezone": "America/New_York",
+          "final_destination_timezone": "America/Chicago",
+          "weight_in_lbs": 0.0,
+          "empty_terminated_timezone": "America/Chicago",
+          "pod_rail_carrier_scac": null,
+          "ind_rail_carrier_scac": null,
+          "pod_rail_loaded_at": null,
+          "pod_rail_departed_at": null,
+          "ind_rail_unloaded_at": null,
+          "ind_facility_holds": null,
+          "ind_facility_fees": null,
+          "ind_facility_lfd_on": null,
+          "ind_eta_at": "2026-07-03T05:00:00Z",
+          "ind_eta_source_summary": {
+            "sources": [
+              {
+                "at": "2026-07-03T05:00:00Z",
+                "source": "shipping_line",
+                "selected": true
+              }
+            ],
+            "selected_source": "shipping_line"
+          },
+          "ind_ata_at": null,
+          "import_deadlines": {
+            "pickup_lfd_terminal": null,
+            "pickup_lfd_rail": null,
+            "pickup_lfd_line": null
+          },
+          "ssl_lfd": null
+        }
+      ],
+      "transport_events": []
+    },
+    "shipment_custom_fields": {
+      "links": {
+        "self": "https://api.terminal49.com/v2/shipments/72841066-5346-44fc-b526-001f87c2d2c3/custom_fields",
+        "current": "https://api.terminal49.com/v2/shipments/72841066-5346-44fc-b526-001f87c2d2c3/custom_fields?page[number]=1"
+      },
+      "data": []
+    },
+    "shipping_line": {
+      "id": "9151a218-3f95-4dcf-8612-250bbbb31c6d",
+      "type": "shipping_line",
+      "attributes": {
+        "scac": "HLCU",
+        "name": "Hapag-Lloyd",
+        "bol_prefix": "HLCU",
+        "provided_data": {
+          "ssl_lfd": false,
+          "seal_number": false,
+          "weight_in_lbs": false,
+          "equipment_type": true,
+          "pod_arrived_at": true,
+          "pod_full_out_at": true,
+          "equipment_height": true,
+          "equipment_length": true,
+          "pod_discharged_at": true,
+          "seal_number_notes": "",
+          "empty_terminated_at": true,
+          "weight_in_lbs_notes": "",
+          "equipment_type_notes": "",
+          "pod_arrived_at_notes": "",
+          "pod_full_out_at_notes": "",
+          "equipment_height_notes": "",
+          "equipment_length_notes": "",
+          "pod_discharged_at_notes": "",
+          "empty_terminated_at_notes": "",
+          "final_destination_full_out_at": true,
+          "final_destination_full_out_at_notes": ""
+        },
+        "tracking_url": "https://www.hapag-lloyd.com/en/online-business/tracing/tracing-by-booking.html?blno=${BLNUM}",
+        "contact_url": null,
+        "alternative_scacs": [],
+        "short_name": "Hapag-Lloyd",
+        "bill_of_lading_tracking_support": true,
+        "booking_number_tracking_support": true,
+        "container_number_tracking_support": true
+      }
+    },
+    "vessel_lookup_note": "Shipment has vessel name 'TUCAPEL' but no vessel detail record was returned.",
+    "container_details": {
+      "eac2bcfa-ae29-47ca-800e-fee18526fb9a": {
+        "data": {
+          "id": "eac2bcfa-ae29-47ca-800e-fee18526fb9a",
+          "type": "container",
+          "attributes": {
+            "number": "HAMU3451677",
+            "seal_number": null,
+            "created_at": "2026-06-03T07:17:33Z",
+            "ref_numbers": [],
+            "pod_arrived_at": null,
+            "pod_discharged_at": null,
+            "final_destination_full_out_at": null,
+            "holds_at_pod_terminal": [],
+            "available_for_pickup": false,
+            "delivered_at": null,
+            "current_status": "on_ship",
+            "empty_out_at": "2026-05-13T17:50:00Z",
+            "pol_full_in_at": "2026-05-18T04:40:00Z",
+            "pol_vessel_loaded_at": "2026-05-24T20:06:00Z",
+            "pol_vessel_departed_at": "2026-05-26T07:29:24Z",
+            "equipment_type": "dry",
+            "equipment_length": 40,
+            "equipment_height": "high_cube",
+            "pod_full_out_at": null,
+            "empty_terminated_at": null,
+            "terminal_checked_at": null,
+            "fees_at_pod_terminal": [],
+            "pickup_lfd": null,
+            "pickup_appointment_at": null,
+            "pod_full_out_chassis_number": null,
+            "location_at_pod_terminal": null,
+            "pod_last_tracking_request_at": null,
+            "shipment_last_tracking_request_at": "2026-06-03T07:17:33Z",
+            "rail_last_tracking_request_at": null,
+            "availability_known": false,
+            "pod_timezone": "America/New_York",
+            "final_destination_timezone": "America/Chicago",
+            "weight_in_lbs": 0.0,
+            "empty_terminated_timezone": "America/Chicago",
+            "pod_rail_carrier_scac": null,
+            "ind_rail_carrier_scac": null,
+            "pod_rail_loaded_at": null,
+            "pod_rail_departed_at": null,
+            "ind_rail_unloaded_at": null,
+            "ind_facility_holds": null,
+            "ind_facility_fees": null,
+            "ind_facility_lfd_on": null,
+            "ind_eta_at": "2026-07-03T05:00:00Z",
+            "ind_eta_source_summary": {
+              "sources": [
+                {
+                  "at": "2026-07-03T05:00:00Z",
+                  "source": "shipping_line",
+                  "selected": true
+                }
+              ],
+              "selected_source": "shipping_line"
+            },
+            "ind_ata_at": null,
+            "import_deadlines": {
+              "pickup_lfd_terminal": null,
+              "pickup_lfd_rail": null,
+              "pickup_lfd_line": null
+            },
+            "ssl_lfd": null
+          },
+          "relationships": {
+            "shipment": {
+              "data": {
+                "id": "72841066-5346-44fc-b526-001f87c2d2c3",
+                "type": "shipment"
+              }
+            },
+            "pickup_facility": {
+              "data": null
+            },
+            "pod_terminal": {
+              "data": {
+                "id": "4636c1c6-abc9-401f-ab4b-9a73a5f171a8",
+                "type": "terminal"
+              }
+            },
+            "transport_events": {
+              "data": [
+                {
+                  "id": "b4c7575f-408b-4793-b07b-d1a766770885",
+                  "type": "transport_event"
+                },
+                {
+                  "id": "d88d01c0-77d5-4034-99b0-79780355a403",
+                  "type": "transport_event"
+                },
+                {
+                  "id": "087a672f-4e92-4ad1-ac98-3dbedd8f0022",
+                  "type": "transport_event"
+                },
+                {
+                  "id": "af8722a3-d586-4031-a798-3a3be59192e3",
+                  "type": "transport_event"
+                },
+                {
+                  "id": "cc313446-5f46-4813-a701-0f589dca1adf",
+                  "type": "transport_event"
+                },
+                {
+                  "id": "7afd0b46-4ef2-4e43-9d1e-60650a19bdd9",
+                  "type": "transport_event"
+                }
+              ]
+            },
+            "raw_events": {
+              "data": [
+                {
+                  "id": "6b41cdeb-d049-4bae-a3f3-08c0a6b65b2b",
+                  "type": "raw_event"
+                },
+                {
+                  "id": "e487f8a8-b09d-4737-8210-5afbe7caae5a",
+                  "type": "raw_event"
+                },
+                {
+                  "id": "ddc64434-fc01-4825-9205-dbe822053981",
+                  "type": "raw_event"
+                },
+                {
+                  "id": "0aae5c32-106a-4f9d-b552-f911fb035d17",
+                  "type": "raw_event"
+                },
+                {
+                  "id": "3619d8e1-e14a-4fa1-ab22-0cc437bf241e",
+                  "type": "raw_event"
+                },
+                {
+                  "id": "dd2f7d9a-81b6-4c99-9f3c-e49ccb983734",
+                  "type": "raw_event"
+                },
+                {
+                  "id": "d514bbdb-a503-4347-9394-8821878d0a1c",
+                  "type": "raw_event"
+                },
+                {
+                  "id": "37d40d7e-5134-461d-ae34-c52de45dd491",
+                  "type": "raw_event"
+                }
+              ]
+            }
+          }
+        },
+        "links": {
+          "self": "https://api.terminal49.com/v2/containers/eac2bcfa-ae29-47ca-800e-fee18526fb9a"
+        }
+      }
+    },
+    "container_events": {
+      "eac2bcfa-ae29-47ca-800e-fee18526fb9a": [
+        {
+          "id": "b4c7575f-408b-4793-b07b-d1a766770885",
+          "event": "container.transport.estimated.arrived_at_inland_destination",
+          "created_at": "2026-06-03T07:17:34Z",
+          "voyage_number": null,
+          "timestamp": "2026-07-03T05:00:00Z",
+          "data_source": "shipping_line",
+          "invalidated_at": null,
+          "location_locode": "USMES",
+          "timezone": "America/Chicago",
+          "value": null
+        },
+        {
+          "id": "d88d01c0-77d5-4034-99b0-79780355a403",
+          "event": "container.transport.vessel_loaded",
+          "created_at": "2026-06-03T07:17:34Z",
+          "voyage_number": "6120",
+          "timestamp": "2026-05-24T20:06:00Z",
+          "data_source": "shipping_line",
+          "invalidated_at": null,
+          "location_locode": "INMUN",
+          "timezone": "Asia/Kolkata",
+          "value": null
+        },
+        {
+          "id": "087a672f-4e92-4ad1-ac98-3dbedd8f0022",
+          "event": "container.transport.vessel_departed",
+          "created_at": "2026-06-03T07:17:34Z",
+          "voyage_number": "6120",
+          "timestamp": "2026-05-26T07:29:24Z",
+          "data_source": "ais",
+          "invalidated_at": null,
+          "location_locode": "INMUN",
+          "timezone": "Asia/Kolkata",
+          "value": null
+        },
+        {
+          "id": "af8722a3-d586-4031-a798-3a3be59192e3",
+          "event": "container.transport.estimated.vessel_arrived",
+          "created_at": "2026-06-03T07:17:34Z",
+          "voyage_number": "6120",
+          "timestamp": "2026-06-28T12:00:00Z",
+          "data_source": "shipping_line",
+          "invalidated_at": null,
+          "location_locode": "USORF",
+          "timezone": "America/New_York",
+          "value": null
+        },
+        {
+          "id": "cc313446-5f46-4813-a701-0f589dca1adf",
+          "event": "container.transport.full_in",
+          "created_at": "2026-06-03T07:17:34Z",
+          "voyage_number": null,
+          "timestamp": "2026-05-18T04:40:00Z",
+          "data_source": "shipping_line",
+          "invalidated_at": null,
+          "location_locode": "INMUN",
+          "timezone": "Asia/Kolkata",
+          "value": null
+        },
+        {
+          "id": "7afd0b46-4ef2-4e43-9d1e-60650a19bdd9",
+          "event": "container.transport.empty_out",
+          "created_at": "2026-06-03T07:17:34Z",
+          "voyage_number": null,
+          "timestamp": "2026-05-13T17:50:00Z",
+          "data_source": "shipping_line",
+          "invalidated_at": null,
+          "location_locode": "INMUN",
+          "timezone": "Asia/Kolkata",
+          "value": null
+        }
+      ]
+    },
+    "container_raw_events": {
+      "eac2bcfa-ae29-47ca-800e-fee18526fb9a": [
+        {
+          "id": "6b41cdeb-d049-4bae-a3f3-08c0a6b65b2b",
+          "actual_on": null,
+          "estimated_at": null,
+          "actual_at": "2026-05-13T17:50:00Z",
+          "will_occur_at": null,
+          "event": "empty_out",
+          "timestamp": "2026-05-13T17:50:00Z",
+          "estimated": false,
+          "invalidated_at": null,
+          "index": 0,
+          "original_event": "Truck Gate out empty",
+          "created_at": "2026-06-03T07:17:33Z",
+          "data_source": "shipping_line",
+          "data_provider_name": "Hapag-Lloyd",
+          "data_provider_code": "HLCU",
+          "voyage_number": "",
+          "location_name": "Mundra",
+          "location_locode": "INMUN",
+          "vessel_name": null,
+          "vessel_imo": null,
+          "timezone": "Asia/Kolkata"
+        },
+        {
+          "id": "e487f8a8-b09d-4737-8210-5afbe7caae5a",
+          "actual_on": null,
+          "estimated_at": null,
+          "actual_at": "2026-05-18T04:40:00Z",
+          "will_occur_at": null,
+          "event": "full_in",
+          "timestamp": "2026-05-18T04:40:00Z",
+          "estimated": false,
+          "invalidated_at": null,
+          "index": 1,
+          "original_event": "Truck Arrival in",
+          "created_at": "2026-06-03T07:17:33Z",
+          "data_source": "shipping_line",
+          "data_provider_name": "Hapag-Lloyd",
+          "data_provider_code": "HLCU",
+          "voyage_number": "",
+          "location_name": "Mundra",
+          "location_locode": "INMUN",
+          "vessel_name": null,
+          "vessel_imo": null,
+          "timezone": "Asia/Kolkata"
+        },
+        {
+          "id": "ddc64434-fc01-4825-9205-dbe822053981",
+          "actual_on": null,
+          "estimated_at": null,
+          "actual_at": "2026-05-24T20:06:00Z",
+          "will_occur_at": null,
+          "event": "vessel_loaded",
+          "timestamp": "2026-05-24T20:06:00Z",
+          "estimated": false,
+          "invalidated_at": null,
+          "index": 2,
+          "original_event": "Vessel Loaded",
+          "created_at": "2026-06-03T07:17:33Z",
+          "data_source": "shipping_line",
+          "data_provider_name": "Hapag-Lloyd",
+          "data_provider_code": "HLCU",
+          "voyage_number": "6120",
+          "location_name": "Mundra",
+          "location_locode": "INMUN",
+          "vessel_name": "TUCAPEL",
+          "vessel_imo": "9569970",
+          "timezone": "Asia/Kolkata"
+        },
+        {
+          "id": "0aae5c32-106a-4f9d-b552-f911fb035d17",
+          "actual_on": null,
+          "estimated_at": null,
+          "actual_at": "2026-05-26T06:30:00Z",
+          "will_occur_at": null,
+          "event": "vessel_departed",
+          "timestamp": "2026-05-26T06:30:00Z",
+          "estimated": false,
+          "invalidated_at": null,
+          "index": 3,
+          "original_event": "Vessel departed",
+          "created_at": "2026-06-03T07:17:33Z",
+          "data_source": "shipping_line",
+          "data_provider_name": "Hapag-Lloyd",
+          "data_provider_code": "HLCU",
+          "voyage_number": "6120",
+          "location_name": "Mundra",
+          "location_locode": "INMUN",
+          "vessel_name": "TUCAPEL",
+          "vessel_imo": "9569970",
+          "timezone": "Asia/Kolkata"
+        },
+        {
+          "id": "3619d8e1-e14a-4fa1-ab22-0cc437bf241e",
+          "actual_on": null,
+          "estimated_at": "2026-06-28T04:00:00Z",
+          "actual_at": null,
+          "will_occur_at": null,
+          "event": "rail_departed",
+          "timestamp": "2026-06-28T04:00:00Z",
+          "estimated": true,
+          "invalidated_at": null,
+          "index": 4,
+          "original_event": "Rail Departure from",
+          "created_at": "2026-06-03T07:17:33Z",
+          "data_source": "shipping_line",
+          "data_provider_name": "Hapag-Lloyd",
+          "data_provider_code": "HLCU",
+          "voyage_number": "",
+          "location_name": "Virginia",
+          "location_locode": "USORF",
+          "vessel_name": null,
+          "vessel_imo": null,
+          "timezone": "America/New_York"
+        },
+        {
+          "id": "dd2f7d9a-81b6-4c99-9f3c-e49ccb983734",
+          "actual_on": null,
+          "estimated_at": "2026-06-28T12:00:00Z",
+          "actual_at": null,
+          "will_occur_at": null,
+          "event": "vessel_arrived",
+          "timestamp": "2026-06-28T12:00:00Z",
+          "estimated": true,
+          "invalidated_at": null,
+          "index": 5,
+          "original_event": "Vessel arrival",
+          "created_at": "2026-06-03T07:17:33Z",
+          "data_source": "shipping_line",
+          "data_provider_name": "Hapag-Lloyd",
+          "data_provider_code": "HLCU",
+          "voyage_number": "6120",
+          "location_name": "Virginia",
+          "location_locode": "USORF",
+          "vessel_name": "TUCAPEL",
+          "vessel_imo": "9569970",
+          "timezone": "America/New_York"
+        },
+        {
+          "id": "d514bbdb-a503-4347-9394-8821878d0a1c",
+          "actual_on": null,
+          "estimated_at": "2026-07-03T05:00:00Z",
+          "actual_at": null,
+          "will_occur_at": null,
+          "event": "rail_arrived",
+          "timestamp": "2026-07-03T05:00:00Z",
+          "estimated": true,
+          "invalidated_at": null,
+          "index": 6,
+          "original_event": "Rail Arrival in",
+          "created_at": "2026-06-03T07:17:33Z",
+          "data_source": "shipping_line",
+          "data_provider_name": "Hapag-Lloyd",
+          "data_provider_code": "HLCU",
+          "voyage_number": "",
+          "location_name": "Minneapolis",
+          "location_locode": "USMES",
+          "vessel_name": null,
+          "vessel_imo": null,
+          "timezone": "America/Chicago"
+        },
+        {
+          "id": "37d40d7e-5134-461d-ae34-c52de45dd491",
+          "actual_on": null,
+          "estimated_at": "2026-07-03T05:00:00Z",
+          "actual_at": null,
+          "will_occur_at": null,
+          "event": "arrived_at_destination",
+          "timestamp": "2026-07-03T05:00:00Z",
+          "estimated": true,
+          "invalidated_at": null,
+          "index": 7,
+          "original_event": null,
+          "created_at": "2026-06-03T07:17:33Z",
+          "data_source": "shipping_line",
+          "data_provider_name": "Hapag-Lloyd",
+          "data_provider_code": "HLCU",
+          "voyage_number": null,
+          "location_name": "Minneapolis",
+          "location_locode": "USMES",
+          "vessel_name": null,
+          "vessel_imo": null,
+          "timezone": "America/Chicago"
+        }
+      ]
+    },
+    "container_maps": {
+      "eac2bcfa-ae29-47ca-800e-fee18526fb9a": {
+        "errors": [
+          {
+            "status": "403",
+            "source": null,
+            "title": "Forbidden",
+            "detail": "Routing data feature is not enabled for this account"
+          }
+        ]
+      }
+    },
+    "container_map_statuses": {
+      "eac2bcfa-ae29-47ca-800e-fee18526fb9a": {
+        "status_code": 403,
+        "available": false,
+        "feature_count": 0
+      }
+    },
+    "container_custom_fields": {
+      "eac2bcfa-ae29-47ca-800e-fee18526fb9a": {
+        "links": {
+          "self": "https://api.terminal49.com/v2/containers/eac2bcfa-ae29-47ca-800e-fee18526fb9a/custom_fields",
+          "current": "https://api.terminal49.com/v2/containers/eac2bcfa-ae29-47ca-800e-fee18526fb9a/custom_fields?page[number]=1"
+        },
+        "data": []
+      }
+    },
+    "shipments_index_count": 6
+  }
+}
