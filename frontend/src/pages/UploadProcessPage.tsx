@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { documentApi } from '@/auth/api';
-import type { DocType, DocumentRecord } from '@/types/backend';
+import type { DocType, DocumentClassificationResponse, DocumentRecord } from '@/types/backend';
 import { useLocation } from 'wouter';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
@@ -54,7 +54,17 @@ const DOC_TYPE_SELECT_OPTIONS: Array<{ value: DocType | 'auto'; label: string; g
   { value: 'WH_TO_CUSTOMER', label: 'WH-to-Customer Bill', group: 'Parallel' },
 ];
 
-const FALLBACK_AUTO_DOC_TYPE: DocType = 'PACKING_LIST';
+function labelForDocType(value: DocType | string) {
+  return DOC_TYPE_SELECT_OPTIONS.find((option) => option.value === value)?.label ?? String(value).replace(/_/g, ' ');
+}
+
+function errorDescription(err: unknown, fallback: string) {
+  if (err && typeof err === 'object' && 'response' in err) {
+    const response = (err as { response?: { data?: { detail?: unknown } } }).response;
+    if (typeof response?.data?.detail === 'string') return response.data.detail;
+  }
+  return err instanceof Error ? err.message : fallback;
+}
 
 function PipelineDots({ dots, gold }: { dots: DotState[]; gold?: boolean }) {
   const activeColor = gold ? GOLD : TEAL;
@@ -116,7 +126,7 @@ type QueueCard = {
   status: string;
   statusVariant: 'info' | 'warning' | 'pending' | 'validated';
   statusCategory: StatusCategory;
-  avgConfidence: number;       // 0–1, used in row view confidence pill
+  avgConfidence: number | null;       // 0-1, from Gemini OCR when extraction completes
   dots: DotState[];
   goldDots?: boolean;
   detail: React.ReactNode;
@@ -136,6 +146,12 @@ function QueueCardEl({ card, onApproveClick, onCardClick, selected, selectable, 
 }) {
   const [, navigate] = useLocation();
   const [hovered, setHovered] = useState(false);
+  const confPct = card.avgConfidence == null ? null : Math.round(card.avgConfidence * 100);
+  const confColor = card.avgConfidence == null ? AMBER : card.avgConfidence >= 0.95 ? GREEN : card.avgConfidence >= 0.85 ? AMBER : RED;
+  const confText = confPct === null ? 'Not available' : `${confPct}%`;
+  const confHint = confPct === null
+    ? (card.statusCategory === 'processing' ? 'Waiting for Gemini OCR' : 'Re-run OCR to get score')
+    : 'Gemini OCR score';
 
   return (
     <div
@@ -155,13 +171,13 @@ function QueueCardEl({ card, onApproveClick, onCardClick, selected, selectable, 
       }}
     >
       {/* Colored top strip */}
-      <div style={{ height: 4, backgroundColor: card.headerColor }} />
+      <div style={{ height: 3, backgroundColor: card.headerColor }} />
 
       {/* Body */}
-      <div style={{ padding: '14px 18px 16px' }}>
+      <div style={{ padding: '10px 14px 12px' }}>
         {/* Row 1: identity + pill */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
             {/* Checkbox */}
             {selectable && (
               <div
@@ -180,7 +196,7 @@ function QueueCardEl({ card, onApproveClick, onCardClick, selected, selectable, 
             <DocBadge code={card.docCode} size="md" />
             <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: FG }}>{card.docType}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: FG }}>{card.docType}</span>
                 {card.isGenerated && <Sparkles size={13} style={{ color: GOLD, flexShrink: 0 }} />}
                 {autoEligible && !selected && (
                   <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, backgroundColor: `${GREEN}18`, color: GREEN, display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -188,9 +204,9 @@ function QueueCardEl({ card, onApproveClick, onCardClick, selected, selectable, 
                   </span>
                 )}
               </div>
-              <span style={{ fontSize: 11.5, color: MUTED }}>{card.issuer}</span>
+              <span style={{ fontSize: 11, color: MUTED }}>{card.issuer}</span>
               <br />
-              <span className="vs-mono" style={{ fontSize: 11, color: FG }}>{card.docNumber}</span>
+              <span className="vs-mono" style={{ fontSize: 10.5, color: FG }}>{card.docNumber}</span>
             </div>
           </div>
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -213,35 +229,57 @@ function QueueCardEl({ card, onApproveClick, onCardClick, selected, selectable, 
             ) : (
               <StatusPill status={card.status} variant={card.statusVariant} />
             )}
-            <div style={{ fontSize: 10.5, color: MUTED, marginTop: 4 }}>{card.timestamp}</div>
+            <div style={{ fontSize: 10, color: MUTED, marginTop: 3 }}>{card.timestamp}</div>
           </div>
         </div>
 
         {/* Row 2: Pipeline */}
-        <div style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 8 }}>
           <PipelineDots dots={card.dots} gold={card.goldDots} />
         </div>
 
         {/* Row 3: Status detail */}
-        <div style={{ marginTop: 10, fontSize: 12, color: FG }}>
+        <div style={{ marginTop: 7, fontSize: 11.5, color: FG }}>
           {card.detail}
         </div>
 
+        <div style={{
+          marginTop: 9,
+          padding: '8px 10px',
+          borderRadius: 8,
+          border: `1px solid ${confColor}35`,
+          backgroundColor: `${confColor}0f`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+        }}>
+          <div>
+            <div style={{ fontSize: 10.5, color: MUTED, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              Confident score
+            </div>
+            <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>{confHint}</div>
+          </div>
+          <span style={{ fontSize: 18, fontWeight: 800, lineHeight: 1, color: confColor, flexShrink: 0 }}>
+            {confText}
+          </span>
+        </div>
+
         {/* Row 4: Shipment context */}
-        <div style={{ marginTop: 6, fontSize: 11, color: MUTED }}>
-          <span className="vs-mono" style={{ fontSize: 10.5 }}>{card.context}</span>
+        <div style={{ marginTop: 4, fontSize: 10.5, color: MUTED }}>
+          <span className="vs-mono" style={{ fontSize: 10 }}>{card.context}</span>
         </div>
 
         {/* Row 5: Actions */}
         {card.action && (
-          <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             {card.action.label === 'View details →' ? (
               <button
                 onClick={(e) => { e.stopPropagation(); onCardClick?.(); }}
                 style={{
                   fontSize: 11.5, fontWeight: 500, color: TEAL,
                   background: 'none', border: `1px solid ${TEAL}40`, borderRadius: 6,
-                  padding: '5px 12px', cursor: 'pointer',
+                  padding: '4px 10px', cursor: 'pointer',
                 }}
               >
                 View details →
@@ -252,7 +290,7 @@ function QueueCardEl({ card, onApproveClick, onCardClick, selected, selectable, 
                 style={{
                   fontSize: 12, fontWeight: 700, color: '#fff',
                   backgroundColor: TEAL, border: 'none', borderRadius: 6,
-                  padding: '7px 16px', cursor: 'pointer',
+                  padding: '5px 12px', cursor: 'pointer',
                   display: 'inline-flex', alignItems: 'center', gap: 6,
                 }}
               >
@@ -265,7 +303,7 @@ function QueueCardEl({ card, onApproveClick, onCardClick, selected, selectable, 
                 style={{
                   fontSize: 12, fontWeight: 700, color: '#fff',
                   backgroundColor: BLUE, border: 'none', borderRadius: 6,
-                  padding: '7px 16px', cursor: 'pointer',
+                  padding: '5px 12px', cursor: 'pointer',
                 }}
               >
                 {card.action.label}
@@ -324,8 +362,9 @@ function QueueRowEl({ card, onApproveClick, onRowClick, selected, selectable, on
 }) {
   const [, navigate] = useLocation();
   const [hovered, setHovered] = useState(false);
-  const confPct = Math.round(card.avgConfidence * 100);
-  const confColor = card.avgConfidence >= 0.95 ? GREEN : card.avgConfidence >= 0.85 ? AMBER : RED;
+  const confPct = card.avgConfidence == null ? null : Math.round(card.avgConfidence * 100);
+  const confColor = card.avgConfidence == null ? AMBER : card.avgConfidence >= 0.95 ? GREEN : card.avgConfidence >= 0.85 ? AMBER : RED;
+  const confText = confPct === null ? 'Not available' : `${confPct}%`;
 
   return (
     <div
@@ -398,12 +437,15 @@ function QueueRowEl({ card, onApproveClick, onRowClick, selected, selectable, on
       </div>
 
       {/* Confidence pill + auto badge */}
-      <div style={{ flexShrink: 0, width: 56, textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+      <div style={{ flexShrink: 0, width: 118, textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+        <span style={{ fontSize: 9, color: MUTED, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          Confident score
+        </span>
         <span style={{
           fontSize: 10.5, fontWeight: 700, padding: '2px 6px', borderRadius: 999,
           backgroundColor: `${confColor}15`, color: confColor,
         }}>
-          {confPct}%
+          {confText}
         </span>
         {autoEligible && (
           <span style={{ fontSize: 8.5, fontWeight: 700, color: GREEN, display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -553,7 +595,7 @@ function apiDocToQueueCard(d: DocumentRecord): QueueCard {
   else if ((dt === 'BOE' || dt.includes('BILL_OF_ENTRY')) && !dt.includes('DRAFT')) { docCode = 'BE'; color = INFO; }
   else if (dt.includes('CHA') || dt.includes('FREIGHT_FORWARDER')) { docCode = 'CH'; color = BLUE; }
 
-  const conf = 0;
+  const conf = typeof d.ocrConfidence === 'number' ? d.ocrConfidence : null;
   const isExtracted = ['EXTRACTED', 'REVIEWED'].includes(d.status);
   const isApproved  = d.status === 'REVIEWED';
 
@@ -599,7 +641,9 @@ export function UploadProcessPage() {
   const [isDragOver,    setIsDragOver]    = useState(false);
   const [selectedFile,  setSelectedFile]  = useState<File | null>(null);
   const [isUploading,   setIsUploading]   = useState(false);
+  const [isClassifying, setIsClassifying] = useState(false);
   const [docType,       setDocType]       = useState<DocType | 'auto'>('auto');
+  const [classification, setClassification] = useState<DocumentClassificationResponse | null>(null);
   const [shipmentVal,   setShipmentVal]   = useState('');
   const [shipmentOpts,  setShipmentOpts]  = useState<{ id: string; label: string }[]>([]);
   const [activeChip,    setActiveChip]    = useState(0);
@@ -623,24 +667,61 @@ export function UploadProcessPage() {
     return () => clearInterval(interval);
   }, [fetchLiveDocs]);
 
-  async function runPageUpload() {
-    if (!selectedFile || isUploading) return;
+  async function uploadSelectedFile(resolvedDocType: DocType, successDescription?: string) {
+    if (!selectedFile) return;
     setIsUploading(true);
     const form = new FormData();
     form.append('file', selectedFile);
-    const resolvedDocType = docType === 'auto' ? FALLBACK_AUTO_DOC_TYPE : docType;
     form.append('docType', resolvedDocType);
     form.append('module', resolvedDocType.toLowerCase().replace(/_/g, '-'));
     try {
       await documentApi.upload(form);
-      toast({ title: 'Uploaded successfully', description: `${selectedFile.name} is queued for OCR processing.` });
+      toast({ title: 'Uploaded successfully', description: successDescription ?? `${selectedFile.name} is queued for OCR processing.` });
       setSelectedFile(null);
+      setClassification(null);
       fetchLiveDocs();
     } catch (err) {
-      toast({ title: 'Upload failed', description: err instanceof Error ? err.message : 'Unable to upload right now.', variant: 'destructive' });
+      toast({ title: 'Upload failed', description: errorDescription(err, 'Unable to upload right now.'), variant: 'destructive' });
     } finally {
       setIsUploading(false);
     }
+  }
+
+  async function runPageUpload() {
+    if (!selectedFile || isUploading || isClassifying) return;
+    if (docType !== 'auto') {
+      await uploadSelectedFile(docType);
+      return;
+    }
+    setIsClassifying(true);
+    setClassification(null);
+    const form = new FormData();
+    form.append('file', selectedFile);
+    try {
+      const { data } = await documentApi.classify(form);
+      setClassification(data);
+      toast({
+        title: 'Document type detected',
+        description: `${selectedFile.name} looks like ${data.label}. Confirm to start OCR.`,
+      });
+    } catch (err) {
+      toast({ title: 'Auto-detect failed', description: errorDescription(err, 'Unable to classify this document.'), variant: 'destructive' });
+    } finally {
+      setIsClassifying(false);
+    }
+  }
+
+  async function confirmDetectedType() {
+    if (!classification || !selectedFile || isUploading) return;
+    await uploadSelectedFile(
+      classification.docType,
+      `${selectedFile.name} was confirmed as ${classification.label} and queued for OCR processing.`,
+    );
+  }
+
+  function resetSelectedFile() {
+    setSelectedFile(null);
+    setClassification(null);
   }
 
   const [recentExpanded, setRecentExpanded] = useState(false);
@@ -734,7 +815,7 @@ export function UploadProcessPage() {
   const autoEligibleIds = new Set<string>(
     autoEnabled
       ? filteredCards
-          .filter((c) => c.statusCategory === 'needs-approval' && c.avgConfidence >= autoThreshold / 100)
+          .filter((c) => c.statusCategory === 'needs-approval' && c.avgConfidence !== null && c.avgConfidence >= autoThreshold / 100)
           .map((c) => c.id)
       : [],
   );
@@ -769,7 +850,7 @@ export function UploadProcessPage() {
               onDrop={(e) => {
                 e.preventDefault(); setIsDragOver(false);
                 const f = e.dataTransfer.files[0];
-                if (f) setSelectedFile(f);
+                if (f) { setSelectedFile(f); setClassification(null); }
               }}
               style={{
                 height: selectedFile ? 90 : 180, borderRadius: 12, cursor: 'pointer',
@@ -796,7 +877,7 @@ export function UploadProcessPage() {
             </div>
             {selectedFile && (
               <button
-                onClick={(e) => { e.stopPropagation(); setSelectedFile(null); }}
+                onClick={(e) => { e.stopPropagation(); resetSelectedFile(); }}
                 style={{ fontSize: 11, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', marginTop: 4, padding: '2px 0' }}
               >
                 ✕ Remove file
@@ -807,7 +888,7 @@ export function UploadProcessPage() {
               type="file"
               accept=".pdf,.jpg,.png"
               style={{ display: 'none' }}
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) setSelectedFile(f); e.target.value = ''; }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) { setSelectedFile(f); setClassification(null); } e.target.value = ''; }}
             />
 
             {/* Document type selector */}
@@ -817,7 +898,7 @@ export function UploadProcessPage() {
               </label>
               <select
                 value={docType}
-                onChange={(e) => setDocType(e.target.value as DocType | 'auto')}
+                onChange={(e) => { setDocType(e.target.value as DocType | 'auto'); setClassification(null); }}
                 style={{
                   width: '100%', padding: '7px 10px', borderRadius: 8,
                   border: `1px solid ${BORDER}`, backgroundColor: 'hsl(var(--background))',
@@ -835,9 +916,35 @@ export function UploadProcessPage() {
                 ))}
               </select>
               <p style={{ fontSize: 11, color: MUTED, margin: '5px 0 0' }}>
-                Auto-detect currently queues as Packing List until backend classification is enabled.
+                Auto-detect classifies the document first and asks for confirmation before OCR.
               </p>
             </div>
+
+            {classification && (
+              <div style={{ marginTop: 12, padding: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'hsl(var(--muted) / 0.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Detected document</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: FG, marginTop: 2 }}>{classification.label}</div>
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: TEAL }}>
+                    {Math.round(classification.confidence * 100)}%
+                  </div>
+                </div>
+                {classification.matchedFields.length > 0 && (
+                  <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {classification.matchedFields.slice(0, 5).map((field) => (
+                      <span key={field} style={{ fontSize: 10, color: FG, border: `1px solid ${BORDER}`, borderRadius: 999, padding: '2px 7px', background: 'hsl(var(--background))' }}>{field}</span>
+                    ))}
+                  </div>
+                )}
+                {classification.alternatives.length > 0 && (
+                  <div style={{ fontSize: 11, color: MUTED, marginTop: 8 }}>
+                    Alternative: {labelForDocType(String(classification.alternatives[0]?.docType ?? ''))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Shipment selector */}
             <div style={{ marginTop: 12 }}>
@@ -866,28 +973,45 @@ export function UploadProcessPage() {
             {/* Submit button */}
             <button
               onClick={runPageUpload}
-              disabled={!selectedFile || isUploading}
+              disabled={!selectedFile || isUploading || isClassifying || Boolean(classification)}
               style={{
                 marginTop: 14, width: '100%', padding: '9px 14px', borderRadius: 8,
-                border: 'none', cursor: selectedFile && !isUploading ? 'pointer' : 'not-allowed',
-                backgroundColor: selectedFile && !isUploading ? TEAL : BORDER,
-                color: selectedFile && !isUploading ? '#fff' : MUTED,
+                border: 'none', cursor: selectedFile && !isUploading && !isClassifying && !classification ? 'pointer' : 'not-allowed',
+                backgroundColor: selectedFile && !isUploading && !isClassifying && !classification ? TEAL : BORDER,
+                color: selectedFile && !isUploading && !isClassifying && !classification ? '#fff' : MUTED,
                 fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center',
                 justifyContent: 'center', gap: 6, transition: 'background-color 0.15s',
               }}
             >
-              {isUploading ? (
+              {isUploading || isClassifying ? (
                 <>
                   <span style={{ width: 14, height: 14, borderRadius: '50%', border: '2px solid #fff4', borderTopColor: '#fff', animation: 'spin 0.7s linear infinite', display: 'inline-block' }} />
-                  Uploading…
+                  {isClassifying ? 'Detecting…' : 'Uploading…'}
                 </>
               ) : (
                 <>
                   <UploadCloud size={14} />
-                  {selectedFile ? 'Upload & Process' : 'Select a file first'}
+                  {selectedFile ? (docType === 'auto' ? 'Auto-detect document' : 'Upload & Process') : 'Select a file first'}
                 </>
               )}
             </button>
+            {classification && (
+              <button
+                onClick={confirmDetectedType}
+                disabled={isUploading}
+                style={{
+                  marginTop: 8, width: '100%', padding: '9px 14px', borderRadius: 8,
+                  border: 'none', cursor: !isUploading ? 'pointer' : 'not-allowed',
+                  backgroundColor: !isUploading ? TEAL : BORDER,
+                  color: !isUploading ? '#fff' : MUTED,
+                  fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', gap: 6,
+                }}
+              >
+                <CheckCircle2 size={14} />
+                Confirm & extract as {classification.label}
+              </button>
+            )}
 
             {/* API Pull */}
             <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${BORDER}` }}>
@@ -1170,7 +1294,7 @@ export function UploadProcessPage() {
                 <div style={{ width: 160, flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Document</div>
                 <div style={{ flex: 1, fontSize: 10.5, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Issuer / Context</div>
                 <div style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pipeline</div>
-                <div style={{ flexShrink: 0, width: 56, textAlign: 'right', fontSize: 10.5, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Conf</div>
+                <div style={{ flexShrink: 0, width: 118, textAlign: 'right', fontSize: 10.5, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Confident score</div>
                 <div style={{ flexShrink: 0, width: 122, textAlign: 'right', fontSize: 10.5, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Status</div>
                 <div style={{ flexShrink: 0, width: 80 }} />
               </div>

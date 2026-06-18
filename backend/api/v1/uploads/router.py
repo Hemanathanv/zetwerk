@@ -6,11 +6,16 @@ from typing import Any, Final
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pypdf import PdfReader
 
 from db import get_prisma
-from documents_ocr.queue import enqueue_ocr_job, enqueue_upload_job
+from documents_ocr.queue import (
+    enqueue_detection_job,
+    enqueue_ocr_job,
+    enqueue_upload_job,
+    get_detection_status,
+)
 from helpers.config import settings
 from helpers.dependencies import get_current_user
 from objectstore import (
@@ -25,9 +30,12 @@ from objectstore import (
 )
 
 router = APIRouter(prefix=settings.API_SLUG + "/uploads", tags=["Uploads"])
+legacy_router = APIRouter(prefix="/api/uploads", tags=["Uploads"])
 
 BACKEND_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_MODULE = "uploads"
+DETECTION_STAGING_MODULE = "auto-detect"
+MAX_BULK_CLASSIFY_FILES = 10
 DOC_TYPE_VALUES: Final[set[str]] = {
     "SALES_INVOICE",
     "BILL_OF_LADING",
@@ -70,6 +78,39 @@ class UploadResponse(BaseModel):
     documents: list[UploadDocumentItem]
 
 
+class DocumentClassificationJobItem(BaseModel):
+    classificationJobId: str
+    fileName: str
+    status: str
+    message: str
+
+
+class DocumentClassificationQueuedResponse(BaseModel):
+    status: str
+    message: str
+    classificationJobId: str
+    fileName: str
+
+
+class DocumentClassificationBulkResponse(BaseModel):
+    status: str
+    message: str
+    jobs: list[DocumentClassificationJobItem]
+
+
+class DocumentClassificationStatusResponse(BaseModel):
+    status: str
+    message: str
+    classificationJobId: str
+    fileName: str
+    docType: str | None = None
+    label: str | None = None
+    confidence: float | None = None
+    reasoning: str | None = None
+    matchedFields: list[str] = Field(default_factory=list)
+    alternatives: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class DocumentListItem(BaseModel):
     id: str
     docType: str
@@ -85,6 +126,7 @@ class DocumentListItem(BaseModel):
     pageCount: int | None
     isPDF: bool
     previewUrl: str | None
+    ocrConfidence: float | None = None
 
 
 class DocumentPageItem(BaseModel):
@@ -292,6 +334,31 @@ def _coerce_line_items(value) -> list[dict] | None:
         elif coerced is not None:
             rows.append({"value": coerced})
     return rows
+
+
+def _coerce_confidence(value) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return None
+    if confidence > 1:
+        confidence = confidence / 100
+    return max(0.0, min(1.0, confidence))
+
+
+def _extract_ocr_confidence(extraction: object | None) -> float | None:
+    if not extraction:
+        return None
+    raw = getattr(extraction, "rawData", None)
+    if not isinstance(raw, dict):
+        return None
+    for key in ("document_confidence", "documentConfidence", "ocr_confidence", "ocrConfidence", "confidence"):
+        confidence = _coerce_confidence(raw.get(key))
+        if confidence is not None:
+            return confidence
+    return None
 
 
 def _to_iso(value) -> str | None:
@@ -566,6 +633,115 @@ async def _create_document_page_record(
     )
 
 
+async def _stage_detection_file(*, file: UploadFile, user_id: str) -> DocumentClassificationQueuedResponse:
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    file_name = Path(file.filename or "upload").name
+    content_type = (file.content_type or "application/octet-stream").lower()
+    bucket = normalize_bucket_name(DEFAULT_BUCKET or settings.S3_DEFAULT_BUCKET)
+    bucket_error = validate_bucket_name(bucket)
+    if bucket_error:
+        raise HTTPException(status_code=400, detail=f"{bucket_error}. Received bucket value: {bucket!r}")
+
+    object_key = build_object_key(file_name, DETECTION_STAGING_MODULE, datetime.now())
+    try:
+        upload_bytes(
+            body=file_bytes,
+            bucket=bucket,
+            object_key=object_key,
+            content_type=content_type,
+        )
+        job_id = await enqueue_detection_job(
+            bucket=bucket,
+            object_key=object_key,
+            file_name=file_name,
+            content_type=content_type,
+            user_id=str(user_id),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        try:
+            delete_document_object(bucket, object_key)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Failed to queue document classification: {exc}")
+
+    return DocumentClassificationQueuedResponse(
+        status="queued",
+        message="Document classification queued.",
+        classificationJobId=job_id,
+        fileName=file_name,
+    )
+
+
+def _serialize_detection_status(payload: dict[str, Any]) -> DocumentClassificationStatusResponse:
+    return DocumentClassificationStatusResponse(
+        status=str(payload.get("status") or "queued"),
+        message=str(payload.get("message") or "Document classification queued."),
+        classificationJobId=str(payload.get("classificationJobId") or ""),
+        fileName=str(payload.get("fileName") or ""),
+        docType=(str(payload.get("docType")) if payload.get("docType") is not None else None),
+        label=(str(payload.get("label")) if payload.get("label") is not None else None),
+        confidence=(float(payload.get("confidence")) if payload.get("confidence") is not None else None),
+        reasoning=(str(payload.get("reasoning")) if payload.get("reasoning") is not None else None),
+        matchedFields=payload.get("matchedFields") if isinstance(payload.get("matchedFields"), list) else [],
+        alternatives=payload.get("alternatives") if isinstance(payload.get("alternatives"), list) else [],
+    )
+
+
+@legacy_router.post("/classify", response_model=DocumentClassificationQueuedResponse)
+@router.post("/classify", response_model=DocumentClassificationQueuedResponse)
+async def classify_upload_document(
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    return await _stage_detection_file(file=file, user_id=user.id)
+
+
+@legacy_router.post("/classify/bulk", response_model=DocumentClassificationBulkResponse)
+@router.post("/classify/bulk", response_model=DocumentClassificationBulkResponse)
+async def classify_upload_documents_bulk(
+    files: list[UploadFile] = File(...),
+    user=Depends(get_current_user),
+):
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+    if len(files) > MAX_BULK_CLASSIFY_FILES:
+        raise HTTPException(status_code=400, detail=f"Bulk auto-detect supports at most {MAX_BULK_CLASSIFY_FILES} files")
+
+    jobs: list[DocumentClassificationJobItem] = []
+    for file in files:
+        queued = await _stage_detection_file(file=file, user_id=user.id)
+        jobs.append(
+            DocumentClassificationJobItem(
+                classificationJobId=queued.classificationJobId,
+                fileName=queued.fileName,
+                status=queued.status,
+                message=queued.message,
+            )
+        )
+
+    return DocumentClassificationBulkResponse(
+        status="queued",
+        message=f"{len(jobs)} document classification job{'s' if len(jobs) != 1 else ''} queued.",
+        jobs=jobs,
+    )
+
+
+@legacy_router.get("/classify/jobs/{classification_job_id}", response_model=DocumentClassificationStatusResponse)
+@router.get("/classify/jobs/{classification_job_id}", response_model=DocumentClassificationStatusResponse)
+async def get_classification_job_status(classification_job_id: str, user=Depends(get_current_user)):
+    payload = await get_detection_status(classification_job_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail="Classification job not found")
+    if str(payload.get("userId") or "") != str(user.id):
+        raise HTTPException(status_code=404, detail="Classification job not found")
+    return _serialize_detection_status(payload)
+
+
 @router.post("/upload", response_model=UploadResponse)
 async def upload_document(
     file: UploadFile = File(...),
@@ -703,25 +879,33 @@ async def list_documents(user=Depends(get_current_user)):
             where={"uploadedBy": user.id, "isDeleted": False},
             order={"createdAt": "desc"},
         )
-        return [
-            DocumentListItem(
-                id=row.id,
-                docType=str(row.docType),
-                filePath=_storage_path(row.bucket, row.objectKey),
-                fileName=row.fileName,
-                bucket=row.bucket,
-                objectKey=row.objectKey,
-                contentType=row.contentType,
-                sizeBytes=int(row.sizeBytes),
-                createdAt=row.createdAt.isoformat() if row.createdAt else "",
-                updatedAt=row.updatedAt.isoformat() if row.updatedAt else "",
-                status=str(row.status),
-                pageCount=row.totalPages,
-                isPDF=row.contentType == "application/pdf" or row.fileName.lower().endswith(".pdf"),
-                previewUrl=_safe_download_url(row.bucket, row.objectKey),
+        documents: list[DocumentListItem] = []
+        for row in rows:
+            extraction = await _fetch_extraction_direct(
+                prisma=prisma,
+                doc_type=str(row.docType),
+                document_id=str(row.id),
             )
-            for row in rows
-        ]
+            documents.append(
+                DocumentListItem(
+                    id=row.id,
+                    docType=str(row.docType),
+                    filePath=_storage_path(row.bucket, row.objectKey),
+                    fileName=row.fileName,
+                    bucket=row.bucket,
+                    objectKey=row.objectKey,
+                    contentType=row.contentType,
+                    sizeBytes=int(row.sizeBytes),
+                    createdAt=row.createdAt.isoformat() if row.createdAt else "",
+                    updatedAt=row.updatedAt.isoformat() if row.updatedAt else "",
+                    status=str(row.status),
+                    pageCount=row.totalPages,
+                    isPDF=row.contentType == "application/pdf" or row.fileName.lower().endswith(".pdf"),
+                    previewUrl=_safe_download_url(row.bucket, row.objectKey),
+                    ocrConfidence=_extract_ocr_confidence(extraction),
+                )
+            )
+        return documents
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch documents: {exc}")
 

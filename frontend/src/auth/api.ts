@@ -2,12 +2,30 @@ import axios from 'axios';
 import type {
   AdminStorageListing,
   AuthStatusResponse,
+  AuthUser,
+  DocumentClassificationBulkResponse,
+  DocumentClassificationQueuedResponse,
   DocumentDetailRecord,
+  DocumentClassificationResponse,
+  DocumentClassificationStatusResponse,
   DocumentRecord,
   UserProfile,
 } from '@/types/backend';
 
 const SESSION_TOKEN_KEY = 'session_token_fallback';
+const REFRESH_TOKEN_KEY = 'refresh_token_fallback';
+const BACKEND_API_BASE = (import.meta.env.VITE_BACKEND_API_BASE || '').replace(/\/$/, '');
+const CLASSIFICATION_POLL_TIMEOUT_MS = 180000;
+const CLASSIFICATION_POLL_INTERVAL_MS = 1000;
+
+type TokenRefreshResponse = {
+  status: string;
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+};
+
+let refreshPromise: Promise<string | null> | null = null;
 
 // Create axios instance with default configuration
 const api = axios.create({
@@ -44,19 +62,38 @@ api.interceptors.request.use(
 // Response interceptor for handling errors and 401 responses
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     if (error.response) {
       // Handle 401 Unauthorized
       if (error.response.status === 401) {
+        const originalRequest = error.config || {};
         const requestUrl = String(error.config?.url || '');
         const pathname = window.location.pathname;
-        const isAuthStatusRequest = requestUrl.includes('/auth/status');
+        const isAuthStatusRequest =
+          requestUrl.includes('/auth/status') ||
+          requestUrl.includes('/auth/userinfo') ||
+          requestUrl.includes('/auth/roles');
+        const isTokenEndpoint =
+          requestUrl.includes('/auth/login') ||
+          requestUrl.includes('/auth/refresh');
         const isPublicAuthPage =
           pathname === '/login' ||
           pathname === '/forgot-password' ||
           pathname === '/reset-password';
 
+        if (!isTokenEndpoint && !originalRequest._retry) {
+          originalRequest._retry = true;
+          const nextAccessToken = await refreshAccessToken();
+          if (nextAccessToken) {
+            originalRequest.headers = originalRequest.headers || {};
+            originalRequest.headers.Authorization = `Bearer ${nextAccessToken}`;
+            return api(originalRequest);
+          }
+        }
+
         if (!isAuthStatusRequest && !isPublicAuthPage) {
+          window.localStorage.removeItem(SESSION_TOKEN_KEY);
+          window.localStorage.removeItem(REFRESH_TOKEN_KEY);
           window.location.replace('/login');
         }
       }
@@ -91,6 +128,78 @@ function getCSRFToken(): string | null {
   return null;
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY);
+  if (!refreshToken) return null;
+
+  if (!refreshPromise) {
+    refreshPromise = axios
+      .post<TokenRefreshResponse>(
+        `${api.defaults.baseURL || ''}/auth/refresh`,
+        { refresh_token: refreshToken },
+        {
+          withCredentials: true,
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        },
+      )
+      .then((response) => {
+        const accessToken = response.data?.access_token;
+        if (!accessToken) return null;
+        window.localStorage.setItem(SESSION_TOKEN_KEY, accessToken);
+        if (response.data.refresh_token) {
+          window.localStorage.setItem(REFRESH_TOKEN_KEY, response.data.refresh_token);
+        }
+        return accessToken;
+      })
+      .catch(() => null)
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+
+  return refreshPromise;
+}
+
+type KeycloakUserInfo = {
+  sub?: string;
+  email?: string;
+  name?: string;
+  preferred_username?: string;
+  given_name?: string;
+  family_name?: string;
+};
+
+function roleFromKeycloakRoles(roles: string[]): AuthUser['systemRole'] {
+  const normalized = new Set(roles.map((role) => role.toUpperCase().replace(/-/g, '_')));
+  if (normalized.has('SUPER_ADMIN')) return 'SUPER_ADMIN';
+  if (normalized.has('ADMIN')) return 'ADMIN';
+  return 'USER';
+}
+
+function normalizeKeycloakUser(userInfo: KeycloakUserInfo, roles: string[]): AuthUser {
+  const email = (userInfo.email ?? userInfo.preferred_username ?? '').toLowerCase();
+  const name =
+    userInfo.name ||
+    [userInfo.given_name, userInfo.family_name].filter(Boolean).join(' ') ||
+    userInfo.preferred_username ||
+    email;
+  const systemRole = email === 'admin@sprconsultech.com' ? 'ADMIN' : roleFromKeycloakRoles(roles);
+  return {
+    id: userInfo.sub ?? email,
+    name,
+    email,
+    systemRole,
+    isActive: true,
+  };
+}
+
 // Auth-specific helper methods
 const authApi = {
   /**
@@ -108,7 +217,9 @@ const authApi = {
    * @returns Promise with logout response
    */
   logout: () => {
-    return api.post('/auth/logout');
+    window.localStorage.removeItem(SESSION_TOKEN_KEY);
+    window.localStorage.removeItem(REFRESH_TOKEN_KEY);
+    return Promise.resolve({ data: { status: 'success' } });
   },
 
   /**
@@ -116,7 +227,15 @@ const authApi = {
    * @returns Promise with current user data
    */
   checkAuth: () => {
-    return api.get<AuthStatusResponse>('/auth/status');
+    return Promise.all([
+      api.get<{ user: KeycloakUserInfo }>('/auth/userinfo'),
+      api.get<{ roles: string[] }>('/auth/roles'),
+    ]).then(([userResponse, rolesResponse]) => ({
+      data: {
+        status: 'success',
+        user: normalizeKeycloakUser(userResponse.data.user, rolesResponse.data.roles ?? []),
+      } satisfies AuthStatusResponse,
+    }));
   },
 
   /**
@@ -162,6 +281,67 @@ const documentApi = {
   getById: (documentId: string) => api.get<DocumentDetailRecord>(`/uploads/documents/${documentId}`),
   retry: (documentId: string) => api.post(`/uploads/documents/${documentId}/retry`),
   approve: (documentId: string) => api.post(`/uploads/documents/${documentId}/approve`),
+  classify: async (formData: FormData) => {
+    const config = {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 180000,
+    };
+    let queued;
+    try {
+      queued = await api.post<DocumentClassificationQueuedResponse>('/uploads/classify', formData, config);
+    } catch (error) {
+      if (!axios.isAxiosError(error) || error.response?.status !== 404 || !BACKEND_API_BASE) {
+        throw error;
+      }
+      queued = await api.post<DocumentClassificationQueuedResponse>(`${BACKEND_API_BASE}/api/uploads/classify`, formData, config);
+    }
+    const startedAt = Date.now();
+    const jobId = queued.data.classificationJobId;
+    while (Date.now() - startedAt < CLASSIFICATION_POLL_TIMEOUT_MS) {
+      await wait(CLASSIFICATION_POLL_INTERVAL_MS);
+      let statusResponse;
+      try {
+        statusResponse = await api.get<DocumentClassificationStatusResponse>(`/uploads/classify/jobs/${jobId}`);
+      } catch (error) {
+        if (!axios.isAxiosError(error) || error.response?.status !== 404 || !BACKEND_API_BASE) {
+          throw error;
+        }
+        statusResponse = await api.get<DocumentClassificationStatusResponse>(`${BACKEND_API_BASE}/api/uploads/classify/jobs/${jobId}`);
+      }
+      const status = statusResponse.data;
+      if (status.status === 'failed') {
+        throw new Error(status.message || 'Document classification failed.');
+      }
+      if (status.status === 'success' && status.docType && status.label && status.confidence !== null) {
+        return {
+          ...statusResponse,
+          data: {
+            status: 'success' as const,
+            message: status.message,
+            docType: status.docType,
+            label: status.label,
+            confidence: status.confidence,
+            reasoning: status.reasoning ?? '',
+            matchedFields: status.matchedFields,
+            alternatives: status.alternatives,
+            fileName: status.fileName,
+          },
+        };
+      }
+    }
+    throw new Error('Document classification timed out.');
+  },
+  classifyBulk: (formData: FormData) =>
+    api.post<DocumentClassificationBulkResponse>('/uploads/classify/bulk', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      timeout: 180000,
+    }),
+  getClassificationJob: (classificationJobId: string) =>
+    api.get<DocumentClassificationStatusResponse>(`/uploads/classify/jobs/${classificationJobId}`),
   upload: (formData: FormData) =>
     api.post('/uploads/upload', formData, {
       headers: {
@@ -209,4 +389,5 @@ export { authApi };
 export { adminApi };
 export { documentApi };
 export { SESSION_TOKEN_KEY };
+export { REFRESH_TOKEN_KEY };
 export default api;

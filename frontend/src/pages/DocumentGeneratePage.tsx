@@ -358,6 +358,7 @@ function FieldCard({ mapping, value, sourceDocs, onChange }: {
   const { dot, text } = sourceTagContent(mapping, sourceDocs);
   const isEmpty  = !value;
   const isManual = mapping.mappingType === 'manual' || mapping.mappingType === 'conditional';
+  const isEditable = !!onChange;
 
   return (
     <div>
@@ -371,18 +372,18 @@ function FieldCard({ mapping, value, sourceDocs, onChange }: {
         title={mapping.validation ?? undefined}
         style={{
           backgroundColor: bg, borderLeft: `3px solid ${border}`, borderRadius: '0 6px 6px 0',
-          padding: isManual && onChange ? '0 0 0 10px' : '7px 10px', fontSize: 13, fontWeight: 600,
+          padding: isEditable ? '0 0 0 10px' : '7px 10px', fontSize: 13, fontWeight: 600,
           ...(mapping.mono ? MONO : {}),
           minHeight: 34, display: 'flex', alignItems: 'center',
-          outline: isManual && onChange ? `1px solid ${isEmpty ? RED : border}` : 'none',
+          outline: isEditable ? `1px solid ${isManual && isEmpty ? RED : border}` : 'none',
           outlineOffset: -1,
         }}
       >
-        {isManual && onChange ? (
+        {isEditable ? (
           <input
             value={value}
             onChange={e => onChange(e.target.value)}
-            placeholder="Enter value…"
+            placeholder="Enter value..."
             style={{
               flex: 1, border: 'none', background: 'transparent', outline: 'none',
               fontSize: 13, fontWeight: 600, color: FG, padding: '7px 10px 7px 0',
@@ -414,23 +415,25 @@ function FieldGrid({ section, fields, sourceDocs, manualValues, onManualChange, 
   onManualChange:  (key: string, v: string) => void;
   computedFields:  Record<string, string>;
 }) {
+  const isTotalsSection = section.sectionLabel.trim().toLowerCase() === 'totals';
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px 20px' }}>
       {section.mappings.map(m => {
-        const isManual  = m.mappingType === 'manual' || m.mappingType === 'conditional';
         const isDerived = m.mappingType === 'derived';
-        const value = isManual
-          ? (manualValues[m.targetField] ?? '')
-          : isDerived
-            ? (computedFields[m.targetField] ?? fields[m.targetField] ?? '')
-            : (fields[m.targetField] ?? '');
+        const isEditable = !isTotalsSection;
+        const baseValue = isDerived
+          ? (computedFields[m.targetField] ?? fields[m.targetField] ?? '')
+          : (fields[m.targetField] ?? '');
+        const value = isEditable
+          ? (manualValues[m.targetField] ?? baseValue)
+          : baseValue;
         return (
           <FieldCard
             key={m.targetField}
             mapping={m}
             value={value}
             sourceDocs={sourceDocs}
-            onChange={isManual ? (v) => onManualChange(m.targetField, v) : undefined}
+            onChange={isEditable ? (v) => onManualChange(m.targetField, v) : undefined}
           />
         );
       })}
@@ -450,6 +453,7 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
 }) {
   void sourceDocs;
   const cols = section.mappings.filter(m => m.isLineItem !== false);
+  const isTotalsSection = section.sectionLabel.trim().toLowerCase() === 'totals';
   if (cols.length === 0) return null;
 
   return (
@@ -480,14 +484,13 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
               {cols.map(col => {
                 const colColor = mappingColor(col.mappingType);
                 const { bg, border } = C[colColor];
-                const isManual  = col.mappingType === 'manual' || col.mappingType === 'conditional';
                 const isDerived = col.mappingType === 'derived';
+                const isEditable = !isTotalsSection;
                 const manualKey = `${section.sectionLabel}.${ri}.${col.targetField}`;
-                const val = isManual
-                  ? (manualValues[manualKey] ?? '')
-                  : isDerived
-                    ? (computedRows[ri]?.[col.targetField] ?? row[col.targetField] ?? '')
-                    : (row[col.targetField] ?? '');
+                const baseVal = isDerived
+                  ? (computedRows[ri]?.[col.targetField] ?? row[col.targetField] ?? '')
+                  : (row[col.targetField] ?? '');
+                const val = isEditable ? (manualValues[manualKey] ?? baseVal) : baseVal;
                 return (
                   <td key={col.targetField} style={{
                     padding: 0,
@@ -495,14 +498,14 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
                     verticalAlign: 'middle',
                     ...(col.mono ? MONO : {}), fontSize: 12,
                     whiteSpace: 'nowrap',
-                    outline: isManual ? `1px solid ${!val ? RED : border}` : 'none',
+                    outline: isEditable ? `1px solid ${!val && (col.mappingType === 'manual' || col.mappingType === 'conditional') ? RED : border}` : 'none',
                     outlineOffset: -1,
                   }}>
-                    {isManual ? (
+                    {isEditable ? (
                       <input
                         value={val}
                         onChange={e => onManualChange(manualKey, e.target.value)}
-                        placeholder="Enter…"
+                        placeholder="Enter..."
                         style={{
                           border: 'none', background: 'transparent', outline: 'none',
                           padding: '7px 10px', fontSize: 12, fontWeight: 600, color: FG,
@@ -1706,6 +1709,9 @@ export function DocumentGeneratePage() {
       for (const col of derivedCols) {
         const sf = col.sourceField;
         for (let ri = 0; ri < mockRows.length; ri++) {
+          const manualTarget = manualValues[`${sLabel}.${ri}.${col.targetField}`];
+          if (manualTarget !== undefined && manualTarget.trim() !== '') continue;
+
           if (sf.includes(' / ')) {
             const [a, b] = sf.split(' / ');
             const av = getNum(ri, resolve(a)), bv = getNum(ri, resolve(b));
@@ -1741,7 +1747,7 @@ export function DocumentGeneratePage() {
         let sum = 0, hasAny = false;
         for (let ri = 0; ri < mockRows.length; ri++) {
           const computedVal = rowMap[sLabel]?.[ri]?.[field];
-          const raw = (computedVal ?? manualValues[`${sLabel}.${ri}.${field}`] ?? mockRows[ri]?.[field] ?? '').toString().replace(/,/g, '');
+          const raw = (manualValues[`${sLabel}.${ri}.${field}`] ?? computedVal ?? mockRows[ri]?.[field] ?? '').toString().replace(/,/g, '');
           const n = parseFloat(raw);
           if (!isNaN(n) && n > 0) { sum += n; hasAny = true; }
         }

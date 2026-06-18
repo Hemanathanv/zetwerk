@@ -9,6 +9,7 @@ from cache import close_redis, get_redis
 from helpers.config import settings
 from db import close_prisma, get_prisma
 from documents_ocr.queue import (
+    DetectWorkerSettings,
     OcrWorkerSettings,
     UploadWorkerSettings,
     close_arq_redis,
@@ -41,6 +42,15 @@ async def lifespan(app: FastAPI):
     }
     if run_workers_in_api:
         print("Starting ARQ OCR workers inside FastAPI process...")
+        detect_worker = Worker(
+            functions=DetectWorkerSettings.functions,
+            redis_settings=DetectWorkerSettings.redis_settings,
+            queue_name=DetectWorkerSettings.queue_name,
+            job_timeout=DetectWorkerSettings.job_timeout,
+            max_tries=DetectWorkerSettings.max_tries,
+            on_startup=DetectWorkerSettings.on_startup,
+            on_shutdown=DetectWorkerSettings.on_shutdown,
+        )
         upload_worker = Worker(
             functions=UploadWorkerSettings.functions,
             redis_settings=UploadWorkerSettings.redis_settings,
@@ -60,6 +70,10 @@ async def lifespan(app: FastAPI):
             on_shutdown=OcrWorkerSettings.on_shutdown,
         )
         worker_tasks = [
+            asyncio.create_task(
+                detect_worker.async_run(),
+                name="arq-detect-worker",
+            ),
             asyncio.create_task(
                 upload_worker.async_run(),
                 name="arq-ocr-upload-worker",

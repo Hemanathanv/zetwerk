@@ -101,6 +101,50 @@ export type DocumentRecord = {
   pageCount: number | null;
   isPDF: boolean;
   previewUrl: string | null;
+  ocrConfidence: number | null;
+};
+
+export type DocumentClassificationResponse = {
+  status: "success";
+  message: string;
+  docType: DocType;
+  label: string;
+  confidence: number;
+  reasoning: string;
+  matchedFields: string[];
+  alternatives: Array<{ docType?: DocType | string; confidence?: number; label?: string; reasoning?: string }>;
+  fileName: string;
+};
+
+export type DocumentClassificationQueuedResponse = {
+  status: "queued";
+  message: string;
+  classificationJobId: string;
+  fileName: string;
+};
+
+export type DocumentClassificationStatusResponse = {
+  status: "queued" | "running" | "success" | "failed";
+  message: string;
+  classificationJobId: string;
+  fileName: string;
+  docType: DocType | null;
+  label: string | null;
+  confidence: number | null;
+  reasoning: string | null;
+  matchedFields: string[];
+  alternatives: Array<{ docType?: DocType | string; confidence?: number; label?: string; reasoning?: string }>;
+};
+
+export type DocumentClassificationBulkResponse = {
+  status: "queued";
+  message: string;
+  jobs: Array<{
+    classificationJobId: string;
+    fileName: string;
+    status: string;
+    message: string;
+  }>;
 };
 
 export type DocumentPageRecord = {

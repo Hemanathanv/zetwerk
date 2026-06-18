@@ -1,28 +1,33 @@
-import { CheckCircle2, LockKeyhole, ShieldCheck } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, Loader2, LockKeyhole, ShieldCheck } from "lucide-react";
+import { adminApi } from "@/auth/api";
 import { Badge } from "@/components/ui/badge";
 
-const roleMatrix = [
+type AdminRole = {
+  id: string;
+  name: string;
+  roleCategory: string;
+};
+
+const fallbackRoles: AdminRole[] = [
   {
-    role: "Org admin",
-    category: "admin",
-    permissions: ["User Management", "Storage", "User Permissions", "Documents", "Reports"],
+    id: "admin",
+    name: "Admin",
+    roleCategory: "admin",
   },
   {
-    role: "Ops manager",
-    category: "operations",
-    permissions: ["Documents", "Shipments", "Reports", "Tasks"],
-  },
-  {
-    role: "Finance AP India",
-    category: "finance",
-    permissions: ["Documents", "Accounting", "Reports"],
-  },
-  {
-    role: "Viewer",
-    category: "viewer",
-    permissions: ["Dashboard", "Reports"],
+    id: "user",
+    name: "User",
+    roleCategory: "user",
   },
 ];
+
+function permissionsForRole(role: AdminRole) {
+  if (role.roleCategory === "admin") {
+    return ["User Management", "Storage", "User Permissions", "Documents", "Reports"];
+  }
+  return ["Documents", "Reports"];
+}
 
 const protectedActions = [
   { label: "Invite users", owner: "Org admin", status: "Restricted" },
@@ -32,15 +37,54 @@ const protectedActions = [
 ];
 
 export default function AdminUserPermissionsView() {
+  const [roles, setRoles] = useState<AdminRole[]>(fallbackRoles);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    adminApi
+      .listRoles()
+      .then((response) => {
+        if (active && response.data.ok && response.data.data.length > 0) {
+          setRoles(response.data.data);
+        }
+      })
+      .catch((error) => {
+        console.warn("[AdminUserPermissionsView] Using fallback roles:", error);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const roleMatrix = useMemo(
+    () =>
+      roles.map((role) => ({
+        role: role.name,
+        category: role.roleCategory,
+        permissions: permissionsForRole(role),
+      })),
+    [roles],
+  );
+
   return (
     <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
       <section className="rounded-xl border border-border bg-card">
         <div className="border-b border-border px-5 py-4">
           <h3 className="text-base font-semibold text-foreground">Role Permissions</h3>
-          <p className="text-sm text-muted-foreground">Review module access for each user role.</p>
+          <p className="text-sm text-muted-foreground">Review module access for Keycloak roles.</p>
         </div>
         <div className="divide-y divide-border">
-          {roleMatrix.map((role) => (
+          {loading ? (
+            <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+              <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
+              Loading Keycloak roles...
+            </div>
+          ) : roleMatrix.map((role) => (
             <div key={role.role} className="grid gap-3 px-5 py-4 md:grid-cols-[220px_1fr]">
               <div>
                 <p className="font-medium text-foreground">{role.role}</p>
@@ -84,8 +128,8 @@ export default function AdminUserPermissionsView() {
             <h3 className="text-base font-semibold text-foreground">Backend Contract</h3>
           </div>
           <p className="mt-3 text-sm text-muted-foreground">
-            This view is ready for a permissions API. Until that endpoint is available, it shows the
-            role matrix used by the connected frontend.
+            Roles are synced from Keycloak. Admin roles receive access to user management, storage,
+            and permission controls.
           </p>
         </section>
       </aside>

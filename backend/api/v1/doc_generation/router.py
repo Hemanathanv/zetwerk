@@ -123,18 +123,6 @@ def _sum_line_item_values(items: list[dict[str, Any]], *keys: str) -> tuple[Deci
     return total, found
 
 
-def _sum_package_counts(items: list[dict[str, Any]]) -> tuple[Decimal, bool]:
-    total = Decimal("0")
-    found = False
-    for item in items:
-        count, _kind = _parse_package(_item_value(item, "packageDescription", "package_description", "package", "packages"))
-        if not count:
-            continue
-        total += _decimal(count)
-        found = True
-    return total, found
-
-
 def _first_non_empty(*values: Any) -> str | None:
     for value in values:
         if value is not None and str(value).strip() != "":
@@ -217,9 +205,7 @@ def _calculated_field_value(target_field: str, row: dict[str, Any]) -> str | Non
         return str(len(line_items))
 
     if target_field == "totalBundles":
-        total, found = _sum_line_item_values(line_items, "noOfBundles", "noOfPackages", "bundles")
-        if not found:
-            total, found = _sum_package_counts(line_items)
+        total, found = _sum_line_item_values(line_items, "noOfBundles", "bundles")
         return _format_total(total) if found else None
 
     if target_field in {"totalQty", "totalPiecesAggregate"}:
@@ -338,7 +324,7 @@ def _build_line_items(generated_doc_type: str, row: dict[str, Any]) -> list[dict
 
 
 def _build_packing_list_line_item(index: int, item: dict[str, Any]) -> dict[str, Any]:
-    package_count, package_kind = _parse_package(
+    _package_count, package_kind = _parse_package(
         _item_value(item, "packageDescription", "package_description", "package", "packages")
     )
     description = _item_value(
@@ -354,7 +340,7 @@ def _build_packing_list_line_item(index: int, item: dict[str, Any]) -> dict[str,
         "product_specification",
     )
     quantity = _item_value(item, "quantity", "totalQtyInPcs", "quantityTotal", "qty")
-    no_of_bundles = _item_value(item, "noOfPackages", "no_of_packages", "noOfBundles", "bundles") or package_count
+    no_of_bundles = _item_value(item, "noOfBundles", "bundles")
     kind_of_pkg = _item_value(item, "kindOfPkg", "kind_of_pkg", "packageType", "package_type") or package_kind
 
     return {

@@ -1,0 +1,82 @@
+# =================================================================
+# Keycloak SSO & RBAC Stack
+#
+# Latest Keycloak with PostgreSQL backend
+# Custom port 8031 for development
+# SSO (Single Sign-On) and RBAC (Role-Based Access Control)
+#
+# Features:
+#   - OpenID Connect & SAML support
+#   - Fine-grained role and permission management
+#   - Integration with existing PostgreSQL database
+#   - Development-optimized configuration
+#
+# Access:
+#   Admin Console: http://localhost:8031/admin
+#   Account Console: http://localhost:8031/realms/master/account
+#
+# Initial Admin Credentials:
+#   Username: admin
+#   Password: admin (change this immediately after first login)
+# =================================================================
+
+name: ewms-keycloak
+
+services:
+  # ── Keycloak SSO & RBAC Service ───────────────────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: ewms-keycloak
+    restart: unless-stopped
+    command: ["start-dev"]
+    ports:
+      - "8031:8080"  # Custom port 8031 as requested
+    environment:
+      # Database configuration - using existing PostgreSQL
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://192.168.10.100:5432/ewms_db
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: Password@1
+      KC_DB_SCHEMA: keycloak  # Separate schema for Keycloak
+
+      # Keycloak specific settings
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: 8031
+      KC_PROXY: edge
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+
+      # Admin user setup
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+
+      # Development mode settings
+      KC_FEATURES: "scripts,token-exchange,admin-fine-grained-authz"
+      KC_METRICS_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+
+      # SSO and RBAC features
+      KC_SPI_THEME_STATIC_MAX_AGE: "-1"
+      KC_SPI_THEME_CACHE_THEMES: "false"
+      KC_SPI_THEME_CACHE_TEMPLATES: "false"
+
+    volumes:
+      - ./keycloak/data:/opt/keycloak/data
+      - ./keycloak/themes:/opt/keycloak/themes
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    networks:
+      - ewms-net
+
+# ── Network Configuration ──────────────────────────────────────
+networks:
+  ewms-net:
+    external: true
+    name: ewms-network

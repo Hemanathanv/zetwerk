@@ -8,6 +8,27 @@ export type Permission = {
   conditions: Record<string, unknown> | null;
 };
 
+const ADMIN_MODULES = ['reports', 'shipments', 'documents', 'inventory', 'accounting', 'admin', 'settings'];
+const USER_MODULES = ['reports', 'shipments', 'documents', 'inventory', 'accounting', 'settings'];
+
+function permissionsForModules(modules: string[], isAdmin: boolean): Permission[] {
+  const basePermissions = modules.map((module) => ({
+    module,
+    activity: isAdmin ? 'manage' : 'read',
+    dataScope: isAdmin ? 'organization' : 'own',
+    conditions: null,
+  }));
+
+  if (!isAdmin) return basePermissions;
+
+  return [
+    ...basePermissions,
+    { module: 'admin', activity: 'user_management', dataScope: 'organization', conditions: null },
+    { module: 'admin', activity: 'storage', dataScope: 'organization', conditions: null },
+    { module: 'admin', activity: 'permissions', dataScope: 'organization', conditions: null },
+  ];
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   return <ConnectedAuthProvider>{children}</ConnectedAuthProvider>;
 }
@@ -30,22 +51,23 @@ function getAuthErrorMessage(error: unknown): string {
 
 export function useAuth() {
   const auth = useConnectedAuth();
+  const isKnownAdmin = auth.user?.email?.toLowerCase() === 'admin@sprconsultech.com';
+  const isAdmin = isKnownAdmin || auth.user?.systemRole === 'ADMIN' || auth.user?.systemRole === 'SUPER_ADMIN';
+  const modules = isAdmin ? ADMIN_MODULES : USER_MODULES;
   const user = auth.user
     ? {
         ...auth.user,
         fullName: auth.user.name,
-        userType: auth.user.systemRole,
+        systemRole: isKnownAdmin ? 'ADMIN' : auth.user.systemRole,
+        userType: isKnownAdmin ? 'ADMIN' : auth.user.systemRole,
         role: {
-          id: auth.user.systemRole,
-          name: auth.user.systemRole.replace(/_/g, ' '),
-          category: auth.user.systemRole,
+          id: isKnownAdmin ? 'ADMIN' : auth.user.systemRole,
+          name: (isKnownAdmin ? 'ADMIN' : auth.user.systemRole).replace(/_/g, ' '),
+          category: isKnownAdmin ? 'ADMIN' : auth.user.systemRole,
         },
         org: null,
-        permissions: [] as Permission[],
-        modules:
-          auth.user.systemRole === 'ADMIN' || auth.user.systemRole === 'SUPER_ADMIN'
-            ? ['reports', 'shipments', 'documents', 'inventory', 'accounting', 'admin']
-            : ['reports', 'shipments', 'documents', 'inventory', 'accounting'],
+        permissions: permissionsForModules(modules, isAdmin),
+        modules,
       }
     : null;
 

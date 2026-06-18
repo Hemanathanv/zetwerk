@@ -3,9 +3,19 @@ from datetime import datetime, timezone
 from functools import wraps
 from fastapi import Request, HTTPException, Depends, Cookie, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from keycloak import KeycloakOpenID
 from db import get_prisma
+from helpers.config import settings
 
 bearer_scheme = HTTPBearer(auto_error=False)
+keycloak_openid = KeycloakOpenID(
+    server_url=settings.KEYCLOAK_URL,
+    client_id=settings.KEYCLOAK_CLIENT_ID,
+    realm_name=settings.KEYCLOAK_REALM,
+    client_secret_key=settings.KEYCLOAK_CLIENT_SECRET,
+)
+
+KEYCLOAK_ADMIN_EMAILS = {"admin@sprconsultech.com"}
 
 
 def utc_now() -> datetime:
@@ -60,24 +70,11 @@ async def is_authenticated(
         return False
     
     try:
-        prisma = await get_prisma()
-        
-        session = await prisma.session.find_first(
-            where={
-                "token": token,
-                "expiresAt": {"gt": utc_now()}
-            },
-            include={"user": True}
-        )
-        
-        if not session or not session.user:
-            return False
-        
-        if not session.user.isActive:
-            return False
-        
-        return True
-        
+        user = await _get_session_user(token)
+        if user:
+            return True
+        user = await _get_keycloak_local_user(token)
+        return bool(user)
     except Exception:
         return False
 
@@ -121,35 +118,113 @@ async def get_current_user(
             detail="Not authenticated"
         )
     
-    prisma = await get_prisma()
-    
     try:
-        session = await prisma.session.find_first(
-            where={
-                "token": token,
-                "expiresAt": {"gt": utc_now()}
-            },
-            include={"user": True}
-        )
+        session_user = await _get_session_user(token)
     except Exception:
         raise HTTPException(
             status_code=503,
             detail="Authentication service unavailable",
         )
-    
+
+    if session_user:
+        return session_user
+
+    keycloak_user = await _get_keycloak_local_user(token)
+    if keycloak_user:
+        return keycloak_user
+
+    raise HTTPException(
+        status_code=401,
+        detail="Invalid or expired session",
+    )
+
+
+async def _get_session_user(token: str):
+    prisma = await get_prisma()
+    session = await prisma.session.find_first(
+        where={
+            "token": token,
+            "expiresAt": {"gt": utc_now()}
+        },
+        include={"user": True}
+    )
     if not session or not session.user:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or expired session"
-        )
-    
+        return None
     if not session.user.isActive:
         raise HTTPException(
             status_code=403,
             detail="User account is inactive"
         )
-    
     return session.user
+
+
+def _role_from_keycloak_roles(roles: list[str]) -> str:
+    normalized = {str(role).upper().replace("-", "_") for role in roles}
+    if "SUPER_ADMIN" in normalized:
+        return "SUPER_ADMIN"
+    if "ADMIN" in normalized:
+        return "ADMIN"
+    return "USER"
+
+
+def _extract_keycloak_roles(token_info: dict) -> list[str]:
+    roles = list(token_info.get("realm_access", {}).get("roles", []) or [])
+    resource_access = token_info.get("resource_access", {}) or {}
+    for client_access in resource_access.values():
+        roles.extend(client_access.get("roles", []) or [])
+    return sorted({str(role) for role in roles})
+
+
+async def _get_keycloak_local_user(token: str):
+    try:
+        userinfo = keycloak_openid.userinfo(token)
+        token_info = keycloak_openid.decode_token(
+            token,
+            keycloak_openid.public_key(),
+        )
+        roles = _extract_keycloak_roles(token_info)
+    except Exception:
+        return None
+
+    email = str(userinfo.get("email") or "").strip().lower()
+    if not email:
+        return None
+
+    name = (
+        str(userinfo.get("name") or "").strip()
+        or " ".join(
+            part
+            for part in [
+                str(userinfo.get("given_name") or "").strip(),
+                str(userinfo.get("family_name") or "").strip(),
+            ]
+            if part
+        )
+        or str(userinfo.get("preferred_username") or email).strip()
+    )
+    role = "ADMIN" if email in KEYCLOAK_ADMIN_EMAILS else _role_from_keycloak_roles(roles)
+    prisma = await get_prisma()
+    existing = await prisma.user.find_unique(where={"email": email})
+    if existing:
+        if not existing.isActive:
+            raise HTTPException(status_code=403, detail="User account is inactive")
+        try:
+            return await prisma.user.update(
+                where={"id": existing.id},
+                data={"name": name, "role": role},
+            )
+        except Exception:
+            return existing
+
+    return await prisma.user.create(
+        data={
+            "name": name,
+            "email": email,
+            "passwordHash": f"keycloak:{userinfo.get('sub') or email}",
+            "role": role,
+            "isActive": True,
+        }
+    )
 
 
 async def get_admin_user(user=Depends(get_current_user)):

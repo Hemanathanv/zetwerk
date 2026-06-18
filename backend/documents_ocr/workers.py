@@ -12,7 +12,21 @@ BACKEND_DIR = CURRENT_FILE.parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from documents_ocr.queue import OcrWorkerSettings, UploadWorkerSettings
+from documents_ocr.queue import DetectWorkerSettings, OcrWorkerSettings, UploadWorkerSettings
+
+
+async def _run_detect_worker() -> None:
+    print("[workers] starting ARQ detect worker", flush=True)
+    worker = Worker(
+        functions=DetectWorkerSettings.functions,
+        redis_settings=DetectWorkerSettings.redis_settings,
+        queue_name=DetectWorkerSettings.queue_name,
+        job_timeout=DetectWorkerSettings.job_timeout,
+        max_tries=DetectWorkerSettings.max_tries,
+        on_startup=DetectWorkerSettings.on_startup,
+        on_shutdown=DetectWorkerSettings.on_shutdown,
+    )
+    await worker.async_run()
 
 
 async def _run_upload_worker() -> None:
@@ -44,6 +58,10 @@ async def _run_ocr_worker() -> None:
 
 
 async def _run_named_worker(name: str) -> None:
+    if name == "detect_worker":
+        await _run_detect_worker()
+        return
+
     if name == "upload_worker":
         await _run_upload_worker()
         return
@@ -55,6 +73,7 @@ async def _run_named_worker(name: str) -> None:
     if name == "both":
         print("[workers] starting both ARQ workers", flush=True)
         await asyncio.gather(
+            _run_detect_worker(),
             _run_upload_worker(),
             _run_ocr_worker(),
         )
@@ -65,7 +84,7 @@ async def _run_named_worker(name: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run OCR ARQ workers")
-    parser.add_argument("worker", choices=["upload_worker", "ocr_worker", "both"])
+    parser.add_argument("worker", choices=["detect_worker", "upload_worker", "ocr_worker", "both"])
     args = parser.parse_args()
     asyncio.run(_run_named_worker(args.worker))
 

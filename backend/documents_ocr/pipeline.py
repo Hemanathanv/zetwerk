@@ -260,6 +260,12 @@ MAX_REQUEST_ENCODED_BYTES = max(1 * 1024 * 1024, int(getattr(settings, "OCR_MAX_
 MAX_HEADER_CONTEXT_FIELDS = 120
 DEFAULT_OCR_CHAT_COMPLETIONS_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 DEFAULT_OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
+OCR_CONFIDENCE_PROMPT = (
+    "Also return a top-level `document_confidence` number from 0 to 1 that reflects your overall OCR "
+    "confidence for this document after reading the provided pages. Base it on legibility, missing/unclear "
+    "fields, table quality, and consistency of extracted values. Use 1 only when the extraction is effectively "
+    "certain, and use lower values for blurry scans, cut-off pages, handwriting, ambiguous labels, or inferred values."
+)
 
 
 def _normalize_chat_completions_url(raw_url: str, *, default_url: str) -> str:
@@ -677,6 +683,18 @@ def _merge_usage(existing: dict[str, Any], incoming: Any) -> dict[str, Any]:
     return merged
 
 
+def _normalize_document_confidence(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return None
+    if confidence > 1:
+        confidence = confidence / 100
+    return max(0.0, min(1.0, confidence))
+
+
 def run_ocr(*, page_images: list[PageImage], prompt: str) -> dict[str, Any]:
     chunks = _chunk_page_images_for_ocr(page_images)
     if not chunks:
@@ -701,7 +719,7 @@ def run_ocr(*, page_images: list[PageImage], prompt: str) -> dict[str, Any]:
         )
         chunk_result = _run_openrouter_ocr_chunk(
             page_images=chunk["images"],
-            prompt=prompt,
+            prompt=f"{prompt}\n\n{OCR_CONFIDENCE_PROMPT}",
             user_text=user_text,
         )
         chunk_payload = {
@@ -789,11 +807,18 @@ async def run_post_upload_ocr(
             page_images=images,
             prompt=processor.build_prompt(),
         )
-        raw_payload = {k: v for k, v in raw_result.items() if not k.startswith("_")}
+        raw_payload = {
+            k: v
+            for k, v in raw_result.items()
+            if not k.startswith("_") and k != "document_confidence"
+        }
         structured = processor.parse_result(raw_payload)
         # Persist normalized structured payload so frontend always receives the full
         # expected field shape (including null/default values), not sparse provider output.
         normalized_raw_payload = structured.model_dump(mode="json", exclude_none=False)
+        document_confidence = _normalize_document_confidence(raw_result.get("document_confidence"))
+        if document_confidence is not None:
+            normalized_raw_payload["document_confidence"] = document_confidence
     except ValidationError as exc:
         await prisma.document.update(
             where={"id": document.id},

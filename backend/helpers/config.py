@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     OCR_GEMINI_HTTP_TIMEOUT_SECONDS: int = 900
     OCR_GEMINI_MAX_ATTEMPTS: int = 7
     OCR_GEMINI_RETRY_BACKOFF_SECONDS: float = 2.0
+    DOC_CLASSIFIER_API_KEY: str = ""
+    DOC_CLASSIFIER_API_URL: str = ""
+    DOC_CLASSIFIER_MODEL: str = ""
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_API_URL: str = "https://openrouter.ai/api/v1/chat/completions"
     OPENROUTER_MODEL_PRO: str = ""
@@ -48,6 +51,14 @@ class Settings(BaseSettings):
     # API settings
     API_TITLE: str = "Invoice Extraction API"
     API_VERSION: str = "1.0.0"
+
+    # Keycloak settings
+    KEYCLOAK_URL: str = "http://localhost:8031"
+    KEYCLOAK_ADMIN_USERNAME: str = "admin"
+    KEYCLOAK_ADMIN_PASSWORD: str = "admin"
+    KEYCLOAK_CLIENT_ID: str = "ewms-backend"
+    KEYCLOAK_CLIENT_SECRET: str = ""
+    KEYCLOAK_REALM: str = "ewms-saas"
     
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),

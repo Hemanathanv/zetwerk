@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useLocation } from 'wouter';
-import { authApi, SESSION_TOKEN_KEY } from './api';
+import { authApi, REFRESH_TOKEN_KEY, SESSION_TOKEN_KEY } from './api';
 import type { AuthUser, UserProfile } from '@/types/backend';
 
 interface AuthContextType {
@@ -29,6 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Auth check failed:', error);
       window.localStorage.removeItem(SESSION_TOKEN_KEY);
+      window.localStorage.removeItem(REFRESH_TOKEN_KEY);
       setUser(null);
     } finally {
       setLoading(false);
@@ -52,11 +53,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string) => {
     try {
       const response = await authApi.login(email, password);
-      const token = response.data?.token;
-      if (typeof token === 'string' && token.trim()) {
-        window.localStorage.setItem(SESSION_TOKEN_KEY, token);
+      const accessToken = response.data?.access_token;
+      const refreshToken = response.data?.refresh_token;
+      if (typeof accessToken === 'string' && accessToken.trim()) {
+        window.localStorage.setItem(SESSION_TOKEN_KEY, accessToken);
       }
-      setUser(response.data.user);
+      if (typeof refreshToken === 'string' && refreshToken.trim()) {
+        window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+      }
+      const authResponse = await authApi.checkAuth();
+      setUser(authResponse.data.user);
       setLocation('/dashboard');
     } catch (error) {
       console.error('Login failed:', error);
@@ -68,11 +74,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await authApi.logout();
       window.localStorage.removeItem(SESSION_TOKEN_KEY);
+      window.localStorage.removeItem(REFRESH_TOKEN_KEY);
       setUser(null);
       setLocation('/login');
     } catch (error) {
       console.error('Logout failed:', error);
       window.localStorage.removeItem(SESSION_TOKEN_KEY);
+      window.localStorage.removeItem(REFRESH_TOKEN_KEY);
       setUser(null);
       setLocation('/login');
     }
