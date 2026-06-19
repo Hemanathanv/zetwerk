@@ -5,6 +5,7 @@ data/
 !frontend/src/data/
 !frontend/src/data/**
 node_modules/
+.npm-cache/
 backend/documents/
 dist/
 build/
