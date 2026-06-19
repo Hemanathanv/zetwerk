@@ -258,7 +258,6 @@ class OcrImageChunk(TypedDict):
 
 MAX_REQUEST_ENCODED_BYTES = max(1 * 1024 * 1024, int(getattr(settings, "OCR_MAX_REQUEST_ENCODED_BYTES", 27 * 1024 * 1024)))
 MAX_HEADER_CONTEXT_FIELDS = 120
-DEFAULT_OCR_CHAT_COMPLETIONS_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 DEFAULT_OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
 OCR_CONFIDENCE_PROMPT = (
     "Also return a top-level `document_confidence` number from 0 to 1 that reflects your overall OCR "
@@ -279,32 +278,22 @@ def _normalize_chat_completions_url(raw_url: str, *, default_url: str) -> str:
 
 
 def _load_ocr_provider_config() -> tuple[str, str, str]:
-    api_key = (getattr(settings, "API_KEY", "") or "").strip()
-    model = (getattr(settings, "MODEL", "") or "").strip()
-    api_url = (getattr(settings, "OCR_API_URL", "") or "").strip()
-    if api_key and model:
+    openrouter_api_key = (getattr(settings, "OPENROUTER_API_KEY", "") or "").strip()
+    openrouter_model = (getattr(settings, "OPENROUTER_MODEL_PRO", "") or "").strip()
+    openrouter_api_url = (getattr(settings, "OPENROUTER_API_URL", "") or "").strip()
+    if openrouter_api_key and openrouter_model:
         return (
-            api_key,
-            _normalize_chat_completions_url(api_url, default_url=DEFAULT_OCR_CHAT_COMPLETIONS_URL),
-            model,
-        )
-
-    legacy_api_key = (getattr(settings, "OPENROUTER_API_KEY", "") or "").strip()
-    legacy_model = (getattr(settings, "OPENROUTER_MODEL_PRO", "") or "").strip()
-    legacy_api_url = (getattr(settings, "OPENROUTER_API_URL", "") or "").strip()
-    if legacy_api_key and legacy_model:
-        return (
-            legacy_api_key,
+            openrouter_api_key,
             _normalize_chat_completions_url(
-                legacy_api_url,
+                openrouter_api_url,
                 default_url=DEFAULT_OPENROUTER_CHAT_COMPLETIONS_URL,
             ),
-            legacy_model,
+            openrouter_model,
         )
 
-    if not api_key:
-        raise RuntimeError("Missing API_KEY for OCR")
-    raise RuntimeError("Missing MODEL for OCR")
+    if not openrouter_api_key:
+        raise RuntimeError("Missing OPENROUTER_API_KEY for OCR")
+    raise RuntimeError("Missing OPENROUTER_MODEL_PRO for OCR")
 
 
 def _extract_json(text: str) -> dict[str, Any]:

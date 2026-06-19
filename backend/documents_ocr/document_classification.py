@@ -8,6 +8,7 @@ from io import BytesIO
 import json
 from pathlib import Path
 import re
+import shutil
 from typing import Any
 from urllib import error, request
 
@@ -20,13 +21,24 @@ from documents_ocr.schema_loader import load_extraction_schema
 
 
 DEFAULT_CLASSIFIER_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-POPPLER_BIN = Path("/usr/bin")
+LOCAL_POPPLER_BIN = Path(__file__).resolve().parents[1] / "poppler" / "Library" / "bin"
+LINUX_POPPLER_BIN = Path("/usr/bin")
 MAX_FIELD_HINTS = 7
 MAX_TEXT_CHARS = 2500
 CLASSIFIER_IMAGE_DPI = 300
 CLASSIFIER_IMAGE_MAX_EDGE = 1400
 CLASSIFIER_IMAGE_JPEG_QUALITY = 55
 MAX_SCORE_PHRASES_PER_DOC = 80
+
+
+def _resolve_poppler_path() -> str | None:
+    for candidate in (LOCAL_POPPLER_BIN, LINUX_POPPLER_BIN):
+        executable = candidate / ("pdftoppm.exe" if candidate.drive else "pdftoppm")
+        if executable.exists():
+            return str(candidate)
+    if shutil.which("pdftoppm"):
+        return None
+    return ""
 
 
 @dataclass(frozen=True)
@@ -588,7 +600,8 @@ def _document_image_parts(file_bytes: bytes, *, file_name: str, content_type: st
             return [_image_part(file_bytes[:1_500_000], content_type)]
     if not (content_type == "application/pdf" or lower_name.endswith(".pdf")):
         return []
-    if not POPPLER_BIN.exists():
+    poppler_path = _resolve_poppler_path()
+    if poppler_path == "":
         return []
     try:
         pages = convert_from_bytes(
@@ -596,7 +609,7 @@ def _document_image_parts(file_bytes: bytes, *, file_name: str, content_type: st
             dpi=CLASSIFIER_IMAGE_DPI,
             first_page=1,
             last_page=1,
-            poppler_path=str(POPPLER_BIN),
+            poppler_path=poppler_path,
         )
     except Exception:
         return []

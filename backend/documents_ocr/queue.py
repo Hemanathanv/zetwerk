@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 import json
 from pathlib import Path
+import shutil
 from typing import Any
 from uuid import uuid4
 
@@ -25,9 +26,26 @@ OCR_JOB_NAME = "process_ocr_job"
 PROCESSING_STALE_SECONDS = 15 * 60
 DETECTION_RESULT_TTL_SECONDS = 60 * 60
 DETECTION_STALE_SECONDS = 5 * 60
-POPPLER_BIN = Path("/usr/bin")
+LOCAL_POPPLER_BIN = Path(__file__).resolve().parents[1] / "poppler" / "Library" / "bin"
+LINUX_POPPLER_BIN = Path("/usr/bin")
 
 _arq_redis: ArqRedis | None = None
+
+
+def _module_slug_from_doc_type(doc_type: Any) -> str:
+    return str(doc_type or "uploads").strip().lower().replace("_", "-") or "uploads"
+
+
+def _resolve_poppler_path() -> str | None:
+    for candidate in (LOCAL_POPPLER_BIN, LINUX_POPPLER_BIN):
+        executable = candidate / ("pdftoppm.exe" if candidate.drive else "pdftoppm")
+        if executable.exists():
+            return str(candidate)
+    if shutil.which("pdftoppm"):
+        return None
+    raise RuntimeError(
+        "Poppler not found. Install Poppler or add pdftoppm to PATH so PDF pages can be generated for OCR."
+    )
 
 
 def get_arq_redis_settings() -> RedisSettings:
@@ -305,8 +323,7 @@ async def _ensure_document_pages(*, prisma, document: Any, module: str) -> None:
     if existing_pages > 0:
         return
 
-    if not POPPLER_BIN.exists():
-        raise RuntimeError(f"Poppler not found at: {POPPLER_BIN}")
+    poppler_path = _resolve_poppler_path()
 
     source_bytes = await asyncio.to_thread(
         download_bytes,
@@ -318,7 +335,7 @@ async def _ensure_document_pages(*, prisma, document: Any, module: str) -> None:
         source_bytes,
         dpi=200,
         fmt="png",
-        poppler_path=str(POPPLER_BIN),
+        poppler_path=poppler_path,
     )
     if not images:
         return
@@ -359,11 +376,11 @@ async def _ensure_document_pages(*, prisma, document: Any, module: str) -> None:
 async def process_ocr_job(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     prisma = await get_prisma()
     document_id = str(payload["documentId"])
-    bucket = str(payload["bucket"])
-    module = str(payload["module"])
+    payload_bucket = str(payload.get("bucket") or "")
+    payload_module = str(payload.get("module") or "")
     force_reprocess = bool(payload.get("forceReprocess", False))
     print(
-        f"[arq][ocr] start documentId={document_id} bucket={bucket} module={module}",
+        f"[arq][ocr] start documentId={document_id} bucket={payload_bucket} module={payload_module}",
         flush=True,
     )
 
@@ -371,13 +388,22 @@ async def process_ocr_job(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[
     if not document:
         print(f"[arq][ocr] skipped documentId={document_id} reason=document_not_found", flush=True)
         return {"status": "skipped", "reason": "document_not_found", "documentId": document_id}
-    if str(getattr(document, "status", "")) == "EXTRACTED":
+
+    bucket = str(getattr(document, "bucket", "") or payload_bucket)
+    module = _module_slug_from_doc_type(getattr(document, "docType", None)) or payload_module or "uploads"
+    db_status = str(getattr(document, "status", "") or "").upper()
+    print(
+        f"[arq][ocr] db_state documentId={document_id} status={db_status} bucket={bucket} module={module}",
+        flush=True,
+    )
+
+    if db_status in {"EXTRACTED", "REVIEWED"} and not force_reprocess:
         print(
             f"[arq][ocr] skipped documentId={document_id} reason=already_extracted",
             flush=True,
         )
         return {"status": "skipped", "reason": "already_extracted", "documentId": document_id}
-    if str(getattr(document, "status", "")) == "PROCESSING":
+    if db_status == "PROCESSING":
         updated_at = getattr(document, "updatedAt", None)
         processing_age_s: float | None = None
         if isinstance(updated_at, datetime):

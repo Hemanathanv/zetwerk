@@ -1004,7 +1004,7 @@ async def retry_document_ocr(document_id: str, user=Depends(get_current_user)):
     await enqueue_ocr_job(
         document_id=document_id,
         bucket=str(document.bucket),
-        module=DEFAULT_MODULE,
+        module=_bucket_slug_from_doc_type(str(document.docType)),
         force_reprocess=True,
     )
 

@@ -7,7 +7,7 @@ import {
   UploadCloud, FolderOpen, Database, ChevronDown, ChevronRight,
   Sparkles, CheckCircle2,
   LayoutList, LayoutGrid, ChevronRight as ArrowRight,
-  SlidersHorizontal, Zap,
+  SlidersHorizontal, Zap, RotateCw,
 } from 'lucide-react';
 import { PageHeader }    from '@/components/vs/PageHeader';
 import { StatusPill }    from '@/components/vs/StatusPill';
@@ -111,7 +111,7 @@ function PipelineDots({ dots, gold }: { dots: DotState[]; gold?: boolean }) {
 }
 
 // ─── Queue card component ─────────────────────────────────────────────────────
-type StatusCategory = 'needs-approval' | 'processing' | 'cross-validating' | 'draft-review' | 'done';
+type StatusCategory = 'uploaded' | 'needs-approval' | 'processing' | 'cross-validating' | 'draft-review' | 'done';
 
 type QueueCard = {
   id: string;
@@ -131,18 +131,21 @@ type QueueCard = {
   goldDots?: boolean;
   detail: React.ReactNode;
   action?: { label: string; primary?: boolean; teal?: boolean; onClick?: () => void; href?: string };
+  canReExtract?: boolean;
   context: string;
   timestamp: string;
 };
 
-function QueueCardEl({ card, onApproveClick, onCardClick, selected, selectable, onSelect, autoEligible }: {
+function QueueCardEl({ card, onApproveClick, onReExtractClick, onCardClick, selected, selectable, onSelect, autoEligible, retrying }: {
   card: QueueCard;
   onApproveClick?: () => void;
+  onReExtractClick?: () => void;
   onCardClick?: () => void;
   selected?: boolean;
   selectable?: boolean;
   onSelect?: () => void;
   autoEligible?: boolean;
+  retrying?: boolean;
 }) {
   const [, navigate] = useLocation();
   const [hovered, setHovered] = useState(false);
@@ -311,6 +314,23 @@ function QueueCardEl({ card, onApproveClick, onCardClick, selected, selectable, 
             )}
           </div>
         )}
+        {card.canReExtract && (
+          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); onReExtractClick?.(); }}
+              disabled={retrying}
+              style={{
+                fontSize: 11.5, fontWeight: 700, color: FG,
+                background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 6,
+                padding: '4px 10px', cursor: retrying ? 'not-allowed' : 'pointer',
+                display: 'inline-flex', alignItems: 'center', gap: 5, opacity: retrying ? 0.65 : 1,
+              }}
+            >
+              <RotateCw size={11} style={retrying ? { animation: 'spin 0.8s linear infinite' } : undefined} />
+              Re-extract
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -350,14 +370,16 @@ function MiniPipeline({ dots, gold }: { dots: DotState[]; gold?: boolean }) {
   );
 }
 
-function QueueRowEl({ card, onApproveClick, onRowClick, selected, selectable, onSelect, autoEligible, style }: {
+function QueueRowEl({ card, onApproveClick, onReExtractClick, onRowClick, selected, selectable, onSelect, autoEligible, retrying, style }: {
   card: QueueCard;
   onApproveClick?: () => void;
+  onReExtractClick?: () => void;
   onRowClick?: () => void;
   selected?: boolean;
   selectable?: boolean;
   onSelect?: () => void;
   autoEligible?: boolean;
+  retrying?: boolean;
   style?: React.CSSProperties;
 }) {
   const [, navigate] = useLocation();
@@ -470,7 +492,22 @@ function QueueRowEl({ card, onApproveClick, onRowClick, selected, selectable, on
       </div>
 
       {/* Action button */}
-      <div style={{ flexShrink: 0, width: 80, display: 'flex', justifyContent: 'flex-end' }}>
+      <div style={{ flexShrink: 0, width: 150, display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+        {card.canReExtract && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onReExtractClick?.(); }}
+            disabled={retrying}
+            style={{
+              fontSize: 11, fontWeight: 600, color: FG,
+              backgroundColor: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 5,
+              padding: '3px 8px', cursor: retrying ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: 3, opacity: retrying ? 0.65 : 1,
+            }}
+          >
+            <RotateCw size={10} style={retrying ? { animation: 'spin 0.8s linear infinite' } : undefined} />
+            Retry
+          </button>
+        )}
         {card.action && (
           card.action.label === 'Approve extraction →' ? (
             <button
@@ -517,18 +554,22 @@ function QueueRowEl({ card, onApproveClick, onRowClick, selected, selectable, on
 function VirtualList({
   cards,
   onApproveClick,
+  onReExtractClick,
   onRowClick,
   selectedIds,
   onSelectToggle,
   autoEligibleIds,
+  retryingId,
   selectable,
 }: {
   cards: QueueCard[];
   onApproveClick: (card: QueueCard) => (() => void) | undefined;
+  onReExtractClick: (card: QueueCard) => (() => void) | undefined;
   onRowClick: (card: QueueCard) => void;
   selectedIds: Set<string>;
   onSelectToggle: (id: string) => void;
   autoEligibleIds: Set<string>;
+  retryingId: string | null;
   selectable: boolean;
 }) {
   const ROW_H = 46;
@@ -556,11 +597,13 @@ function VirtualList({
               key={card.id}
               card={card}
               onApproveClick={onApproveClick(card)}
+              onReExtractClick={onReExtractClick(card)}
               onRowClick={() => onRowClick(card)}
               selected={selectedIds.has(card.id)}
               selectable={isSelectable}
               onSelect={() => onSelectToggle(card.id)}
               autoEligible={autoEligibleIds.has(card.id)}
+              retrying={retryingId === card.docId}
               style={{
                 position: 'absolute',
                 top: vItem.start,
@@ -596,8 +639,11 @@ function apiDocToQueueCard(d: DocumentRecord): QueueCard {
   else if (dt.includes('CHA') || dt.includes('FREIGHT_FORWARDER')) { docCode = 'CH'; color = BLUE; }
 
   const conf = typeof d.ocrConfidence === 'number' ? d.ocrConfidence : null;
-  const isExtracted = ['EXTRACTED', 'REVIEWED'].includes(d.status);
-  const isApproved  = d.status === 'REVIEWED';
+  const normalizedStatus = d.status.toUpperCase();
+  const isExtracted = ['EXTRACTED', 'REVIEWED'].includes(normalizedStatus);
+  const isApproved  = normalizedStatus === 'REVIEWED';
+  const isProcessing = ['QUEUED', 'PROCESSING', 'REPROCESSING'].includes(normalizedStatus);
+  const canReExtract = !isProcessing && normalizedStatus !== 'ARCHIVED';
 
   let statusCategory: StatusCategory, status: string, resolvedColor: string;
   let dots: DotState[], detail: React.ReactNode, action: QueueCard['action'];
@@ -611,10 +657,14 @@ function apiDocToQueueCard(d: DocumentRecord): QueueCard {
     resolvedColor = color; dots = ['done', 'done', 'current', 'future', 'future'];
     detail = `status: ${d.status} · extraction available for review`;
     action = { label: 'Approve extraction →', primary: true };
-  } else {
+  } else if (isProcessing) {
     statusCategory = 'processing'; status = d.status;
     resolvedColor = INFO; dots = ['done', 'current-spin', 'future', 'future', 'future'];
     detail = `status: ${d.status} · OCR queue is processing this document`;
+  } else {
+    statusCategory = 'uploaded'; status = d.status;
+    resolvedColor = AMBER; dots = ['done', 'future', 'future', 'future', 'future'];
+    detail = `status: ${d.status} - OCR is not running. Re-extract to queue OCR again.`;
   }
 
   return {
@@ -627,7 +677,7 @@ function apiDocToQueueCard(d: DocumentRecord): QueueCard {
     docNumber: d.fileName,
     status, statusVariant: isApproved ? 'pending' : 'info',
     statusCategory, avgConfidence: conf, dots,
-    detail, action,
+    detail, action, canReExtract,
     context: `id: ${d.id} · objectKey: ${d.objectKey}`,
     timestamp: timeAgo(d.createdAt),
   };
@@ -649,6 +699,7 @@ export function UploadProcessPage() {
   const [activeChip,    setActiveChip]    = useState(0);
   const [liveDocs,      setLiveDocs]      = useState<QueueCard[]>([]);
   const [isApproving,   setIsApproving]   = useState(false);
+  const [retryingId,    setRetryingId]    = useState<string | null>(null);
 
   const fetchLiveDocs = useCallback(() => {
     documentApi.list()
@@ -748,6 +799,20 @@ export function UploadProcessPage() {
   function openApprovalPanel(card: QueueCard) {
     if (card.docId) {
       navigate(`/documents/upload/${card.docId}/approve`);
+    }
+  }
+
+  async function handleReExtract(card: QueueCard) {
+    if (!card.docId || retryingId) return;
+    setRetryingId(card.docId);
+    try {
+      await documentApi.retry(card.docId);
+      toast({ title: 'Re-extraction queued', description: `${card.docNumber} will be processed from the latest DB status.` });
+      fetchLiveDocs();
+    } catch (err) {
+      toast({ title: 'Re-extraction failed', description: errorDescription(err, 'Unable to queue OCR retry.'), variant: 'destructive' });
+    } finally {
+      setRetryingId(null);
     }
   }
 
@@ -1240,11 +1305,13 @@ export function UploadProcessPage() {
                     key={card.id}
                     card={card}
                     onApproveClick={card.statusCategory === 'needs-approval' ? () => openApprovalPanel(card) : undefined}
+                    onReExtractClick={card.canReExtract ? () => handleReExtract(card) : undefined}
                     onCardClick={() => handleRowClick(card)}
                     selected={selectedIds.has(card.id)}
                     selectable={isSelectable}
                     onSelect={() => handleSelectToggle(card.id)}
                     autoEligible={autoEligibleIds.has(card.id)}
+                    retrying={retryingId === card.docId}
                   />
                 );
               })}
@@ -1296,16 +1363,18 @@ export function UploadProcessPage() {
                 <div style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Pipeline</div>
                 <div style={{ flexShrink: 0, width: 118, textAlign: 'right', fontSize: 10.5, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Confident score</div>
                 <div style={{ flexShrink: 0, width: 122, textAlign: 'right', fontSize: 10.5, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Status</div>
-                <div style={{ flexShrink: 0, width: 80 }} />
+                <div style={{ flexShrink: 0, width: 150 }} />
               </div>
               {/* Virtual list */}
               <VirtualList
                 cards={filteredCards}
                 onApproveClick={(card) => card.statusCategory === 'needs-approval' ? () => openApprovalPanel(card) : undefined}
+                onReExtractClick={(card) => card.canReExtract ? () => handleReExtract(card) : undefined}
                 onRowClick={handleRowClick}
                 selectedIds={selectedIds}
                 onSelectToggle={handleSelectToggle}
                 autoEligibleIds={autoEligibleIds}
+                retryingId={retryingId}
                 selectable={selectableFiltered.length > 0}
               />
             </div>
