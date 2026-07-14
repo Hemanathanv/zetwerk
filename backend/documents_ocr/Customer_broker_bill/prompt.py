@@ -1,11 +1,11 @@
-"""Prompt generation for Customer Broker Bill OCR.
+"""Prompt generation for Customs Broker Bill OCR.
 
 Self-contained, FLAT structure: every scalar field is a top-level key in the
 TEMPLATE the LLM sees. Section grouping inside the pydantic model is for
 persistence only — exposing sections to the LLM caused fields to silently
 drop when the heuristic bucketed them into the wrong section.
 
-To improve extraction for a specific Customer Broker Bill field that's coming back null
+To improve extraction for a specific Customs Broker Bill field that's coming back null
 or mis-formatted, add an entry to CURATED_EXAMPLES below with the format
 you want the LLM to mimic.
 """
@@ -26,7 +26,7 @@ from pydantic import BaseModel
 
 # Field-name -> example. Wins over heuristics. For fields with strict formats
 # (regulatory IDs, ISO codes, container/HSN/port patterns). Add entries here
-# when you spot LLM mis-formats in real runs of Customer Broker Bill docs.
+# when you spot LLM mis-formats in real runs of Customs Broker Bill docs.
 CURATED_EXAMPLES: dict[str, str] = {
     "gstin": "29ABCDE1234F1Z5",
     "gstNumber": "29ABCDE1234F1Z5",
@@ -344,7 +344,7 @@ def _build_dynamic_ocr_prompt(*, response_model: type[BaseModel], extractor_labe
 
 
 def build_customer_broker_bill_prompt(response_model: type[BaseModel]) -> str:
-    return _build_dynamic_ocr_prompt(response_model=response_model, extractor_label="Customer Broker Bill")
+    return _build_dynamic_ocr_prompt(response_model=response_model, extractor_label="Customs Broker Bill")
 
 
 __all__ = ["build_customer_broker_bill_prompt"]

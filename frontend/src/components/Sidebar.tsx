@@ -1,15 +1,22 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation } from 'wouter';
 import {
   LayoutDashboard, Ship, FileText, Package, Receipt,
-  BarChart3, LogOut, ClipboardList, Bell,
-  PanelLeftClose, PanelLeftOpen, Wand2, ScanText,
-  HardDrive, ShieldCheck, Settings2, Users,
+  BarChart3, Settings, LogOut, ClipboardList,
+  PanelLeftClose, PanelLeftOpen, Wand2, Database, ScanText,
+  Boxes, Warehouse, DollarSign, ChevronRight, FolderOpen, Upload, Building2, Send,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSidebar } from '@/contexts/SidebarContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionContext';
 import { useLocation as useWouterLocation } from 'wouter';
+
+type ChildNavItem = {
+  icon: React.ElementType;
+  label: string;
+  href: string;
+};
 
 type NavItem = {
   icon: React.ElementType;
@@ -17,35 +24,51 @@ type NavItem = {
   href: string;
   module: string;
   badge?: number;
+  badgeKey?: string;
+  children?: ChildNavItem[];
 };
 
-const NAV_GROUPS: { label?: string; items: NavItem[] }[] = [
+const NAV_GROUPS: { items: NavItem[] }[] = [
   {
     items: [
-      { icon: LayoutDashboard, label: 'Dashboard',  href: '/dashboard',   module: 'reports'     },
-      { icon: Ship,            label: 'Shipments',  href: '/shipments',   module: 'shipments'   },
-      { icon: ClipboardList,   label: 'My Tasks',   href: '/tasks',       module: 'shipments', badge: 2 },
-      { icon: FileText,        label: 'Documents',  href: '/documents',                    module: 'documents' },
-      { icon: ScanText,        label: 'Upload & Process', href: '/documents/upload',         module: 'documents' },
-      { icon: Wand2,           label: 'Doc Generate', href: '/documents/generate/packing-list', module: 'documents' },
-      { icon: Package,         label: 'Inventory',  href: '/inventory',   module: 'inventory'   },
+      { icon: LayoutDashboard, label: 'Dashboard',         href: '/dashboard',                          module: 'dashboard'   },
+      { icon: Ship,            label: 'Shipments',         href: '/shipments',                          module: 'shipments'   },
+      { icon: FolderOpen,      label: 'Projects',          href: '/projects',                           module: 'shipments'   },
+      { icon: ClipboardList,   label: 'My Tasks',          href: '/tasks',                              module: 'tasks',      badgeKey: 'tasks' },
+      { icon: FileText,        label: 'Documents',         href: '/documents',                          module: 'documents'   },
+      { icon: ScanText,        label: 'Upload & Process',  href: '/documents/upload',                   module: 'documents'   },
+      { icon: Wand2,           label: 'Doc Generate',      href: '/documents/generate',                 module: 'documents'   },
+      { icon: Boxes,      label: 'Inventory',      href: '/inventory/containers', module: 'inventory' },
+      { icon: Warehouse,  label: 'Warehouse',      href: '/inventory/warehouse',  module: 'warehouse' },
+      { icon: DollarSign, label: 'D&D Management', href: '/inventory/dnd',        module: 'dnd' },
     ],
   },
   {
     items: [
-      { icon: Receipt,   label: 'Accounting', href: '/accounting',  module: 'accounting' },
-      { icon: Receipt,   label: 'Invoices',   href: '/invoices',    module: 'accounting' },
-      { icon: BarChart3, label: 'Reports',    href: '/reports',     module: 'reports'    },
-      { icon: Bell,      label: 'Notifications', href: '/notifications', module: 'reports' },
-      { icon: Settings2, label: 'Profile Settings', href: '/settings', module: 'settings' },
+      { icon: Receipt,        label: 'Accounting', href: '/accounting',  module: 'accounting' },
+      { icon: BarChart3,      label: 'Finance',    href: '/finance',     module: 'accounting' },
+      { icon: BarChart3,      label: 'Reports',    href: '/reports',     module: 'reports'    },
+      { icon: ClipboardList,  label: 'DSR Report', href: '/reports/dsr', module: 'reports'    },
     ],
   },
   {
-    label: 'ADMIN',
     items: [
-      { icon: Users,       label: 'User Management', href: '/admin/users',       module: 'admin' },
-      { icon: HardDrive,   label: 'Storage',         href: '/admin/storage',     module: 'admin' },
-      { icon: ShieldCheck, label: 'User Permissions', href: '/admin/permissions', module: 'admin' },
+      { icon: Settings,  label: 'Settings',   href: '/settings',    module: 'admin' },
+      { icon: Database,  label: 'Schema Ref', href: '/schema',      module: 'admin' },
+    ],
+  },
+  {
+    items: [
+      { icon: Upload,     label: 'Upload Documents', href: '/partner',                        module: 'partner' },
+      { icon: FileText,   label: 'My Documents',     href: '/partner/documents',              module: 'partner' },
+      { icon: Warehouse,  label: 'Warehouse / QC',   href: '/partner/warehouse',              module: 'partner' },
+      { icon: Package,    label: 'Stock Position',   href: '/partner/warehouse/stock',        module: 'partner' },
+      { icon: Send,       label: 'Outward Dispatch', href: '/partner/warehouse/outward',      module: 'partner' },
+    ],
+  },
+  {
+    items: [
+      { icon: Package, label: 'Your Orders', href: '/portal', module: 'portal' },
     ],
   },
 ];
@@ -55,11 +78,6 @@ const TEAL_ACTIVE_TEXT = 'hsl(173 58% 65%)';
 const MUTED_TEXT       = 'hsl(220 14% 65%)';
 const HOVER_BG         = 'hsla(220,14%,90%,0.08)';
 const SEPARATOR_COLOR  = 'hsla(220,14%,90%,0.1)';
-
-type SidebarProps = {
-  isOpen?: boolean;
-  onToggle?: () => void;
-};
 
 function Separator({ collapsed }: { collapsed: boolean }) {
   return (
@@ -97,32 +115,97 @@ function BrandMark({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-export function Sidebar({ isOpen: controlledOpen, onToggle }: SidebarProps = {}) {
+function SidebarSkeleton({ isOpen }: { isOpen: boolean }) {
+  return (
+    <aside
+      className="fixed left-0 top-0 h-screen flex flex-col z-40"
+      style={{
+        width: isOpen ? 240 : 64,
+        backgroundColor: 'hsl(var(--sidebar))',
+        borderRight: '1px solid hsl(var(--sidebar-border))',
+      }}
+    >
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: isOpen ? 'space-between' : 'center',
+        padding: isOpen ? '14px 12px 14px 14px' : '14px 0',
+        borderBottom: '1px solid hsl(var(--sidebar-border))',
+        minHeight: 57, flexShrink: 0,
+      }}>
+        <BrandMark collapsed={!isOpen} />
+      </div>
+      <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 8px' }}>
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} style={{
+            height: 36, borderRadius: 8, marginBottom: 4,
+            background: 'hsla(220,14%,90%,0.06)',
+          }} />
+        ))}
+      </nav>
+    </aside>
+  );
+}
+
+type BadgeData = { tasks: number; pendingDocuments: number; pendingTickets: number; unread: number };
+
+function useNavBadges(): BadgeData {
+  const [badges, setBadges] = useState<BadgeData>({ tasks: 0, pendingDocuments: 0, pendingTickets: 0, unread: 0 });
+
+  const fetchBadges = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('ewms_token');
+      if (!token) return;
+      const res = await window.fetch('/api/navigation/badges', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.ok) setBadges(data.data);
+    } catch {
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBadges();
+    const id = setInterval(fetchBadges, 60_000);
+    return () => clearInterval(id);
+  }, [fetchBadges]);
+
+  return badges;
+}
+
+export function Sidebar() {
   const [location] = useLocation();
   const [, navigate] = useWouterLocation();
-  const sidebar = useSidebar();
-  const { user, logout, hasModuleAccess } = useAuth();
-  const isOpen = controlledOpen ?? sidebar.isOpen;
-  const toggle = onToggle ?? sidebar.toggle;
-  const [brandHovered, setBrandHovered] = useState(false);
+  const { isOpen, toggle } = useSidebar();
+  const { user, logout } = useAuth();
+  const { modules: permittedModules, loaded } = usePermissions();
+  const badges = useNavBadges();
 
   const initials = user?.fullName
     ? user.fullName.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
     : '??';
 
-  async function handleLogout() {
-    await logout();
-    navigate('/login');
+  function handleLogout() {
+    logout();
+    navigate('/');
   }
 
+  if (!loaded) return <SidebarSkeleton isOpen={isOpen} />;
+
+  const isSuperAdmin = (user as any)?.role?.systemCode === 'super_admin';
+
   const visibleGroups = NAV_GROUPS.map((group) => ({
-    label: group.label,
-    items: group.items.filter((item) => {
-      if (item.module === 'reports' && item.label === 'Dashboard') return true;
-      if (item.module === 'settings') return true;
-      return hasModuleAccess(item.module);
-    }),
+    items: group.items.filter((item) => permittedModules.includes(item.module)),
   })).filter((g) => g.items.length > 0);
+
+  // Inject Platform Admin item before Settings for super_admin only
+  if (isSuperAdmin) {
+    const adminGroupIdx = visibleGroups.findIndex(g => g.items.some(i => i.href === '/settings'));
+    if (adminGroupIdx >= 0) {
+      visibleGroups[adminGroupIdx].items.unshift({
+        icon: Building2, label: 'Platform', href: '/platform', module: 'admin',
+      } as any);
+    }
+  }
 
   return (
     <aside
@@ -138,37 +221,22 @@ export function Sidebar({ isOpen: controlledOpen, onToggle }: SidebarProps = {})
     >
       {/* ── Brand header ── */}
       <div
-        onMouseEnter={() => setBrandHovered(true)}
-        onMouseLeave={() => setBrandHovered(false)}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: isOpen ? 'space-between' : 'center',
           padding: isOpen ? '14px 12px 14px 14px' : '14px 0',
           borderBottom: '1px solid hsl(var(--sidebar-border))',
           minHeight: 57, flexShrink: 0,
-          position: 'relative',
         }}
       >
         <BrandMark collapsed={!isOpen} />
         <button
           onClick={toggle}
-          aria-label={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-          title={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}
           style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             width: 32, height: 32, borderRadius: 6, border: 'none',
-            background: isOpen ? 'transparent' : 'hsl(var(--sidebar))', cursor: 'pointer',
+            background: 'transparent', cursor: 'pointer',
             color: MUTED_TEXT, flexShrink: 0,
-            transition: 'color 0.15s, opacity 0.15s ease, background 0.15s ease',
-            ...(isOpen
-              ? {}
-              : {
-                  position: 'absolute',
-                  left: 16,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  opacity: brandHovered ? 1 : 0,
-                  pointerEvents: brandHovered ? 'auto' : 'none',
-                }),
+            transition: 'color 0.15s',
           }}
           onMouseEnter={(e) => (e.currentTarget.style.color = TEAL_ACTIVE_TEXT)}
           onMouseLeave={(e) => (e.currentTarget.style.color = MUTED_TEXT)}
@@ -186,23 +254,142 @@ export function Sidebar({ isOpen: controlledOpen, onToggle }: SidebarProps = {})
         {visibleGroups.map((group, gi) => (
           <div key={gi}>
             {gi > 0 && <Separator collapsed={!isOpen} />}
-            {group.label && isOpen && (
-              <div
-                style={{
-                  padding: '4px 20px 6px',
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: '0.08em',
-                  color: 'hsl(220 14% 48%)',
-                  textTransform: 'uppercase',
-                }}
-              >
-                {group.label}
-              </div>
-            )}
             {group.items.map((item) => {
-              const isActive = location === item.href || location.startsWith(item.href + '/');
+              const hasChildren = !!(item.children?.length);
+              const childIsActive = hasChildren && item.children!.some(
+                (c) => location === c.href || location.startsWith(c.href + '/')
+              );
+              const isActive = !hasChildren && (location === item.href || location.startsWith(item.href + '/'));
+              const isParentActive = hasChildren && childIsActive;
               const Icon = item.icon;
+              const liveCount = item.badgeKey ? (badges[item.badgeKey as keyof BadgeData] ?? 0) : (item.badge ?? 0);
+
+              if (hasChildren) {
+                const parentEl = (
+                  <div key={item.href}>
+                    {/* Parent row — not a link, just shows active state */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: isOpen ? 12 : 0,
+                        justifyContent: isOpen ? 'flex-start' : 'center',
+                        padding: isOpen ? '10px 12px' : '10px 0',
+                        margin: '1px 8px',
+                        borderRadius: 8,
+                        cursor: 'default',
+                        color: isParentActive ? TEAL_ACTIVE_TEXT : MUTED_TEXT,
+                        background: isParentActive ? TEAL_ACTIVE_BG : 'transparent',
+                      }}
+                      data-testid={`nav-${item.label.toLowerCase().replace(/ /g, '-')}`}
+                    >
+                      <div style={{ position: 'relative', flexShrink: 0 }}>
+                        <Icon style={{ width: 20, height: 20 }} />
+                      </div>
+                      {isOpen && (
+                        <>
+                          <span style={{
+                            fontSize: 14.5, fontWeight: 500,
+                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                            flex: 1,
+                          }}>
+                            {item.label}
+                          </span>
+                          <ChevronRight style={{
+                            width: 14, height: 14, flexShrink: 0,
+                            transform: isParentActive ? 'rotate(90deg)' : 'none',
+                            transition: 'transform 0.2s',
+                            opacity: 0.5,
+                          }} />
+                        </>
+                      )}
+                    </div>
+
+                    {/* Child items — always visible (inventory is always expanded) */}
+                    {isOpen && (
+                      <div style={{ marginLeft: 8, paddingLeft: 28, borderLeft: `1px solid ${SEPARATOR_COLOR}` }}>
+                        {item.children!.map((child) => {
+                          const childActive = location === child.href || location.startsWith(child.href + '/');
+                          const ChildIcon = child.icon;
+                          const childEl = (
+                            <Link
+                              key={child.href}
+                              href={child.href}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                padding: '7px 10px',
+                                margin: '1px 0',
+                                borderRadius: 6,
+                                textDecoration: 'none',
+                                fontSize: 14,
+                                fontWeight: childActive ? 500 : 400,
+                                color: childActive ? TEAL_ACTIVE_TEXT : MUTED_TEXT,
+                                background: childActive ? TEAL_ACTIVE_BG : 'transparent',
+                                transition: 'background 0.15s, color 0.15s',
+                              } as React.CSSProperties}
+                              onMouseEnter={(e) => {
+                                if (!childActive) {
+                                  (e.currentTarget as HTMLElement).style.background = HOVER_BG;
+                                  (e.currentTarget as HTMLElement).style.color = 'hsl(220 14% 80%)';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!childActive) {
+                                  (e.currentTarget as HTMLElement).style.background = 'transparent';
+                                  (e.currentTarget as HTMLElement).style.color = MUTED_TEXT;
+                                }
+                              }}
+                              data-testid={`nav-${child.label.toLowerCase().replace(/ /g, '-').replace(/&/g, '')}`}
+                            >
+                              <ChildIcon style={{ width: 14, height: 14, flexShrink: 0 }} />
+                              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {child.label}
+                              </span>
+                            </Link>
+                          );
+                          return childEl;
+                        })}
+                      </div>
+                    )}
+
+                    {/* Collapsed sidebar: show tooltip per child */}
+                    {!isOpen && (
+                      <div>
+                        {item.children!.map((child) => {
+                          const childActive = location === child.href || location.startsWith(child.href + '/');
+                          const ChildIcon = child.icon;
+                          return (
+                            <Tooltip key={child.href} delayDuration={0}>
+                              <TooltipTrigger asChild>
+                                <Link
+                                  href={child.href}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '8px 0',
+                                    margin: '1px 8px',
+                                    borderRadius: 8,
+                                    textDecoration: 'none',
+                                    color: childActive ? TEAL_ACTIVE_TEXT : MUTED_TEXT,
+                                    background: childActive ? TEAL_ACTIVE_BG : 'transparent',
+                                  } as React.CSSProperties}
+                                >
+                                  <ChildIcon style={{ width: 16, height: 16 }} />
+                                </Link>
+                              </TooltipTrigger>
+                              <TooltipContent side="right" className="text-[13px]">{child.label}</TooltipContent>
+                            </Tooltip>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+                return parentEl;
+              }
 
               const itemEl = (
                 <Link
@@ -243,22 +430,22 @@ export function Sidebar({ isOpen: controlledOpen, onToggle }: SidebarProps = {})
                       width: 20, height: 20,
                       color: isActive ? TEAL_ACTIVE_TEXT : 'inherit',
                     }} />
-                    {(item.badge ?? 0) > 0 && (
+                    {liveCount > 0 && (
                       <span style={{
                         position: 'absolute',
                         top: -5, right: -6,
-                        minWidth: 16, height: 16,
+                        minWidth: 20, height: 20,
                         borderRadius: 999,
                         background: 'hsl(0 84% 60%)',
                         color: '#fff',
-                        fontSize: 9,
+                        fontSize: 12,
                         fontWeight: 700,
                         fontFamily: 'var(--app-font-mono, monospace)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         padding: '0 3px',
                         lineHeight: 1,
                       }}>
-                        {item.badge}
+                        {liveCount > 99 ? '99+' : liveCount}
                       </span>
                     )}
                   </div>
@@ -266,7 +453,7 @@ export function Sidebar({ isOpen: controlledOpen, onToggle }: SidebarProps = {})
                   {/* Label */}
                   {isOpen && (
                     <span style={{
-                      fontSize: 13.5, fontWeight: 500,
+                      fontSize: 14.5, fontWeight: 500,
                       whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                       flex: 1,
                     }}>
@@ -280,7 +467,7 @@ export function Sidebar({ isOpen: controlledOpen, onToggle }: SidebarProps = {})
                 return (
                   <Tooltip key={item.href} delayDuration={0}>
                     <TooltipTrigger asChild>{itemEl}</TooltipTrigger>
-                    <TooltipContent side="right" className="text-xs">{item.label}</TooltipContent>
+                    <TooltipContent side="right" className="text-[13px]">{item.label}</TooltipContent>
                   </Tooltip>
                 );
               }
@@ -311,15 +498,15 @@ export function Sidebar({ isOpen: controlledOpen, onToggle }: SidebarProps = {})
                 background: 'hsla(173,58%,39%,0.2)',
                 color: 'hsl(173 58% 65%)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 13, fontWeight: 600,
+                fontSize: 14.5, fontWeight: 600,
               }}>
                 {initials}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 500, color: 'hsl(var(--sidebar-foreground, 220 14% 90%))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <p style={{ margin: 0, fontSize: 14.5, fontWeight: 500, color: 'hsl(var(--sidebar-foreground, 220 14% 90%))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {user?.fullName ?? '—'}
                 </p>
-                <p style={{ margin: 0, fontSize: 11, color: 'hsl(220 14% 55%)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <p style={{ margin: 0, fontSize: 14.5, color: 'hsl(220 14% 55%)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {user?.role?.name ?? '—'}
                 </p>
               </div>
@@ -339,13 +526,13 @@ export function Sidebar({ isOpen: controlledOpen, onToggle }: SidebarProps = {})
                     background: 'hsla(173,58%,39%,0.2)',
                     color: 'hsl(173 58% 65%)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 13, fontWeight: 600,
+                    fontSize: 14.5, fontWeight: 600,
                   }}>
                     {initials}
                   </div>
                 </div>
               </TooltipTrigger>
-              <TooltipContent side="right" className="text-xs">
+              <TooltipContent side="right" className="text-[13px]">
                 {user?.fullName ?? '—'} · {user?.role?.name ?? '—'}
               </TooltipContent>
             </Tooltip>
@@ -359,7 +546,7 @@ export function Sidebar({ isOpen: controlledOpen, onToggle }: SidebarProps = {})
                 display: 'flex', alignItems: 'center', gap: 10,
                 width: '100%', padding: '8px 10px', borderRadius: 8,
                 border: 'none', background: 'transparent', cursor: 'pointer',
-                color: MUTED_TEXT, fontSize: 13, transition: 'color 0.15s',
+                color: MUTED_TEXT, fontSize: 14.5, transition: 'color 0.15s',
               }}
               onMouseEnter={(e) => (e.currentTarget.style.color = 'hsl(220 14% 80%)')}
               onMouseLeave={(e) => (e.currentTarget.style.color = MUTED_TEXT)}
@@ -386,7 +573,7 @@ export function Sidebar({ isOpen: controlledOpen, onToggle }: SidebarProps = {})
                   <LogOut style={{ width: 18, height: 18 }} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right" className="text-xs">Sign out</TooltipContent>
+              <TooltipContent side="right" className="text-[13px]">Sign out</TooltipContent>
             </Tooltip>
           )}
         </div>

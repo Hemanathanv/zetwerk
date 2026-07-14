@@ -10,6 +10,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+import json
+import re
 
 
 PRISMA_SCHEMA_FILE = Path(__file__).resolve().parents[1] / "prisma" / "schema.prisma"
@@ -66,6 +69,8 @@ _CHILD_BACKREF_SUFFIXES = (
     "shippingBillId",
     "chaBill",
     "chaBillId",
+    "isfExtraction",
+    "isfExtractionId",
 )
 
 
@@ -77,6 +82,8 @@ class ExtractionSchema:
     scalar_fields: list[str]
     array_fields: list[str]
     array_item_fields: dict[str, list[str]]
+    array_child_models: dict[str, str]
+    array_parent_fields: dict[str, str]
 
 
 def _read_schema(schema_path: Path) -> list[str]:
@@ -151,6 +158,146 @@ def _parse_model_fields(
     return scalars, arrays
 
 
+def _parent_fk_field(body_lines: list[str], parent_model: str) -> str | None:
+    for line in body_lines:
+        if not line or line.startswith("//") or line.startswith("@@") or line.startswith("@"):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        field_name, type_token = parts[0], parts[1].rstrip("?")
+        if type_token == parent_model and "@relation" in line:
+            match = re.search(r"fields:\s*\[([A-Za-z0-9_]+)\]", line)
+            if match:
+                return match.group(1)
+            return f"{field_name}Id"
+    return None
+
+
+def prisma_accessor_name(model_name: str) -> str:
+    return model_name.lower()
+
+
+def _coerce_child_value(value: Any) -> Any:
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, (dict, list, tuple, set)):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    return str(value)
+
+
+def split_parent_and_child_data(
+    *,
+    schema: ExtractionSchema,
+    extraction_data: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
+    parent_data = dict(extraction_data)
+    child_rows: dict[str, list[dict[str, Any]]] = {}
+
+    for array_name in schema.array_fields:
+        value = parent_data.pop(array_name, None)
+        if not isinstance(value, list):
+            continue
+        allowed_fields = set(schema.array_item_fields.get(array_name, []))
+        rows: list[dict[str, Any]] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            row = {
+                key: _coerce_child_value(val)
+                for key, val in item.items()
+                if key in allowed_fields and val is not None
+            }
+            if row:
+                rows.append(row)
+        child_rows[array_name] = rows
+
+    return parent_data, child_rows
+
+
+def _unknown_field_from_error(error_text: str) -> str | None:
+    path_match = re.search(r"Could not find field at `[^`]*\.(\w+)`", error_text)
+    if path_match:
+        return path_match.group(1)
+    path_match = re.search(r"`[^`]*\.(\w+)`", error_text)
+    if path_match and "Field does not exist in enclosing type" in error_text:
+        return path_match.group(1)
+    unknown_match = re.search(r"Unknown (?:arg|field) `(\w+)`", error_text)
+    if unknown_match:
+        return unknown_match.group(1)
+    return None
+
+
+async def upsert_extraction_with_children(
+    *,
+    prisma,
+    model_accessor_name: str,
+    schema: ExtractionSchema,
+    document_id: str,
+    extraction_data: dict[str, Any],
+    strict_children: bool = False,
+) -> Any:
+    parent_data, child_rows = split_parent_and_child_data(schema=schema, extraction_data=extraction_data)
+    create_data = {
+        **parent_data,
+        "documentId": document_id,
+        "document": {"connect": {"id": document_id}},
+    }
+    model_accessor = getattr(prisma, model_accessor_name)
+
+    extraction = None
+    if not parent_data:
+        extraction = await model_accessor.find_unique(where={"documentId": document_id})
+    if extraction is None:
+        for _ in range(20):
+            try:
+                extraction = await model_accessor.upsert(
+                    where={"documentId": document_id},
+                    data={
+                        "create": create_data,
+                        "update": parent_data,
+                    },
+                )
+                break
+            except Exception as exc:
+                field_name = _unknown_field_from_error(str(exc))
+                if not field_name:
+                    raise
+                had_update_field = field_name in parent_data
+                had_create_field = field_name in create_data
+                parent_data.pop(field_name, None)
+                create_data.pop(field_name, None)
+                if not had_update_field and not had_create_field:
+                    raise
+    if extraction is None:
+        raise RuntimeError("Failed to persist extraction after dropping unsupported fields")
+
+    extraction_id = str(getattr(extraction, "id"))
+    for array_name, rows in child_rows.items():
+        child_model = schema.array_child_models.get(array_name)
+        parent_fk = schema.array_parent_fields.get(array_name)
+        if not child_model or not parent_fk:
+            continue
+        child_accessor = getattr(prisma, prisma_accessor_name(child_model), None)
+        if child_accessor is None:
+            continue
+        try:
+            await child_accessor.delete_many(where={parent_fk: extraction_id})
+        except Exception:
+            if strict_children:
+                raise
+        for row in rows:
+            try:
+                await child_accessor.create(data={**row, parent_fk: extraction_id})
+            except Exception:
+                if strict_children:
+                    raise
+
+    return await model_accessor.find_unique(where={"documentId": document_id}) or extraction
+
+
 def load_extraction_schema(
     *,
     parent_model: str,
@@ -170,6 +317,8 @@ def load_extraction_schema(
 
     array_fields: list[str] = []
     array_item_fields: dict[str, list[str]] = {}
+    array_child_models: dict[str, str] = {}
+    array_parent_fields: dict[str, str] = {}
     per_child = extra_excluded_per_child or {}
 
     for array_name, child_model in array_refs:
@@ -178,12 +327,18 @@ def load_extraction_schema(
         child_scalars, _ = _parse_model_fields(child_body, excluded=child_excluded)
         array_fields.append(array_name)
         array_item_fields[array_name] = child_scalars
+        array_child_models[array_name] = child_model
+        parent_fk = _parent_fk_field(child_body, parent_model)
+        if parent_fk:
+            array_parent_fields[array_name] = parent_fk
 
     return ExtractionSchema(
         parent_model=parent_model,
         scalar_fields=scalar_fields,
         array_fields=array_fields,
         array_item_fields=array_item_fields,
+        array_child_models=array_child_models,
+        array_parent_fields=array_parent_fields,
     )
 
 
@@ -192,4 +347,7 @@ __all__ = [
     "PRISMA_SCHEMA_FILE",
     "DEFAULT_EXCLUDED_FIELDS",
     "load_extraction_schema",
+    "prisma_accessor_name",
+    "split_parent_and_child_data",
+    "upsert_extraction_with_children",
 ]

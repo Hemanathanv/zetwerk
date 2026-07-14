@@ -31,11 +31,10 @@ const fallbackOcrTypes: OcrTypeOption[] = [
   { id: 'BILL_OF_LADING', label: 'Bill of Lading' },
   { id: 'SHIPPING_BILL', label: 'Shipping Bill' },
   { id: 'ENTRY_SUMMARY', label: 'Entry Summary' },
-  { id: 'ENTRY_SUMMARY_TARIFF_LINES', label: 'Entry Summary Tariff Lines' },
   { id: 'OCEAN_FREIGHT', label: 'Ocean Freight' },
   { id: 'FREIGHT_FORWARDER_BILL', label: 'Freight Forwarder Bill' },
   { id: 'CHA_BILL', label: 'CHA Bill' },
-  { id: 'CUSTOMER_BROKER_BILL', label: 'Customer Broker Bill' },
+  { id: 'CUSTOMER_BROKER_BILL', label: 'Customs Broker Bill' },
   { id: 'GRN_INBOUND', label: 'GRN Inbound' },
   { id: 'PORT_TO_WH', label: 'Port to WH' },
   { id: 'WH_TO_CUSTOMER', label: 'WH to Customer' },
@@ -45,6 +44,10 @@ const fallbackOcrTypes: OcrTypeOption[] = [
   { id: 'US_DELIVERY_ORDER', label: 'US Delivery Order' },
   { id: 'US_PACKING_LIST', label: 'US Packing List' },
 ];
+
+function moduleSlugForDocType(value: DocType) {
+  return value === 'CUSTOMER_BROKER_BILL' ? 'customs-broker-bill' : value.toLowerCase().replace(/_/g, '-');
+}
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -116,7 +119,7 @@ export function UploadSheet() {
     const form = new FormData();
     form.append('file', file);
     form.append('docType', selectedOcrType);
-    form.append('module', selectedOcrType.toLowerCase().replace(/_/g, '-'));
+    form.append('module', moduleSlugForDocType(selectedOcrType));
     try {
       const { data: payload } = await documentApi.upload(form);
       const uploadedDoc = payload.documents?.[0];
@@ -209,7 +212,7 @@ export function UploadSheet() {
                 <UploadCloud className="w-7 h-7 text-primary" />
               </div>
               <p className="text-sm font-semibold text-foreground mb-1">Drop your document here</p>
-              <p className="text-xs text-muted-foreground mb-4">BOL, BOE, Invoice, Packing List, or any shipping document</p>
+              <p className="text-xs text-muted-foreground mb-4">BOL, CBP FORM-7501, Invoice, Packing List, or any shipping document</p>
               <span className="text-xs font-medium text-primary hover:underline">Or click to browse</span>
               <div className="flex items-center gap-1.5 mt-5 flex-wrap justify-center">
                 {['PDF', 'JPG', 'PNG', 'XLSX'].map((f) => (

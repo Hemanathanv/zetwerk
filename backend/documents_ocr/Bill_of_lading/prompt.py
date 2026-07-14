@@ -314,6 +314,7 @@ def _build_output_rules(model: type[BaseModel], document_type: str, extractor_la
         "**TEMPLATE values are FORMAT EXAMPLES** (date style, ID patterns, units) — do not copy them. Replace each example with the actual value visible in the PDF. If you cannot find a value, use `null`.",
         "Map PDF labels to the schema field name using semantic match (e.g. \"B/L No.\" -> `bolNumber`, \"Vessel/Voyage\" -> `vesselName`/`vesselVoyageNumber`). Synonyms and abbreviations count.",
         "Extract every visible value. Do not skip fields that look unimportant; partial extraction is the most common failure mode.",
+        "Goods description table: preserve the complete printed cargo block in `goodsDescription`, and also split its actual products into `goodsDescriptionItems`, one row per distinct product. Use the same semantics as a Sales Invoice line-item table: `productCode` is only an explicitly printed SKU/internal code, `productDescription` is the short product name (for example Bearing, Motor, MVT Skid), `productSpecification` contains dimensions, grade, length, material, finish, and project/color details, and `productMarks` contains only explicit marks. Never invent a product code or marks; use null when they are not printed. Do not create rows for container/package summaries, HS/HSNC codes, invoice references, shipping-bill references, or project-name footer text.",
     ]
 
     if arrays:

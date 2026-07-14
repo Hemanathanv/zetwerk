@@ -3,8 +3,11 @@ import asyncio
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 from api.v1 import register_routes
+from api.v1.doc_generation.router import (
+    backfill_missing_packing_list_drafts,
+    reorder_existing_packing_list_drafts,
+)
 from cache import close_redis, get_redis
 from helpers.config import settings
 from db import close_prisma, get_prisma
@@ -14,6 +17,7 @@ from documents_ocr.queue import (
     UploadWorkerSettings,
     close_arq_redis,
 )
+from documents_ocr.pipeline import validate_ocr_schema_coverage
 from arq.worker import Worker
 
 
@@ -22,9 +26,30 @@ async def lifespan(app: FastAPI):
     print("Starting Invoice Extraction API...")
     worker_tasks: list[asyncio.Task] = []
 
+    ocr_schema_coverage = validate_ocr_schema_coverage()
+    print(
+        "OCR Prisma schema coverage validated "
+        f"processors={ocr_schema_coverage['processors']} "
+        f"routes={ocr_schema_coverage['routes']} "
+        f"missingFields={ocr_schema_coverage['missingFields']}"
+    )
+
     try:
-        await get_prisma()
+        prisma=await get_prisma()
         print("PostgreSQL (Prisma) connected")
+        try:
+            backfill = await backfill_missing_packing_list_drafts(prisma)
+            print(
+                "Packing List draft backfill "
+                f"eligible={backfill['eligible']} created={backfill['created']} failed={backfill['failed']}"
+            )
+            reordered = await reorder_existing_packing_list_drafts(prisma)
+            print(
+                "Packing List draft order repair "
+                f"eligible={reordered['eligible']} updated={reordered['updated']} skipped={reordered['skipped']}"
+            )
+        except Exception as exc:
+            print(f"Warning: Packing List draft backfill failed: {exc}")
     except Exception as e:
         print(f"Warning: Could not connect to Prisma: {e}")
 
@@ -50,6 +75,7 @@ async def lifespan(app: FastAPI):
             max_tries=DetectWorkerSettings.max_tries,
             on_startup=DetectWorkerSettings.on_startup,
             on_shutdown=DetectWorkerSettings.on_shutdown,
+            handle_signals=False,
         )
         upload_worker = Worker(
             functions=UploadWorkerSettings.functions,
@@ -59,6 +85,7 @@ async def lifespan(app: FastAPI):
             max_tries=UploadWorkerSettings.max_tries,
             on_startup=UploadWorkerSettings.on_startup,
             on_shutdown=UploadWorkerSettings.on_shutdown,
+            handle_signals=False,
         )
         ocr_worker = Worker(
             functions=OcrWorkerSettings.functions,
@@ -68,6 +95,7 @@ async def lifespan(app: FastAPI):
             max_tries=OcrWorkerSettings.max_tries,
             on_startup=OcrWorkerSettings.on_startup,
             on_shutdown=OcrWorkerSettings.on_shutdown,
+            handle_signals=False,
         )
         worker_tasks = [
             asyncio.create_task(
@@ -130,6 +158,8 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://192.168.10.100:5173",
+         "http://192.168.10.102:5173",
+
     ],
     allow_origin_regex=r"^http://(localhost|127\.0\.0\.1|192\.168\.10\.100):\d+$",
     allow_credentials=True,

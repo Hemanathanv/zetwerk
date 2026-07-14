@@ -97,7 +97,7 @@ export function JourneyBar({ phases }: JourneyBarProps) {
                   alignItems: 'center',
                   justifyContent: 'center',
                   color: nodeColor,
-                  fontSize: 13,
+                  fontSize: 14.5,
                   fontWeight: 600,
                   fontFamily: 'JetBrains Mono, monospace',
                   position: 'relative',
@@ -113,7 +113,7 @@ export function JourneyBar({ phases }: JourneyBarProps) {
                 {/* Labels */}
                 <div style={{ marginTop: 8, textAlign: 'center', paddingInline: 4 }}>
                   <div style={{
-                    fontSize: 12,
+                    fontSize: 14,
                     fontWeight: isCurrent ? 600 : 500,
                     color: isFuture ? 'hsl(var(--muted-foreground))' : 'hsl(var(--foreground))',
                     lineHeight: 1.3,
@@ -123,7 +123,7 @@ export function JourneyBar({ phases }: JourneyBarProps) {
                   </div>
                   {(phase.phaseLocation || phase.occurredAt) && (
                     <div style={{
-                      fontSize: 11,
+                      fontSize: 14.5,
                       color: isCurrent ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
                       fontWeight: isCurrent ? 500 : 400,
                       marginTop: 2,

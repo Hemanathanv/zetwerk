@@ -31,8 +31,8 @@ export function PageHeader({ title, subtitle, badge, actions }: PageHeaderProps)
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2.5 flex-wrap">
           <h2
-            className="font-semibold leading-tight"
-            style={{ fontSize: 30, letterSpacing: '-0.02em', color: 'hsl(var(--foreground))' }}
+            className="leading-tight"
+            style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))' }}
           >
             {title}
           </h2>
@@ -42,7 +42,7 @@ export function PageHeader({ title, subtitle, badge, actions }: PageHeaderProps)
               style={{
                 padding: '5px 12px',
                 borderRadius: 999,
-                fontSize: 12,
+                fontSize: 14,
                 backgroundColor: badgeStyles[badge.variant].bg,
                 color: badgeStyles[badge.variant].color,
               }}
@@ -62,7 +62,7 @@ export function PageHeader({ title, subtitle, badge, actions }: PageHeaderProps)
           )}
         </div>
         {subtitle && (
-          <p style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>
+          <p style={{ fontSize: 'var(--text-subtitle-size)', color: 'hsl(var(--muted-foreground))' }}>
             {subtitle}
           </p>
         )}

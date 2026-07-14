@@ -77,6 +77,8 @@
     "ag-grid-community": "^35.1.0",
     "ag-grid-react": "^35.1.0",
     "axios": "^1.9.0",
+    "maplibre-gl": "^5.24.0",
+    "react-map-gl": "^8.1.1",
     "react-zoom-pan-pinch": "^3.7.0"
   }
 }

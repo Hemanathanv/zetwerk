@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Info, Sparkles, FileText, Search, CheckCircle2, Clock, AlertCircle, Lock,
-  ChevronDown, ChevronUp, MoreHorizontal, Eye, X,
+  ChevronDown, ChevronUp, MoreHorizontal, Eye, X, Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOC_GEN_SCHEMAS, DocGenSchema, FieldMapping, GenSection } from '@/config/docGenConfig';
-import { apiPost } from '@/lib/api';
+import { apiGet, apiPatch, apiPost } from '@/lib/api';
 import type { MappingType } from '@/config/docGenConfig';
 import { DocumentPreviewModal } from '@/components/DocumentPreviewModal';
-import { useParams } from 'wouter';
+import { useLocation, useParams } from 'wouter';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TEAL   = 'hsl(173 58% 39%)';
@@ -16,16 +16,8 @@ const FG     = 'hsl(var(--foreground))';
 const MUTED  = 'hsl(var(--muted-foreground))';
 const BORDER = 'hsl(var(--border))';
 const GREEN  = 'hsl(152 69% 31%)';
-const BLUE   = 'hsl(221 83% 53%)';
 const RED    = 'hsl(0 84% 60%)';
-const GOLD   = 'hsl(43 96% 56%)';
 const AMBER  = 'hsl(38 92% 50%)';
-
-const C = {
-  gold: { bg: 'hsla(43,96%,56%,0.08)',  border: GOLD },
-  blue: { bg: 'hsla(221,83%,53%,0.06)', border: BLUE },
-  red:  { bg: 'hsla(0,84%,60%,0.06)',   border: RED  },
-} as const;
 
 const MONO = { fontFamily: 'var(--font-mono,"JetBrains Mono",monospace)' } as const;
 
@@ -75,6 +67,7 @@ interface DraftPayload {
   lineItems: Array<Record<string, unknown>>;
   containers: Array<Record<string, unknown>>;
   stats: Record<string, number>;
+  customPackageTypes?: string[];
   createdAt?: string | null;
   updatedAt?: string | null;
 }
@@ -92,12 +85,6 @@ function relativeTime(iso: string): string {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function mappingColor(type: MappingType): 'gold' | 'blue' | 'red' {
-  if (type === 'direct' || type === 'contextual') return 'gold';
-  if (type === 'derived') return 'blue';
-  return 'red';
-}
-
 function sourceDocLabel(sourceDoc: string, sourceDocs: { docType: string; label: string }[]): string {
   if (sourceDoc === 'MANUAL')     return 'Manual Entry';
   if (sourceDoc === 'CALCULATED') return 'Calculated';
@@ -106,10 +93,10 @@ function sourceDocLabel(sourceDoc: string, sourceDocs: { docType: string; label:
 
 function sourceTagContent(m: FieldMapping, sourceDocs: { docType: string; label: string }[]) {
   const label = sourceDocLabel(m.sourceDoc, sourceDocs);
-  if (m.mappingType === 'manual')      return { dot: RED,  text: 'Manual input required' };
-  if (m.mappingType === 'derived')     return { dot: BLUE, text: `Calculated · ${m.transformation ?? label}` };
-  if (m.mappingType === 'conditional') return { dot: GOLD, text: `Conditional · ${m.transformation ?? ''}` };
-  return { dot: GOLD, text: `From ${label}` };
+  if (m.mappingType === 'manual')      return { text: 'Manual input required' };
+  if (m.mappingType === 'derived')     return { text: `Calculated · ${m.transformation ?? label}` };
+  if (m.mappingType === 'conditional') return { text: `Conditional · ${m.transformation ?? ''}` };
+  return { text: `From ${label}` };
 }
 
 function prereqShortHint(prereqs: Prerequisite[]): string {
@@ -119,6 +106,18 @@ function prereqShortHint(prereqs: Prerequisite[]): string {
   if (firstUnmet.key === 'pl-approved')        return 'PL pending';
   if (firstUnmet.key === 'commercial-invoice') return 'CI needed';
   return 'Waiting';
+}
+
+const DRAFT_BOE_OPTIONAL_FIELDS = new Set([
+  'teamNumber', 'summaryStatus', 'formVersion', 'formNumber', 'subhouseBill',
+  'billQty', 'billQtyUnit', 'itNumber', 'itDate', 'missingDocs',
+  'countryOfMeltAndPour', 'primaryCountryOfSmelt', 'secondaryCountryOfSmelt',
+  'countryOfCast', 'isOwner', 'isPurchase',
+]);
+
+function isRequiredManualMapping(schema: DocGenSchema, mapping: FieldMapping): boolean {
+  const isManual = mapping.mappingType === 'manual' || mapping.mappingType === 'conditional';
+  return isManual && (schema.docType !== 'draft-boe' || !DRAFT_BOE_OPTIONAL_FIELDS.has(mapping.targetField));
 }
 
 // ─── StatusBadge ──────────────────────────────────────────────────────────────
@@ -353,9 +352,7 @@ function FieldCard({ mapping, value, sourceDocs, onChange }: {
   sourceDocs: { docType: string; label: string }[];
   onChange?:  (v: string) => void;
 }) {
-  const col = mappingColor(mapping.mappingType);
-  const { bg, border } = C[col];
-  const { dot, text } = sourceTagContent(mapping, sourceDocs);
+  const { text } = sourceTagContent(mapping, sourceDocs);
   const isEmpty  = !value;
   const isManual = mapping.mappingType === 'manual' || mapping.mappingType === 'conditional';
   const isEditable = !!onChange;
@@ -365,18 +362,16 @@ function FieldCard({ mapping, value, sourceDocs, onChange }: {
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.045em', color: MUTED, fontWeight: 500, marginBottom: 5 }}>
         {mapping.targetLabel}
         {isManual && isEmpty && (
-          <span style={{ color: RED, fontWeight: 700, marginLeft: 4 }}>*</span>
+          <span style={{ color: MUTED, fontWeight: 700, marginLeft: 4 }}>*</span>
         )}
       </div>
       <div
         title={mapping.validation ?? undefined}
         style={{
-          backgroundColor: bg, borderLeft: `3px solid ${border}`, borderRadius: '0 6px 6px 0',
+          backgroundColor: 'hsl(var(--muted) / 0.42)', border: `1px solid ${BORDER}`, borderRadius: 6,
           padding: isEditable ? '0 0 0 10px' : '7px 10px', fontSize: 13, fontWeight: 600,
           ...(mapping.mono ? MONO : {}),
           minHeight: 34, display: 'flex', alignItems: 'center',
-          outline: isEditable ? `1px solid ${isManual && isEmpty ? RED : border}` : 'none',
-          outlineOffset: -1,
         }}
       >
         {isEditable ? (
@@ -396,7 +391,6 @@ function FieldCard({ mapping, value, sourceDocs, onChange }: {
         )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: dot, flexShrink: 0, display: 'inline-block' }} />
         <span style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, fontWeight: 500 }}>
           {text}
         </span>
@@ -415,7 +409,8 @@ function FieldGrid({ section, fields, sourceDocs, manualValues, onManualChange, 
   onManualChange:  (key: string, v: string) => void;
   computedFields:  Record<string, string>;
 }) {
-  const isTotalsSection = section.sectionLabel.trim().toLowerCase() === 'totals';
+  const sectionName = section.sectionLabel.trim().toLowerCase();
+  const isTotalsSection = sectionName === 'totals' || sectionName === 'duties and fees';
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px 20px' }}>
       {section.mappings.map(m => {
@@ -443,16 +438,24 @@ function FieldGrid({ section, fields, sourceDocs, manualValues, onManualChange, 
 
 // ─── LineItemTable ────────────────────────────────────────────────────────────
 
-function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange, computedRows }: {
+function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange, computedRows, packageTypes = [], onPackageTypeChange }: {
   section:        GenSection;
   rows:           Record<string, string>[];
   sourceDocs:     { docType: string; label: string }[];
   manualValues:   Record<string, string>;
   onManualChange: (key: string, v: string) => void;
   computedRows:   Record<string, string>[];
+  packageTypes?: string[];
+  onPackageTypeChange?: (rowIndex: number, value: string, customTypes: string[]) => void;
 }) {
   void sourceDocs;
   const cols = section.mappings.filter(m => m.isLineItem !== false);
+  const packageTypeValues = Array.from(new Set(
+    [...packageTypes, ...rows.map((row, ri) => manualValues[`${section.sectionLabel}.${ri}.kindOfPkg`] ?? row.kindOfPkg)]
+      .filter((value): value is string => Boolean(value))
+      .map(value => value.trim())
+      .filter(value => !['PKGS', 'BUNDLE'].includes(value.toUpperCase()))
+  ));
   const isTotalsSection = section.sectionLabel.trim().toLowerCase() === 'totals';
   if (cols.length === 0) return null;
 
@@ -461,29 +464,20 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
       <table style={{ minWidth: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
         <thead>
           <tr style={{ background: 'hsl(var(--muted))', borderBottom: `1px solid ${BORDER}` }}>
-            {cols.map(col => {
-              const colColor = mappingColor(col.mappingType);
-              const dot = colColor === 'gold' ? GOLD : colColor === 'blue' ? BLUE : RED;
-              return (
+            {cols.map(col => (
                 <th key={col.targetField} style={{
                   padding: '7px 10px', textAlign: 'left', fontWeight: 600, fontSize: 11,
                   textTransform: 'uppercase', letterSpacing: '0.04em', color: FG, whiteSpace: 'nowrap',
                 }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: dot, display: 'inline-block', flexShrink: 0 }} />
-                    {col.targetLabel}
-                  </span>
+                  {col.targetLabel}
                 </th>
-              );
-            })}
+              ))}
           </tr>
         </thead>
         <tbody>
           {rows.map((row, ri) => (
             <tr key={ri} style={{ borderBottom: `1px solid ${BORDER}` }}>
               {cols.map(col => {
-                const colColor = mappingColor(col.mappingType);
-                const { bg, border } = C[colColor];
                 const isDerived = col.mappingType === 'derived';
                 const isEditable = !isTotalsSection;
                 const manualKey = `${section.sectionLabel}.${ri}.${col.targetField}`;
@@ -494,14 +488,40 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
                 return (
                   <td key={col.targetField} style={{
                     padding: 0,
-                    backgroundColor: isDerived && computedRows[ri]?.[col.targetField] ? 'hsla(221,83%,53%,0.06)' : bg,
+                    backgroundColor: 'hsl(var(--muted) / 0.42)',
                     verticalAlign: 'middle',
                     ...(col.mono ? MONO : {}), fontSize: 12,
                     whiteSpace: 'nowrap',
-                    outline: isEditable ? `1px solid ${!val && (col.mappingType === 'manual' || col.mappingType === 'conditional') ? RED : border}` : 'none',
+                    outline: `1px solid ${BORDER}`,
                     outlineOffset: -1,
                   }}>
-                    {isEditable ? (
+                    {isEditable && col.targetField === 'kindOfPkg' ? (
+                      <select
+                        value={val}
+                        onChange={e => {
+                          let next = e.target.value;
+                          let customTypes = packageTypeValues;
+                          if (next === '__ADD_TYPE__') {
+                            const added = window.prompt('Enter a new package type')?.trim();
+                            if (!added) return;
+                            next = added.toUpperCase();
+                            customTypes = Array.from(new Set([...packageTypeValues, next]));
+                          }
+                          onManualChange(manualKey, next);
+                          onPackageTypeChange?.(ri, next, customTypes);
+                        }}
+                        style={{
+                          border: 'none', background: 'transparent', outline: 'none',
+                          padding: '7px 10px', fontSize: 12, fontWeight: 600, color: FG,
+                          width: '100%', minWidth: 120, cursor: 'pointer',
+                        }}
+                      >
+                        <option value="PKGS">PKGS</option>
+                        <option value="BUNDLE">BUNDLE</option>
+                        {packageTypeValues.map(type => <option key={type} value={type}>{type}</option>)}
+                        <option value="__ADD_TYPE__">+ Add type</option>
+                      </select>
+                    ) : isEditable ? (
                       <input
                         value={val}
                         onChange={e => onManualChange(manualKey, e.target.value)}
@@ -514,7 +534,7 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
                         }}
                       />
                     ) : (
-                      <span style={{ display: 'block', padding: '7px 10px', color: isDerived && computedRows[ri]?.[col.targetField] ? BLUE : undefined }}>
+                      <span style={{ display: 'block', padding: '7px 10px' }}>
                         {val || '—'}
                       </span>
                     )}
@@ -523,11 +543,11 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
               })}
             </tr>
           ))}
-          <tr style={{ background: 'hsla(221,83%,53%,0.04)', borderTop: `2px solid ${BORDER}`, fontWeight: 700 }}>
+          <tr style={{ background: 'hsl(var(--muted) / 0.65)', borderTop: `2px solid ${BORDER}`, fontWeight: 700 }}>
             {cols.map((col, ci) => (
               <td key={col.targetField} style={{
                 padding: '7px 10px', fontSize: 12,
-                color: col.mappingType === 'derived' ? BLUE : MUTED,
+                color: MUTED,
                 ...(col.mono ? MONO : {}),
               }}>
                 {ci === 0 ? 'TOTAL' : col.mappingType === 'derived' ? `SUM(${col.targetLabel})` : ''}
@@ -573,7 +593,7 @@ function SourceLegendTooltip({ schema }: { schema: DocGenSchema }) {
           fontSize: 10, fontWeight: 700, color: MUTED, lineHeight: 1,
           flexShrink: 0,
         }}
-        title="Field colour legend"
+        title="Field source summary"
       >
         ?
       </button>
@@ -591,19 +611,16 @@ function SourceLegendTooltip({ schema }: { schema: DocGenSchema }) {
             const cnt = allMappings.filter(m => m.sourceDoc === src && (m.mappingType === 'direct' || m.mappingType === 'contextual')).length;
             return (
               <div key={src} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5, fontSize: 11.5 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: GOLD, flexShrink: 0, display: 'inline-block' }} />
                 <span style={{ flex: 1, color: FG }}>{sourceDocLabel(src, schema.sourceDocs)}</span>
                 <span style={{ color: MUTED }}>{cnt}</span>
               </div>
             );
           })}
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5, fontSize: 11.5 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: BLUE, flexShrink: 0, display: 'inline-block' }} />
             <span style={{ flex: 1, color: FG }}>Calculated</span>
             <span style={{ color: MUTED }}>{calcCount}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: RED, flexShrink: 0, display: 'inline-block' }} />
             <span style={{ flex: 1, color: FG }}>Manual input</span>
             <span style={{ color: MUTED }}>{manualCount}</span>
           </div>
@@ -622,15 +639,13 @@ function ActionRequiredCard({ schema, manualValues, onManualChange }: {
 }) {
   const scalarManual = schema.sections
     .filter(s => s.renderAs === 'fields')
-    .flatMap(s => s.mappings.filter(m => m.mappingType === 'manual' || m.mappingType === 'conditional'));
+    .flatMap(s => s.mappings.filter(m => isRequiredManualMapping(schema, m)));
 
   // Table-section manual fields: row-aware keys and fill counts
   const tableManualInfo: { section: string; total: number; filled: number }[] = [];
   for (const section of schema.sections.filter(s => s.renderAs === 'table')) {
     const rows = (schema.mockData.tables as Record<string, unknown[]>)[section.sectionLabel] ?? [];
-    const manualCols = section.mappings.filter(m =>
-      (m.mappingType === 'manual' || m.mappingType === 'conditional') && m.isLineItem !== false
-    );
+    const manualCols = section.mappings.filter(m => isRequiredManualMapping(schema, m) && m.isLineItem !== false);
     if (manualCols.length === 0 || rows.length === 0) continue;
     const keys = rows.flatMap((_, ri) =>
       manualCols.map(c => `${section.sectionLabel}.${ri}.${c.targetField}`)
@@ -650,14 +665,14 @@ function ActionRequiredCard({ schema, manualValues, onManualChange }: {
 
   return (
     <div style={{
-      background: allFilled ? 'hsla(152,69%,31%,0.05)' : 'hsla(0,84%,60%,0.04)',
-      border: `1px solid ${allFilled ? 'hsla(152,69%,31%,0.22)' : 'hsla(0,84%,60%,0.22)'}`,
+      background: 'hsl(var(--muted) / 0.35)',
+      border: `1px solid ${BORDER}`,
       borderRadius: 10, padding: '14px 16px', marginBottom: 18,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: allFilled ? 0 : 14 }}>
         <div style={{
           width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-          background: allFilled ? 'hsla(152,69%,31%,0.12)' : 'hsla(0,84%,60%,0.10)',
+          background: 'hsl(var(--muted))',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           {allFilled
@@ -694,7 +709,7 @@ function ActionRequiredCard({ schema, manualValues, onManualChange }: {
             <div key={t.section} style={{
               display: 'flex', alignItems: 'center', gap: 8,
               padding: '7px 10px', borderRadius: 6,
-              background: 'hsla(0,84%,60%,0.05)', border: `1px solid hsla(0,84%,60%,0.15)`,
+              background: 'hsl(var(--muted) / 0.45)', border: `1px solid ${BORDER}`,
               marginBottom: 6,
             }}>
               <AlertCircle size={12} style={{ color: RED, flexShrink: 0 }} />
@@ -713,12 +728,14 @@ function ActionRequiredCard({ schema, manualValues, onManualChange }: {
 // ─── CollapsibleSectionBlock ──────────────────────────────────────────────────
 
 function CollapsibleSectionBlock({
-  section, schema, manualValues, onManualChange, computedFields, computedRowMap, defaultExpanded,
+  section, schema, manualValues, onManualChange, packageTypes, onPackageTypeChange, computedFields, computedRowMap, defaultExpanded,
 }: {
   section:         GenSection;
   schema:          DocGenSchema;
   manualValues:    Record<string, string>;
   onManualChange:  (key: string, v: string) => void;
+  packageTypes?: string[];
+  onPackageTypeChange?: (rowIndex: number, value: string, customTypes: string[]) => void;
   computedFields:  Record<string, string>;
   computedRowMap:  Record<string, Record<string, string>[]>;
   defaultExpanded: boolean;
@@ -761,7 +778,7 @@ function CollapsibleSectionBlock({
           {!expanded && (
             <span style={{ fontSize: 10.5 }}>
               {manualCount > 0
-                ? <span style={{ color: AMBER, fontWeight: 600 }}>{manualCount} manual field{manualCount > 1 ? 's' : ''}</span>
+                ? <span style={{ color: MUTED, fontWeight: 600 }}>{manualCount} manual field{manualCount > 1 ? 's' : ''}</span>
                 : <span style={{ color: MUTED }}>{autoCount}/{totalCount} auto-filled</span>
               }
             </span>
@@ -777,9 +794,9 @@ function CollapsibleSectionBlock({
           {section.condition && (
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10,
-              background: 'hsla(43,96%,56%,0.10)', border: `1px solid hsla(43,96%,56%,0.3)`,
+              background: 'hsl(var(--muted) / 0.45)', border: `1px solid ${BORDER}`,
               borderRadius: 6, padding: '3px 9px', fontSize: 10.5, fontWeight: 600,
-              color: 'hsl(43 80% 38%)', textTransform: 'uppercase' as const, letterSpacing: '0.05em',
+              color: MUTED, textTransform: 'uppercase' as const, letterSpacing: '0.05em',
             }}>
               <Info size={11} />
               Section 232 steel import — applies to this shipment
@@ -787,7 +804,7 @@ function CollapsibleSectionBlock({
           )}
           {section.renderAs === 'fields'
             ? <FieldGrid section={section} fields={fieldValues} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} computedFields={computedFields} />
-            : <LineItemTable section={section} rows={tableRows} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} computedRows={computedRows} />
+            : <LineItemTable section={section} rows={tableRows} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} packageTypes={packageTypes} onPackageTypeChange={onPackageTypeChange} computedRows={computedRows} />
           }
         </div>
       )}
@@ -975,7 +992,7 @@ function SourceDocPanel({ schema, onClose }: { schema: DocGenSchema; onClose: ()
                 return (
                   <div key={m.targetField} style={{
                     padding: '5px 8px', borderRadius: 5, background: 'hsl(var(--muted) / 0.5)',
-                    borderLeft: `2px solid ${GOLD}40`,
+                    border: `1px solid ${BORDER}`,
                   }}>
                     <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.05em', color: MUTED, fontWeight: 600, marginBottom: 2 }}>
                       {m.sourceLabel}
@@ -1008,7 +1025,7 @@ function SourceDocPanel({ schema, onClose }: { schema: DocGenSchema; onClose: ()
               {sec.rows.map((row, ri) => (
                 <div key={ri} style={{
                   padding: '7px 8px', borderRadius: 6,
-                  background: 'hsl(var(--muted) / 0.5)', borderLeft: `2px solid ${GOLD}40`,
+                  background: 'hsl(var(--muted) / 0.5)', border: `1px solid ${BORDER}`,
                 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, marginBottom: 4, ...MONO }}>
                     Row {ri + 1} · {row['productCode'] ?? ''}
@@ -1039,9 +1056,11 @@ function SourceDocPanel({ schema, onClose }: { schema: DocGenSchema; onClose: ()
 
 // ─── StickyReviewFooter ───────────────────────────────────────────────────────
 
-function StickyReviewFooter({ schema, manualValues, isApproved, isBlocked, onApprove, onPreview, approving }: {
+function StickyReviewFooter({ schema, manualValues, computedFields, computedRowMap, isApproved, isBlocked, onApprove, onPreview, approving }: {
   schema:       DocGenSchema;
   manualValues: Record<string, string>;
+  computedFields: Record<string, string>;
+  computedRowMap: Record<string, Record<string, string>[]>;
   isApproved:   boolean;
   isBlocked:    boolean;
   onApprove:    () => void;
@@ -1049,20 +1068,30 @@ function StickyReviewFooter({ schema, manualValues, isApproved, isBlocked, onApp
   approving?:   boolean;
 }) {
   const allMappings    = schema.sections.flatMap(s => s.mappings);
-  const manualMappings = allMappings.filter(m => m.mappingType === 'manual' || m.mappingType === 'conditional');
+  const manualMappings = allMappings.filter(m => isRequiredManualMapping(schema, m));
+  const scalarValue = (targetField: string) =>
+    manualValues[targetField]
+    ?? computedFields[targetField]
+    ?? schema.mockData.fields[targetField]
+    ?? '';
+  const tableValue = (sectionLabel: string, rowIndex: number, targetField: string) => {
+    const rows = (schema.mockData.tables as Record<string, Array<Record<string, unknown>>>)[sectionLabel] ?? [];
+    return manualValues[`${sectionLabel}.${rowIndex}.${targetField}`]
+      ?? computedRowMap[sectionLabel]?.[rowIndex]?.[targetField]
+      ?? rows[rowIndex]?.[targetField]
+      ?? '';
+  };
 
   // Scalar manual keys (renderAs: 'fields' sections)
   const scalarManual = schema.sections
     .filter(s => s.renderAs === 'fields')
-    .flatMap(s => s.mappings.filter(m => m.mappingType === 'manual' || m.mappingType === 'conditional'));
+    .flatMap(s => s.mappings.filter(m => isRequiredManualMapping(schema, m)));
 
   // Table manual keys — row-aware: ${sectionLabel}.${rowIndex}.${targetField}
   const tableManualKeys: string[] = [];
   for (const section of schema.sections.filter(s => s.renderAs === 'table')) {
     const rows = (schema.mockData.tables as Record<string, unknown[]>)[section.sectionLabel] ?? [];
-    const manualCols = section.mappings.filter(m =>
-      (m.mappingType === 'manual' || m.mappingType === 'conditional') && m.isLineItem !== false
-    );
+    const manualCols = section.mappings.filter(m => isRequiredManualMapping(schema, m) && m.isLineItem !== false);
     for (let ri = 0; ri < rows.length; ri++) {
       for (const col of manualCols) {
         tableManualKeys.push(`${section.sectionLabel}.${ri}.${col.targetField}`);
@@ -1070,8 +1099,11 @@ function StickyReviewFooter({ schema, manualValues, isApproved, isBlocked, onApp
     }
   }
 
-  const filledScalar    = scalarManual.filter(m => !!(manualValues[m.targetField] ?? '').trim()).length;
-  const filledTable     = tableManualKeys.filter(k => !!(manualValues[k] ?? '').trim()).length;
+  const filledScalar = scalarManual.filter(m => String(scalarValue(m.targetField)).trim()).length;
+  const filledTable = tableManualKeys.filter(key => {
+    const [sectionLabel, rowIndex, targetField] = key.split('.');
+    return Boolean(String(tableValue(sectionLabel, Number(rowIndex), targetField)).trim());
+  }).length;
   const totalManualReqd = scalarManual.length + tableManualKeys.length;
   const filledManual    = filledScalar + filledTable;
 
@@ -1086,7 +1118,7 @@ function StickyReviewFooter({ schema, manualValues, isApproved, isBlocked, onApp
     m.validation &&
     m.validationSeverity === 'critical' &&
     (m.mappingType === 'manual' || m.mappingType === 'conditional') &&
-    !(manualValues[m.targetField] ?? '').trim()
+    !String(scalarValue(m.targetField)).trim()
   ).length;
   const tableCritFailing = (() => {
     let count = 0;
@@ -1098,7 +1130,7 @@ function StickyReviewFooter({ schema, manualValues, isApproved, isBlocked, onApp
       );
       for (let ri = 0; ri < rows.length; ri++) {
         for (const col of critManualCols) {
-          if (!(manualValues[`${section.sectionLabel}.${ri}.${col.targetField}`] ?? '').trim()) count++;
+          if (!String(tableValue(section.sectionLabel, ri, col.targetField)).trim()) count++;
         }
       }
     }
@@ -1258,8 +1290,8 @@ function OverflowMenu() {
 
 function DocReviewModal({
   item, schema, siblings, isBlocked, isApproved, manualValues,
-  computedDerivations, sourcePanelOpen, approving, showPreview,
-  onClose, onManualChange, onApprove, onPreview, onSelectSibling,
+  computedDerivations, packageTypes, sourcePanelOpen, approving, showPreview,
+  onClose, onManualChange, onPackageTypeChange, onApprove, onPreview, onSelectSibling,
   onToggleSourcePanel, onSetShowPreview,
 }: {
   item:                GenQueueItem;
@@ -1269,11 +1301,13 @@ function DocReviewModal({
   isApproved:          boolean;
   manualValues:        Record<string, string>;
   computedDerivations: { fields: Record<string, string>; rowMap: Record<string, Record<string, string>[]> };
+  packageTypes:        string[];
   sourcePanelOpen:     boolean;
   approving:           boolean;
   showPreview:         boolean;
   onClose:             () => void;
   onManualChange:      (key: string, v: string) => void;
+  onPackageTypeChange: (rowIndex: number, value: string, customTypes: string[]) => void;
   onApprove:           () => void;
   onPreview:           () => void;
   onSelectSibling:     (item: GenQueueItem) => void;
@@ -1418,17 +1452,17 @@ function DocReviewModal({
                   {/* Trigger + counts banner */}
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-                    background: 'hsla(173,58%,39%,0.06)', border: '1px solid hsla(173,58%,39%,0.18)',
-                    borderRadius: 8, padding: '8px 14px', fontSize: 12, color: 'hsl(173 58% 28%)',
+                    background: 'hsl(var(--muted) / 0.35)', border: `1px solid ${BORDER}`,
+                    borderRadius: 8, padding: '8px 14px', fontSize: 12, color: FG,
                     marginBottom: 14,
                   }}>
-                    <Info size={13} style={{ flexShrink: 0, color: TEAL }} />
+                    <Info size={13} style={{ flexShrink: 0, color: MUTED }} />
                     <span>
                       Trigger: <strong>{schema.triggerCondition}</strong>
                       &nbsp;·&nbsp;
                       <strong>{schema.fieldCounts.auto + schema.fieldCounts.calculated}/{schema.fieldCounts.total}</strong> fields auto-populated
                       {schema.fieldCounts.manual > 0 && (
-                        <> · <strong style={{ color: RED }}>{schema.fieldCounts.manual} manual field{schema.fieldCounts.manual !== 1 ? 's' : ''}</strong> need your input</>
+                        <> · <strong style={{ color: MUTED }}>{schema.fieldCounts.manual} manual field{schema.fieldCounts.manual !== 1 ? 's' : ''}</strong> need your input</>
                       )}
                     </span>
                     <span style={{ marginLeft: 'auto', fontSize: 11, color: MUTED, whiteSpace: 'nowrap' }}>
@@ -1447,6 +1481,8 @@ function DocReviewModal({
                         schema={schema}
                         manualValues={manualValues}
                         onManualChange={onManualChange}
+                        packageTypes={packageTypes}
+                        onPackageTypeChange={onPackageTypeChange}
                         computedFields={computedDerivations.fields}
                         computedRowMap={computedDerivations.rowMap}
                         defaultExpanded={hasManual}
@@ -1461,6 +1497,8 @@ function DocReviewModal({
               <StickyReviewFooter
                 schema={schema}
                 manualValues={manualValues}
+                computedFields={computedDerivations.fields}
+                computedRowMap={computedDerivations.rowMap}
                 isApproved={isApproved}
                 isBlocked={isBlocked}
                 onApprove={onApprove}
@@ -1516,6 +1554,68 @@ function stringifyDraftValue(value: unknown): string {
 }
 
 function draftToSchema(baseSchema: DocGenSchema, draft: DraftPayload): DocGenSchema {
+  if (draft.generatedDocType === 'ENTRY_SUMMARY') {
+    const sourceDocs = [
+      { docType: 'BILL_OF_LADING', label: 'Bill of Lading' },
+      { docType: 'SALES_INVOICE', label: 'Sales Invoice' },
+    ];
+    const sections: GenSection[] = draft.sections.map(section => ({
+      sectionLabel: section.sectionLabel,
+      renderAs: 'fields',
+      mappings: section.fields.map(field => ({
+        targetField: field.targetField,
+        targetLabel: field.targetLabel,
+        sourceDoc: field.sourceDoc,
+        sourceField: field.sourceField ?? '',
+        sourceLabel: field.sourceLabel ?? field.sourceDoc,
+        mappingType: field.mappingType,
+        validation: field.validation ?? undefined,
+        validationSeverity: field.validationSeverity ?? undefined,
+        mono: field.mono,
+      })),
+    }));
+    const tariffMappings: FieldMapping[] = [
+      { targetField: 'lineNo', targetLabel: 'Line No', sourceDoc: 'CALCULATED', sourceField: 'row number', sourceLabel: 'Calculated', mappingType: 'derived', mono: true, isLineItem: true },
+      { targetField: 'lineMerchandiseDescription', targetLabel: 'Merchandise Description', sourceDoc: 'SALES_INVOICE', sourceField: 'lineItems[].productDescription', sourceLabel: 'Sales Invoice', mappingType: 'direct', isLineItem: true },
+      { targetField: 'lineHtsusNumber', targetLabel: 'HTSUS Number', sourceDoc: 'MANUAL', sourceField: '', sourceLabel: 'Tariff master / broker', mappingType: 'manual', mono: true, isLineItem: true },
+      { targetField: 'quantity', targetLabel: 'Quantity', sourceDoc: 'SALES_INVOICE', sourceField: 'lineItems[].quantity', sourceLabel: 'Sales Invoice', mappingType: 'direct', mono: true, isLineItem: true },
+      { targetField: 'quantityUnit', targetLabel: 'Unit', sourceDoc: 'SALES_INVOICE', sourceField: 'lineItems[].unit', sourceLabel: 'Sales Invoice', mappingType: 'direct', isLineItem: true },
+      { targetField: 'enteredValue', targetLabel: 'Entered Value', sourceDoc: 'SALES_INVOICE', sourceField: 'lineItems[].lineTotal', sourceLabel: 'Sales Invoice', mappingType: 'direct', mono: true, isLineItem: true },
+      { targetField: 'dutyRate', targetLabel: 'Duty Rate (%)', sourceDoc: 'MANUAL', sourceField: '', sourceLabel: 'Tariff master', mappingType: 'manual', mono: true, isLineItem: true },
+      { targetField: 'dutyAmount', targetLabel: 'Duty Amount', sourceDoc: 'CALCULATED', sourceField: 'enteredValue * dutyRate', sourceLabel: 'Calculated', mappingType: 'derived', mono: true, isLineItem: true },
+    ];
+    sections.splice(Math.max(0, sections.length - 2), 0, {
+      sectionLabel: 'Tariff Lines',
+      renderAs: 'table',
+      mappings: tariffMappings,
+    });
+    const fields = Object.fromEntries(
+      draft.sections.flatMap(section => section.fields.map(field => [field.targetField, stringifyDraftValue(field.value)])),
+    );
+    return {
+      ...baseSchema,
+      displayName: 'Draft BOE',
+      triggerCondition: 'Bill of Lading and Sales Invoice extracted',
+      sourceDocs,
+      humanAction: 'Complete broker and filing fields, assign tariff rates, and review calculated duties and fees',
+      fieldCounts: {
+        auto: draft.stats.auto ?? 0,
+        calculated: draft.stats.calc ?? 0,
+        manual: draft.stats.manual ?? 0,
+        total: draft.stats.total ?? 0,
+      },
+      sections,
+      mockData: {
+        fields,
+        tables: {
+          'Tariff Lines': draft.lineItems.map(row => Object.fromEntries(
+            tariffMappings.map(mapping => [mapping.targetField, stringifyDraftValue(row[mapping.targetField])]),
+          )),
+        },
+      },
+    };
+  }
+
   const fields: Record<string, string> = {};
   for (const section of draft.sections) {
     for (const field of section.fields) {
@@ -1591,6 +1691,9 @@ function generatedDocTypeToSchemaKey(type: DraftPayload['generatedDocType']): st
 
 export function DocumentGeneratePage() {
   const params = useParams<{ type?: string }>();
+  const [location, navigate] = useLocation();
+  const routeType = params.type
+    ?? (location.endsWith('/boe') ? 'draft-boe' : location.endsWith('/packing-list') ? 'packing-list' : undefined);
   const [search,         setSearch]         = useState('');
   const [queueFilter,    setQueueFilter]     = useState<QueueFilter>('all');
   const [reviewingItem,  setReviewingItem]   = useState<GenQueueItem | null>(null);
@@ -1614,9 +1717,42 @@ export function DocumentGeneratePage() {
     setManualValues(prev => ({ ...prev, [key]: v }));
   }
 
+  async function handlePackageTypeChange(rowIndex: number, value: string, customTypes: string[]) {
+    if (!liveReviewingItem) return;
+    try {
+      await apiPatch(`/doc-generation/drafts/${liveReviewingItem.id}/package-type`, {
+        lineItemIndex: rowIndex,
+        packageType: value,
+        customPackageTypes: customTypes,
+      });
+      setDraftPackageTypes(prev => ({ ...prev, [liveReviewingItem.id]: customTypes }));
+      setDraftSchemas(prev => {
+        const current = prev[liveReviewingItem.id];
+        if (!current) return prev;
+        const rows = current.mockData.tables['Line Items']?.map((row, index) => (
+          index === rowIndex ? { ...row, kindOfPkg: value } : row
+        ));
+        return {
+          ...prev,
+          [liveReviewingItem.id]: {
+            ...current,
+            mockData: {
+              ...current.mockData,
+              tables: { ...current.mockData.tables, 'Line Items': rows ?? [] },
+            },
+          },
+        };
+      });
+      toast.success('Package type saved');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not save package type');
+    }
+  }
+
   // ── Live data from API ──────────────────────────────────────────────────────
   const [rawQueue, setRawQueue] = useState<GenQueueItem[]>([]);
   const [draftSchemas, setDraftSchemas] = useState<Record<string, DocGenSchema>>({});
+  const [draftPackageTypes, setDraftPackageTypes] = useState<Record<string, string[]>>({});
   const [loading,  setLoading]  = useState(true);
   const [fetchErr, setFetchErr] = useState<string | null>(null);
 
@@ -1624,27 +1760,44 @@ export function DocumentGeneratePage() {
     try {
       setLoading(true);
       setFetchErr(null);
-      const generatedDocType = routeTypeToGeneratedDocType(params.type);
+      const generatedDocType = routeTypeToGeneratedDocType(routeType);
       const schemaKey = generatedDocTypeToSchemaKey(generatedDocType);
       const baseSchema = DOC_GEN_SCHEMAS[schemaKey] as DocGenSchema | undefined;
-      if (!baseSchema) throw new Error(`Unsupported document generation type: ${params.type ?? 'packing-list'}`);
+      if (!baseSchema) throw new Error(`Unsupported document generation type: ${routeType ?? 'packing-list'}`);
 
-      const draft = await apiPost<DraftPayload>('/doc-generation/drafts', {
-        generatedDocType,
-        sourceDocumentIds: {},
-      });
-      const hydratedSchema = draftToSchema(baseSchema, draft);
-      const queueItem = draftToQueueItem(draft, hydratedSchema);
-      setDraftSchemas({ [queueItem.id]: hydratedSchema });
-      setRawQueue([queueItem]);
+      let drafts = await apiGet<DraftPayload[]>(`/doc-generation/drafts?generatedDocType=${generatedDocType}`);
+      if (drafts.length === 0) {
+        drafts = [await apiPost<DraftPayload>('/doc-generation/drafts', {
+          generatedDocType,
+          sourceDocumentIds: {},
+        })];
+      }
+      const schemas: Record<string, DocGenSchema> = {};
+      const packageTypes: Record<string, string[]> = {};
+      const queueItems = drafts
+        .map((draft) => {
+          const hydratedSchema = draftToSchema(baseSchema, draft);
+          const queueItem = draftToQueueItem(draft, hydratedSchema);
+          schemas[queueItem.id] = hydratedSchema;
+          packageTypes[queueItem.id] = draft.customPackageTypes ?? [];
+          return queueItem;
+        })
+        .sort((a, b) => {
+          const createdDiff = Date.parse(b.createdAt) - Date.parse(a.createdAt);
+          return Number.isNaN(createdDiff) ? 0 : createdDiff;
+        });
+      setDraftSchemas(schemas);
+      setDraftPackageTypes(packageTypes);
+      setRawQueue(queueItems);
     } catch (err) {
       setRawQueue([]);
       setDraftSchemas({});
+      setDraftPackageTypes({});
       setFetchErr(err instanceof Error ? err.message : 'Could not load generation queue');
     } finally {
       setLoading(false);
     }
-  }, [params.type]);
+  }, [routeType]);
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
 
@@ -1712,7 +1865,13 @@ export function DocumentGeneratePage() {
           const manualTarget = manualValues[`${sLabel}.${ri}.${col.targetField}`];
           if (manualTarget !== undefined && manualTarget.trim() !== '') continue;
 
-          if (sf.includes(' / ')) {
+          if (col.targetField === 'dutyAmount') {
+            const enteredValue = getNum(ri, 'enteredValue');
+            const dutyRate = getNum(ri, 'dutyRate');
+            if (!isNaN(enteredValue) && !isNaN(dutyRate)) {
+              computedRows[ri][col.targetField] = fmtNum(enteredValue * dutyRate / 100, 2);
+            }
+          } else if (sf.includes(' / ')) {
             const [a, b] = sf.split(' / ');
             const av = getNum(ri, resolve(a)), bv = getNum(ri, resolve(b));
             if (!isNaN(av) && !isNaN(bv) && bv > 0) computedRows[ri][col.targetField] = fmtNum(av / bv, 0);
@@ -1757,6 +1916,36 @@ export function DocumentGeneratePage() {
         }
       }
     }
+
+    if (schema.docType === 'draft-boe') {
+      const rawEnteredValue = (manualValues.totalEnteredValue ?? schema.mockData.fields.totalEnteredValue ?? '')
+        .toString().replace(/[^0-9.-]/g, '');
+      const enteredValue = parseFloat(rawEnteredValue);
+      const dutyRows = rowMap['Tariff Lines'] ?? [];
+      let totalDuty = 0;
+      let hasDuty = false;
+      dutyRows.forEach((row, index) => {
+        const raw = (manualValues[`Tariff Lines.${index}.dutyAmount`] ?? row.dutyAmount ?? '')
+          .toString().replace(/[^0-9.-]/g, '');
+        const value = parseFloat(raw);
+        if (!isNaN(value)) {
+          totalDuty += value;
+          hasDuty = true;
+        }
+      });
+      if (hasDuty) fields.totalDuty = fmtNum(totalDuty, 2);
+      if (!isNaN(enteredValue)) {
+        const mpf = enteredValue * 0.003464;
+        const hmf = enteredValue * 0.00125;
+        const other = mpf + hmf;
+        const tax = parseFloat((manualValues.totalTax ?? schema.mockData.fields.totalTax ?? '0').replace(/[^0-9.-]/g, '')) || 0;
+        fields.mpfTotal = fmtNum(mpf, 2);
+        fields.hmfTotal = fmtNum(hmf, 2);
+        fields.totalOtherFees = fmtNum(other, 2);
+        fields.totalOther = fmtNum(other, 2);
+        fields.grandTotal = fmtNum((hasDuty ? totalDuty : 0) + tax + other, 2);
+      }
+    }
     return { fields, rowMap };
   }, [schema, manualValues]);
 
@@ -1775,14 +1964,43 @@ export function DocumentGeneratePage() {
   }
 
   async function handleApprove() {
-    if (!liveReviewingItem || isBlocked || approving) return;
+    if (!liveReviewingItem || !schema || isBlocked || approving) return;
     setApproving(true);
     try {
+      const fields: Record<string, string | null> = {};
+      for (const section of schema.sections.filter(section => section.renderAs === 'fields')) {
+        for (const mapping of section.mappings) {
+          fields[mapping.targetField] =
+            manualValues[mapping.targetField]
+            ?? computedDerivations.fields[mapping.targetField]
+            ?? schema.mockData.fields[mapping.targetField]
+            ?? null;
+        }
+      }
+      const tableSection = schema.sections.find(section => section.renderAs === 'table');
+      const tableRows = tableSection ? (schema.mockData.tables[tableSection.sectionLabel] ?? []) : [];
+      const lineItems = tableSection ? tableRows.map((row, rowIndex) => Object.fromEntries(
+        tableSection.mappings
+          .filter(mapping => mapping.isLineItem !== false)
+          .map(mapping => [
+            mapping.targetField,
+            manualValues[`${tableSection.sectionLabel}.${rowIndex}.${mapping.targetField}`]
+              ?? computedDerivations.rowMap[tableSection.sectionLabel]?.[rowIndex]?.[mapping.targetField]
+              ?? row[mapping.targetField]
+              ?? null,
+          ]),
+      )) : undefined;
+      await apiPatch<DraftPayload>(`/doc-generation/drafts/${liveReviewingItem.id}`, {
+        fields,
+        lineItems,
+        status: 'GENERATED',
+      });
       setRawQueue((items) => items.map((item) => (
         item.id === liveReviewingItem.id ? { ...item, status: 'generated' } : item
       )));
-      toast.success(`${schema?.displayName ?? 'Document'} approved — PDF queued`);
-      setReviewingItem(null);
+      toast.success(`${schema?.displayName ?? 'Document'} approved — opening PDF save dialog`);
+      setShowPreview(true);
+      window.setTimeout(() => window.print(), 350);
     } catch {
       toast.error('Approval failed — please try again');
     } finally {
@@ -1793,9 +2011,9 @@ export function DocumentGeneratePage() {
   // ── Render states ──────────────────────────────────────────────────────────
   if (loading) return (
     <PageShell>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: MUTED }}>
-        <Clock size={16} />
-        <span style={{ fontSize: 13 }}>Loading generation queue…</span>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: MUTED, fontSize: 14 }}>
+        <Loader2 size={18} style={{ animation: 'spin 1s linear infinite', color: TEAL }} />
+        Loading document queue...
       </div>
     </PageShell>
   );
@@ -1827,6 +2045,35 @@ export function DocumentGeneratePage() {
           Document Generation
         </h1>
         <span style={{ fontSize: 11.5, color: MUTED }}>— AI-drafted documents for review &amp; approval</span>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 3, marginLeft: 14,
+          padding: 3, borderRadius: 8, background: 'hsl(var(--muted) / 0.55)',
+        }}>
+          {[
+            { type: 'packing-list', label: 'Packing List' },
+            { type: 'outward-pl', label: 'Outward Packing List' },
+            { type: 'draft-boe', label: 'Draft BOE' },
+          ].map(option => {
+            const activeType = generatedDocTypeToSchemaKey(routeTypeToGeneratedDocType(routeType));
+            const active = activeType === option.type;
+            return (
+              <button
+                key={option.type}
+                type="button"
+                onClick={() => navigate(`/documents/generate/${option.type}`)}
+                style={{
+                  border: active ? `1px solid ${BORDER}` : '1px solid transparent',
+                  borderRadius: 6, padding: '5px 10px', cursor: 'pointer',
+                  background: active ? 'hsl(var(--card))' : 'transparent',
+                  color: active ? FG : MUTED, fontSize: 11.5, fontWeight: active ? 700 : 600,
+                  boxShadow: active ? '0 1px 2px hsla(0,0%,0%,0.08)' : 'none',
+                }}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
         {queue.length > 0 && (() => {
           const pending = queue.filter(i => i.status !== 'generated').length;
           return (
@@ -1871,11 +2118,13 @@ export function DocumentGeneratePage() {
           isApproved={isApproved}
           manualValues={manualValues}
           computedDerivations={computedDerivations}
+          packageTypes={draftPackageTypes[liveReviewingItem.id] ?? []}
           sourcePanelOpen={sourcePanelOpen}
           approving={approving}
           showPreview={showPreview}
           onClose={() => setReviewingItem(null)}
           onManualChange={handleManualChange}
+          onPackageTypeChange={handlePackageTypeChange}
           onApprove={handleApprove}
           onPreview={() => setShowPreview(true)}
           onSelectSibling={item => { setReviewingItem(item); setManualValues({}); setShowPreview(false); }}

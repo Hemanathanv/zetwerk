@@ -3,7 +3,7 @@ import { getAuthToken } from '@/lib/api';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Loader2 } from 'lucide-react';
 
-const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? 'http://localhost:8000').replace(/\/$/, '');
+const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
 
 interface Props {
   documentId: string;
@@ -148,10 +148,10 @@ function ScalarGrid({ fields }: { fields: ScalarField[] }) {
             background: 'hsl(var(--card))',
           }}
         >
-          <span style={{ fontSize: 10, fontWeight: 600, color: 'hsl(var(--muted-foreground))', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'hsl(var(--muted-foreground))', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             {toLabel(key)}
           </span>
-          <span style={{ fontSize: 12, fontWeight: 500, color: 'hsl(var(--foreground))', wordBreak: 'break-word' }}>
+          <span style={{ fontSize: 14, fontWeight: 500, color: 'hsl(var(--foreground))', wordBreak: 'break-word' }}>
             {formatValue(val)}
           </span>
         </div>
@@ -168,11 +168,11 @@ function ArrayTable({ rows, label }: { rows: Record<string, unknown>[]; label: s
 
   return (
     <div style={{ marginTop: 16 }}>
-      <p style={{ fontSize: 11, fontWeight: 600, color: 'hsl(var(--muted-foreground))', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+      <p style={{ fontSize: 14.5, fontWeight: 600, color: 'hsl(var(--muted-foreground))', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
         {label}
       </p>
       <div style={{ overflowX: 'auto', border: '1px solid hsl(var(--border))', borderRadius: 8 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14.5 }}>
           <thead>
             <tr style={{ background: 'hsl(var(--muted))' }}>
               {cols.map((c) => (
@@ -244,16 +244,16 @@ export function ExtractionFieldsPanel({ documentId }: Props) {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '24px 0', color: 'hsl(var(--muted-foreground))', fontSize: 13 }}>
-        <Loader2 className="w-4 h-4 animate-spin" />
-        Loading extracted fields…
+      <div style={{ minHeight: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'hsl(var(--muted-foreground))', fontSize: 14 }}>
+        <Loader2 size={16} className="animate-spin" />
+        Loading extracted fields...
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div style={{ padding: '16px', borderRadius: 8, background: 'hsla(0,84%,60%,0.06)', border: '1px solid hsla(0,84%,60%,0.2)', fontSize: 13, color: 'hsl(0 72% 38%)' }}>
+      <div style={{ padding: '16px', borderRadius: 8, background: 'hsla(0,84%,60%,0.06)', border: '1px solid hsla(0,84%,60%,0.2)', fontSize: 14.5, color: 'hsl(0 72% 38%)' }}>
         {error ?? 'No extraction data found.'}
       </div>
     );
@@ -263,7 +263,7 @@ export function ExtractionFieldsPanel({ documentId }: Props) {
   const extractionObj = (data as any).extraction;
   if (!extractionObj || typeof extractionObj !== 'object' || Array.isArray(extractionObj)) {
     return (
-      <div style={{ padding: 16, color: 'hsl(var(--muted-foreground))', fontSize: 13 }}>
+      <div style={{ padding: 16, color: 'hsl(var(--muted-foreground))', fontSize: 14.5 }}>
         No extraction data available for this document type.
       </div>
     );
@@ -338,7 +338,7 @@ export function ExtractionFieldsPanel({ documentId }: Props) {
 
   if (!sectionData.length) {
     return (
-      <div style={{ padding: 16, color: 'hsl(var(--muted-foreground))', fontSize: 13 }}>
+      <div style={{ padding: 16, color: 'hsl(var(--muted-foreground))', fontSize: 14.5 }}>
         No extracted fields available.
       </div>
     );

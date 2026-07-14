@@ -7,13 +7,20 @@ import re
 import socket
 import time
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, TypedDict
 from urllib import error, request
 
 from pydantic import ValidationError
 
+from doc_generation.db_setup import ensure_doc_generation_views
 from helpers.config import settings
 from objectstore import download_bytes
+
+try:
+    from json_repair import repair_json
+except Exception:  # pragma: no cover - optional hardening dependency.
+    repair_json = None
 
 from documents_ocr.Bill_of_lading.ocr import (
     build_prompt as build_bill_of_lading_prompt,
@@ -33,17 +40,11 @@ from documents_ocr.Customer_broker_bill.ocr import (
     parse_result as parse_customer_broker_bill_result,
     persist_extraction as persist_customer_broker_bill_extraction,
 )
-from documents_ocr.Entry_summary.ocr import (
-    build_prompt as build_entry_summary_prompt,
-    matches_entrysummary,
-    parse_result as parse_entry_summary_result,
-    persist_extraction as persist_entry_summary_extraction,
-)
-from documents_ocr.Entry_summary_tarifflines.ocr import (
-    build_prompt as build_entry_summary_tarifflines_prompt,
-    matches_entrysummarytarifflines,
-    parse_result as parse_entry_summary_tarifflines_result,
-    persist_extraction as persist_entry_summary_tarifflines_extraction,
+from documents_ocr.CBP_FORM_7501.ocr import (
+    build_prompt as build_cbp_form_7501_prompt,
+    matches_cbp_form_7501,
+    parse_result as parse_cbp_form_7501_result,
+    persist_extraction as persist_cbp_form_7501_extraction,
 )
 from documents_ocr.Freight_forward.ocr import (
     build_prompt as build_freight_forward_prompt,
@@ -56,6 +57,12 @@ from documents_ocr.GRN_inbound.ocr import (
     matches_grninbound,
     parse_result as parse_grn_inbound_result,
     persist_extraction as persist_grn_inbound_extraction,
+)
+from documents_ocr.ISF.ocr import (
+    build_prompt as build_isf_prompt,
+    matches_isf,
+    parse_result as parse_isf_result,
+    persist_extraction as persist_isf_extraction,
 )
 from documents_ocr.Ocean_freight.ocr import (
     build_prompt as build_ocean_freight_prompt,
@@ -122,6 +129,7 @@ from documents_ocr.sales_invoice.ocr import (
     matches_sales_invoice,
     parse_result as parse_sales_invoice_result,
     persist_extraction as persist_sales_invoice_extraction,
+    repair_container_assignments_from_grid,
 )
 
 
@@ -153,16 +161,10 @@ PROCESSORS: tuple[OcrProcessor, ...] = (
         persist_extraction=persist_customer_broker_bill_extraction,
     ),
     OcrProcessor(
-        matcher=matches_entrysummary,
-        build_prompt=build_entry_summary_prompt,
-        parse_result=parse_entry_summary_result,
-        persist_extraction=persist_entry_summary_extraction,
-    ),
-    OcrProcessor(
-        matcher=matches_entrysummarytarifflines,
-        build_prompt=build_entry_summary_tarifflines_prompt,
-        parse_result=parse_entry_summary_tarifflines_result,
-        persist_extraction=persist_entry_summary_tarifflines_extraction,
+        matcher=matches_cbp_form_7501,
+        build_prompt=build_cbp_form_7501_prompt,
+        parse_result=parse_cbp_form_7501_result,
+        persist_extraction=persist_cbp_form_7501_extraction,
     ),
     OcrProcessor(
         matcher=matches_freightforward,
@@ -175,6 +177,12 @@ PROCESSORS: tuple[OcrProcessor, ...] = (
         build_prompt=build_grn_inbound_prompt,
         parse_result=parse_grn_inbound_result,
         persist_extraction=persist_grn_inbound_extraction,
+    ),
+    OcrProcessor(
+        matcher=matches_isf,
+        build_prompt=build_isf_prompt,
+        parse_result=parse_isf_result,
+        persist_extraction=persist_isf_extraction,
     ),
     OcrProcessor(
         matcher=matches_oceanfreight,
@@ -256,6 +264,13 @@ class OcrImageChunk(TypedDict):
     includes_first_page: bool
 
 
+class OcrUsageChunk(TypedDict):
+    page_numbers: list[int]
+    image_sizes: list[int]
+    usage: dict[str, Any]
+    model: str | None
+
+
 MAX_REQUEST_ENCODED_BYTES = max(1 * 1024 * 1024, int(getattr(settings, "OCR_MAX_REQUEST_ENCODED_BYTES", 27 * 1024 * 1024)))
 MAX_HEADER_CONTEXT_FIELDS = 120
 DEFAULT_OPENROUTER_CHAT_COMPLETIONS_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -265,6 +280,98 @@ OCR_CONFIDENCE_PROMPT = (
     "fields, table quality, and consistency of extracted values. Use 1 only when the extraction is effectively "
     "certain, and use lower values for blurry scans, cut-off pages, handwriting, ambiguous labels, or inferred values."
 )
+
+PROCESSOR_BY_DOC_TYPE: dict[str, OcrProcessor] = {
+    "BILL_OF_LADING": next(item for item in PROCESSORS if item.parse_result is parse_bill_of_lading_result),
+    "CHA_BILL": next(item for item in PROCESSORS if item.parse_result is parse_cha_result),
+    "CUSTOMER_BROKER_BILL": next(item for item in PROCESSORS if item.parse_result is parse_customer_broker_bill_result),
+    "ENTRY_SUMMARY": next(item for item in PROCESSORS if item.parse_result is parse_cbp_form_7501_result),
+    "FREIGHT_FORWARDER_BILL": next(item for item in PROCESSORS if item.parse_result is parse_freight_forward_result),
+    "GRN_INBOUND": next(item for item in PROCESSORS if item.parse_result is parse_grn_inbound_result),
+    "ISF": next(item for item in PROCESSORS if item.parse_result is parse_isf_result),
+    "OCEAN_FREIGHT": next(item for item in PROCESSORS if item.parse_result is parse_ocean_freight_result),
+    "PACKING_LIST": next(item for item in PROCESSORS if item.parse_result is parse_packing_list_result),
+    "PORT_TO_WH": next(item for item in PROCESSORS if item.parse_result is parse_port_to_wh_result),
+    "SALES_INVOICE": next(item for item in PROCESSORS if item.parse_result is parse_sales_invoice_result),
+    "SHIPPING_BILL": next(item for item in PROCESSORS if item.parse_result is parse_shipping_bill_result),
+    "US_CARGO_RELEASE_ORDER": next(item for item in PROCESSORS if item.parse_result is parse_us_cargo_release_result),
+    "US_CUSTOMS_RELEASE_ORDER": next(item for item in PROCESSORS if item.parse_result is parse_us_customs_release_result),
+    "US_DELIVERY_ORDER": next(item for item in PROCESSORS if item.parse_result is parse_us_delivery_order_result),
+    "US_PACKING_LIST": next(item for item in PROCESSORS if item.parse_result is parse_us_packing_list_result),
+    "US_SALES_INVOICE": next(item for item in PROCESSORS if item.parse_result is parse_us_sales_invoice_result),
+    "WH_TO_CUSTOMER": next(item for item in PROCESSORS if item.parse_result is parse_wh_to_customer_result),
+}
+
+
+def validate_ocr_schema_coverage() -> dict[str, Any]:
+    """Fail startup when an OCR route no longer covers its live Prisma schema."""
+    errors: list[str] = []
+    processor_reports: list[dict[str, Any]] = []
+
+    if len(PROCESSOR_BY_DOC_TYPE) != len(PROCESSORS):
+        errors.append(
+            f"manual route count ({len(PROCESSOR_BY_DOC_TYPE)}) does not match "
+            f"processor count ({len(PROCESSORS)})"
+        )
+    if len(set(PROCESSOR_BY_DOC_TYPE.values())) != len(PROCESSORS):
+        errors.append("manual DocType registry does not map one-to-one to OCR processors")
+
+    for doc_type, processor in PROCESSOR_BY_DOC_TYPE.items():
+        schema = processor.parse_result.__globals__.get("_SCHEMA")
+        scalar_fields = getattr(schema, "scalar_fields", None)
+        array_fields = getattr(schema, "array_fields", None)
+        array_item_fields = getattr(schema, "array_item_fields", None)
+        if not isinstance(scalar_fields, list) or not isinstance(array_fields, list) or not isinstance(array_item_fields, dict):
+            errors.append(f"{doc_type}: parser does not expose a valid Prisma extraction schema")
+            continue
+
+        prompt = _build_prisma_anchored_prompt(processor)
+        expected_fields = [
+            *scalar_fields,
+            *array_fields,
+            *[
+                child_field
+                for child_fields in array_item_fields.values()
+                for child_field in child_fields
+            ],
+        ]
+        missing = sorted({field for field in expected_fields if field not in prompt})
+        if missing:
+            errors.append(f"{doc_type}: prompt missing Prisma fields {missing}")
+
+        parser_schema = processor.parse_result.__globals__.get("_SCHEMA")
+        persistence_schema = processor.persist_extraction.__globals__.get("_SCHEMA")
+        if parser_schema is not persistence_schema:
+            errors.append(f"{doc_type}: parser and persistence use different Prisma schemas")
+
+        processor_reports.append(
+            {
+                "docType": doc_type,
+                "processor": processor.parse_result.__module__,
+                "scalarFields": len(scalar_fields),
+                "arrayFields": len(array_fields),
+                "arrayItemFields": sum(len(fields) for fields in array_item_fields.values()),
+                "missingFields": missing,
+            }
+        )
+
+    if errors:
+        raise RuntimeError("OCR Prisma schema coverage validation failed: " + "; ".join(errors))
+    return {
+        "processors": len(processor_reports),
+        "routes": len(PROCESSOR_BY_DOC_TYPE),
+        "missingFields": 0,
+        "details": processor_reports,
+    }
+
+SCHEMA_COMPLETENESS_PROMPT = """
+SCHEMA COMPLETENESS CHECK (applies to every document type):
+- The supplied JSON template is the complete extraction schema for this document. Inspect every page for every template field before returning null.
+- Treat printed labels, abbreviations, spacing, punctuation, and capitalization as semantic aliases of schema keys.
+- For every array/table, return every visible row and populate every visible cell into its corresponding schema field. Never return count-only or blank placeholder rows when row details are visible.
+- Preserve wrapped and multi-line cell text in the same row. Do not move a value to an adjacent row, merge different rows, or stop after extracting only the row count.
+- Before responding, compare the JSON against the template and verify that every template key is present and every visibly supported value has been attempted.
+""".strip()
 
 
 def _normalize_chat_completions_url(raw_url: str, *, default_url: str) -> str:
@@ -302,16 +409,13 @@ def _extract_json(text: str) -> dict[str, Any]:
         raise ValueError("Empty response from OCR model")
 
     candidates: list[str] = [cleaned]
-    # Common markdown wrappers
     candidates.append(cleaned.replace("```json", "").replace("```JSON", "").replace("```", "").strip())
 
-    # Fenced JSON blocks (case-insensitive)
     for block in re.findall(r"```(?:json)?\s*(.*?)\s*```", cleaned, flags=re.IGNORECASE | re.DOTALL):
         block_clean = block.strip()
         if block_clean:
             candidates.append(block_clean)
 
-    # JSON serialized as a string literal: "{\"a\":1}"
     if len(cleaned) >= 2 and cleaned[0] == '"' and cleaned[-1] == '"':
         try:
             unwrapped = json.loads(cleaned)
@@ -320,58 +424,63 @@ def _extract_json(text: str) -> dict[str, Any]:
         except Exception:
             pass
 
-    for candidate in candidates:
-        try:
-            parsed = json.loads(candidate)
-            if isinstance(parsed, dict):
-                return parsed
-            if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
-                return parsed[0]
-        except Exception:
-            pass
-        # Fallback for python-dict style responses using single quotes.
-        try:
-            parsed = ast.literal_eval(candidate)
-            if isinstance(parsed, dict):
-                return parsed
-            if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
-                return parsed[0]
-        except Exception:
-            pass
-
     start = cleaned.find("{")
-    if start == -1:
-        raise ValueError("No JSON object found in OCR response")
+    end = cleaned.rfind("}")
+    if start >= 0 and end > start:
+        candidates.append(cleaned[start : end + 1])
 
-    depth = 0
-    in_string = False
-    escape = False
-    for index in range(start, len(cleaned)):
-        ch = cleaned[index]
-        if in_string:
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == '"':
-                in_string = False
-            continue
+    for candidate in candidates:
+        parsed = _parse_json_candidate(candidate)
+        if parsed is not None:
+            return parsed
 
-        if ch == '"':
-            in_string = True
-        elif ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                candidate = cleaned[start : index + 1]
-                parsed = json.loads(candidate)
+    raise ValueError("Could not parse JSON object from OCR response")
+
+
+def _parse_json_candidate(candidate: str) -> dict[str, Any] | None:
+    candidate = candidate.strip()
+    cleaned = re.sub(r",\s*([}\]])", r"\1", candidate)
+    attempts = [candidate]
+    if cleaned != candidate:
+        attempts.append(cleaned)
+
+    for value in attempts:
+        for parser in (
+            lambda raw: json.loads(raw),
+            lambda raw: json.loads(raw, strict=False),
+            ast.literal_eval,
+        ):
+            try:
+                parsed = parser(value)
                 if isinstance(parsed, dict):
                     return parsed
                 if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
                     return parsed[0]
+            except Exception:
+                pass
 
-    raise ValueError("Could not parse JSON object from OCR response")
+    if repair_json is None:
+        return None
+
+    try:
+        repaired = repair_json(candidate, return_objects=True)
+        if isinstance(repaired, dict):
+            return repaired
+        if isinstance(repaired, list) and repaired and isinstance(repaired[0], dict):
+            return repaired[0]
+    except TypeError:
+        try:
+            repaired_text = repair_json(candidate)
+            parsed = json.loads(repaired_text, strict=False)
+            if isinstance(parsed, dict):
+                return parsed
+            if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
+                return parsed[0]
+        except Exception:
+            return None
+    except Exception:
+        return None
+    return None
 
 
 def _image_openrouter_part(image_bytes: bytes, mime_type: str = "image/png") -> dict[str, Any]:
@@ -384,6 +493,7 @@ def _run_openrouter_ocr_chunk(
     page_images: list[PageImage],
     prompt: str,
     user_text: str,
+    document_name: str | None = None,
 ) -> dict[str, Any]:
     api_key, api_url, model = _load_ocr_provider_config()
     attempts = max(1, int(getattr(settings, "OCR_GEMINI_MAX_ATTEMPTS", 7) or 7))
@@ -402,13 +512,19 @@ def _run_openrouter_ocr_chunk(
         "response_format": {"type": "json_object"},
     }
 
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+    request_title = re.sub(r"[\r\n]+", " ", str(document_name or "")).strip()
+    if request_title:
+        # OpenRouter displays this value as the request/application title.
+        headers["X-Title"] = request_title[:512]
+
     req = request.Request(
         url=api_url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        },
+        headers=headers,
         method="POST",
     )
 
@@ -502,10 +618,40 @@ def _run_openrouter_ocr_chunk(
 
 
 def _select_processor(*, bucket: str, module: str, document: Any) -> OcrProcessor | None:
+    selected_doc_type = str(getattr(document, "docType", "") or "").strip().upper()
+    if selected_doc_type:
+        # Manual selection and auto-detect both persist an exact Prisma DocType.
+        # Once present, it is authoritative and must never be overridden by a
+        # bucket name, filename, or another processor's fuzzy matcher.
+        return PROCESSOR_BY_DOC_TYPE.get(selected_doc_type)
+
     for processor in PROCESSORS:
         if processor.matcher(bucket=bucket, module=module, document=document):
             return processor
     return None
+
+
+def _build_prisma_anchored_prompt(processor: OcrProcessor) -> str:
+    """Append the live Prisma extraction shape to every OCR prompt."""
+    prompt = processor.build_prompt()
+    schema = processor.parse_result.__globals__.get("_SCHEMA")
+    scalar_fields = getattr(schema, "scalar_fields", None)
+    array_item_fields = getattr(schema, "array_item_fields", None)
+    if not isinstance(scalar_fields, list) or not isinstance(array_item_fields, dict):
+        return prompt
+
+    manifest = {
+        "scalarFields": scalar_fields,
+        "arrayFields": array_item_fields,
+    }
+    return (
+        f"{prompt}\n\n"
+        "AUTHORITATIVE PRISMA EXTRACTION MANIFEST:\n"
+        f"{json.dumps(manifest, indent=2)}\n"
+        "This manifest is generated from the live Prisma schema. Every scalar field "
+        "must be attempted, and every visible array row must be returned with every "
+        "listed child field. Do not omit a field because its PDF label uses a synonym."
+    )
 
 
 def _encoded_len(raw_bytes: bytes) -> int:
@@ -672,6 +818,165 @@ def _merge_usage(existing: dict[str, Any], incoming: Any) -> dict[str, Any]:
     return merged
 
 
+def _to_int(value: Any) -> int:
+    if value is None or isinstance(value, bool):
+        return 0
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _to_decimal(value: Any) -> Decimal:
+    if value is None or isinstance(value, bool):
+        return Decimal("0")
+    if isinstance(value, Decimal):
+        return value
+    try:
+        return Decimal(str(value))
+    except Exception:
+        return Decimal("0")
+
+
+def _allocate_count(total: int, weights: list[int]) -> list[int]:
+    if not weights:
+        return []
+    total = max(0, int(total or 0))
+    safe_weights = [max(0, int(weight or 0)) for weight in weights]
+    weight_sum = sum(safe_weights)
+    if total == 0:
+        return [0 for _ in safe_weights]
+    if weight_sum <= 0:
+        base, remainder = divmod(total, len(safe_weights))
+        return [base + (1 if index < remainder else 0) for index in range(len(safe_weights))]
+
+    raw_allocations = [(total * weight) / weight_sum for weight in safe_weights]
+    allocations = [int(value) for value in raw_allocations]
+    remainder = total - sum(allocations)
+    if remainder <= 0:
+        return allocations
+
+    ranked_indexes = sorted(
+        range(len(raw_allocations)),
+        key=lambda index: raw_allocations[index] - allocations[index],
+        reverse=True,
+    )
+    for index in ranked_indexes[:remainder]:
+        allocations[index] += 1
+    return allocations
+
+
+def _provider_from_model_id(model_id: str | None) -> str:
+    model = (model_id or "").strip()
+    if "/" in model:
+        return model.split("/", 1)[0] or "openrouter"
+    return "openrouter"
+
+
+async def _ensure_ai_model_registry(prisma, *, model_id: str) -> Any:
+    existing = await prisma.aimodelregistry.find_unique(where={"modelId": model_id})
+    if existing:
+        return existing
+
+    provider = _provider_from_model_id(model_id)
+    try:
+        return await prisma.aimodelregistry.create(
+            data={
+                "modelId": model_id,
+                "provider": provider,
+                "displayName": model_id,
+                "isActive": True,
+                "isLocal": False,
+                "inputPricePer1M": Decimal("0"),
+                "outputPricePer1M": Decimal("0"),
+                "imagePricePer1K": Decimal("0"),
+                "supportsVision": True,
+                "supportsOcr": True,
+            }
+        )
+    except Exception:
+        existing = await prisma.aimodelregistry.find_unique(where={"modelId": model_id})
+        if existing:
+            return existing
+        raise
+
+
+async def _record_ai_usage_records(
+    *,
+    prisma,
+    document,
+    usage_chunks: list[OcrUsageChunk],
+    processing_ms: int | None,
+) -> None:
+    if not usage_chunks:
+        return
+
+    page_rows = await prisma.documentpage.find_many(
+        where={"documentId": document.id, "isExtractionSource": True},
+        order={"pageNo": "asc"},
+    )
+    page_id_by_no = {int(getattr(page, "pageNo", 0) or 0): str(page.id) for page in page_rows}
+    existing_usage_count = await prisma.aiusagerecord.count(where={"documentId": document.id})
+    is_retry = existing_usage_count > 0
+
+    for usage_chunk in usage_chunks:
+        model_id = str(usage_chunk.get("model") or "").strip()
+        if not model_id:
+            continue
+        model_registry = await _ensure_ai_model_registry(prisma, model_id=model_id)
+        provider = str(getattr(model_registry, "provider", "") or _provider_from_model_id(model_id))
+        input_price = _to_decimal(getattr(model_registry, "inputPricePer1M", None))
+        output_price = _to_decimal(getattr(model_registry, "outputPricePer1M", None))
+        image_price = _to_decimal(getattr(model_registry, "imagePricePer1K", None))
+
+        usage = usage_chunk.get("usage") or {}
+        prompt_tokens = _to_int(usage.get("prompt_tokens"))
+        completion_tokens = _to_int(usage.get("completion_tokens"))
+        total_tokens = _to_int(usage.get("total_tokens")) or prompt_tokens + completion_tokens
+        page_numbers = [int(page_no) for page_no in usage_chunk.get("page_numbers", [])]
+        image_sizes = [int(size) for size in usage_chunk.get("image_sizes", [])]
+        if not page_numbers:
+            continue
+
+        input_allocations = _allocate_count(prompt_tokens, image_sizes)
+        output_allocations = _allocate_count(completion_tokens, image_sizes)
+        total_allocations = _allocate_count(total_tokens, image_sizes)
+        image_allocations = [1 for _ in page_numbers]
+
+        for index, page_no in enumerate(page_numbers):
+            input_tokens = input_allocations[index] if index < len(input_allocations) else 0
+            output_tokens = output_allocations[index] if index < len(output_allocations) else 0
+            allocated_total = total_allocations[index] if index < len(total_allocations) else input_tokens + output_tokens
+            total_for_record = allocated_total or input_tokens + output_tokens
+            image_count = image_allocations[index]
+            input_cost = (Decimal(input_tokens) * input_price) / Decimal("1000000")
+            output_cost = (Decimal(output_tokens) * output_price) / Decimal("1000000")
+            image_cost = (Decimal(image_count) * image_price) / Decimal("1000")
+            await prisma.aiusagerecord.create(
+                data={
+                    "documentId": document.id,
+                    "pageId": page_id_by_no.get(page_no),
+                    "modelRegistryId": model_registry.id,
+                    "modelId": model_id,
+                    "provider": provider,
+                    "inputTokens": input_tokens,
+                    "outputTokens": output_tokens,
+                    "totalTokens": total_for_record,
+                    "imageCount": image_count,
+                    "snapshotInputPrice": input_price,
+                    "snapshotOutputPrice": output_price,
+                    "inputCostUsd": input_cost,
+                    "outputCostUsd": output_cost,
+                    "imageCostUsd": image_cost,
+                    "totalCostUsd": input_cost + output_cost + image_cost,
+                    "docType": getattr(document, "docType", None),
+                    "taskType": "ocr",
+                    "processingMs": processing_ms,
+                    "isRetry": is_retry,
+                }
+            )
+
+
 def _normalize_document_confidence(value: Any) -> float | None:
     if value is None or isinstance(value, bool):
         return None
@@ -684,7 +989,12 @@ def _normalize_document_confidence(value: Any) -> float | None:
     return max(0.0, min(1.0, confidence))
 
 
-def run_ocr(*, page_images: list[PageImage], prompt: str) -> dict[str, Any]:
+def run_ocr(
+    *,
+    page_images: list[PageImage],
+    prompt: str,
+    document_name: str | None = None,
+) -> dict[str, Any]:
     chunks = _chunk_page_images_for_ocr(page_images)
     if not chunks:
         return {"_usage": {}, "_model": None}
@@ -698,6 +1008,7 @@ def run_ocr(*, page_images: list[PageImage], prompt: str) -> dict[str, Any]:
 
     merged_payload: dict[str, Any] | None = None
     merged_usage: dict[str, Any] = {}
+    usage_chunks: list[OcrUsageChunk] = []
     model_name: str | None = None
 
     for chunk_index, chunk in enumerate(chunks, start=1):
@@ -708,8 +1019,9 @@ def run_ocr(*, page_images: list[PageImage], prompt: str) -> dict[str, Any]:
         )
         chunk_result = _run_openrouter_ocr_chunk(
             page_images=chunk["images"],
-            prompt=f"{prompt}\n\n{OCR_CONFIDENCE_PROMPT}",
+            prompt=f"{prompt}\n\n{SCHEMA_COMPLETENESS_PROMPT}\n\n{OCR_CONFIDENCE_PROMPT}",
             user_text=user_text,
+            document_name=document_name,
         )
         chunk_payload = {
             key: value
@@ -719,9 +1031,18 @@ def run_ocr(*, page_images: list[PageImage], prompt: str) -> dict[str, Any]:
         merged_payload = merge_extracted_records(merged_payload, chunk_payload)
         merged_usage = _merge_usage(merged_usage, chunk_result.get("_usage"))
         model_name = chunk_result.get("_model") or model_name
+        usage_chunks.append(
+            {
+                "page_numbers": chunk["page_numbers"],
+                "image_sizes": [_image_payload_size(image) for image in chunk["images"]],
+                "usage": chunk_result.get("_usage") or {},
+                "model": chunk_result.get("_model") or model_name,
+            }
+        )
 
     final_payload = merged_payload or {}
     final_payload["_usage"] = merged_usage
+    final_payload["_usage_chunks"] = usage_chunks
     final_payload["_model"] = model_name
     return final_payload
 
@@ -761,6 +1082,8 @@ async def run_post_upload_ocr(
     bucket: str,
     module: str,
     page_images: list[bytes] | None = None,
+    auto_validate: bool = False,
+    refresh_generated_drafts: bool = False,
 ) -> dict[str, Any]:
     print(
         f"[pipeline][start] documentId={document.id} bucket={bucket} module={module}",
@@ -768,8 +1091,12 @@ async def run_post_upload_ocr(
     )
     processor = _select_processor(bucket=bucket, module=module, document=document)
     if processor is None:
+        await prisma.document.update(
+            where={"id": document.id},
+            data={"status": "UPLOADED"},
+        )
         print(
-            f"[pipeline][skip] documentId={document.id} reason=unsupported_document_type",
+            f"[pipeline][skip] documentId={document.id} reason=unsupported_document_type status->UPLOADED",
             flush=True,
         )
         return {"status": "skipped", "reason": "unsupported_document_type"}
@@ -779,7 +1106,11 @@ async def run_post_upload_ocr(
     else:
         images = await load_page_images_for_document(prisma=prisma, document_id=document.id)
     if not images:
-        print(f"[pipeline][skip] documentId={document.id} reason=no_pages", flush=True)
+        await prisma.document.update(
+            where={"id": document.id},
+            data={"status": "UPLOADED"},
+        )
+        print(f"[pipeline][skip] documentId={document.id} reason=no_pages status->UPLOADED", flush=True)
         return {"status": "skipped", "reason": "no_pages"}
     print(f"[pipeline][pages] documentId={document.id} count={len(images)}", flush=True)
 
@@ -791,16 +1122,40 @@ async def run_post_upload_ocr(
 
     try:
         # OCR provider call is blocking (urllib); run it in a thread so API loop stays responsive.
+        ocr_started_at = time.perf_counter()
         raw_result = await asyncio.to_thread(
             run_ocr,
             page_images=images,
-            prompt=processor.build_prompt(),
+            prompt=_build_prisma_anchored_prompt(processor),
+            document_name=getattr(document, "fileName", None),
         )
+        ocr_processing_ms = max(0, int((time.perf_counter() - ocr_started_at) * 1000))
+        try:
+            await _record_ai_usage_records(
+                prisma=prisma,
+                document=document,
+                usage_chunks=raw_result.get("_usage_chunks") or [],
+                processing_ms=ocr_processing_ms,
+            )
+            print(
+                f"[pipeline][usage] documentId={document.id} records_written=True",
+                flush=True,
+            )
+        except Exception as usage_exc:
+            print(
+                f"[pipeline][usage] warning documentId={document.id} records_write_failed={usage_exc}",
+                flush=True,
+            )
         raw_payload = {
             k: v
             for k, v in raw_result.items()
             if not k.startswith("_") and k != "document_confidence"
         }
+        if processor.parse_result is parse_sales_invoice_result:
+            raw_payload = repair_container_assignments_from_grid(
+                raw_payload,
+                page_images=images,
+            )
         structured = processor.parse_result(raw_payload)
         # Persist normalized structured payload so frontend always receives the full
         # expected field shape (including null/default values), not sparse provider output.
@@ -840,6 +1195,66 @@ async def run_post_upload_ocr(
         )
         print(f"[pipeline][status] documentId={document.id} status=EXTRACTED", flush=True)
 
+        validation_result: dict[str, Any] | None = None
+        if auto_validate:
+            try:
+                from api.v1.uploads.router import auto_review_and_validate_document
+
+                validation_result = await auto_review_and_validate_document(
+                    prisma=prisma,
+                    document_id=str(document.id),
+                    user_id=str(document.uploadedBy),
+                )
+                print(
+                    f"[pipeline][reupload-validation] documentId={document.id} status={validation_result.get('status')}",
+                    flush=True,
+                )
+            except Exception as exc:
+                print(
+                    f"[pipeline][reupload-validation] warning documentId={document.id} error={exc}",
+                    flush=True,
+                )
+
+        if refresh_generated_drafts:
+            try:
+                from api.v1.doc_generation.router import refresh_generated_drafts_for_source_document
+
+                refreshed = await refresh_generated_drafts_for_source_document(
+                    prisma=prisma,
+                    source_document_id=str(document.id),
+                    user_id=str(document.uploadedBy),
+                )
+                print(
+                    f"[docgen][refresh] sourceDocumentId={document.id} refreshed={refreshed.get('updated', 0)}",
+                    flush=True,
+                )
+            except Exception as exc:
+                print(
+                    f"[docgen][refresh] warning sourceDocumentId={document.id}: {exc}",
+                    flush=True,
+                )
+
+        if str(getattr(document, "docType", "")).upper() == "SALES_INVOICE":
+            try:
+                from api.v1.doc_generation.router import ensure_packing_list_draft_for_sales_invoice
+
+                await ensure_doc_generation_views(prisma)
+                print(f"[docgen][views] ensured after sales invoice extraction documentId={document.id}", flush=True)
+                draft_id = await ensure_packing_list_draft_for_sales_invoice(
+                    prisma=prisma,
+                    sales_invoice_document_id=str(document.id),
+                    user_id=str(document.uploadedBy),
+                )
+                print(
+                    f"[docgen][auto] packing-list draft ready documentId={document.id} draftId={draft_id}",
+                    flush=True,
+                )
+            except Exception as exc:
+                print(
+                    f"[docgen][auto] warning: could not generate packing-list draft documentId={document.id}: {exc}",
+                    flush=True,
+                )
+
         print(
             f"[pipeline][done] documentId={document.id} extractionId={extraction.id}",
             flush=True,
@@ -849,6 +1264,7 @@ async def run_post_upload_ocr(
             "extractionId": extraction.id,
             "model": raw_result.get("_model"),
             "usage": raw_result.get("_usage"),
+            "validation": validation_result,
         }
     except Exception as exc:
         await prisma.document.update(
@@ -867,4 +1283,5 @@ __all__ = [
     "run_ocr",
     "run_openrouter_ocr",
     "run_post_upload_ocr",
+    "validate_ocr_schema_coverage",
 ]

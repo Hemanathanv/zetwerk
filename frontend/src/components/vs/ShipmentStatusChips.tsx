@@ -27,7 +27,7 @@ function StatusChip({ label, value, highlight, warn }: StatusChipProps) {
       borderRadius: 8,
       background: bg,
       border: `1px solid ${border}`,
-      fontSize: 12,
+      fontSize: 14,
       lineHeight: 1,
       flexShrink: 0,
     }}>

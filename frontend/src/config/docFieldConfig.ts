@@ -23,6 +23,7 @@ export interface FieldDef {
   label: string;
   mono?: boolean;
   critical?: boolean;
+  manual?: boolean;
 }
 
 export interface SectionDef {
@@ -243,6 +244,8 @@ const BILL_OF_LADING: DocTypeConfig = {
       fields: [
         { key: 'bolNumber', label: 'BOL Number', mono: true, critical: true },
         { key: 'shipmentReferenceNumber', label: 'Shipment Reference', mono: true },
+        { key: 'mblNumber', label: 'MBL No (either required)', mono: true, manual: true },
+        { key: 'bookingReferenceNumber', label: 'Booking Ref No (either required)', mono: true, manual: true },
         { key: 'negotiability', label: 'Negotiability' },
         { key: 'projectName', label: 'Project Name', critical: true },
         { key: 'documentCategory', label: 'Document Category' },
@@ -667,7 +670,7 @@ const OCEAN_FREIGHT: DocTypeConfig = {
 
 const ENTRY_SUMMARY: DocTypeConfig = {
   docType: 'ENTRY_SUMMARY',
-  displayName: 'Entry Summary (BOE)',
+  displayName: 'CBP FORM-7501',
   shortCode: 'BE',
   geography: 'US',
   crossValidationRules: ['V-BOE-01', 'V-BOE-02', 'V-BOE-03', 'V-BOE-04', 'V-BOE-05', 'V-BOE-06', 'V-BOE-07', 'V-BOE-08'],
@@ -731,7 +734,8 @@ const ENTRY_SUMMARY: DocTypeConfig = {
     {
       sectionLabel: 'Cargo',
       fields: [
-        { key: 'totalPackages', label: 'Total Packages', mono: true, critical: true },
+        { key: 'billQty', label: 'Bill Quantity', mono: true, critical: true },
+        { key: 'billQtyUnit', label: 'Quantity Unit' },
         { key: 'totalEnteredValue', label: 'Total Entered Value', mono: true, critical: true },
         { key: 'locationOfGoods', label: 'Location of Goods' },
       ],
@@ -763,7 +767,7 @@ const ENTRY_SUMMARY: DocTypeConfig = {
 };
 
 // ---------------------------------------------------------------
-// 9. CUSTOMER BROKER BILL
+// 9. CUSTOMS BROKER BILL
 // ---------------------------------------------------------------
 
 const CUSTOMER_BROKER_BILL: DocTypeConfig = {
@@ -1212,25 +1216,6 @@ const US_PACKING_LIST: DocTypeConfig = {
   ],
 };
 
-const ENTRY_SUMMARY_TARIFF_LINES: DocTypeConfig = {
-  docType: 'ENTRY_SUMMARY_TARIFF_LINES',
-  displayName: 'Entry Summary Tariff Lines',
-  shortCode: 'TL',
-  geography: 'US',
-  crossValidationRules: [],
-  sections: [
-    {
-      sectionLabel: 'Tariff Line',
-      fields: [
-        { key: 'filerCodeEntryNumber', label: 'Entry Number', mono: true },
-        { key: 'lineNo', label: 'Line Number', mono: true },
-        { key: 'lineMerchandiseDescription', label: 'Merchandise Description' },
-        { key: 'lineHtsusNumber', label: 'HTSUS Number', mono: true },
-      ],
-    },
-  ],
-};
-
 // ---------------------------------------------------------------
 // MASTER CONFIG MAP
 // ---------------------------------------------------------------
@@ -1244,7 +1229,6 @@ export const DOC_FIELD_CONFIG: Record<string, DocTypeConfig> = {
   FREIGHT_FORWARDER_BILL,
   OCEAN_FREIGHT,
   ENTRY_SUMMARY,
-  ENTRY_SUMMARY_TARIFF_LINES,
   CUSTOMER_BROKER_BILL,
   GRN_INBOUND,
   PORT_TO_WH,

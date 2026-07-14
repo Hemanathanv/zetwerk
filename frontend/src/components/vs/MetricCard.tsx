@@ -49,7 +49,7 @@ export function MetricCard({
     >
       <span
         className="uppercase font-medium tracking-widest"
-        style={{ fontSize: 11, letterSpacing: '0.06em', color: 'hsl(var(--muted-foreground))' }}
+        style={{ fontSize: 14.5, letterSpacing: '0.06em', color: 'hsl(var(--muted-foreground))' }}
       >
         {label}
       </span>
@@ -63,7 +63,7 @@ export function MetricCard({
 
       {subText && (
         <span
-          className="text-xs font-medium"
+          className="text-[13px] font-medium"
           style={{ color: subTextMap[subTextColor] }}
         >
           {subText}

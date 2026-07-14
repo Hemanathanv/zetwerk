@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
+from io import BytesIO
 import re
 from typing import Any, ClassVar
 
+from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 try:
     from prisma import Json
@@ -10,7 +12,7 @@ except ImportError:  # pragma: no cover - local schema tests can run before Pris
         return value
 
 from documents_ocr.sales_invoice.prompt import build_sales_invoice_prompt
-from documents_ocr.schema_loader import load_extraction_schema
+from documents_ocr.schema_loader import load_extraction_schema, upsert_extraction_with_children
 
 
 def _section_for_field(field_name: str) -> str:
@@ -128,6 +130,10 @@ _SCHEMA = load_extraction_schema(parent_model="SalesInvoiceExtraction")
 SCALAR_FIELDS = _SCHEMA.scalar_fields
 ARRAY_FIELDS = _SCHEMA.array_fields
 ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
+PROMPT_ARRAY_ITEM_FIELDS = {
+    name: [*fields, *(["containerRowSpan"] if name == "lineItems" else [])]
+    for name, fields in ARRAY_ITEM_FIELDS.items()
+}
 SECTION_FIELD_MAP = _build_section_field_map(SCALAR_FIELDS)
 
 PRODUCT_CODE_PATTERN = re.compile(r"\b[A-Z]{1,4}(?:\.[A-Z0-9]+){3,}\b")
@@ -144,6 +150,14 @@ PACKAGE_COUNT_PATTERN = re.compile(
     r"^(\d+)\s*(?:x\s*)?(PKGS?|PKG|PACKAGES?|NOS?|NO\.?|PCS?|BOX(?:ES)?|CARTONS?)\b(?:\s*[:\-]?\s*(.*))?$",
     re.IGNORECASE,
 )
+CONTAINER_NUMBER_PATTERN = re.compile(r"\b([A-Z]{4})[\s\-]*(\d[\d\s\-]{5,8}\d)\b", re.IGNORECASE)
+CONTAINER_SEAL_KEYS = (
+    "containerNoSealNo",
+    "containerSealNo",
+    "containerAndSealNo",
+    "containerSeal",
+    "containerNumberSealNumber",
+)
 
 ComplianceSection = _build_section_model("ComplianceSection", SECTION_FIELD_MAP["compliance"])
 EntitiesSection = _build_section_model("EntitiesSection", SECTION_FIELD_MAP["entities"])
@@ -155,7 +169,7 @@ FooterSection = _build_section_model("FooterSection", SECTION_FIELD_MAP["footer"
 
 class SalesInvoiceStructuredResult(BaseModel):
     model_config = ConfigDict(extra="allow")
-    __array_field_schema__: ClassVar[dict[str, list[str]]] = ARRAY_ITEM_FIELDS
+    __array_field_schema__: ClassVar[dict[str, list[str]]] = PROMPT_ARRAY_ITEM_FIELDS
 
     source: str | None = None
     documentType: str | None = "Sales Invoices"
@@ -300,6 +314,57 @@ def _normalize_signature(value: Any) -> str | None:
     return text
 
 
+def _normalize_container_number(value: Any) -> str | None:
+    text = _clean_text(value).upper()
+    match = CONTAINER_NUMBER_PATTERN.search(text)
+    if not match:
+        return None
+    digits = re.sub(r"\D", "", match.group(2))
+    return f"{match.group(1)}{digits}" if len(digits) == 7 else None
+
+
+def _repair_container_and_seal(item: dict[str, Any]) -> None:
+    """Split the invoice's combined CONTAINER NO / SEAL NO table cell."""
+    container = _normalize_container_number(item.get("containerNo"))
+    seal = _clean_text(item.get("sealNo"))
+
+    sources: list[str] = []
+    for key in ("containerNo", "sealNo", *CONTAINER_SEAL_KEYS):
+        value = _clean_text(item.get(key))
+        if value and value not in sources:
+            sources.append(value)
+    combined = " | ".join(sources)
+
+    embedded_container = _normalize_container_number(combined)
+    container = container or embedded_container
+
+    # Remove labels and the container token; the remaining compact token is
+    # the seal. This handles two-line cells, slashes, and labelled OCR output.
+    if not seal or _normalize_container_number(seal):
+        remainder = combined
+        remainder = re.sub(
+            r"\bCONTAINER(?:\s+(?:NUMBER|NO\.?))?\b|\bSEAL(?:\s+(?:NUMBER|NO\.?))?\b",
+            " ",
+            remainder,
+            flags=re.IGNORECASE,
+        )
+        if embedded_container:
+            prefix, digits = embedded_container[:4], embedded_container[4:]
+            remainder = re.sub(
+                rf"\b{re.escape(prefix)}[\s\-]*{r'[\s\-]*'.join(map(re.escape, digits))}\b",
+                " ",
+                remainder,
+                flags=re.IGNORECASE,
+            )
+        candidates = re.findall(r"\b[A-Z0-9][A-Z0-9\-]{4,}\b", remainder.upper())
+        seal = next((candidate for candidate in candidates if not _normalize_container_number(candidate)), "")
+
+    item["containerNo"] = container
+    item["sealNo"] = seal or None
+    for key in CONTAINER_SEAL_KEYS:
+        item.pop(key, None)
+
+
 def _repair_line_item_fields(item: dict[str, Any]) -> dict[str, Any]:
     item.pop("productPartNumber", None)
     item.pop("productSku", None)
@@ -372,6 +437,7 @@ def _repair_line_item_fields(item: dict[str, Any]) -> dict[str, Any]:
     if item.get("noOfPackages") is not None:
         item["noOfPackages"] = _normalize_package_count(item.get("noOfPackages"))
 
+    _repair_container_and_seal(item)
     return item
 
 
@@ -390,6 +456,185 @@ def _with_quantity_total(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for item in items:
         item["quantityTotal"] = formatted_total
     return items
+
+
+def _propagate_container_assignments(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Apply explicit merged-cell spans, then carry sparse anchors forward."""
+    for index, item in enumerate(items):
+        span_value = _parse_numeric_quantity(item.get("containerRowSpan"))
+        span = int(span_value) if span_value and span_value >= 1 else 0
+        container = _clean_text(item.get("containerNo"))
+        seal = _clean_text(item.get("sealNo"))
+        if span and (container or seal):
+            for covered in items[index : min(len(items), index + span)]:
+                covered["containerNo"] = container or None
+                covered["sealNo"] = seal or None
+
+    current_container: str | None = None
+    current_seal: str | None = None
+    for item in items:
+        item.pop("containerRowSpan", None)
+        container = _clean_text(item.get("containerNo"))
+        seal = _clean_text(item.get("sealNo"))
+        if container:
+            current_container = container
+            # A new container starts a new assignment; never retain the prior seal.
+            current_seal = seal or None
+        elif seal:
+            current_seal = seal
+
+        if current_container and not container:
+            item["containerNo"] = current_container
+        if current_seal and not seal:
+            item["sealNo"] = current_seal
+    return items
+
+
+def _cluster_positions(values: list[int], *, max_gap: int = 2) -> list[int]:
+    clusters: list[list[int]] = []
+    for value in values:
+        if not clusters or value > clusters[-1][-1] + max_gap:
+            clusters.append([value])
+        else:
+            clusters[-1].append(value)
+    return [round(sum(cluster) / len(cluster)) for cluster in clusters]
+
+
+def _find_line_item_row_borders(image: Image.Image, row_count: int) -> list[int]:
+    gray = image.convert("L")
+    width, height = gray.size
+    pixels = gray.load()
+    dark_limit = 120
+
+    horizontal_pixels: list[int] = []
+    for y in range(height):
+        dark = sum(1 for x in range(width) if pixels[x, y] < dark_limit)
+        if dark >= width * 0.55:
+            horizontal_pixels.append(y)
+    centers = _cluster_positions(horizontal_pixels)
+
+    best: tuple[float, list[int]] | None = None
+    needed = row_count + 1
+    for start in range(0, len(centers) - needed + 1):
+        candidate = centers[start : start + needed]
+        gaps = [candidate[index + 1] - candidate[index] for index in range(row_count)]
+        if not gaps or min(gaps) < 12:
+            continue
+        mean_gap = sum(gaps) / len(gaps)
+        if mean_gap > height * 0.12:
+            continue
+        deviation = sum(abs(gap - mean_gap) for gap in gaps) / (len(gaps) * mean_gap)
+        # Invoice line rows are almost evenly spaced. Prefer the longest,
+        # lowest-variance run when another table also has enough borders.
+        score = deviation - (mean_gap / height) * 0.05
+        if best is None or score < best[0]:
+            best = (score, candidate)
+    return best[1] if best and best[0] < 0.25 else []
+
+
+def _infer_container_spans_from_grid(
+    *,
+    image_bytes: bytes,
+    row_count: int,
+    group_count: int,
+) -> list[int]:
+    if row_count < 1 or group_count < 1 or group_count > row_count:
+        return []
+    image = Image.open(BytesIO(image_bytes)).convert("L")
+    borders = _find_line_item_row_borders(image, row_count)
+    if len(borders) != row_count + 1:
+        return []
+
+    pixels = image.load()
+    width, _ = image.size
+    top, bottom = borders[0], borders[-1]
+    vertical_pixels: list[int] = []
+    for x in range(width):
+        dark = sum(1 for y in range(top, bottom + 1) if pixels[x, y] < 120)
+        if dark >= (bottom - top) * 0.72:
+            vertical_pixels.append(x)
+    verticals = _cluster_positions(vertical_pixels)
+
+    candidates: list[tuple[float, list[int]]] = []
+    for left, right in zip(verticals, verticals[1:]):
+        if right - left < max(15, width * 0.025):
+            continue
+        inset = max(3, int((right - left) * 0.08))
+        sample_left, sample_right = left + inset, right - inset
+        if sample_right <= sample_left:
+            continue
+
+        group_boundaries: list[int] = []
+        strengths: list[float] = []
+        for row_boundary_index, y in enumerate(borders[1:-1], start=1):
+            best_ratio = 0.0
+            for sample_y in range(max(top, y - 2), min(bottom, y + 2) + 1):
+                dark = sum(
+                    1
+                    for x in range(sample_left, sample_right + 1)
+                    if pixels[x, sample_y] < 120
+                )
+                best_ratio = max(best_ratio, dark / (sample_right - sample_left + 1))
+            if best_ratio >= 0.70:
+                group_boundaries.append(row_boundary_index)
+                strengths.append(best_ratio)
+
+        if len(group_boundaries) != group_count - 1:
+            continue
+        edges = [0, *group_boundaries, row_count]
+        spans = [edges[index + 1] - edges[index] for index in range(len(edges) - 1)]
+        if any(span < 1 for span in spans):
+            continue
+        candidates.append((sum(strengths) / max(1, len(strengths)), spans))
+
+    if not candidates:
+        return []
+    candidates.sort(key=lambda candidate: candidate[0], reverse=True)
+    return candidates[0][1]
+
+
+def repair_container_assignments_from_grid(
+    payload: dict[str, Any],
+    *,
+    page_images: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Map container/seal groups using actual table borders in the page image."""
+    items = payload.get("lineItems")
+    if not isinstance(items, list) or not items or not page_images:
+        return payload
+    rows = [item for item in items if isinstance(item, dict)]
+    if len(rows) != len(items):
+        return payload
+
+    groups: list[tuple[str, str | None]] = []
+    for item in rows:
+        container = _normalize_container_number(item.get("containerNo"))
+        seal = _clean_text(item.get("sealNo")) or None
+        if not container:
+            continue
+        pair = (container, seal)
+        if not groups or groups[-1] != pair:
+            if pair not in groups:
+                groups.append(pair)
+    if not groups:
+        return payload
+
+    spans = _infer_container_spans_from_grid(
+        image_bytes=page_images[0]["bytes"],
+        row_count=len(rows),
+        group_count=len(groups),
+    )
+    if len(spans) != len(groups) or sum(spans) != len(rows):
+        return payload
+
+    row_index = 0
+    for (container, seal), span in zip(groups, spans):
+        for item in rows[row_index : row_index + span]:
+            item["containerNo"] = container
+            item["sealNo"] = seal
+            item.pop("containerRowSpan", None)
+        row_index += span
+    return payload
 
 
 def normalize_array_field_payload(*, value: Any, expected_fields: list[str]) -> list[dict[str, Any]]:
@@ -451,7 +696,9 @@ def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
         )
         if field_name == "lineItems":
             normalized[field_name] = _with_quantity_total(
-                [_repair_line_item_fields(item) for item in normalized[field_name]]
+                _propagate_container_assignments(
+                    [_repair_line_item_fields(item) for item in normalized[field_name]]
+                )
             )
 
     return normalized
@@ -484,7 +731,7 @@ def to_prisma_data(
         if value is None:
             data[field_name] = None
         else:
-            data[field_name] = Json(value)
+            data[field_name] = value
     data["rawData"] = Json(raw_data)
     data["extractedAt"] = datetime.now(timezone.utc)
     return data
@@ -492,49 +739,13 @@ def to_prisma_data(
 
 async def persist_extraction(*, prisma, document_id: str, result: SalesInvoiceStructuredResult, raw_data: dict[str, Any]):
     extraction_data = to_prisma_data(result=result, raw_data=raw_data)
-    create_data = {
-        **extraction_data,
-        "documentId": document_id,
-        "document": {"connect": {"id": document_id}},
-    }
-    # Compatibility fallback for stale generated Prisma clients:
-    # retry upsert by removing unknown fields reported in Prisma error text.
-    for _ in range(20):
-        try:
-            return await prisma.salesinvoiceextraction.upsert(
-                where={"documentId": document_id},
-                data={
-                    "create": create_data,
-                    "update": extraction_data,
-                },
-            )
-        except Exception as exc:
-            error_text = str(exc)
-            field_name: str | None = None
-
-            path_match = re.search(r"Could not find field at `[^`]*\.(\w+)`", error_text)
-            if path_match:
-                field_name = path_match.group(1)
-            else:
-                exists_match = re.search(r"Field does not exist in enclosing type\.\s*$", error_text)
-                if exists_match:
-                    legacy_match = re.search(r"`[^`]*\.(\w+)`", error_text)
-                    if legacy_match:
-                        field_name = legacy_match.group(1)
-            if not field_name:
-                unknown_match = re.search(r"Unknown (?:arg|field) `(\w+)`", error_text)
-                if unknown_match:
-                    field_name = unknown_match.group(1)
-            if not field_name:
-                raise
-            had_update_field = field_name in extraction_data
-            had_create_field = field_name in create_data
-            extraction_data.pop(field_name, None)
-            create_data.pop(field_name, None)
-            if not had_update_field and not had_create_field:
-                raise
-
-    raise RuntimeError("Failed to persist extraction after dropping unsupported fields")
+    return await upsert_extraction_with_children(
+        prisma=prisma,
+        model_accessor_name="salesinvoiceextraction",
+        schema=_SCHEMA,
+        document_id=document_id,
+        extraction_data=extraction_data,
+    )
 
 
 __all__ = [
@@ -544,4 +755,5 @@ __all__ = [
     "matches_sales_invoice",
     "parse_result",
     "persist_extraction",
+    "repair_container_assignments_from_grid",
 ]

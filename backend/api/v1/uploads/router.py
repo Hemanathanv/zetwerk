@@ -1,20 +1,39 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
+import json
 from pathlib import Path
 import re
 from typing import Any, Final
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 
 from db import get_prisma
 from documents_ocr.queue import (
+    cancel_ocr_job,
     enqueue_detection_job,
     enqueue_ocr_job,
     enqueue_upload_job,
     get_detection_status,
+)
+from doc_generation.db_setup import ensure_doc_generation_views
+from document_module.db_setup import ensure_document_module_views
+from documents_ocr.schema_loader import (
+    load_extraction_schema,
+    prisma_accessor_name,
+    upsert_extraction_with_children,
+)
+from documents_ocr.mandatory import validate_mandatory_fields
+from documents_ocr.cross_validation import (
+    get_rules_for_doc_type,
+    load_validation_rule_overrides,
+    run_cross_validation,
+)
+from documents_ocr.Bill_of_lading.container_mapping import (
+    build_container_mapping,
+    save_container_mapping,
 )
 from helpers.config import settings
 from helpers.dependencies import get_current_user
@@ -31,17 +50,18 @@ from objectstore import (
 
 router = APIRouter(prefix=settings.API_SLUG + "/uploads", tags=["Uploads"])
 legacy_router = APIRouter(prefix="/api/uploads", tags=["Uploads"])
+validation_router = APIRouter(prefix="/api/validation", tags=["Validation"])
 
 BACKEND_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_MODULE = "uploads"
 DETECTION_STAGING_MODULE = "auto-detect"
 MAX_BULK_CLASSIFY_FILES = 10
+ACTIVE_DOCUMENT_STALE_SECONDS = 15 * 60
 DOC_TYPE_VALUES: Final[set[str]] = {
     "SALES_INVOICE",
     "BILL_OF_LADING",
     "PACKING_LIST",
     "ENTRY_SUMMARY",
-    "ENTRY_SUMMARY_TARIFF_LINES",
     "OCEAN_FREIGHT",
     "FREIGHT_FORWARDER_BILL",
     "CUSTOMER_BROKER_BILL",
@@ -53,6 +73,7 @@ DOC_TYPE_VALUES: Final[set[str]] = {
     "US_CUSTOMS_RELEASE_ORDER",
     "US_DELIVERY_ORDER",
     "US_PACKING_LIST",
+    "ISF",
     "SHIPPING_BILL",
     "CHA_BILL",
 }
@@ -115,6 +136,9 @@ class DocumentListItem(BaseModel):
     id: str
     docType: str
     status: str
+    validationStatus: str | None = None
+    validationSummary: dict[str, Any] | None = None
+    validationResults: list[dict[str, Any]] = Field(default_factory=list)
     filePath: str
     fileName: str
     bucket: str
@@ -127,6 +151,30 @@ class DocumentListItem(BaseModel):
     isPDF: bool
     previewUrl: str | None
     ocrConfidence: float | None = None
+
+
+class DocumentListPagination(BaseModel):
+    page: int
+    pageSize: int
+    total: int
+    totalPages: int
+    hasNextPage: bool
+    hasPreviousPage: bool
+
+
+class DocumentListCounts(BaseModel):
+    total: int = 0
+    needsApproval: int = 0
+    processing: int = 0
+    crossValidating: int = 0
+    draftReview: int = 0
+    done: int = 0
+
+
+class DocumentListResponse(BaseModel):
+    documents: list[DocumentListItem]
+    pagination: DocumentListPagination
+    counts: DocumentListCounts
 
 
 class DocumentPageItem(BaseModel):
@@ -146,6 +194,7 @@ class DocumentExtractionItem(BaseModel):
     id: str
     documentId: str
     lineItems: list[dict[str, Any]] | None
+    arrays: dict[str, list[dict[str, Any]]] | None = None
     rawData: Any | None
     extractedAt: str | None
     reviewedBy: str | None
@@ -156,6 +205,9 @@ class DocumentDetailItem(BaseModel):
     id: str
     docType: str
     status: str
+    validationStatus: str | None = None
+    validationSummary: dict[str, Any] | None = None
+    validationResults: list[dict[str, Any]] = Field(default_factory=list)
     bucket: str
     objectKey: str
     fileName: str
@@ -181,10 +233,39 @@ class RetryOcrResponse(BaseModel):
     queue: str
 
 
+class ReuploadDocumentResponse(BaseModel):
+    status: str
+    message: str
+    documentId: str
+    queue: str
+
+
+class StopOcrResponse(BaseModel):
+    status: str
+    message: str
+    documentId: str
+    aborted: bool
+
+
+class UpdateExtractionRequest(BaseModel):
+    fields: dict[str, Any] = Field(default_factory=dict)
+    arrays: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+
+
+class ContainerAssignment(BaseModel):
+    lineItemId: str
+    containerNo: str | None = None
+
+
+class SaveContainerMappingRequest(BaseModel):
+    assignments: list[ContainerAssignment]
+
+
 class ApproveDocumentResponse(BaseModel):
     status: str
     message: str
     documentId: str
+    validation: dict[str, Any] | None = None
 
 
 def _storage_path(bucket: str, object_key: str) -> str:
@@ -214,7 +295,6 @@ DOC_TYPE_TO_EXTRACTION_RELATION: Final[dict[str, str]] = {
     "BILL_OF_LADING": "bolExtraction",
     "PACKING_LIST": "packingListExtraction",
     "ENTRY_SUMMARY": "entrySummaryExtraction",
-    "ENTRY_SUMMARY_TARIFF_LINES": "entrySummaryTariffLineExtraction",
     "OCEAN_FREIGHT": "oceanFreightExtraction",
     "FREIGHT_FORWARDER_BILL": "freightForwarderBillExtraction",
     "CUSTOMER_BROKER_BILL": "customerBrokerBillExtraction",
@@ -226,6 +306,7 @@ DOC_TYPE_TO_EXTRACTION_RELATION: Final[dict[str, str]] = {
     "US_CUSTOMS_RELEASE_ORDER": "usCustomsReleaseExtraction",
     "US_DELIVERY_ORDER": "usDeliveryOrderExtraction",
     "US_PACKING_LIST": "usPackingListExtraction",
+    "ISF": "isfExtraction",
     "SHIPPING_BILL": "shippingBillExtraction",
     "CHA_BILL": "chaBillExtraction",
 }
@@ -234,7 +315,6 @@ DOC_TYPE_TO_EXTRACTION_ACCESSOR: Final[dict[str, str]] = {
     "BILL_OF_LADING": "billoflading",
     "PACKING_LIST": "packinglistextraction",
     "ENTRY_SUMMARY": "entrysummaryextraction",
-    "ENTRY_SUMMARY_TARIFF_LINES": "entrysummarytarifflineextraction",
     "OCEAN_FREIGHT": "oceanfreightextraction",
     "FREIGHT_FORWARDER_BILL": "freightforwarderbillextraction",
     "CUSTOMER_BROKER_BILL": "customerbrokerbillextraction",
@@ -246,8 +326,29 @@ DOC_TYPE_TO_EXTRACTION_ACCESSOR: Final[dict[str, str]] = {
     "US_CUSTOMS_RELEASE_ORDER": "uscustomsreleaseextraction",
     "US_DELIVERY_ORDER": "usdeliveryorderextraction",
     "US_PACKING_LIST": "uspackinglistextraction",
+    "ISF": "isfextraction",
     "SHIPPING_BILL": "shippingbillextraction",
     "CHA_BILL": "chabillextraction",
+}
+DOC_TYPE_TO_PRISMA_PARENT_MODEL: Final[dict[str, str]] = {
+    "SALES_INVOICE": "SalesInvoiceExtraction",
+    "BILL_OF_LADING": "BillOfLading",
+    "PACKING_LIST": "PackingListExtraction",
+    "ENTRY_SUMMARY": "EntrySummaryExtraction",
+    "OCEAN_FREIGHT": "OceanFreightExtraction",
+    "FREIGHT_FORWARDER_BILL": "FreightForwarderBillExtraction",
+    "CUSTOMER_BROKER_BILL": "CustomerBrokerBillExtraction",
+    "GRN_INBOUND": "GrnInboundExtraction",
+    "PORT_TO_WH": "PortToWhExtraction",
+    "WH_TO_CUSTOMER": "WhToCustomerExtraction",
+    "US_SALES_INVOICE": "UsSalesInvoiceExtraction",
+    "US_CARGO_RELEASE_ORDER": "UsCargoReleaseExtraction",
+    "US_CUSTOMS_RELEASE_ORDER": "UsCustomsReleaseExtraction",
+    "US_DELIVERY_ORDER": "UsDeliveryOrderExtraction",
+    "US_PACKING_LIST": "UsPackingListExtraction",
+    "ISF": "IsfExtraction",
+    "SHIPPING_BILL": "ShippingBillExtraction",
+    "CHA_BILL": "ChaBillExtraction",
 }
 DOCUMENT_DETAIL_INCLUDE_FIELDS: Final[tuple[str, ...]] = (
     "pages",
@@ -255,7 +356,6 @@ DOCUMENT_DETAIL_INCLUDE_FIELDS: Final[tuple[str, ...]] = (
     "salesInvoiceExtraction",
     "packingListExtraction",
     "entrySummaryExtraction",
-    "entrySummaryTariffLineExtraction",
     "oceanFreightExtraction",
     "freightForwarderBillExtraction",
     "customerBrokerBillExtraction",
@@ -267,6 +367,7 @@ DOCUMENT_DETAIL_INCLUDE_FIELDS: Final[tuple[str, ...]] = (
     "usCustomsReleaseExtraction",
     "usDeliveryOrderExtraction",
     "usPackingListExtraction",
+    "isfExtraction",
     "shippingBillExtraction",
     "chaBillExtraction",
 )
@@ -280,6 +381,7 @@ LINE_ITEM_CANDIDATE_KEYS: Final[tuple[str, ...]] = (
     "containersList",
     "part2InvoiceDetails",
     "part3ItemDetails",
+    "manufacturers",
 )
 
 
@@ -370,6 +472,31 @@ def _to_iso(value) -> str | None:
         return str(value)
 
 
+async def _status_from_db_with_stale_recovery(*, prisma, row: Any) -> str:
+    status = str(getattr(row, "status", "") or "")
+    normalized = status.upper()
+    if normalized not in {"QUEUED", "PROCESSING", "REPROCESSING"}:
+        return status
+
+    updated_at = getattr(row, "updatedAt", None)
+    if not isinstance(updated_at, datetime):
+        return status
+    if updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - updated_at.astimezone(timezone.utc)).total_seconds()
+    if age_seconds < ACTIVE_DOCUMENT_STALE_SECONDS:
+        return status
+
+    try:
+        await prisma.document.update(
+            where={"id": str(row.id)},
+            data={"status": "UPLOADED"},
+        )
+        return "UPLOADED"
+    except Exception:
+        return status
+
+
 def _safe_pages(row) -> list[DocumentPageItem]:
     pages_value = getattr(row, "pages", None)
     if not isinstance(pages_value, list):
@@ -421,15 +548,42 @@ async def _fetch_extraction_direct(*, prisma, doc_type: str, document_id: str):
         return None
 
 
-def _serialize_extraction(extraction: object | None) -> DocumentExtractionItem | None:
+def _serialize_extraction(
+    extraction: object | None,
+    *,
+    doc_type: str | None = None,
+    child_arrays: dict[str, list[dict]] | None = None,
+) -> DocumentExtractionItem | None:
     if not extraction:
         return None
-    line_items = _coerce_line_items(_extract_line_items(extraction))
+    arrays = child_arrays or {}
+    line_items: list[dict] | None = None
+    for key in LINE_ITEM_CANDIDATE_KEYS:
+        if arrays.get(key):
+            line_items = arrays[key]
+            break
+    if line_items is None:
+        line_items = _coerce_line_items(_extract_line_items(extraction))
+
     raw_data = _coerce_json_compatible(getattr(extraction, "rawData", None))
+    raw_data = dict(raw_data) if isinstance(raw_data, dict) else {}
+    parent_model = DOC_TYPE_TO_PRISMA_PARENT_MODEL.get(str(doc_type or ""))
+    if parent_model:
+        try:
+            schema = load_extraction_schema(parent_model=parent_model)
+            for field_name in schema.scalar_fields:
+                raw_data[field_name] = _coerce_json_compatible(
+                    getattr(extraction, field_name, raw_data.get(field_name))
+                )
+        except Exception:
+            pass
+    raw_data.update(arrays)
+
     return DocumentExtractionItem(
         id=getattr(extraction, "id"),
         documentId=getattr(extraction, "documentId"),
         lineItems=line_items,
+        arrays=arrays or None,
         rawData=raw_data,
         extractedAt=(
             getattr(extraction, "extractedAt").isoformat()
@@ -443,6 +597,7 @@ def _serialize_extraction(extraction: object | None) -> DocumentExtractionItem |
             else None
         ),
     )
+
 
 
 def _unknown_include_field(error_text: str) -> str | None:
@@ -609,6 +764,8 @@ async def _create_document_record(
 
 
 def _bucket_slug_from_doc_type(doc_type: str) -> str:
+    if str(doc_type or "").strip().upper() == "CUSTOMER_BROKER_BILL":
+        return "customs-broker-bill"
     return normalize_bucket_name(doc_type.lower().replace("_", "-"))
 
 
@@ -811,6 +968,12 @@ async def upload_document(
             page_count=total_pages,
         )
         created_document_id = document.id
+        if normalized_doc_type == "SALES_INVOICE":
+            try:
+                await ensure_doc_generation_views(prisma)
+                print("[docgen][views] ensured after sales invoice upload", flush=True)
+            except Exception as exc:
+                print(f"[docgen][views] warning: could not ensure views after sales invoice upload: {exc}", flush=True)
 
         await enqueue_upload_job(
             document_id=document.id,
@@ -871,16 +1034,230 @@ async def upload_document(
         raise HTTPException(status_code=500, detail=f"Upload failed: {exc}")
 
 
-@router.get("/documents", response_model=list[DocumentListItem])
-async def list_documents(user=Depends(get_current_user)):
-    prisma = await get_prisma()
+DOCUMENT_LIST_PAGE_SIZE = 20
+DOCUMENT_SECTION_STATUS_FILTERS: Final[dict[str, set[str]]] = {
+    "needs-approval": {"EXTRACTED"},
+    "processing": {"QUEUED", "PROCESSING", "REPROCESSING"},
+    "cross-validating": {"REVIEWED"},
+    "draft-review": {"UPLOADED"},
+    "done": {"ARCHIVED", "REVIEWED"},
+}
+
+
+def _document_section_where(*, user_id: str, section: str) -> dict[str, Any]:
+    where: dict[str, Any] = {"uploadedBy": user_id, "isDeleted": False}
+    statuses = DOCUMENT_SECTION_STATUS_FILTERS.get(section)
+    if statuses:
+        where["status"] = {"in": sorted(statuses)}
+    return where
+
+
+async def _document_count(*, prisma, user_id: str, section: str) -> int:
+    if section in {"cross-validating", "done"}:
+        validation_done_clause = """
+            EXISTS (
+              SELECT 1
+              FROM "document_module"."document_validation_status" dvs
+              WHERE dvs."document_id" = d."id"::text
+                AND dvs."status" IN ('PASSED', 'WARNING')
+            )
+        """
+        if section == "done":
+            sql = f"""
+                SELECT COUNT(*) AS count
+                FROM "public"."documents" d
+                WHERE d."uploaded_by"::text = $1::text
+                  AND d."is_deleted" = false
+                  AND (
+                    d."status"::text = 'ARCHIVED'
+                    OR (d."status"::text = 'REVIEWED' AND {validation_done_clause})
+                  )
+            """
+        else:
+            sql = f"""
+                SELECT COUNT(*) AS count
+                FROM "public"."documents" d
+                WHERE d."uploaded_by"::text = $1::text
+                  AND d."is_deleted" = false
+                  AND d."status"::text = 'REVIEWED'
+                  AND NOT {validation_done_clause}
+            """
+        try:
+            await _ensure_cross_validation_tables(prisma)
+            rows = await prisma.query_raw(sql, user_id)
+            return int((rows[0] if rows else {}).get("count") or 0)
+        except Exception:
+            return 0
     try:
+        return int(await prisma.document.count(where=_document_section_where(user_id=user_id, section=section)))
+    except Exception:
+        return 0
+
+
+def _document_matches_section(status: str, validation_status: str | None, section: str) -> bool:
+    normalized_status = str(status or "").upper()
+    normalized_validation = str(validation_status or "").upper()
+    if section == "all":
+        return True
+    if section == "done":
+        return normalized_status == "ARCHIVED" or (
+            normalized_status == "REVIEWED" and normalized_validation in {"PASSED", "WARNING"}
+        )
+    if section == "cross-validating":
+        return normalized_status == "REVIEWED" and normalized_validation not in {"PASSED", "WARNING"}
+    statuses = DOCUMENT_SECTION_STATUS_FILTERS.get(section)
+    return normalized_status in (statuses or set())
+
+
+async def _document_validation_statuses(prisma, document_ids: list[str]) -> dict[str, str]:
+    if not document_ids:
+        return {}
+    try:
+        await _ensure_cross_validation_tables(prisma)
+        rows = await prisma.query_raw(
+            """
+            SELECT "document_id", "status"
+            FROM "document_module"."document_validation_status"
+            WHERE "document_id" = ANY($1::text[])
+            """,
+            document_ids,
+        )
+        return {str(row["document_id"]): str(row.get("status") or "") for row in rows}
+    except Exception:
+        return {}
+
+
+async def _document_validation_snapshots(prisma, document_ids: list[str]) -> dict[str, dict[str, Any]]:
+    if not document_ids:
+        return {}
+    try:
+        await _ensure_cross_validation_tables(prisma)
+        status_rows = await prisma.query_raw(
+            """
+            SELECT "document_id", "status", "summary", "total_rules",
+                   "blocking_failures", "warnings", "waiting"
+            FROM "document_module"."document_validation_status"
+            WHERE "document_id" = ANY($1::text[])
+            """,
+            document_ids,
+        )
+        snapshots: dict[str, dict[str, Any]] = {}
+        for row in status_rows:
+            document_id = str(row["document_id"])
+            summary = row.get("summary") or {}
+            if not isinstance(summary, dict):
+                summary = {}
+            snapshots[document_id] = {
+                "status": str(row.get("status") or ""),
+                "summary": {
+                    **summary,
+                    "total": int(row.get("total_rules") or summary.get("total") or 0),
+                    "blockingFailures": int(row.get("blocking_failures") or summary.get("blockingFailures") or 0),
+                    "warnings": int(row.get("warnings") or summary.get("warnings") or 0),
+                    "waiting": int(row.get("waiting") or summary.get("waiting") or 0),
+                },
+                "results": [],
+            }
+
+        result_rows = await prisma.query_raw(
+            """
+            SELECT
+              "document_id", "target_document_id", "rule_code", "source_doc_type",
+              "target_doc_type", "source_field", "target_field", "match_type",
+              "blocking_behavior", "status", "source_value", "target_value",
+              "delta", "alert_level", "result_payload", "updated_at"
+            FROM "document_module"."validation_results"
+            WHERE "document_id" = ANY($1::text[])
+            ORDER BY "document_id" ASC, "rule_code" ASC
+            """,
+            document_ids,
+        )
+        for row in result_rows:
+            document_id = str(row.get("document_id") or "")
+            if not document_id:
+                continue
+            payload = row.get("result_payload") or {}
+            if not isinstance(payload, dict):
+                payload = {}
+            snapshots.setdefault(document_id, {"status": "", "summary": None, "results": []})
+            snapshots[document_id]["results"].append(
+                {
+                    "targetDocumentId": row.get("target_document_id"),
+                    "ruleCode": row.get("rule_code"),
+                    "description": payload.get("description") or payload.get("rule_description") or row.get("rule_code"),
+                    "sourceDocType": row.get("source_doc_type"),
+                    "targetDocType": row.get("target_doc_type"),
+                    "sourceField": row.get("source_field"),
+                    "targetField": row.get("target_field"),
+                    "matchType": row.get("match_type"),
+                    "blockingBehavior": row.get("blocking_behavior"),
+                    "status": row.get("status"),
+                    "sourceValue": row.get("source_value"),
+                    "targetValue": row.get("target_value"),
+                    "delta": row.get("delta"),
+                    "alertLevel": row.get("alert_level"),
+                    "updatedAt": _to_iso(row.get("updated_at")),
+                }
+            )
+        return snapshots
+    except Exception:
+        return {}
+
+
+def _validation_snapshot_needs_refresh(snapshot: dict[str, Any]) -> bool:
+    if not snapshot.get("status"):
+        return True
+    summary = snapshot.get("summary") or {}
+    if int(summary.get("total") or 0) == 0:
+        return True
+    if str(snapshot.get("status") or "").upper() == "WAITING" or int(summary.get("waiting") or 0) > 0:
+        return True
+    stale_paths = {
+        "lineItems[].invoiceReferences",
+        "lineItems[].grossWeights",
+        "containersRaw",
+        "containers[]",
+    }
+    for result in snapshot.get("results") or []:
+        if result.get("sourceField") in stale_paths or result.get("targetField") in stale_paths:
+            return True
+    return False
+
+
+@router.get("/documents", response_model=DocumentListResponse)
+async def list_documents(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(DOCUMENT_LIST_PAGE_SIZE, alias="pageSize", ge=1, le=DOCUMENT_LIST_PAGE_SIZE),
+    section: str = Query("all"),
+    user=Depends(get_current_user),
+):
+    prisma = await get_prisma()
+    normalized_section = (section or "all").strip().lower()
+    if normalized_section not in {"all", *DOCUMENT_SECTION_STATUS_FILTERS.keys()}:
+        raise HTTPException(status_code=400, detail=f"Unsupported document section: {section!r}")
+
+    try:
+        where = _document_section_where(user_id=user.id, section=normalized_section)
+        total = int(await prisma.document.count(where=where))
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        safe_page = min(page, total_pages)
+        skip = (safe_page - 1) * page_size
         rows = await prisma.document.find_many(
-            where={"uploadedBy": user.id, "isDeleted": False},
+            where=where,
             order={"createdAt": "desc"},
+            skip=skip,
+            take=page_size,
+        )
+        validation_snapshots = await _document_validation_snapshots(
+            prisma,
+            [str(row.id) for row in rows],
         )
         documents: list[DocumentListItem] = []
         for row in rows:
+            status = await _status_from_db_with_stale_recovery(prisma=prisma, row=row)
+            validation_snapshot = validation_snapshots.get(str(row.id), {})
+            if not _document_matches_section(status, validation_snapshot.get("status"), normalized_section):
+                continue
             extraction = await _fetch_extraction_direct(
                 prisma=prisma,
                 doc_type=str(row.docType),
@@ -898,73 +1275,210 @@ async def list_documents(user=Depends(get_current_user)):
                     sizeBytes=int(row.sizeBytes),
                     createdAt=row.createdAt.isoformat() if row.createdAt else "",
                     updatedAt=row.updatedAt.isoformat() if row.updatedAt else "",
-                    status=str(row.status),
+                    validationStatus=validation_snapshot.get("status"),
+                    validationSummary=validation_snapshot.get("summary"),
+                    validationResults=validation_snapshot.get("results") or [],
+                    status=status,
                     pageCount=row.totalPages,
                     isPDF=row.contentType == "application/pdf" or row.fileName.lower().endswith(".pdf"),
                     previewUrl=_safe_download_url(row.bucket, row.objectKey),
                     ocrConfidence=_extract_ocr_confidence(extraction),
                 )
             )
-        return documents
+        counts = DocumentListCounts(
+            total=await _document_count(prisma=prisma, user_id=user.id, section="all"),
+            needsApproval=await _document_count(prisma=prisma, user_id=user.id, section="needs-approval"),
+            processing=await _document_count(prisma=prisma, user_id=user.id, section="processing"),
+            crossValidating=await _document_count(prisma=prisma, user_id=user.id, section="cross-validating"),
+            draftReview=await _document_count(prisma=prisma, user_id=user.id, section="draft-review"),
+            done=await _document_count(prisma=prisma, user_id=user.id, section="done"),
+        )
+        return DocumentListResponse(
+            documents=documents,
+            counts=counts,
+            pagination=DocumentListPagination(
+                page=safe_page,
+                pageSize=page_size,
+                total=total,
+                totalPages=total_pages,
+                hasNextPage=safe_page < total_pages,
+                hasPreviousPage=safe_page > 1,
+            ),
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch documents: {exc}")
+
+
+@router.get("/documents-approved")
+async def list_approved_documents_for_shipments(user=Depends(get_current_user)):
+    """Read the automatically updated document-module SQL view."""
+    prisma = await get_prisma()
+    await ensure_document_module_views(prisma)
+    projection = await prisma.query_raw(
+        """
+        SELECT document_id, doc_type, file_name, document_number,
+               gate_number, gate_code, is_parallel, approved_at,
+               extracted_at, extracted_data, shipment_id
+        FROM document_module.v_shipment_gate_documents
+        WHERE uploaded_by::text = $1::text
+        ORDER BY approved_at DESC
+        """,
+        str(user.id),
+    )
+    documents: list[dict[str, Any]] = []
+    for row in projection:
+        extracted_data = row.get("extracted_data") or {}
+        documents.append({
+            "id": str(row["document_id"]),
+            "documentType": row["doc_type"],
+            "documentNumber": row.get("document_number"),
+            "fileName": row["file_name"],
+            "status": "REVIEWED",
+            "approvedAt": _to_iso(row.get("approved_at")),
+            "extractedAt": _to_iso(row.get("extracted_at")),
+            "extractedData": extracted_data,
+            "shipmentId": row.get("shipment_id"),
+            "gateNumber": row.get("gate_number"),
+            "gateCode": row.get("gate_code"),
+            "isParallel": bool(row.get("is_parallel")),
+            "isGenerated": False,
+        })
+
+    generated_rows = await prisma.query_raw(
+        """
+        SELECT id, generated_doc_type, source_document_ids, rendered_payload,
+               updated_at
+        FROM docgen.drafts
+        WHERE status = 'GENERATED'::docgen."DocGenerationStatus"
+          AND created_by::text = $1::text
+        ORDER BY updated_at DESC
+        """,
+        str(user.id),
+    )
+    for row in generated_rows:
+        payload = row.get("rendered_payload") or {}
+        payload = payload if isinstance(payload, dict) else {}
+        flattened_fields: dict[str, Any] = {}
+        for section in payload.get("sections", []):
+            if not isinstance(section, dict):
+                continue
+            for field in section.get("fields", []):
+                if isinstance(field, dict) and field.get("targetField"):
+                    flattened_fields[str(field["targetField"])] = field.get("value")
+        extracted_data = {
+            **payload,
+            **flattened_fields,
+            "sourceDocumentIds": row.get("source_document_ids") or {},
+        }
+        generated_type = str(row.get("generated_doc_type") or "")
+        display_name = str(payload.get("displayName") or generated_type.replace("_", " ").title())
+        documents.append({
+            "id": str(row["id"]),
+            "documentType": generated_type,
+            "documentNumber": flattened_fields.get("invoiceNo"),
+            "fileName": f"{display_name}.pdf",
+            "status": "REVIEWED",
+            "approvedAt": _to_iso(row.get("updated_at")),
+            "extractedAt": _to_iso(row.get("updated_at")),
+            "extractedData": extracted_data,
+            "shipmentId": None,
+            "gateNumber": 1 if generated_type == "PACKING_LIST" else (
+                3 if generated_type == "ENTRY_SUMMARY" else 5
+            ),
+            "gateCode": "PL" if generated_type == "PACKING_LIST" else (
+                "BE" if generated_type == "ENTRY_SUMMARY" else "UP"
+            ),
+            "isParallel": False,
+            "isGenerated": True,
+        })
+    return {"ok": True, "data": documents, "meta": {"total": len(documents)}}
+
+
+@router.get("/documents/{document_id}/queue-item", response_model=DocumentListItem)
+async def get_document_queue_item(document_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    row = await prisma.document.find_first(
+        where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    validation_snapshot = (await _document_validation_snapshots(prisma, [str(row.id)])).get(str(row.id), {})
+    extraction = await _fetch_extraction_direct(
+        prisma=prisma,
+        doc_type=str(row.docType),
+        document_id=str(row.id),
+    )
+    status = await _status_from_db_with_stale_recovery(prisma=prisma, row=row)
+    return DocumentListItem(
+        id=row.id,
+        docType=str(row.docType),
+        filePath=_storage_path(row.bucket, row.objectKey),
+        fileName=row.fileName,
+        bucket=row.bucket,
+        objectKey=row.objectKey,
+        contentType=row.contentType,
+        sizeBytes=int(row.sizeBytes),
+        createdAt=row.createdAt.isoformat() if row.createdAt else "",
+        updatedAt=row.updatedAt.isoformat() if row.updatedAt else "",
+        validationStatus=validation_snapshot.get("status"),
+        validationSummary=validation_snapshot.get("summary"),
+        validationResults=validation_snapshot.get("results") or [],
+        status=status,
+        pageCount=row.totalPages,
+        isPDF=row.contentType == "application/pdf" or row.fileName.lower().endswith(".pdf"),
+        previewUrl=_safe_download_url(row.bucket, row.objectKey),
+        ocrConfidence=_extract_ocr_confidence(extraction),
+    )
 
 
 @router.get("/documents/{document_id}", response_model=DocumentDetailItem)
 async def get_document(document_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
 
-    base_row = None
     try:
-        base_row = await prisma.document.find_first(
+        row = await prisma.document.find_first(
+            where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
+            include={"pages": True},
+        )
+    except Exception:
+        row = await prisma.document.find_first(
             where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
         )
-        if not base_row:
-            raise HTTPException(status_code=404, detail="Document not found")
-
-        row = await _find_document_with_include_fallback(
-            prisma=prisma,
-            document_id=document_id,
-            user_id=user.id,
-        )
-        if not row:
-            row = base_row
-    except HTTPException:
-        raise
-    except Exception:
-        # Fail-open for viewer: return minimum metadata even if include/extraction
-        # loading fails, so frontend can still open and preview the document.
-        if not base_row:
-            try:
-                base_row = await prisma.document.find_first(
-                    where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
-                )
-            except Exception:
-                base_row = None
-        if not base_row:
-            raise HTTPException(status_code=404, detail="Document not found")
-        row = base_row
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found")
 
     doc_type = str(row.docType)
-    relation_name = DOC_TYPE_TO_EXTRACTION_RELATION.get(doc_type, "")
-    extraction_obj = getattr(row, relation_name, None) if relation_name else None
-    if extraction_obj is None:
-        extraction_obj = await _fetch_extraction_direct(
+    extraction_obj = await _fetch_extraction_direct(
+        prisma=prisma,
+        doc_type=doc_type,
+        document_id=str(row.id),
+    )
+    try:
+        child_arrays = await _fetch_extraction_child_arrays(
             prisma=prisma,
             doc_type=doc_type,
-            document_id=str(row.id),
+            extraction=extraction_obj,
         )
-    try:
-        extraction = _serialize_extraction(extraction_obj)
+        extraction = _serialize_extraction(
+            extraction_obj,
+            doc_type=doc_type,
+            child_arrays=child_arrays,
+        )
     except Exception:
         extraction = None
 
     sales_invoice_extraction = extraction if doc_type == "SALES_INVOICE" else None
     try:
+        status = await _status_from_db_with_stale_recovery(prisma=prisma, row=row)
+        validation_snapshot = (await _document_validation_snapshots(prisma, [str(row.id)])).get(str(row.id), {})
         return DocumentDetailItem(
             id=str(row.id),
             docType=str(row.docType),
-            status=str(row.status),
+            status=status,
+            validationStatus=validation_snapshot.get("status"),
+            validationSummary=validation_snapshot.get("summary"),
+            validationResults=validation_snapshot.get("results") or [],
             bucket=str(row.bucket),
             objectKey=str(row.objectKey),
             fileName=str(row.fileName),
@@ -984,6 +1498,110 @@ async def get_document(document_id: str, user=Depends(get_current_user)):
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to serialize document detail: {exc}")
+
+
+@router.patch("/documents/{document_id}/extraction")
+async def update_document_extraction(
+    document_id: str,
+    payload: UpdateExtractionRequest,
+    user=Depends(get_current_user),
+):
+    prisma = await get_prisma()
+    document = await prisma.document.find_first(
+        where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
+    )
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    doc_type = str(document.docType)
+    parent_model = DOC_TYPE_TO_PRISMA_PARENT_MODEL.get(doc_type)
+    accessor_name = DOC_TYPE_TO_EXTRACTION_ACCESSOR.get(doc_type)
+    if not parent_model or not accessor_name:
+        raise HTTPException(status_code=400, detail=f"Editing is not configured for {doc_type}")
+
+    schema = load_extraction_schema(parent_model=parent_model)
+    unknown_fields = set(payload.fields) - set(schema.scalar_fields)
+    unknown_arrays = set(payload.arrays) - set(schema.array_fields)
+    if unknown_fields or unknown_arrays:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Unsupported extraction fields",
+                "fields": sorted(unknown_fields),
+                "arrays": sorted(unknown_arrays),
+            },
+        )
+
+    extraction_data: dict[str, Any] = {
+        key: (None if value in ("", None) else str(value))
+        for key, value in payload.fields.items()
+    }
+    for array_name, rows in payload.arrays.items():
+        allowed = set(schema.array_item_fields.get(array_name, []))
+        extraction_data[array_name] = [
+            {
+                key: (None if value in ("", None) else str(value))
+                for key, value in row.items()
+                if key in allowed
+            }
+            for row in rows
+        ]
+
+    extraction = await upsert_extraction_with_children(
+        prisma=prisma,
+        model_accessor_name=accessor_name,
+        schema=schema,
+        document_id=document_id,
+        extraction_data=extraction_data,
+        strict_children=True,
+    )
+    return {
+        "ok": True,
+        "documentId": document_id,
+        "extractionId": str(extraction.id),
+    }
+
+
+@router.get("/documents/{document_id}/container-mapping")
+async def get_bol_container_mapping(
+    document_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, alias="pageSize", ge=1, le=100),
+    unmapped_only: bool = Query(False, alias="unmappedOnly"),
+    user=Depends(get_current_user),
+):
+    try:
+        return await build_container_mapping(
+            prisma=await get_prisma(),
+            bol_document_id=document_id,
+            uploaded_by=str(user.id),
+            page=page,
+            page_size=page_size,
+            unmapped_only=unmapped_only,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.patch("/documents/{document_id}/container-mapping")
+async def update_bol_container_mapping(
+    document_id: str,
+    payload: SaveContainerMappingRequest,
+    user=Depends(get_current_user),
+):
+    try:
+        return await save_container_mapping(
+            prisma=await get_prisma(),
+            bol_document_id=document_id,
+            uploaded_by=str(user.id),
+            assignments=[assignment.model_dump() for assignment in payload.assignments],
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/documents/{document_id}/retry", response_model=RetryOcrResponse)
@@ -1016,6 +1634,1000 @@ async def retry_document_ocr(document_id: str, user=Depends(get_current_user)):
     )
 
 
+@router.post("/documents/{document_id}/reupload", response_model=ReuploadDocumentResponse)
+async def reupload_document_for_validation(
+    document_id: str,
+    file: UploadFile = File(...),
+    refreshGeneratedDrafts: bool = Form(False),
+    user=Depends(get_current_user),
+):
+    prisma = await get_prisma()
+    document = await prisma.document.find_first(
+        where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
+    )
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    file_name = Path(file.filename or "reupload").name
+    suffix = Path(file_name).suffix.lower()
+    content_type = (file.content_type or "application/octet-stream").lower()
+    is_pdf = suffix == ".pdf" or content_type == "application/pdf"
+    total_pages = 1
+    if is_pdf:
+        try:
+            total_pages = len(PdfReader(BytesIO(file_bytes)).pages)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid PDF file: {exc}") from exc
+
+    doc_type = str(document.docType)
+    target_bucket = str(document.bucket)
+    target_module = _bucket_slug_from_doc_type(doc_type)
+    upload_time = datetime.now()
+    object_key = build_object_key(file_name, target_module, upload_time)
+
+    try:
+        upload_bytes(
+            body=file_bytes,
+            bucket=target_bucket,
+            object_key=object_key,
+            content_type=content_type,
+        )
+        await prisma.documentpage.delete_many(where={"documentId": document_id})
+        accessor = DOC_TYPE_TO_EXTRACTION_ACCESSOR.get(doc_type)
+        model_accessor = getattr(prisma, accessor, None) if accessor else None
+        if model_accessor is not None:
+            existing_extraction = await model_accessor.find_unique(where={"documentId": document_id})
+            if existing_extraction:
+                await model_accessor.update(
+                    where={"documentId": document_id},
+                    data={"reviewedBy": None, "reviewedAt": None},
+                )
+        await prisma.document.update(
+            where={"id": document_id},
+            data={
+                "status": "REPROCESSING",
+                "objectKey": object_key,
+                "fileName": file_name,
+                "contentType": content_type,
+                "sizeBytes": len(file_bytes),
+                "totalPages": total_pages,
+            },
+        )
+        await enqueue_upload_job(
+            document_id=document_id,
+            bucket=target_bucket,
+            module=target_module,
+            force_reprocess=True,
+            auto_validate=False,
+            refresh_generated_drafts=refreshGeneratedDrafts,
+        )
+    except Exception as exc:
+        try:
+            delete_document_object(target_bucket, object_key)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Failed to re-upload document: {exc}") from exc
+
+    return ReuploadDocumentResponse(
+        status="success",
+        message="Document re-upload queued for OCR and re-approval",
+        documentId=document_id,
+        queue="upload_worker",
+    )
+
+
+@router.post("/documents/{document_id}/stop", response_model=StopOcrResponse)
+async def stop_document_ocr(document_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    document = await prisma.document.find_first(
+        where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
+    )
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    current_status = str(document.status or "").upper()
+    if current_status not in {"UPLOADED", "QUEUED", "PROCESSING", "REPROCESSING"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"OCR cannot be stopped while document status is {current_status}",
+        )
+
+    aborted = await cancel_ocr_job(document_id)
+    await prisma.document.update(
+        where={"id": document_id},
+        data={"status": "REJECTED"},
+    )
+    return StopOcrResponse(
+        status="success",
+        message="OCR extraction stopped",
+        documentId=document_id,
+        aborted=aborted,
+    )
+
+
+async def _fetch_extraction_child_arrays(
+    *,
+    prisma,
+    doc_type: str,
+    extraction: object | None,
+) -> dict[str, list[dict]]:
+    if extraction is None:
+        return {}
+    parent_model = DOC_TYPE_TO_PRISMA_PARENT_MODEL.get(doc_type)
+    if not parent_model:
+        return {}
+    try:
+        schema = load_extraction_schema(parent_model=parent_model)
+    except Exception:
+        return {}
+    extraction_id = str(getattr(extraction, "id", "") or "")
+    if not extraction_id:
+        return {}
+
+    result: dict[str, list[dict]] = {}
+    for array_name in schema.array_fields:
+        child_model = schema.array_child_models.get(array_name)
+        parent_fk = schema.array_parent_fields.get(array_name)
+        fields = schema.array_item_fields.get(array_name, [])
+        if not child_model or not parent_fk or not fields:
+            continue
+        child_accessor = getattr(prisma, prisma_accessor_name(child_model), None)
+        if child_accessor is None:
+            continue
+        try:
+            rows = await child_accessor.find_many(where={parent_fk: extraction_id})
+        except Exception:
+            continue
+        normalized_rows: list[dict] = []
+        for row in rows or []:
+            normalized = {
+                field: _coerce_json_compatible(getattr(row, field, None))
+                for field in fields
+                if getattr(row, field, None) is not None
+            }
+            if normalized:
+                normalized_rows.append(normalized)
+        if normalized_rows:
+            result[array_name] = normalized_rows
+    return result
+
+
+async def _query_raw(prisma, sql: str, *params) -> list[dict[str, Any]]:
+    query_raw = getattr(prisma, "query_raw", None)
+    if query_raw is None:
+        raise RuntimeError("Prisma client has no query_raw")
+    return [dict(row) for row in await query_raw(sql, *params)]
+
+
+async def _execute_raw(prisma, sql: str, *params) -> Any:
+    execute_raw = getattr(prisma, "execute_raw", None)
+    if execute_raw is None:
+        raise RuntimeError("Prisma client has no execute_raw")
+    return await execute_raw(sql, *params)
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(_coerce_json_compatible(value), default=str)
+
+
+def _validation_value_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    coerced = _coerce_json_compatible(value)
+    if isinstance(coerced, (dict, list)):
+        return _json_dumps(coerced)
+    return str(coerced)
+
+
+async def _ensure_cross_validation_tables(prisma) -> None:
+    await _execute_raw(prisma, 'CREATE SCHEMA IF NOT EXISTS "document_module"')
+    await _execute_raw(prisma, 'CREATE SCHEMA IF NOT EXISTS "document_ocr"')
+    await _execute_raw(prisma, 'DROP VIEW IF EXISTS "document_ocr"."v_cross_validation_details"')
+    await _execute_raw(
+        prisma,
+        """
+        CREATE TABLE IF NOT EXISTS "document_module"."validation_rule_overrides" (
+          "template_id" TEXT NOT NULL,
+          "rule_code" TEXT NOT NULL,
+          "is_active" BOOLEAN,
+          "blocking_behavior" TEXT,
+          "tolerance" DOUBLE PRECISION,
+          "status_history" JSONB NOT NULL DEFAULT '[]'::jsonb,
+          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY ("template_id", "rule_code")
+        )
+        """,
+    )
+    await _execute_raw(
+        prisma,
+        """
+        CREATE TABLE IF NOT EXISTS "document_module"."validation_results" (
+          "id" TEXT PRIMARY KEY,
+          "shipment_id" TEXT NOT NULL,
+          "document_id" TEXT NOT NULL,
+          "target_document_id" TEXT,
+          "rule_code" TEXT NOT NULL,
+          "source_doc_type" TEXT NOT NULL,
+          "target_doc_type" TEXT NOT NULL,
+          "source_field" TEXT NOT NULL,
+          "target_field" TEXT NOT NULL,
+          "match_type" TEXT,
+          "blocking_behavior" TEXT NOT NULL,
+          "status" TEXT NOT NULL,
+          "source_value" TEXT,
+          "target_value" TEXT,
+          "delta" TEXT,
+          "alert_level" TEXT,
+          "result_payload" JSONB NOT NULL DEFAULT '{}'::jsonb,
+          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE ("shipment_id", "document_id", "rule_code")
+        )
+        """,
+    )
+    await _execute_raw(
+        prisma,
+        """
+        CREATE TABLE IF NOT EXISTS "document_module"."validation_tasks" (
+          "id" TEXT PRIMARY KEY,
+          "shipment_id" TEXT NOT NULL,
+          "document_id" TEXT NOT NULL,
+          "validation_result_id" TEXT,
+          "rule_code" TEXT NOT NULL,
+          "alert_level" TEXT NOT NULL,
+          "status" TEXT NOT NULL DEFAULT 'OPEN',
+          "title" TEXT NOT NULL,
+          "description" TEXT,
+          "assigned_role" TEXT,
+          "created_by" TEXT,
+          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE ("shipment_id", "document_id", "rule_code")
+        )
+        """,
+    )
+    await _execute_raw(
+        prisma,
+        """
+        CREATE TABLE IF NOT EXISTS "document_module"."document_validation_status" (
+          "document_id" TEXT PRIMARY KEY,
+          "shipment_id" TEXT NOT NULL,
+          "status" TEXT NOT NULL,
+          "summary" JSONB NOT NULL DEFAULT '{}'::jsonb,
+          "total_rules" INTEGER NOT NULL DEFAULT 0,
+          "blocking_failures" INTEGER NOT NULL DEFAULT 0,
+          "warnings" INTEGER NOT NULL DEFAULT 0,
+          "waiting" INTEGER NOT NULL DEFAULT 0,
+          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+    )
+    await _execute_raw(
+        prisma,
+        """
+        CREATE TABLE IF NOT EXISTS "document_ocr"."cross_validation_details" (
+          "id" TEXT PRIMARY KEY,
+          "shipment_id" TEXT NOT NULL,
+          "document_id" TEXT NOT NULL,
+          "target_document_id" TEXT,
+          "rule_code" TEXT NOT NULL,
+          "description" TEXT,
+          "source_doc_type" TEXT NOT NULL,
+          "target_doc_type" TEXT NOT NULL,
+          "source_field" TEXT NOT NULL,
+          "target_field" TEXT NOT NULL,
+          "match_type" TEXT,
+          "blocking_behavior" TEXT NOT NULL,
+          "status" TEXT NOT NULL,
+          "display_status" TEXT NOT NULL,
+          "display_order" INTEGER NOT NULL DEFAULT 50,
+          "source_value" TEXT,
+          "target_value" TEXT,
+          "delta" TEXT,
+          "alert_level" TEXT,
+          "result_payload" JSONB NOT NULL DEFAULT '{}'::jsonb,
+          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE ("shipment_id", "document_id", "rule_code")
+        )
+        """,
+    )
+    await _execute_raw(
+        prisma,
+        """
+        INSERT INTO "document_ocr"."cross_validation_details" (
+          "id", "shipment_id", "document_id", "target_document_id", "rule_code",
+          "description", "source_doc_type", "target_doc_type", "source_field", "target_field",
+          "match_type", "blocking_behavior", "status", "display_status", "display_order",
+          "source_value", "target_value", "delta", "alert_level", "result_payload", "updated_at"
+        )
+        SELECT
+          vr."id", vr."shipment_id", vr."document_id", vr."target_document_id", vr."rule_code",
+          COALESCE(
+            vr."result_payload" ->> 'description',
+            vr."result_payload" ->> 'ruleDescription',
+            vr."result_payload" ->> 'rule_description',
+            vr."rule_code"
+          ),
+          vr."source_doc_type", vr."target_doc_type", vr."source_field", vr."target_field",
+          vr."match_type", vr."blocking_behavior", vr."status",
+          CASE
+            WHEN vr."status" = 'PASS' THEN 'PASSED'
+            WHEN vr."status" = 'WAITING' THEN 'WAITING'
+            WHEN vr."blocking_behavior" = 'BLOCK' AND vr."status" IN ('FAIL', 'SKIPPED') THEN 'BLOCKED'
+            WHEN vr."blocking_behavior" = 'WARN' AND vr."status" IN ('FAIL', 'WARNING', 'SKIPPED') THEN 'WARNED'
+            WHEN vr."status" = 'SKIPPED' THEN 'SKIPPED'
+            ELSE vr."status"
+          END,
+          CASE
+            WHEN vr."blocking_behavior" = 'BLOCK' AND vr."status" IN ('FAIL', 'SKIPPED') THEN 10
+            WHEN vr."blocking_behavior" = 'WARN' AND vr."status" IN ('FAIL', 'WARNING', 'SKIPPED') THEN 20
+            WHEN vr."status" = 'WAITING' THEN 30
+            WHEN vr."status" = 'PASS' THEN 40
+            ELSE 50
+          END,
+          vr."source_value", vr."target_value", vr."delta", vr."alert_level", vr."result_payload", vr."updated_at"
+        FROM "document_module"."validation_results" vr
+        ON CONFLICT ("shipment_id", "document_id", "rule_code") DO UPDATE SET
+          "id" = EXCLUDED."id",
+          "target_document_id" = EXCLUDED."target_document_id",
+          "description" = EXCLUDED."description",
+          "source_doc_type" = EXCLUDED."source_doc_type",
+          "target_doc_type" = EXCLUDED."target_doc_type",
+          "source_field" = EXCLUDED."source_field",
+          "target_field" = EXCLUDED."target_field",
+          "match_type" = EXCLUDED."match_type",
+          "blocking_behavior" = EXCLUDED."blocking_behavior",
+          "status" = EXCLUDED."status",
+          "display_status" = EXCLUDED."display_status",
+          "display_order" = EXCLUDED."display_order",
+          "source_value" = EXCLUDED."source_value",
+          "target_value" = EXCLUDED."target_value",
+          "delta" = EXCLUDED."delta",
+          "alert_level" = EXCLUDED."alert_level",
+          "result_payload" = EXCLUDED."result_payload",
+          "updated_at" = EXCLUDED."updated_at"
+        """,
+    )
+
+
+async def _load_validation_rule_overrides_from_db(prisma) -> None:
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT "template_id", "rule_code", "is_active", "blocking_behavior",
+               "tolerance", "status_history", "updated_at"
+        FROM "document_module"."validation_rule_overrides"
+        """,
+    )
+    overrides: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        override: dict[str, Any] = {}
+        if row.get("is_active") is not None:
+            override["isActive"] = bool(row["is_active"])
+        if row.get("blocking_behavior"):
+            override["blockingBehavior"] = str(row["blocking_behavior"])
+        if row.get("tolerance") is not None:
+            override["tolerance"] = float(row["tolerance"])
+        override["statusHistory"] = row.get("status_history") or []
+        override["updatedAt"] = _to_iso(row.get("updated_at"))
+        overrides[(str(row["template_id"]), str(row["rule_code"]))] = override
+    load_validation_rule_overrides(overrides)
+
+
+def _document_is_reviewed(row: Any) -> bool:
+    return "REVIEWED" in str(getattr(row, "status", "") or "").upper()
+
+
+def _validation_payload_from_serialized(extraction: DocumentExtractionItem | None) -> dict[str, Any]:
+    if extraction is None:
+        return {}
+    raw_data = extraction.rawData if isinstance(extraction.rawData, dict) else {}
+    payload = dict(raw_data)
+    if extraction.arrays:
+        payload.update(extraction.arrays)
+    if extraction.lineItems and not payload.get("lineItems"):
+        payload["lineItems"] = extraction.lineItems
+    return payload
+
+
+def _sum_generated_line_item_numbers(line_items: list[dict[str, Any]], *keys: str) -> str | None:
+    total = 0.0
+    found = False
+    for item in line_items:
+        for key in keys:
+            value = item.get(key)
+            if value in (None, ""):
+                continue
+            match = re.search(r"-?\d+(?:,\d{3})*(?:\.\d+)?|-?\d+(?:\.\d+)?", str(value))
+            if not match:
+                continue
+            total += float(match.group(0).replace(",", ""))
+            found = True
+            break
+    return f"{total:g}" if found else None
+
+
+def _validation_payload_from_generated_draft(payload: dict[str, Any]) -> dict[str, Any]:
+    flattened: dict[str, Any] = {}
+    for section in payload.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        for field in section.get("fields") or []:
+            if isinstance(field, dict) and field.get("targetField"):
+                flattened[str(field["targetField"])] = field.get("value")
+
+    line_items = [item for item in payload.get("lineItems") or [] if isinstance(item, dict)]
+    flattened["lineItems"] = line_items
+    flattened["sourceDocumentIds"] = payload.get("sourceDocumentIds") or {}
+    if line_items:
+        flattened.setdefault("totalBundles", _sum_generated_line_item_numbers(line_items, "noOfBundles", "bundles"))
+        flattened.setdefault("totalQty", _sum_generated_line_item_numbers(line_items, "totalQtyInPcs", "quantity"))
+        flattened.setdefault("totalGrossWeightKgs", _sum_generated_line_item_numbers(line_items, "grossWeightKgs", "grossWeight"))
+        flattened.setdefault("totalNetWeightKgs", _sum_generated_line_item_numbers(line_items, "netWeightKgs", "netWeight"))
+    return {key: value for key, value in flattened.items() if value not in (None, "")}
+
+
+async def _validation_payload_for_document(prisma, *, doc_type: str, document_id: str) -> dict[str, Any]:
+    extraction = await _fetch_extraction_direct(prisma=prisma, doc_type=doc_type, document_id=document_id)
+    if extraction is None:
+        return {}
+    child_arrays = await _fetch_extraction_child_arrays(
+        prisma=prisma,
+        doc_type=doc_type,
+        extraction=extraction,
+    )
+    serialized = _serialize_extraction(extraction, doc_type=doc_type, child_arrays=child_arrays)
+    return _validation_payload_from_serialized(serialized)
+
+
+async def _collect_generated_validation_documents(
+    prisma,
+    *,
+    uploaded_by: str,
+    documents_by_type: dict[str, Any],
+    document_ids_by_type: dict[str, str],
+) -> None:
+    needed_types = {"PACKING_LIST", "ENTRY_SUMMARY", "US_PACKING_LIST"} - set(documents_by_type)
+    if not needed_types:
+        return
+    try:
+        rows = await _query_raw(
+            prisma,
+            """
+            SELECT id, generated_doc_type, rendered_payload
+            FROM docgen.drafts
+            WHERE generated_doc_type = ANY($1::text[])
+              AND status IN ('CONFIRMED'::docgen."DocGenerationStatus", 'GENERATED'::docgen."DocGenerationStatus")
+              AND created_by::text = $2::text
+            ORDER BY updated_at DESC
+            """,
+            sorted(needed_types),
+            uploaded_by,
+        )
+    except Exception as exc:
+        print(f"[cross-validation] generated draft collection skipped: {exc}", flush=True)
+        return
+    for row in rows:
+        generated_doc_type = str(row.get("generated_doc_type") or "")
+        if not generated_doc_type or generated_doc_type in documents_by_type:
+            continue
+        payload = row.get("rendered_payload") or {}
+        if not isinstance(payload, dict):
+            continue
+        validation_payload = _validation_payload_from_generated_draft(payload)
+        if validation_payload:
+            documents_by_type[generated_doc_type] = validation_payload
+            document_ids_by_type[generated_doc_type] = str(row.get("id") or "")
+
+
+def _shipment_id_from_payloads(*, source_doc_type: str, source_payload: dict[str, Any], documents_by_type: dict[str, Any], uploaded_by: str) -> str:
+    bol_payload = source_payload if source_doc_type == "BILL_OF_LADING" else documents_by_type.get("BILL_OF_LADING") or {}
+    bol_number = str(bol_payload.get("bolNumber") or bol_payload.get("billOfLadingNo") or "").strip()
+    shipped_date = str(bol_payload.get("shippedOnBoardDate") or bol_payload.get("bolDate") or "").strip()
+    if bol_number:
+        clean_bol = re.sub(r"[^A-Za-z0-9]+", "-", bol_number).strip("-")
+        clean_date = re.sub(r"[^A-Za-z0-9]+", "-", shipped_date).strip("-") if shipped_date else "pending-date"
+        return f"BOL-{clean_bol}-{clean_date}"
+    fallback = str(source_payload.get("shipmentId") or source_payload.get("projectName") or "").strip()
+    if fallback:
+        return f"SHIP-{re.sub(r'[^A-Za-z0-9]+', '-', fallback).strip('-')}"
+    return f"USER-{uploaded_by}"
+
+
+async def _collect_reviewed_validation_documents(
+    prisma,
+    *,
+    uploaded_by: str,
+    current_document_id: str,
+    current_doc_type: str,
+    current_payload: dict[str, Any],
+    preferred_document_ids_by_type: dict[str, str] | None = None,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    rows = await prisma.document.find_many(
+        where={"uploadedBy": uploaded_by, "isDeleted": False},
+        order={"updatedAt": "desc"},
+    )
+    documents_by_type: dict[str, Any] = {current_doc_type: current_payload}
+    document_ids_by_type: dict[str, str] = {current_doc_type: current_document_id}
+    preferred_types = {
+        str(doc_type or "").upper(): str(document_id or "")
+        for doc_type, document_id in (preferred_document_ids_by_type or {}).items()
+        if doc_type and document_id
+    }
+    for preferred_doc_type, preferred_document_id in preferred_types.items():
+        if preferred_doc_type in documents_by_type:
+            continue
+        row = await prisma.document.find_first(
+            where={
+                "id": preferred_document_id,
+                "uploadedBy": uploaded_by,
+                "isDeleted": False,
+                "docType": preferred_doc_type,
+            },
+        )
+        if not row or not _document_is_reviewed(row):
+            continue
+        payload = await _validation_payload_for_document(
+            prisma,
+            doc_type=preferred_doc_type,
+            document_id=preferred_document_id,
+        )
+        if payload:
+            documents_by_type[preferred_doc_type] = payload
+            document_ids_by_type[preferred_doc_type] = preferred_document_id
+    for row in rows or []:
+        doc_type = str(getattr(row, "docType", "") or "")
+        row_document_id = str(getattr(row, "id", "") or "")
+        if not doc_type or not row_document_id or doc_type in documents_by_type:
+            continue
+        if doc_type in preferred_types:
+            continue
+        if not _document_is_reviewed(row):
+            continue
+        payload = await _validation_payload_for_document(prisma, doc_type=doc_type, document_id=row_document_id)
+        if payload:
+            documents_by_type[doc_type] = payload
+            document_ids_by_type[doc_type] = row_document_id
+    await _collect_generated_validation_documents(
+        prisma,
+        uploaded_by=uploaded_by,
+        documents_by_type=documents_by_type,
+        document_ids_by_type=document_ids_by_type,
+    )
+    return documents_by_type, document_ids_by_type
+
+
+def _validation_overall_status(summary_dict: dict[str, Any]) -> str:
+    if int(summary_dict.get("blockingFailures") or 0) > 0:
+        return "BLOCKED"
+    if int(summary_dict.get("waiting") or 0) > 0:
+        return "WAITING"
+    if int(summary_dict.get("warnings") or 0) > 0:
+        return "WARNING"
+    return "PASSED"
+
+
+def _validation_display_status_and_order(*, status: str, blocking_behavior: str) -> tuple[str, int]:
+    normalized_status = str(status or "").upper()
+    normalized_behavior = str(blocking_behavior or "").upper()
+    if normalized_status == "PASS":
+        return "PASSED", 40
+    if normalized_status == "WAITING":
+        return "WAITING", 30
+    if normalized_behavior == "BLOCK" and normalized_status in {"FAIL", "SKIPPED"}:
+        return "BLOCKED", 10
+    if normalized_behavior == "WARN" and normalized_status in {"FAIL", "WARNING", "SKIPPED"}:
+        return "WARNED", 20
+    if normalized_status == "SKIPPED":
+        return "SKIPPED", 50
+    return normalized_status or "UNKNOWN", 50
+
+
+async def _persist_cross_validation_detail(
+    prisma,
+    *,
+    validation_result_id: str,
+    shipment_id: str,
+    document_id: str,
+    target_document_id: str | None,
+    result: dict[str, Any],
+) -> None:
+    status = str(result.get("status") or "")
+    blocking_behavior = str(result.get("blocking_behavior") or "")
+    display_status, display_order = _validation_display_status_and_order(
+        status=status,
+        blocking_behavior=blocking_behavior,
+    )
+    await _execute_raw(
+        prisma,
+        """
+        INSERT INTO "document_ocr"."cross_validation_details" (
+          "id", "shipment_id", "document_id", "target_document_id", "rule_code",
+          "description", "source_doc_type", "target_doc_type", "source_field", "target_field",
+          "match_type", "blocking_behavior", "status", "display_status", "display_order",
+          "source_value", "target_value", "delta", "alert_level", "result_payload", "updated_at"
+        )
+        VALUES (
+          $1, $2, $3, $4, $5,
+          $6, $7, $8, $9, $10,
+          $11, $12, $13, $14, $15,
+          $16, $17, $18, $19, $20::jsonb, NOW()
+        )
+        ON CONFLICT ("shipment_id", "document_id", "rule_code") DO UPDATE SET
+          "id" = EXCLUDED."id",
+          "target_document_id" = EXCLUDED."target_document_id",
+          "description" = EXCLUDED."description",
+          "source_doc_type" = EXCLUDED."source_doc_type",
+          "target_doc_type" = EXCLUDED."target_doc_type",
+          "source_field" = EXCLUDED."source_field",
+          "target_field" = EXCLUDED."target_field",
+          "match_type" = EXCLUDED."match_type",
+          "blocking_behavior" = EXCLUDED."blocking_behavior",
+          "status" = EXCLUDED."status",
+          "display_status" = EXCLUDED."display_status",
+          "display_order" = EXCLUDED."display_order",
+          "source_value" = EXCLUDED."source_value",
+          "target_value" = EXCLUDED."target_value",
+          "delta" = EXCLUDED."delta",
+          "alert_level" = EXCLUDED."alert_level",
+          "result_payload" = EXCLUDED."result_payload",
+          "updated_at" = NOW()
+        """,
+        validation_result_id,
+        shipment_id,
+        document_id,
+        target_document_id,
+        str(result.get("rule_code") or ""),
+        str(result.get("description") or result.get("rule_code") or ""),
+        str(result.get("source_doc_type") or ""),
+        str(result.get("target_doc_type") or ""),
+        str(result.get("source_field") or ""),
+        str(result.get("target_field") or ""),
+        str(result.get("match_type") or ""),
+        blocking_behavior,
+        status,
+        display_status,
+        display_order,
+        _validation_value_text(result.get("source_value")),
+        _validation_value_text(result.get("target_value")),
+        _validation_value_text(result.get("delta")),
+        result.get("alert_level"),
+        _json_dumps(result),
+    )
+
+
+async def _persist_validation_result(
+    prisma,
+    *,
+    shipment_id: str,
+    document_id: str,
+    target_document_id: str | None,
+    result: dict[str, Any],
+) -> str:
+    rows = await _query_raw(
+        prisma,
+        """
+        INSERT INTO "document_module"."validation_results" (
+          "id", "shipment_id", "document_id", "target_document_id", "rule_code",
+          "source_doc_type", "target_doc_type", "source_field", "target_field",
+          "match_type", "blocking_behavior", "status", "source_value", "target_value",
+          "delta", "alert_level", "result_payload", "updated_at"
+        )
+        VALUES (
+          $1, $2, $3, $4, $5,
+          $6, $7, $8, $9,
+          $10, $11, $12, $13, $14,
+          $15, $16, $17::jsonb, NOW()
+        )
+        ON CONFLICT ("shipment_id", "document_id", "rule_code") DO UPDATE SET
+          "target_document_id" = EXCLUDED."target_document_id",
+          "source_doc_type" = EXCLUDED."source_doc_type",
+          "target_doc_type" = EXCLUDED."target_doc_type",
+          "source_field" = EXCLUDED."source_field",
+          "target_field" = EXCLUDED."target_field",
+          "match_type" = EXCLUDED."match_type",
+          "blocking_behavior" = EXCLUDED."blocking_behavior",
+          "status" = EXCLUDED."status",
+          "source_value" = EXCLUDED."source_value",
+          "target_value" = EXCLUDED."target_value",
+          "delta" = EXCLUDED."delta",
+          "alert_level" = EXCLUDED."alert_level",
+          "result_payload" = EXCLUDED."result_payload",
+          "updated_at" = NOW()
+        RETURNING "id"
+        """,
+        str(uuid4()),
+        shipment_id,
+        document_id,
+        target_document_id,
+        str(result.get("rule_code") or ""),
+        str(result.get("source_doc_type") or ""),
+        str(result.get("target_doc_type") or ""),
+        str(result.get("source_field") or ""),
+        str(result.get("target_field") or ""),
+        str(result.get("match_type") or ""),
+        str(result.get("blocking_behavior") or ""),
+        str(result.get("status") or ""),
+        _validation_value_text(result.get("source_value")),
+        _validation_value_text(result.get("target_value")),
+        _validation_value_text(result.get("delta")),
+        result.get("alert_level"),
+        _json_dumps(result),
+    )
+    return str(rows[0]["id"]) if rows else ""
+
+
+async def _upsert_validation_task(
+    prisma,
+    *,
+    shipment_id: str,
+    document_id: str,
+    validation_result_id: str,
+    result: dict[str, Any],
+    created_by: str,
+) -> None:
+    alert_level = result.get("alert_level")
+    rule_code = str(result.get("rule_code") or "")
+    if not alert_level:
+        await _execute_raw(
+            prisma,
+            """
+            UPDATE "document_module"."validation_tasks"
+            SET "status" = 'RESOLVED', "updated_at" = NOW()
+            WHERE "shipment_id" = $1 AND "document_id" = $2 AND "rule_code" = $3 AND "status" = 'OPEN'
+            """,
+            shipment_id,
+            document_id,
+            rule_code,
+        )
+        return
+
+    title = f"{alert_level}: {rule_code}"
+    description = str(result.get("delta") or f"{rule_code} requires attention")
+    await _execute_raw(
+        prisma,
+        """
+        INSERT INTO "document_module"."validation_tasks" (
+          "id", "shipment_id", "document_id", "validation_result_id", "rule_code",
+          "alert_level", "status", "title", "description", "assigned_role", "created_by", "updated_at"
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'OPEN', $7, $8, 'ADMIN', $9, NOW())
+        ON CONFLICT ("shipment_id", "document_id", "rule_code") DO UPDATE SET
+          "validation_result_id" = EXCLUDED."validation_result_id",
+          "alert_level" = EXCLUDED."alert_level",
+          "status" = 'OPEN',
+          "title" = EXCLUDED."title",
+          "description" = EXCLUDED."description",
+          "assigned_role" = EXCLUDED."assigned_role",
+          "updated_at" = NOW()
+        """,
+        str(uuid4()),
+        shipment_id,
+        document_id,
+        validation_result_id,
+        rule_code,
+        str(alert_level),
+        title,
+        description,
+        created_by,
+    )
+
+
+async def _run_and_persist_document_validation(
+    prisma,
+    *,
+    document_id: str,
+    doc_type: str,
+    uploaded_by: str,
+    user_id: str,
+    current_payload: dict[str, Any] | None = None,
+    recheck_waiting_sources: bool = True,
+    ) -> dict[str, Any]:
+    await _ensure_cross_validation_tables(prisma)
+    await _load_validation_rule_overrides_from_db(prisma)
+    await _execute_raw(
+        prisma,
+        """
+        DELETE FROM "document_ocr"."cross_validation_details"
+        WHERE "document_id" = $1
+        """,
+        document_id,
+    )
+    await _execute_raw(
+        prisma,
+        """
+        DELETE FROM "document_module"."validation_tasks"
+        WHERE "document_id" = $1
+        """,
+        document_id,
+    )
+    await _execute_raw(
+        prisma,
+        """
+        DELETE FROM "document_module"."validation_results"
+        WHERE "document_id" = $1
+        """,
+        document_id,
+    )
+    source_payload = current_payload or await _validation_payload_for_document(
+        prisma,
+        doc_type=doc_type,
+        document_id=document_id,
+    )
+    documents_by_type, document_ids_by_type = await _collect_reviewed_validation_documents(
+        prisma,
+        uploaded_by=uploaded_by,
+        current_document_id=document_id,
+        current_doc_type=doc_type,
+        current_payload=source_payload,
+    )
+    shipment_id = _shipment_id_from_payloads(
+        source_doc_type=doc_type,
+        source_payload=source_payload,
+        documents_by_type=documents_by_type,
+        uploaded_by=uploaded_by,
+    )
+    rules = get_rules_for_doc_type(doc_type, template_id="breakbulk-template")
+    summary = run_cross_validation(
+        source_doc_type=doc_type,
+        documents_by_type=documents_by_type,
+        rules=rules,
+        master_data={
+            "importerOfRecord": "Unimacts Global LLC",
+        },
+    )
+    summary_dict = summary.to_dict()
+    for result_obj in summary.results:
+        result = result_obj.to_dict()
+        rule = next((item for item in rules if item.rule_code == result_obj.rule_code), None)
+        result["match_type"] = rule.match_type.value if rule else ""
+        result["description"] = rule.description if rule else result.get("rule_code")
+        target_doc_type = str(result.get("target_doc_type") or "")
+        target_document_id = None if target_doc_type in {"SELF", "MASTER_DATA"} else document_ids_by_type.get(target_doc_type)
+        validation_result_id = await _persist_validation_result(
+            prisma,
+            shipment_id=shipment_id,
+            document_id=document_id,
+            target_document_id=target_document_id,
+            result=result,
+        )
+        await _persist_cross_validation_detail(
+            prisma,
+            validation_result_id=validation_result_id,
+            shipment_id=shipment_id,
+            document_id=document_id,
+            target_document_id=target_document_id,
+            result=result,
+        )
+        await _upsert_validation_task(
+            prisma,
+            shipment_id=shipment_id,
+            document_id=document_id,
+            validation_result_id=validation_result_id,
+            result=result,
+            created_by=user_id,
+        )
+
+    overall_status = _validation_overall_status(summary_dict)
+    await _execute_raw(
+        prisma,
+        """
+        INSERT INTO "document_module"."document_validation_status" (
+          "document_id", "shipment_id", "status", "summary", "total_rules",
+          "blocking_failures", "warnings", "waiting", "updated_at"
+        )
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, NOW())
+        ON CONFLICT ("document_id") DO UPDATE SET
+          "shipment_id" = EXCLUDED."shipment_id",
+          "status" = EXCLUDED."status",
+          "summary" = EXCLUDED."summary",
+          "total_rules" = EXCLUDED."total_rules",
+          "blocking_failures" = EXCLUDED."blocking_failures",
+          "warnings" = EXCLUDED."warnings",
+          "waiting" = EXCLUDED."waiting",
+          "updated_at" = NOW()
+        """,
+        document_id,
+        shipment_id,
+        overall_status,
+        _json_dumps(summary_dict),
+        int(summary_dict.get("total") or 0),
+        int(summary_dict.get("blockingFailures") or 0),
+        int(summary_dict.get("warnings") or 0),
+        int(summary_dict.get("waiting") or 0),
+    )
+
+    if recheck_waiting_sources:
+        waiting_sources = await _query_raw(
+            prisma,
+            """
+            SELECT DISTINCT vr."document_id", d."doc_type"::text AS "doc_type"
+            FROM "document_module"."validation_results" vr
+            JOIN "public"."documents" d ON d."id"::text = vr."document_id"
+            WHERE vr."status" = 'WAITING'
+              AND vr."target_doc_type" = $1
+              AND d."uploaded_by"::text = $2::text
+              AND vr."document_id" <> $3
+            LIMIT 20
+            """,
+            doc_type,
+            uploaded_by,
+            document_id,
+        )
+        for row in waiting_sources:
+            await _run_and_persist_document_validation(
+                prisma,
+                document_id=str(row["document_id"]),
+                doc_type=str(row["doc_type"]),
+                uploaded_by=uploaded_by,
+                user_id=user_id,
+                recheck_waiting_sources=False,
+            )
+
+    return {
+        "shipmentId": shipment_id,
+        "status": overall_status,
+        **summary_dict,
+    }
+
+
+async def auto_review_and_validate_document(
+    *,
+    prisma,
+    document_id: str,
+    user_id: str,
+) -> dict[str, Any]:
+    document = await prisma.document.find_first(
+        where={"id": document_id, "uploadedBy": user_id, "isDeleted": False},
+    )
+    if not document:
+        raise LookupError("Document not found")
+
+    doc_type = str(document.docType)
+    accessor = DOC_TYPE_TO_EXTRACTION_ACCESSOR.get(doc_type)
+    if not accessor:
+        raise ValueError(f"Approval is not configured for {doc_type}")
+
+    model_accessor = getattr(prisma, accessor, None)
+    if model_accessor is None:
+        raise ValueError(f"Extraction model is not available for {doc_type}")
+
+    extraction = await model_accessor.find_unique(where={"documentId": document_id})
+    if not extraction:
+        raise LookupError("Extraction data not found for this document")
+
+    reviewed_at = datetime.now()
+    await model_accessor.update(
+        where={"documentId": document_id},
+        data={"reviewedBy": user_id, "reviewedAt": reviewed_at},
+    )
+    await prisma.document.update(
+        where={"id": document_id},
+        data={"status": "REVIEWED"},
+    )
+    child_arrays = await _fetch_extraction_child_arrays(
+        prisma=prisma,
+        doc_type=doc_type,
+        extraction=extraction,
+    )
+    current_payload = _validation_payload_from_serialized(
+        _serialize_extraction(extraction, doc_type=doc_type, child_arrays=child_arrays)
+    )
+    return await _run_and_persist_document_validation(
+        prisma,
+        document_id=document_id,
+        doc_type=doc_type,
+        uploaded_by=str(document.uploadedBy),
+        user_id=user_id,
+        current_payload=current_payload,
+    )
+
+
 @router.post("/documents/{document_id}/approve", response_model=ApproveDocumentResponse)
 async def approve_document_extraction(document_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
@@ -1038,6 +2650,28 @@ async def approve_document_extraction(document_id: str, user=Depends(get_current
     if not extraction:
         raise HTTPException(status_code=404, detail="Extraction data not found for this document")
 
+    parent_model = DOC_TYPE_TO_PRISMA_PARENT_MODEL.get(doc_type)
+    if not parent_model:
+        raise HTTPException(status_code=400, detail=f"Approval schema is not configured for {doc_type}")
+    schema = load_extraction_schema(parent_model=parent_model)
+    child_arrays = await _fetch_extraction_child_arrays(
+        prisma=prisma,
+        doc_type=doc_type,
+        extraction=extraction,
+    )
+    mandatory_result = validate_mandatory_fields(
+        parent_model=parent_model,
+        schema=schema,
+        extraction=extraction,
+        child_arrays=child_arrays,
+    )
+    if not mandatory_result.ok:
+        missing = ", ".join(mandatory_result.missing_fields)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing mandatory fields before approval: {missing}",
+        )
+
     reviewed_at = datetime.now()
     await model_accessor.update(
         where={"documentId": document_id},
@@ -1047,9 +2681,205 @@ async def approve_document_extraction(document_id: str, user=Depends(get_current
         where={"id": document_id},
         data={"status": "REVIEWED"},
     )
+    current_payload = _validation_payload_from_serialized(
+        _serialize_extraction(extraction, doc_type=doc_type, child_arrays=child_arrays)
+    )
+    validation = await _run_and_persist_document_validation(
+        prisma,
+        document_id=document_id,
+        doc_type=doc_type,
+        uploaded_by=str(document.uploadedBy),
+        user_id=str(user.id),
+        current_payload=current_payload,
+    )
 
     return ApproveDocumentResponse(
         status="success",
         message="Document extraction approved",
         documentId=document_id,
+        validation=validation,
     )
+
+
+async def _validation_results_for_user(prisma, *, uploaded_by: str, shipment_id: str | None = None, document_id: str | None = None) -> list[dict[str, Any]]:
+    await _ensure_cross_validation_tables(prisma)
+    filters = ['d."uploaded_by"::text = $1::text']
+    params: list[Any] = [uploaded_by]
+    if shipment_id:
+        params.append(shipment_id)
+        filters.append(f'v."shipment_id" = ${len(params)}')
+    if document_id:
+        params.append(document_id)
+        filters.append(f'v."document_id" = ${len(params)}')
+    rows = await _query_raw(
+        prisma,
+        f"""
+        SELECT
+          v."id",
+          v."shipment_id",
+          v."document_id",
+          v."target_document_id",
+          v."rule_code",
+          v."description",
+          v."source_doc_type",
+          v."target_doc_type",
+          v."source_field",
+          v."target_field",
+          v."match_type",
+          v."blocking_behavior",
+          v."status",
+          v."display_status",
+          v."source_value",
+          v."target_value",
+          v."delta",
+          v."alert_level",
+          v."result_payload",
+          v."updated_at"
+        FROM "document_ocr"."cross_validation_details" v
+        JOIN "public"."documents" d ON d."id"::text = v."document_id"
+        WHERE {" AND ".join(filters)}
+        ORDER BY v."display_order" ASC, v."rule_code" ASC
+        """,
+        *params,
+    )
+    return [
+        {
+            "id": row.get("id"),
+            "shipmentId": row.get("shipment_id"),
+            "documentId": row.get("document_id"),
+            "targetDocumentId": row.get("target_document_id"),
+            "ruleCode": row.get("rule_code"),
+            "description": row.get("description"),
+            "sourceDocType": row.get("source_doc_type"),
+            "targetDocType": row.get("target_doc_type"),
+            "sourceField": row.get("source_field"),
+            "targetField": row.get("target_field"),
+            "matchType": row.get("match_type"),
+            "blockingBehavior": row.get("blocking_behavior"),
+            "status": row.get("status"),
+            "displayStatus": row.get("display_status"),
+            "sourceValue": row.get("source_value"),
+            "targetValue": row.get("target_value"),
+            "delta": row.get("delta"),
+            "alertLevel": row.get("alert_level"),
+            "payload": row.get("result_payload") or {},
+            "updatedAt": _to_iso(row.get("updated_at")),
+        }
+        for row in rows
+    ]
+
+
+@validation_router.get("/shipments/{shipment_id}")
+async def list_validation_results_for_shipment(shipment_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    return {
+        "ok": True,
+        "data": await _validation_results_for_user(
+            prisma,
+            uploaded_by=str(user.id),
+            shipment_id=shipment_id,
+        ),
+    }
+
+
+@validation_router.get("/documents/{document_id}")
+async def list_validation_results_for_document(document_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    return {
+        "ok": True,
+        "data": await _validation_results_for_user(
+            prisma,
+            uploaded_by=str(user.id),
+            document_id=document_id,
+        ),
+    }
+
+
+@validation_router.get("/generated-drafts/{draft_id}")
+async def validate_generated_draft(draft_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    await _ensure_cross_validation_tables(prisma)
+    await _load_validation_rule_overrides_from_db(prisma)
+
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT id, generated_doc_type, source_document_ids, rendered_payload
+        FROM docgen.drafts
+        WHERE id::text = $1::text
+          AND created_by::text = $2::text
+        LIMIT 1
+        """,
+        draft_id,
+        str(user.id),
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Draft not found")
+
+    row = rows[0]
+    doc_type = str(row.get("generated_doc_type") or "").upper()
+    if doc_type not in {"PACKING_LIST", "US_PACKING_LIST", "ENTRY_SUMMARY"}:
+        raise HTTPException(status_code=400, detail=f"Validation is not configured for generated {doc_type or 'draft'}")
+
+    payload = row.get("rendered_payload") or {}
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=500, detail="Draft payload is invalid")
+
+    source_document_ids = payload.get("sourceDocumentIds") if isinstance(payload.get("sourceDocumentIds"), dict) else {}
+    if not source_document_ids and isinstance(row.get("source_document_ids"), dict):
+        source_document_ids = row.get("source_document_ids") or {}
+        payload["sourceDocumentIds"] = source_document_ids
+
+    current_payload = _validation_payload_from_generated_draft(payload)
+    documents_by_type, _document_ids_by_type = await _collect_reviewed_validation_documents(
+        prisma,
+        uploaded_by=str(user.id),
+        current_document_id=draft_id,
+        current_doc_type=doc_type,
+        current_payload=current_payload,
+        preferred_document_ids_by_type={
+            str(source_doc_type).upper(): str(source_document_id)
+            for source_doc_type, source_document_id in source_document_ids.items()
+            if source_doc_type and source_document_id
+        },
+    )
+
+    rules = get_rules_for_doc_type(doc_type, template_id="breakbulk-template")
+    summary = run_cross_validation(
+        source_doc_type=doc_type,
+        documents_by_type=documents_by_type,
+        rules=rules,
+        master_data={
+            "importerOfRecord": "Unimacts Global LLC",
+        },
+    )
+    summary_dict = summary.to_dict()
+    enriched_results: list[dict[str, Any]] = []
+    for result_obj in summary.results:
+        result = result_obj.to_dict()
+        rule = next((item for item in rules if item.rule_code == result_obj.rule_code), None)
+        enriched_results.append(
+            {
+                "ruleCode": result.get("rule_code"),
+                "description": rule.description if rule else result.get("rule_code"),
+                "sourceDocType": result.get("source_doc_type"),
+                "targetDocType": result.get("target_doc_type"),
+                "sourceField": result.get("source_field"),
+                "targetField": result.get("target_field"),
+                "matchType": rule.match_type.value if rule else result.get("match_type"),
+                "blockingBehavior": result.get("blocking_behavior"),
+                "status": result.get("status"),
+                "sourceValue": _validation_value_text(result.get("source_value")),
+                "targetValue": _validation_value_text(result.get("target_value")),
+                "delta": result.get("delta"),
+                "alertLevel": result.get("alert_level"),
+            }
+        )
+    summary_dict["results"] = enriched_results
+    return {
+        "ok": True,
+        "data": {
+            "status": _validation_overall_status(summary_dict),
+            **summary_dict,
+        },
+    }

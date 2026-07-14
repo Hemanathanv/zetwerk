@@ -27,13 +27,13 @@ export function NotificationsPage() {
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold">Notifications</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">System alerts, exceptions, and workflow updates</p>
+          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Notifications</h1>
+          <p className="text-[13px] text-muted-foreground mt-0.5">System alerts, exceptions, and workflow updates</p>
         </div>
         {unread > 0 && (
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-red-50 border border-red-200 dark:bg-red-900/20 dark:border-red-800">
             <Bell className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
-            <span className="text-xs font-semibold text-red-700 dark:text-red-400">{unread} unread</span>
+            <span className="text-[13px] font-semibold text-red-700 dark:text-red-400">{unread} unread</span>
           </div>
         )}
       </div>
@@ -48,8 +48,8 @@ export function NotificationsPage() {
             <div key={type} className={`rounded-lg border px-3 py-2.5 flex items-center gap-2.5 ${config.border}`} style={{ backgroundColor: 'hsl(var(--card))' }}>
               <div className={`p-1.5 rounded ${config.bg}`}><Icon className={`w-3.5 h-3.5 ${config.color}`} /></div>
               <div>
-                <p className="text-base font-bold">{count}</p>
-                <p className="text-[10px] text-muted-foreground capitalize">{config.label}</p>
+                <p className="text-lg font-bold">{count}</p>
+                <p className="text-[12px] text-muted-foreground capitalize">{config.label}</p>
               </div>
             </div>
           );
@@ -62,7 +62,7 @@ export function NotificationsPage() {
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`px-3 py-1 rounded-full text-xs font-medium capitalize transition-all ${filter === f ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
+            className={`px-3 py-1.5 rounded-full text-[13px] font-medium capitalize transition-all ${filter === f ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'}`}
           >
             {f === 'Unread' ? `Unread (${unread})` : f}
           </button>
@@ -90,17 +90,17 @@ export function NotificationsPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className={`text-sm font-semibold ${!n.isRead ? 'text-foreground' : 'text-muted-foreground'}`}>
+                    <p className={`text-[14.5px] font-semibold ${!n.isRead ? 'text-foreground' : 'text-muted-foreground'}`}>
                       {n.title}
                       {!n.isRead && (
                         <span className="ml-2 inline-block w-1.5 h-1.5 rounded-full bg-primary align-middle" />
                       )}
                     </p>
-                    <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{n.description}</p>
+                    <p className="text-[13px] text-muted-foreground mt-0.5 leading-snug">{n.description}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">{n.timestamp}</span>
-                    <span className="text-[10px] font-semibold text-primary">{n.shipmentId}</span>
+                    <span className="text-[12px] text-muted-foreground whitespace-nowrap">{n.timestamp}</span>
+                    <span className="text-[12px] font-semibold text-primary">{n.shipmentId}</span>
                   </div>
                 </div>
               </div>

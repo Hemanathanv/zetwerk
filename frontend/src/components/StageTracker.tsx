@@ -45,7 +45,7 @@ export function StageTracker({ activeStage = 2 }: StageTrackerProps) {
                   />
                 )}
                 <div
-                  className={`w-7 h-7 rounded-full flex items-center justify-center transition-all z-10 relative ${
+                  className={`w-8 h-8 rounded-full flex items-center justify-center transition-all z-10 relative ${
                     isCompleted
                       ? 'bg-primary'
                       : isActive
@@ -57,11 +57,11 @@ export function StageTracker({ activeStage = 2 }: StageTrackerProps) {
                   }}
                 >
                   {isCompleted ? (
-                    <Check className="w-3.5 h-3.5 text-primary-foreground" />
+                    <Check className="w-4 h-4 text-primary-foreground" />
                   ) : isActive ? (
-                    <span className="w-2.5 h-2.5 rounded-full bg-primary-foreground" />
+                    <span className="w-3 h-3 rounded-full bg-primary-foreground" />
                   ) : (
-                    <span className="w-2 h-2 rounded-full bg-muted-foreground/40" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-muted-foreground/40" />
                   )}
                 </div>
               </div>
@@ -79,16 +79,16 @@ export function StageTracker({ activeStage = 2 }: StageTrackerProps) {
             </div>
             {/* Label */}
             <p
-              className={`mt-2 text-center text-[10px] font-medium leading-tight px-1 ${
+              className={`mt-2 text-center text-[12px] font-medium leading-tight px-1 ${
                 isActive
                   ? 'text-primary'
                   : isCompleted
                   ? 'text-foreground/70'
                   : 'text-muted-foreground'
               }`}
-              style={{ maxWidth: 80 }}
+              style={{ maxWidth: 88 }}
             >
-              <span className="block text-[9px] font-bold uppercase tracking-wide mb-0.5 opacity-60">
+              <span className="block text-[13px] font-bold uppercase tracking-wide mb-0.5 opacity-60">
                 S{stage.id}
               </span>
               {stage.label}

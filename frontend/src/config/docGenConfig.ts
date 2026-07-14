@@ -316,7 +316,7 @@ const OUTWARD_PL_SCHEMA: DocGenSchema = {
 
 const DRAFT_BOE_SCHEMA: DocGenSchema = {
   docType:          'draft-boe',
-  displayName:      'Draft Bill of Entry',
+  displayName:      'Draft BOE',
   triggerCondition: 'Bill of Lading + Sales Invoice both extracted and approved',
   sourceDocs: [
     { docType: 'BILL_OF_LADING', label: 'Bill of Lading' },

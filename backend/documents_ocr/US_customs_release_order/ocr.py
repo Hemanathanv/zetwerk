@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from prisma import Json
 
 from documents_ocr.US_customs_release_order.prompt import build_us_customs_release_prompt
-from documents_ocr.schema_loader import load_extraction_schema
+from documents_ocr.schema_loader import load_extraction_schema, upsert_extraction_with_children
 
 
 _SCHEMA = load_extraction_schema(parent_model="UsCustomsReleaseExtraction")
@@ -183,7 +183,7 @@ def to_prisma_data(*, result: UsCustomsReleaseStructuredResult, raw_data: dict[s
         if value is None:
             data[field_name] = None
         else:
-            data[field_name] = Json(value)
+            data[field_name] = value
 
     data["rawData"] = Json(raw_data)
     data["extractedAt"] = datetime.now(timezone.utc)
@@ -192,46 +192,13 @@ def to_prisma_data(*, result: UsCustomsReleaseStructuredResult, raw_data: dict[s
 
 async def persist_extraction(*, prisma, document_id: str, result: UsCustomsReleaseStructuredResult, raw_data: dict[str, Any]):
     extraction_data = to_prisma_data(result=result, raw_data=raw_data)
-    create_data = {
-        **extraction_data,
-        "documentId": document_id,
-        "document": {"connect": {"id": document_id}},
-    }
-
-    for _ in range(20):
-        try:
-            return await prisma.uscustomsreleaseextraction.upsert(
-                where={"documentId": document_id},
-                data={
-                    "create": create_data,
-                    "update": extraction_data,
-                },
-            )
-        except Exception as exc:
-            error_text = str(exc)
-            field_name: str | None = None
-
-            path_match = re.search(r"Could not find field at `[^`]*\.(\w+)`", error_text)
-            if path_match:
-                field_name = path_match.group(1)
-            else:
-                path_match = re.search(r"`[^`]*\.(\w+)`", error_text)
-                if path_match and "Field does not exist in enclosing type" in error_text:
-                    field_name = path_match.group(1)
-            if not field_name:
-                unknown_match = re.search(r"Unknown (?:arg|field) `(\w+)`", error_text)
-                if unknown_match:
-                    field_name = unknown_match.group(1)
-            if not field_name:
-                raise
-            had_update_field = field_name in extraction_data
-            had_create_field = field_name in create_data
-            extraction_data.pop(field_name, None)
-            create_data.pop(field_name, None)
-            if not had_update_field and not had_create_field:
-                raise
-
-    raise RuntimeError("Failed to persist extraction after dropping unsupported fields")
+    return await upsert_extraction_with_children(
+        prisma=prisma,
+        model_accessor_name="uscustomsreleaseextraction",
+        schema=_SCHEMA,
+        document_id=document_id,
+        extraction_data=extraction_data,
+    )
 
 
 __all__ = [

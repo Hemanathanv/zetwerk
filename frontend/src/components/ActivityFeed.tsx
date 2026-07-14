@@ -34,7 +34,7 @@ export function ActivityFeed({ events }: ActivityFeedProps) {
           <div key={evt.id} className="flex gap-3 relative">
             {/* Dot + line */}
             <div className="flex flex-col items-center">
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${config.bg}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${config.bg}`}>
                 <span className={`w-2 h-2 rounded-full ${config.color.replace('text-', 'bg-').replace('dark:', '')}`} />
               </div>
               {!isLast && (
@@ -45,17 +45,17 @@ export function ActivityFeed({ events }: ActivityFeedProps) {
             {/* Content */}
             <div className="pb-3 flex-1 min-w-0">
               <div className="flex items-start justify-between gap-2">
-                <p className="text-sm text-foreground leading-snug">{evt.event}</p>
+                <p className="text-[14.5px] text-foreground leading-snug">{evt.event}</p>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide ${config.bg} ${config.color}`}>
+                  <span className={`text-[13px] font-bold px-2 py-0.5 rounded uppercase tracking-wide ${config.bg} ${config.color}`}>
                     {typeLabels[evt.type]}
                   </span>
                 </div>
               </div>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-[10px] text-muted-foreground">{evt.timestamp}</span>
+                <span className="text-[12px] text-muted-foreground">{evt.timestamp}</span>
                 <span className="text-muted-foreground/40">·</span>
-                <span className="text-[10px] font-medium text-muted-foreground">{evt.actor}</span>
+                <span className="text-[12px] font-medium text-muted-foreground">{evt.actor}</span>
               </div>
             </div>
           </div>

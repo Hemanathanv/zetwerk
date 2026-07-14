@@ -25,6 +25,7 @@ async def _run_detect_worker() -> None:
         max_tries=DetectWorkerSettings.max_tries,
         on_startup=DetectWorkerSettings.on_startup,
         on_shutdown=DetectWorkerSettings.on_shutdown,
+        handle_signals=False,
     )
     await worker.async_run()
 
@@ -39,6 +40,7 @@ async def _run_upload_worker() -> None:
         max_tries=UploadWorkerSettings.max_tries,
         on_startup=UploadWorkerSettings.on_startup,
         on_shutdown=UploadWorkerSettings.on_shutdown,
+        handle_signals=False,
     )
     await worker.async_run()
 
@@ -53,6 +55,7 @@ async def _run_ocr_worker() -> None:
         max_tries=OcrWorkerSettings.max_tries,
         on_startup=OcrWorkerSettings.on_startup,
         on_shutdown=OcrWorkerSettings.on_shutdown,
+        handle_signals=False,
     )
     await worker.async_run()
 

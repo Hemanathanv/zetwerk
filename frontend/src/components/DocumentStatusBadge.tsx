@@ -82,7 +82,7 @@ export function DocumentStatusBadge({ status, isStalled = false, className = '' 
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold select-none ${className}`}
+      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold select-none ${className}`}
       style={{ background: cfg.bg, color: cfg.color }}
     >
       {cfg.icon === 'warning' ? (

@@ -38,7 +38,7 @@ export function ProgressBar({ current, total, variant = 'default' }: ProgressBar
       <span
         className="vs-mono font-medium text-right flex-shrink-0"
         style={{
-          fontSize: 11,
+          fontSize: 14.5,
           minWidth: 34,
           color: 'hsl(var(--muted-foreground))',
         }}

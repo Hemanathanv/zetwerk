@@ -1,33 +1,14 @@
 import asyncio
 import json
-import mimetypes
 import sys
-from io import BytesIO
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from pdf2image import convert_from_bytes
+from documents_ocr.test_ocr_utils import page_images_from_input
 
 from documents_ocr.US_cargo_release_order.ocr import build_prompt, parse_result
 from documents_ocr.pipeline import run_ocr
-
-
-def _page_images_from_input(input_path: Path) -> list[dict]:
-    data = input_path.read_bytes()
-    mime_type, _ = mimetypes.guess_type(str(input_path))
-    mime_type = mime_type or "application/octet-stream"
-
-    if mime_type == "application/pdf" or input_path.suffix.lower() == ".pdf":
-        images = convert_from_bytes(data, dpi=200, fmt="png")
-        pages: list[dict] = []
-        for image in images:
-            buf = BytesIO()
-            image.save(buf, format="PNG")
-            pages.append({"bytes": buf.getvalue(), "mime_type": "image/png"})
-        return pages
-
-    return [{"bytes": data, "mime_type": mime_type}]
 
 
 def _prompt_for_input_path() -> Path:
@@ -50,7 +31,7 @@ def _prompt_for_input_path() -> Path:
 async def main() -> None:
     input_path = _prompt_for_input_path()
 
-    page_images = _page_images_from_input(input_path)
+    page_images = page_images_from_input(input_path)
     print(f"[run] OCR on {len(page_images)} page(s) from {input_path}")
 
     prompt = build_prompt()

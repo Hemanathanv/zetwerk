@@ -5,8 +5,8 @@ type StatusBadgeProps = {
 
 export function StatusBadge({ status, size = 'sm' }: StatusBadgeProps) {
   const base = size === 'sm'
-    ? 'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap'
-    : 'inline-flex items-center px-2.5 py-1 rounded text-sm font-medium whitespace-nowrap';
+    ? 'inline-flex items-center px-3 py-1 rounded-full text-[12px] font-medium whitespace-nowrap'
+    : 'inline-flex items-center px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap';
 
   const colorMap: Record<string, string> = {
     'Completed': 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',

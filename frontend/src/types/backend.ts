@@ -5,7 +5,6 @@ export type DocType =
   | "BILL_OF_LADING"
   | "PACKING_LIST"
   | "ENTRY_SUMMARY"
-  | "ENTRY_SUMMARY_TARIFF_LINES"
   | "OCEAN_FREIGHT"
   | "FREIGHT_FORWARDER_BILL"
   | "CUSTOMER_BROKER_BILL"
@@ -17,6 +16,7 @@ export type DocType =
   | "US_CUSTOMS_RELEASE_ORDER"
   | "US_DELIVERY_ORDER"
   | "US_PACKING_LIST"
+  | "ISF"
   | "SHIPPING_BILL"
   | "CHA_BILL";
 
@@ -24,11 +24,10 @@ export const DOC_TYPE_OPTIONS: Array<{ value: DocType; label: string }> = [
   { value: "SALES_INVOICE", label: "Sales Invoice" },
   { value: "BILL_OF_LADING", label: "Bill Of Lading" },
   { value: "PACKING_LIST", label: "Packing List" },
-  { value: "ENTRY_SUMMARY", label: "Entry Summary" },
-  { value: "ENTRY_SUMMARY_TARIFF_LINES", label: "Entry Summary Tariff Lines" },
+  { value: "ENTRY_SUMMARY", label: "CBP FORM-7501" },
   { value: "OCEAN_FREIGHT", label: "Ocean Freight" },
   { value: "FREIGHT_FORWARDER_BILL", label: "Freight Forwarder Bill" },
-  { value: "CUSTOMER_BROKER_BILL", label: "Customer Broker Bill" },
+  { value: "CUSTOMER_BROKER_BILL", label: "Customs Broker Bill" },
   { value: "GRN_INBOUND", label: "GRN Inbound" },
   { value: "PORT_TO_WH", label: "Port To WH" },
   { value: "WH_TO_CUSTOMER", label: "WH To Customer" },
@@ -37,6 +36,7 @@ export const DOC_TYPE_OPTIONS: Array<{ value: DocType; label: string }> = [
   { value: "US_CUSTOMS_RELEASE_ORDER", label: "US Customs Release Order" },
   { value: "US_DELIVERY_ORDER", label: "US Delivery Order" },
   { value: "US_PACKING_LIST", label: "US Packing List" },
+  { value: "ISF", label: "Importer Security Filing (ISF)" },
   { value: "SHIPPING_BILL", label: "Shipping Bill" },
   { value: "CHA_BILL", label: "CHA Bill" },
 ];
@@ -90,6 +90,32 @@ export type DocumentRecord = {
   id: string;
   docType: DocType;
   status: DocumentStatus;
+  validationStatus?: "PASSED" | "WARNING" | "BLOCKED" | "WAITING" | string | null;
+  validationSummary?: {
+    total?: number;
+    passed?: number;
+    failed?: number;
+    warnings?: number;
+    waiting?: number;
+    skipped?: number;
+    blockingFailures?: number;
+  } | null;
+  validationResults?: Array<{
+    ruleCode?: string | null;
+    description?: string | null;
+    sourceDocType?: string | null;
+    targetDocType?: string | null;
+    sourceField?: string | null;
+    targetField?: string | null;
+    matchType?: string | null;
+    blockingBehavior?: string | null;
+    status?: string | null;
+    sourceValue?: string | null;
+    targetValue?: string | null;
+    delta?: string | null;
+    alertLevel?: string | null;
+    updatedAt?: string | null;
+  }>;
   filePath: string;
   fileName: string;
   bucket: string;
@@ -102,6 +128,30 @@ export type DocumentRecord = {
   isPDF: boolean;
   previewUrl: string | null;
   ocrConfidence: number | null;
+};
+
+export type DocumentListCounts = {
+  total: number;
+  needsApproval: number;
+  processing: number;
+  crossValidating: number;
+  draftReview: number;
+  done: number;
+};
+
+export type DocumentListPagination = {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+};
+
+export type DocumentListResponse = {
+  documents: DocumentRecord[];
+  pagination: DocumentListPagination;
+  counts: DocumentListCounts;
 };
 
 export type DocumentClassificationResponse = {
@@ -164,6 +214,7 @@ export type SalesInvoiceExtractionRecord = {
   id: string;
   documentId: string;
   lineItems: Array<Record<string, JsonValue>> | null;
+  arrays?: Record<string, Array<Record<string, JsonValue>>> | null;
   rawData: JsonValue | null;
   extractedAt: string | null;
   reviewedBy: string | null;
@@ -174,6 +225,9 @@ export type DocumentDetailRecord = {
   id: string;
   docType: DocType;
   status: DocumentStatus;
+  validationStatus?: "PASSED" | "WARNING" | "BLOCKED" | "WAITING" | string | null;
+  validationSummary?: DocumentRecord["validationSummary"];
+  validationResults?: DocumentRecord["validationResults"];
   bucket: string;
   objectKey: string;
   fileName: string;
@@ -190,6 +244,64 @@ export type DocumentDetailRecord = {
   pages: DocumentPageRecord[];
   extraction: SalesInvoiceExtractionRecord | null;
   salesInvoiceExtraction: SalesInvoiceExtractionRecord | null;
+};
+
+export type ApprovalValidationSummary = {
+  shipmentId?: string;
+  status?: "PASSED" | "WARNING" | "WAITING" | "BLOCKED" | string;
+  total?: number;
+  passed?: number;
+  failed?: number;
+  warnings?: number;
+  waiting?: number;
+  blockingFailures?: number;
+  okToProgress?: boolean;
+  alerts?: Array<Record<string, unknown>>;
+};
+
+export type ApproveDocumentResponse = {
+  status: string;
+  message: string;
+  documentId: string;
+  validation?: ApprovalValidationSummary | null;
+};
+
+export type ContainerMappingRow = {
+  lineItemId: string;
+  packingListDocumentId: string;
+  invoiceNumber: string | null;
+  containerNo: string | null;
+  productCode: string | null;
+  description: string | null;
+  specification: string | null;
+  totalQtyInPcs: string | null;
+  qtyPerBundle: string | null;
+  totalBundles: string | null;
+  netWeightKgs: string | null;
+  grossWeightKgs: string | null;
+};
+
+export type ContainerMappingResponse = {
+  bolDocumentId: string;
+  invoiceNumbers: string[];
+  containers: string[];
+  matchedPackingLists: number;
+  unmappedCount: number;
+  rows: ContainerMappingRow[];
+  totals: {
+    totalQtyInPcs: number;
+    totalBundles: number;
+    netWeightKgs: number;
+    grossWeightKgs: number;
+  };
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+  };
 };
 
 export type AdminStorageFile = {

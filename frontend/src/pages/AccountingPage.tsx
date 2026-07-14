@@ -50,7 +50,7 @@ const TICKETS: TicketData[] = [
   },
   {
     id: 'AE-06-8818', fdNum: '44818',
-    type: 'US DUTY', title: 'BOE duty booking · Folgueras Customs', priority: 'URGENT',
+    type: 'US DUTY', title: 'CBP FORM-7501 duty booking · Folgueras Customs', priority: 'URGENT',
     reference: 'Entry E4W-00368291 · Shipment J44CES25090015 · BOL SMAA00214450',
     vendorLabel: 'Vendor', vendorName: 'Folgueras Customs', vendorSub: 'US broker',
     amountValue: '$20,194', amountSub: 'Duty + MPF + HMF',
@@ -67,7 +67,7 @@ const TICKETS: TicketData[] = [
       { type: 'Dr', account: 'Harbor Maintenance Fee (HMF)',                    amount: '50.02' },
       { type: 'Cr', account: 'Accounts Payable — Folgueras Customs',           amount: '20,194.11' },
     ],
-    actions: ['View BOE', 'Edit entry', 'Post to ERP ↗'],
+    actions: ['View CBP FORM-7501', 'Edit entry', 'Post to ERP ↗'],
   },
   {
     id: 'AE-03-8819', fdNum: '44819',
@@ -121,9 +121,9 @@ function Pill({ text, style }: { text: string; style: { bg: string; color: strin
   return (
     <span
       style={{
-        fontSize: 10,
+        fontSize: 14.5,
         fontWeight: 600,
-        padding: '2px 8px',
+        padding: '3px 9px',
         borderRadius: 999,
         textTransform: 'uppercase',
         letterSpacing: '0.04em',
@@ -159,7 +159,7 @@ function ExpandedSection({ ticket }: { ticket: TicketData }) {
             <div key={cell.label}>
               <div
                 style={{
-                  fontSize: 10,
+                  fontSize: 14.5,
                   fontWeight: 500,
                   textTransform: 'uppercase',
                   letterSpacing: '0.07em',
@@ -197,7 +197,7 @@ function ExpandedSection({ ticket }: { ticket: TicketData }) {
         >
           <div
             style={{
-              fontSize: 10,
+              fontSize: 14.5,
               fontWeight: 600,
               textTransform: 'uppercase',
               letterSpacing: '0.1em',
@@ -213,8 +213,8 @@ function ExpandedSection({ ticket }: { ticket: TicketData }) {
               style={{
                 display: 'grid',
                 gridTemplateColumns: '40px 1fr 110px',
-                fontSize: 12,
-                padding: '5px 0',
+                fontSize: 14.5,
+                padding: '6px 0',
                 borderBottom: i < ticket.journal!.length - 1 ? '1px solid hsl(220 14% 95%)' : 'none',
                 alignItems: 'center',
               }}
@@ -222,19 +222,19 @@ function ExpandedSection({ ticket }: { ticket: TicketData }) {
               <span
                 className="vs-mono"
                 style={{
-                  fontSize: 11,
+                  fontSize: 14,
                   fontWeight: 700,
                   color: row.type === 'Dr' ? 'hsl(221 83% 45%)' : 'hsl(var(--vs-teal-dark))',
                 }}
               >
                 {row.type}
               </span>
-              <span style={{ fontSize: 12, color: 'hsl(var(--foreground))' }}>
+              <span style={{ fontSize: 14.5, color: 'hsl(var(--foreground))' }}>
                 {row.account}
               </span>
               <span
                 className="vs-mono"
-                style={{ fontSize: 12, fontWeight: 600, textAlign: 'right', color: 'hsl(var(--foreground))' }}
+                style={{ fontSize: 14.5, fontWeight: 600, textAlign: 'right', color: 'hsl(var(--foreground))' }}
               >
                 {row.amount}
               </span>
@@ -260,9 +260,9 @@ function ExpandedSection({ ticket }: { ticket: TicketData }) {
               <button
                 key={label}
                 style={{
-                  fontSize: 12,
+                  fontSize: 14.5,
                   fontWeight: 600,
-                  padding: '8px 14px',
+                  padding: '8px 16px',
                   borderRadius: 8,
                   backgroundColor: 'hsl(var(--vs-success))',
                   color: '#fff',
@@ -279,7 +279,7 @@ function ExpandedSection({ ticket }: { ticket: TicketData }) {
               <Button
                 key={label}
                 variant="outline"
-                style={{ fontSize: 12, padding: '8px 14px', borderRadius: 8 }}
+                style={{ fontSize: 14.5, padding: '8px 16px', borderRadius: 8 }}
               >
                 {label}
               </Button>
@@ -326,7 +326,7 @@ function TicketCard({
         style={{
           gridTemplateColumns: 'auto minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr) auto',
           gap: 16,
-          padding: '18px 20px',
+          padding: '20px 22px',
           alignItems: 'center',
           cursor: 'pointer',
         }}
@@ -336,7 +336,7 @@ function TicketCard({
           <span
             className="vs-mono"
             style={{
-              fontSize: 11,
+              fontSize: 14,
               fontWeight: 600,
               color: 'hsl(var(--muted-foreground))',
               backgroundColor: 'hsl(var(--background))',
@@ -348,7 +348,7 @@ function TicketCard({
           >
             {ticket.id}
           </span>
-          <span style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))', fontWeight: 500, marginLeft: 2 }}>
+          <span style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', fontWeight: 500, marginLeft: 2 }}>
             FD-{ticket.fdNum}
           </span>
         </div>
@@ -362,30 +362,30 @@ function TicketCard({
             </span>
             <Pill text={ticket.priority} style={PRIORITY_STYLE[ticket.priority]} />
           </div>
-          <div style={{ fontSize: 12, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>
+          <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>
             {ticket.reference}
           </div>
         </div>
 
         {/* Vendor */}
         <div>
-          <div style={{ fontSize: 11, color: 'hsl(var(--muted-foreground))', marginBottom: 3 }}>
+          <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginBottom: 3 }}>
             {ticket.vendorLabel}
           </div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'hsl(var(--foreground))' }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'hsl(var(--foreground))' }}>
             {ticket.vendorName}
           </div>
-          <div className="vs-mono" style={{ fontSize: 11, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>
+          <div className="vs-mono" style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>
             {ticket.vendorSub}
           </div>
         </div>
 
         {/* Amount */}
         <div style={{ textAlign: 'right' }}>
-          <div className="vs-mono" style={{ fontSize: 18, fontWeight: 600, color: 'hsl(var(--foreground))' }}>
+          <div className="vs-mono" style={{ fontSize: 20, fontWeight: 600, color: 'hsl(var(--foreground))' }}>
             {ticket.amountValue}
           </div>
-          <div style={{ fontSize: 11, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>
+          <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>
             {ticket.amountSub}
           </div>
         </div>
@@ -394,14 +394,14 @@ function TicketCard({
         <div style={{ textAlign: 'right', minWidth: 100 }}>
           <div
             style={{
-              fontSize: 12,
+              fontSize: 14.5,
               fontWeight: 600,
               color: ticket.dueDanger ? 'hsl(0 84% 45%)' : 'hsl(var(--foreground))',
             }}
           >
             {ticket.dueValue}
           </div>
-          <div className="vs-mono" style={{ fontSize: 11, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>
+          <div className="vs-mono" style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>
             {ticket.dueSub}
           </div>
         </div>
@@ -418,13 +418,13 @@ function TicketCard({
             <span
               className="vs-mono"
               style={{
-                fontSize: 11, fontWeight: 600, color: 'hsl(var(--muted-foreground))',
+                fontSize: 14.5, fontWeight: 600, color: 'hsl(var(--muted-foreground))',
                 backgroundColor: 'hsl(var(--background))', padding: '3px 7px', borderRadius: 6,
               }}
             >
               {ticket.id}
             </span>
-            <span style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>
+            <span style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', fontWeight: 500 }}>
               FD-{ticket.fdNum}
             </span>
           </div>
@@ -434,17 +434,17 @@ function TicketCard({
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <Pill text={ticket.type} style={TYPE_STYLE[ticket.type]} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'hsl(var(--foreground))' }}>{ticket.title}</span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'hsl(var(--foreground))' }}>{ticket.title}</span>
           <Pill text={ticket.priority} style={PRIORITY_STYLE[ticket.priority]} />
         </div>
-        <div style={{ fontSize: 11, color: 'hsl(var(--muted-foreground))' }}>{ticket.reference}</div>
+        <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>{ticket.reference}</div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 12, color: 'hsl(var(--muted-foreground))' }}>
+          <span style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
             {ticket.vendorName}
           </span>
           <span
             style={{
-              fontSize: 12, fontWeight: 600,
+              fontSize: 14.5, fontWeight: 600,
               color: ticket.dueDanger ? 'hsl(0 84% 45%)' : 'hsl(var(--foreground))',
             }}
           >
@@ -544,7 +544,7 @@ export function AccountingPage() {
               gap: 6,
               padding: '6px 14px',
               borderRadius: 999,
-              fontSize: 13,
+              fontSize: 14.5,
               fontWeight: 500,
               backgroundColor: 'hsla(152,69%,31%,0.10)',
               color: 'hsl(152 69% 25%)',

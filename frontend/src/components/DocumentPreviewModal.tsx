@@ -65,7 +65,7 @@ function DocHeader({ title, docNumber, date, subtitle }: {
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
           <div style={{
-            fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: DOC_TEAL,
+            fontSize: 14.5, fontWeight: 700, letterSpacing: '0.12em', color: DOC_TEAL,
             textTransform: 'uppercase', marginBottom: 2,
           }}>
             Export Workflow Management System
@@ -74,15 +74,15 @@ function DocHeader({ title, docNumber, date, subtitle }: {
             {title}
           </h1>
           {subtitle && (
-            <div style={{ fontSize: 10, color: DOC_MUTED, marginTop: 2 }}>{subtitle}</div>
+            <div style={{ fontSize: 14, color: DOC_MUTED, marginTop: 2 }}>{subtitle}</div>
           )}
         </div>
         <div style={{ textAlign: 'right' }}>
           {docNumber && (
-            <div style={{ fontSize: 12, fontWeight: 700, color: DOC_FG, fontFamily: MONO_FONT }}>{docNumber}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: DOC_FG, fontFamily: MONO_FONT }}>{docNumber}</div>
           )}
           {date && (
-            <div style={{ fontSize: 11, color: DOC_MUTED, marginTop: 2 }}>Date: {date}</div>
+            <div style={{ fontSize: 14.5, color: DOC_MUTED, marginTop: 2 }}>Date: {date}</div>
           )}
         </div>
       </div>
@@ -97,10 +97,10 @@ function InfoGrid({ rows }: { rows: [string, string | undefined][][] }) {
         <div key={ri} style={{ display: 'grid', gridTemplateColumns: `repeat(${row.length}, 1fr)`, gap: '0 12px', marginBottom: 0 }}>
           {row.map(([label, value], ci) => (
             <div key={ci} style={{ borderBottom: `1px solid ${DOC_BORDER}`, paddingBottom: 6, paddingTop: 6 }}>
-              <div style={{ fontSize: 8.5, fontWeight: 600, color: DOC_MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>
+              <div style={{ fontSize: 14.5, fontWeight: 600, color: DOC_MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>
                 {label}
               </div>
-              <div style={{ fontSize: 11, color: value === '—' ? DOC_MUTED : DOC_FG, fontStyle: value === '—' ? 'italic' : 'normal' }}>
+              <div style={{ fontSize: 14.5, color: value === '—' ? DOC_MUTED : DOC_FG, fontStyle: value === '—' ? 'italic' : 'normal' }}>
                 {value || '—'}
               </div>
             </div>
@@ -114,7 +114,7 @@ function InfoGrid({ rows }: { rows: [string, string | undefined][][] }) {
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
-      fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
+      fontSize: 14.5, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
       color: DOC_TEAL, borderBottom: `1px solid ${DOC_TEAL}`, paddingBottom: 3,
       marginBottom: 10, marginTop: 18,
     }}>
@@ -129,15 +129,16 @@ function DocTable({ cols, rows, totalsRow }: {
   totalsRow?: string[];
 }) {
   const thStyle: React.CSSProperties = {
-    fontSize: 8.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+    fontSize: 14.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
     color: DOC_MUTED, padding: '6px 8px', borderBottom: `2px solid ${DOC_BORDER}`,
-    background: DOC_BG, textAlign: 'left',
+    background: DOC_BG, textAlign: 'left', overflowWrap: 'anywhere', wordBreak: 'break-word',
   };
   const tdBase: React.CSSProperties = {
-    fontSize: 10.5, padding: '5px 8px', borderBottom: `1px solid ${DOC_BORDER}`, color: DOC_FG, verticalAlign: 'top',
+    fontSize: 14.5, padding: '5px 8px', borderBottom: `1px solid ${DOC_BORDER}`, color: DOC_FG, verticalAlign: 'top',
+    overflowWrap: 'anywhere', wordBreak: 'break-word',
   };
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, marginBottom: 8 }}>
+    <table style={{ width: '100%', maxWidth: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 14.5, marginBottom: 8 }}>
       <thead>
         <tr>
           {cols.map(c => (
@@ -196,11 +197,11 @@ function SignatoryBlock({ label, name, designation, dinRef, date }: {
         minWidth: 200, textAlign: 'center',
       }}>
         <div style={{ height: 36, borderBottom: `1px solid ${DOC_BORDER}`, marginBottom: 8 }} />
-        <div style={{ fontSize: 11, fontWeight: 700, color: DOC_FG }}>{name || '________________________'}</div>
-        {designation && <div style={{ fontSize: 10, color: DOC_MUTED }}>{designation}</div>}
-        {dinRef && <div style={{ fontSize: 9.5, color: DOC_MUTED, fontFamily: MONO_FONT }}>DIN: {dinRef}</div>}
-        {date && <div style={{ fontSize: 10, color: DOC_MUTED, marginTop: 4 }}>Date: {date}</div>}
-        <div style={{ fontSize: 9, color: DOC_MUTED, marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        <div style={{ fontSize: 14.5, fontWeight: 700, color: DOC_FG }}>{name || '________________________'}</div>
+        {designation && <div style={{ fontSize: 14, color: DOC_MUTED }}>{designation}</div>}
+        {dinRef && <div style={{ fontSize: 14, color: DOC_MUTED, fontFamily: MONO_FONT }}>DIN: {dinRef}</div>}
+        {date && <div style={{ fontSize: 14, color: DOC_MUTED, marginTop: 4 }}>Date: {date}</div>}
+        <div style={{ fontSize: 14.5, color: DOC_MUTED, marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
           {label ?? 'Authorised Signatory'}
         </div>
       </div>
@@ -381,22 +382,52 @@ function DraftBoEDoc({ schema, resolve, resolveRow }: {
   const mockTariffLines = (schema.mockData.tables as Record<string, unknown[]>)['Tariff Lines'] ?? [];
 
   const tariffCols = [
-    { key: 'htsusCode',      label: 'HTSUS Code',      mono: true, width: '15%' },
-    { key: 'lineDesc',       label: 'Description',      width: '30%' },
-    { key: 'qty',            label: 'Qty',              align: 'right' as const, mono: true, width: '8%' },
-    { key: 'qtyUnit',        label: 'Unit',             width: '6%' },
+    { key: 'lineNo',         label: 'Line',             mono: true, width: '6%' },
+    { key: 'lineHtsusNumber', label: 'HTSUS Code',     mono: true, width: '15%' },
+    { key: 'lineMerchandiseDescription', label: 'Description', width: '28%' },
+    { key: 'quantity',       label: 'Qty',              align: 'right' as const, mono: true, width: '8%' },
+    { key: 'quantityUnit',   label: 'Unit',             width: '6%' },
     { key: 'enteredValue',   label: 'Entered Value',    align: 'right' as const, mono: true, width: '13%' },
     { key: 'dutyRate',       label: 'Duty Rate',        align: 'right' as const, mono: true, width: '10%' },
-    { key: 'calculatedDuty', label: 'Calc. Duty',       align: 'right' as const, mono: true, width: '10%' },
+    { key: 'dutyAmount',     label: 'Duty Amount',      align: 'right' as const, mono: true, width: '10%' },
   ];
   const tariffRows = mockTariffLines.map((_, ri) =>
     tariffCols.map(c => resolveRow('Tariff Lines', ri, c.key))
   );
 
+  const fieldSections = schema.sections.filter(section => section.renderAs === 'fields');
   return (
     <div>
       <DocHeader
-        title="Draft Bill of Entry"
+        title="Draft BOE"
+        docNumber={`BOL: ${resolve('blOrAwbNumber')}`}
+        date={resolve('summaryDate') !== 'â€”' ? resolve('summaryDate') : 'Pending'}
+        subtitle="Draft Bill of Entry / CBP Form 7501 working document"
+      />
+      {fieldSections.map(section => {
+        const rows: [string, string | undefined][][] = [];
+        for (let index = 0; index < section.mappings.length; index += 3) {
+          rows.push(section.mappings.slice(index, index + 3).map(mapping => [
+            mapping.targetLabel,
+            resolve(mapping.targetField),
+          ]));
+        }
+        return (
+          <div key={section.sectionLabel}>
+            <SectionTitle>{section.sectionLabel}</SectionTitle>
+            <InfoGrid rows={rows} />
+          </div>
+        );
+      })}
+      <SectionTitle>Tariff Lines</SectionTitle>
+      <DocTable cols={tariffCols} rows={tariffRows} />
+    </div>
+  );
+
+  return (
+    <div>
+      <DocHeader
+        title="Draft BOE"
         docNumber={`Master BOL: ${resolve('masterBol')}`}
         date={resolve('entryDate') !== '—' ? resolve('entryDate') : 'Pending'}
         subtitle="CBP Form 7501 (Draft — Not for Official Use)"
@@ -460,12 +491,12 @@ function DraftBoEDoc({ schema, resolve, resolveRow }: {
             ['MPF', resolve('mpfAmount')],
           ].map(([label, value]) => (
             <div key={label} style={{ borderBottom: `1px solid ${DOC_BORDER}`, paddingBottom: 6 }}>
-              <div style={{ fontSize: 8.5, fontWeight: 600, color: DOC_MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{label}</div>
-              <div style={{ fontSize: 11, color: DOC_FG, fontFamily: MONO_FONT }}>{value}</div>
+              <div style={{ fontSize: 14.5, fontWeight: 600, color: DOC_MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{label}</div>
+              <div style={{ fontSize: 14.5, color: DOC_FG, fontFamily: MONO_FONT }}>{value}</div>
             </div>
           ))}
           <div style={{ borderBottom: `1.5px solid ${DOC_TEAL}`, paddingBottom: 6, gridColumn: '3' }}>
-            <div style={{ fontSize: 8.5, fontWeight: 700, color: DOC_TEAL, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Total Amount Due</div>
+            <div style={{ fontSize: 14.5, fontWeight: 700, color: DOC_TEAL, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Total Amount Due</div>
             <div style={{ fontSize: 14, fontWeight: 700, color: DOC_FG, fontFamily: MONO_FONT }}>{resolve('totalAmountDue')}</div>
           </div>
         </div>
@@ -532,12 +563,40 @@ export function DocumentPreviewModal({
       {/* Print-only styles */}
       <style>{`
         @media print {
-          body > *:not(#doc-preview-root) { display: none !important; }
-          #doc-preview-root { position: static !important; }
+          @page { size: A4 portrait; margin: 10mm; }
+          body * { visibility: hidden !important; }
+          #doc-preview-root, #doc-preview-root * { visibility: visible !important; }
+          html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+          #doc-preview-root {
+            position: absolute !important;
+            inset: 0 auto auto 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            padding: 0 !important;
+            overflow: visible !important;
+          }
           .doc-preview-overlay { background: transparent !important; }
-          .doc-preview-modal { box-shadow: none !important; max-height: none !important; width: 100% !important; border-radius: 0 !important; }
+          .doc-preview-modal {
+            display: block !important;
+            background: #fff !important;
+            box-shadow: none !important;
+            max-width: none !important;
+            max-height: none !important;
+            width: 100% !important;
+            border-radius: 0 !important;
+          }
           .doc-preview-toolbar { display: none !important; }
-          .doc-preview-paper { box-shadow: none !important; margin: 0 !important; }
+          .doc-preview-modal > div:last-child {
+            overflow: visible !important;
+            padding: 0 !important;
+          }
+          .doc-preview-paper {
+            box-shadow: none !important;
+            margin: 0 !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            padding: 8mm !important;
+          }
         }
       `}</style>
 
@@ -571,7 +630,7 @@ export function DocumentPreviewModal({
           >
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>{schema.displayName}</div>
-              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>
+              <div style={{ fontSize: 14.5, color: '#6b7280', marginTop: 1 }}>
                 {isApproved
                   ? '✓ Approved — final document'
                   : 'Draft preview — pending approval'
@@ -581,7 +640,7 @@ export function DocumentPreviewModal({
 
             {/* Status pill */}
             <div style={{
-              padding: '3px 10px', borderRadius: 20, fontSize: 10.5, fontWeight: 700,
+              padding: '3px 10px', borderRadius: 20, fontSize: 14.5, fontWeight: 700,
               background: isApproved ? 'hsla(152,69%,31%,0.12)' : 'hsla(38,92%,50%,0.12)',
               color: isApproved ? '#0f766e' : '#92400e',
               border: `1px solid ${isApproved ? 'hsla(152,69%,31%,0.25)' : 'hsla(38,92%,50%,0.3)'}`,
@@ -593,7 +652,7 @@ export function DocumentPreviewModal({
               onClick={handlePrint}
               style={{
                 display: 'flex', alignItems: 'center', gap: 6,
-                padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                padding: '6px 12px', borderRadius: 6, fontSize: 14, fontWeight: 600,
                 background: '#f3f4f6', border: '1px solid #d1d5db', cursor: 'pointer', color: '#374151',
               }}
             >

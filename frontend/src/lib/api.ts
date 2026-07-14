@@ -17,7 +17,9 @@ export function getAuthToken(): string | null {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const url = path.startsWith('http') ? path : `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  const url = path.startsWith('http') || path.startsWith('/api/')
+    ? path
+    : `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> ?? {}),
@@ -46,4 +48,19 @@ export function apiPost<T = unknown>(path: string, body: unknown): Promise<T> {
     method: 'POST',
     body: JSON.stringify(body),
   });
+}
+
+export function apiPut<T = unknown>(path: string, body: unknown): Promise<T> {
+  return request<T>(path, { method: 'PUT', body: JSON.stringify(body) });
+}
+
+export function apiPatch<T = unknown>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, {
+    method: 'PATCH',
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+export function apiDelete<T = unknown>(path: string): Promise<T> {
+  return request<T>(path, { method: 'DELETE' });
 }

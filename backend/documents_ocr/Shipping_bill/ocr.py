@@ -10,13 +10,56 @@ except ImportError:  # pragma: no cover - local schema tests can run before Pris
         return value
 
 from documents_ocr.Shipping_bill.prompt import build_shipping_bill_prompt
-from documents_ocr.schema_loader import load_extraction_schema
+from documents_ocr.schema_loader import load_extraction_schema, upsert_extraction_with_children
 
 
 _SCHEMA = load_extraction_schema(parent_model="ShippingBillExtraction")
 SCALAR_FIELDS = _SCHEMA.scalar_fields
 ARRAY_FIELDS = _SCHEMA.array_fields
 ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
+
+ITEM_ARRAY_ALIASES = (
+    "items",
+    "lineItems",
+    "itemDetails",
+    "shippingBillItems",
+    "part3Items",
+)
+ITEM_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "invsn": ("invoiceSerialNo", "invoiceSerialNumber", "invoiceNo", "invNo"),
+    "itemsn": ("itemSNo", "itemSn", "itemNo", "itemNumber", "serialNo", "srNo"),
+    "hsCd": ("hsCode", "hsnCode", "hsn", "tariffCode"),
+    "description": (
+        "itemDescription",
+        "goodsDescription",
+        "productDescription",
+        "descriptionOfGoods",
+        "merchandiseDescription",
+    ),
+    "quantity": ("qty", "itemQuantity"),
+    "uqc": ("unit", "unitCode", "quantityUnit"),
+    "rate": ("unitRate", "itemRate", "unitPrice", "price"),
+    "valueFc": ("value", "valueFC", "foreignCurrencyValue", "lineValue", "amount"),
+    "fobInr": ("fobValueInr", "fobValue", "fobAmountInr"),
+    "pmv": ("presentMarketValue",),
+    "dutyAmt": ("dutyAmount",),
+    "cessRt": ("cessRate",),
+    "cesAmt": ("cessAmount",),
+    "dbkclmd": ("drawbackClaimed", "dbkClaimed"),
+    "igstStat": ("igstStatus",),
+    "igstValue": ("taxableValue",),
+    "igstAmount": ("igstAmt",),
+    "schcod": ("schemeCode",),
+    "schemeDescription": ("schemeDesc",),
+    "sqcMsr": ("secondaryQuantity", "sqcMeasure"),
+    "sqcUqc": ("secondaryUnit",),
+    "stateOfOrigin": ("originState",),
+    "districtOfOrigin": ("originDistrict",),
+    "ptAbroad": ("paymentAbroad",),
+    "ftaBenefitAvailed": ("ftaBenefit",),
+    "rewardBenefit": ("rewardSchemeBenefit",),
+    "thirdPartyItem": ("isThirdPartyItem",),
+}
 
 
 def _section_for_field(field_name: str) -> str:
@@ -130,8 +173,13 @@ def _parse_count(value: Any) -> int | None:
 def _promote_zetwerk_shape_aliases(payload: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(payload or {})
 
-    if normalized.get("part3ItemDetails") is None and isinstance(normalized.get("items"), list):
-        normalized["part3ItemDetails"] = normalized["items"]
+    existing_items = normalized.get("part3ItemDetails")
+    if not isinstance(existing_items, list) or not existing_items:
+        for alias in ITEM_ARRAY_ALIASES:
+            alias_items = normalized.get(alias)
+            if isinstance(alias_items, list) and alias_items:
+                normalized["part3ItemDetails"] = alias_items
+                break
 
     metadata = normalized.get("metadata")
     if isinstance(metadata, dict):
@@ -139,6 +187,25 @@ def _promote_zetwerk_shape_aliases(payload: dict[str, Any]) -> dict[str, Any]:
             if normalized.get(field_name) is None and metadata.get(field_name) is not None:
                 normalized[field_name] = metadata.get(field_name)
 
+    return normalized
+
+
+def _canonical_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+
+
+def _normalize_shipping_bill_item_aliases(item: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(item)
+    by_canonical_key = {_canonical_key(key): value for key, value in item.items()}
+    for field_name in ARRAY_ITEM_FIELDS.get("part3ItemDetails", []):
+        if normalized.get(field_name) is not None:
+            continue
+        candidates = (field_name, *ITEM_FIELD_ALIASES.get(field_name, ()))
+        for candidate in candidates:
+            value = by_canonical_key.get(_canonical_key(candidate))
+            if value is not None and _coerce_string(value):
+                normalized[field_name] = value
+                break
     return normalized
 
 
@@ -208,8 +275,15 @@ def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
         normalized[section_name] = section_payload
 
     for field_name in ARRAY_FIELDS:
+        field_value = normalized.get(field_name)
+        if field_name == "part3ItemDetails" and isinstance(field_value, list):
+            field_value = [
+                _normalize_shipping_bill_item_aliases(item)
+                for item in field_value
+                if isinstance(item, dict)
+            ]
         normalized[field_name] = normalize_array_field_payload(
-            value=normalized.get(field_name),
+            value=field_value,
             expected_fields=ARRAY_ITEM_FIELDS.get(field_name, []),
         )
         if field_name == "part3ItemDetails":
@@ -252,7 +326,7 @@ def to_prisma_data(*, result: ShippingBillStructuredResult, raw_data: dict[str, 
         if value is None:
             data[field_name] = None
         else:
-            data[field_name] = Json(value)
+            data[field_name] = value
 
     data["rawData"] = Json(raw_data)
     data["extractedAt"] = datetime.now(timezone.utc)
@@ -261,46 +335,13 @@ def to_prisma_data(*, result: ShippingBillStructuredResult, raw_data: dict[str, 
 
 async def persist_extraction(*, prisma, document_id: str, result: ShippingBillStructuredResult, raw_data: dict[str, Any]):
     extraction_data = to_prisma_data(result=result, raw_data=raw_data)
-    create_data = {
-        **extraction_data,
-        "documentId": document_id,
-        "document": {"connect": {"id": document_id}},
-    }
-
-    for _ in range(20):
-        try:
-            return await prisma.shippingbillextraction.upsert(
-                where={"documentId": document_id},
-                data={
-                    "create": create_data,
-                    "update": extraction_data,
-                },
-            )
-        except Exception as exc:
-            error_text = str(exc)
-            field_name: str | None = None
-
-            path_match = re.search(r"Could not find field at `[^`]*\.(\w+)`", error_text)
-            if path_match:
-                field_name = path_match.group(1)
-            else:
-                path_match = re.search(r"`[^`]*\.(\w+)`", error_text)
-                if path_match and "Field does not exist in enclosing type" in error_text:
-                    field_name = path_match.group(1)
-            if not field_name:
-                unknown_match = re.search(r"Unknown (?:arg|field) `(\w+)`", error_text)
-                if unknown_match:
-                    field_name = unknown_match.group(1)
-            if not field_name:
-                raise
-            had_update_field = field_name in extraction_data
-            had_create_field = field_name in create_data
-            extraction_data.pop(field_name, None)
-            create_data.pop(field_name, None)
-            if not had_update_field and not had_create_field:
-                raise
-
-    raise RuntimeError("Failed to persist extraction after dropping unsupported fields")
+    return await upsert_extraction_with_children(
+        prisma=prisma,
+        model_accessor_name="shippingbillextraction",
+        schema=_SCHEMA,
+        document_id=document_id,
+        extraction_data=extraction_data,
+    )
 
 
 __all__ = [

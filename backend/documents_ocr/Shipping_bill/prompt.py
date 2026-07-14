@@ -317,6 +317,7 @@ def _build_output_rules(model: type[BaseModel], document_type: str, extractor_la
         "`itemCount`: always extract the printed ITEM / Item Count / No. of Items value when visible. This is a control total for item rows.",
         "`part3ItemDetails`: emit one object per printed shipping-bill item row. The number of `part3ItemDetails` objects must be at least `itemCount` when `itemCount` is printed.",
         "`part3ItemDetails[].description`: extract the full printed item description for every item row. If a description wraps across multiple lines or appears in multiple fragments, preserve all fragments for that same item in order.",
+        "Shipping Bill D. ITEM DETAILS mapping is exact: `ItemSNo` -> `itemsn`, `HS CD` -> `hsCd`, `DESCRIPTION` -> `description`, `QUANTITY` -> `quantity`, `UQC` -> `uqc`, `RATE` -> `rate`, and `VALUE(F/C)` -> `valueFc`. Populate all seven for every visible row.",
         "Do not merge different item rows into one description, and do not stop after the first description fragment. Keep each row's own description, quantity, UQC, rate, values, taxes, scheme fields, and origin fields together.",
         "`part3ItemDetails[].quantity` must be the quantity printed for that specific item row. Do not repeat one quantity across all rows unless the PDF prints the same quantity for all item rows.",
     ]

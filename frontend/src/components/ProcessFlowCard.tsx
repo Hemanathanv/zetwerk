@@ -93,8 +93,8 @@ export function ProcessFlowCard() {
       data-testid="process-flow-card"
     >
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold">Logistics Lifecycle</h3>
-        <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-semibold">SH1002 Flow</span>
+        <h3 className="text-[14.5px] font-semibold">Logistics Lifecycle</h3>
+        <span className="text-[12px] text-muted-foreground uppercase tracking-wide font-semibold">SH1002 Flow</span>
       </div>
 
       <div className="flex flex-col gap-0">
@@ -122,16 +122,16 @@ export function ProcessFlowCard() {
                   </div>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-foreground leading-tight">{step.label}</p>
+                  <p className="text-[13px] font-semibold text-foreground leading-tight">{step.label}</p>
                   {step.sublabel && (
-                    <p className="text-[10px] text-muted-foreground">{step.sublabel}</p>
+                    <p className="text-[12px] text-muted-foreground">{step.sublabel}</p>
                   )}
                   {step.isBranch && (
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400 font-medium">
+                      <span className="text-[12px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400 font-medium">
                         {step.branchYes}
                       </span>
-                      <span className="flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 font-medium">
+                      <span className="flex items-center gap-0.5 text-[12px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 font-medium">
                         <RefreshCw className="w-2.5 h-2.5" />
                         {step.branchNo}
                       </span>

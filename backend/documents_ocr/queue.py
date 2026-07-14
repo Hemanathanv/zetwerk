@@ -8,7 +8,11 @@ from typing import Any
 from uuid import uuid4
 
 from arq.connections import ArqRedis, RedisSettings, create_pool
+from arq.constants import job_key_prefix
+from arq.jobs import Job
+from PIL import Image
 from pdf2image import convert_from_bytes
+import fitz
 
 from cache import get_redis
 from db import get_prisma
@@ -25,14 +29,33 @@ UPLOAD_JOB_NAME = "process_upload_job"
 OCR_JOB_NAME = "process_ocr_job"
 PROCESSING_STALE_SECONDS = 15 * 60
 DETECTION_RESULT_TTL_SECONDS = 60 * 60
-DETECTION_STALE_SECONDS = 5 * 60
+DETECTION_STALE_SECONDS = 2 * 60
 LOCAL_POPPLER_BIN = Path(__file__).resolve().parents[1] / "poppler" / "Library" / "bin"
 LINUX_POPPLER_BIN = Path("/usr/bin")
 
 _arq_redis: ArqRedis | None = None
 
 
+def _format_detection_error(exc: Exception) -> str:
+    message = str(exc)
+    lower = message.lower()
+    if "maximum context length" in lower or "context length" in lower or "tokens" in lower:
+        return (
+            "Document classification failed because the classifier request was too large. "
+            "Try again after restarting the backend; if it still fails, select the document type manually."
+        )
+    if "could not read text or render a preview" in lower:
+        return message
+    if "missing doc_classifier_api_key" in lower or "missing doc_classifier_model" in lower:
+        return "Document classification is not configured. Set DOC_CLASSIFIER_API_KEY and DOC_CLASSIFIER_MODEL."
+    if "provider error" in lower:
+        return "Document classification provider rejected the request. Try again or select the document type manually."
+    return f"Document classification failed: {message[:300]}"
+
+
 def _module_slug_from_doc_type(doc_type: Any) -> str:
+    if str(doc_type or "").strip().upper() == "CUSTOMER_BROKER_BILL":
+        return "customs-broker-bill"
     return str(doc_type or "uploads").strip().lower().replace("_", "-") or "uploads"
 
 
@@ -46,6 +69,39 @@ def _resolve_poppler_path() -> str | None:
     raise RuntimeError(
         "Poppler not found. Install Poppler or add pdftoppm to PATH so PDF pages can be generated for OCR."
     )
+
+
+def _render_pdf_pages(file_bytes: bytes) -> list[Image.Image]:
+    try:
+        poppler_path = _resolve_poppler_path()
+    except RuntimeError:
+        poppler_path = ""
+
+    if poppler_path != "":
+        try:
+            pages = convert_from_bytes(
+                file_bytes,
+                dpi=200,
+                fmt="png",
+                poppler_path=poppler_path,
+            )
+            if pages:
+                return pages
+        except Exception:
+            pass
+
+    try:
+        rendered: list[Image.Image] = []
+        with fitz.open(stream=file_bytes, filetype="pdf") as doc:
+            scale = 200 / 72
+            matrix = fitz.Matrix(scale, scale)
+            for page in doc:
+                pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+                image = Image.open(BytesIO(pixmap.tobytes("png")))
+                rendered.append(image.copy())
+        return rendered
+    except Exception:
+        return []
 
 
 def get_arq_redis_settings() -> RedisSettings:
@@ -159,19 +215,31 @@ async def enqueue_detection_job(
     return job_id
 
 
-async def enqueue_upload_job(*, document_id: str, bucket: str, module: str) -> None:
+async def enqueue_upload_job(
+    *,
+    document_id: str,
+    bucket: str,
+    module: str,
+    force_reprocess: bool = False,
+    auto_validate: bool = False,
+    refresh_generated_drafts: bool = False,
+) -> None:
     payload = {
         "documentId": document_id,
         "bucket": bucket,
         "module": module,
+        "forceReprocess": force_reprocess,
+        "autoValidate": auto_validate,
+        "refreshGeneratedDrafts": refresh_generated_drafts,
     }
     redis = await get_arq_redis()
     print(f"[arq][enqueue] queue={UPLOAD_QUEUE} job={UPLOAD_JOB_NAME} payload={payload}", flush=True)
+    job_id = f"upload:{document_id}" if not force_reprocess else f"upload:{document_id}:{uuid4().hex}"
     await redis.enqueue_job(
         UPLOAD_JOB_NAME,
         payload,
         _queue_name=UPLOAD_QUEUE,
-        _job_id=f"upload:{document_id}",
+        _job_id=job_id,
     )
 
 
@@ -181,12 +249,16 @@ async def enqueue_ocr_job(
     bucket: str,
     module: str,
     force_reprocess: bool = False,
+    auto_validate: bool = False,
+    refresh_generated_drafts: bool = False,
 ) -> None:
     payload = {
         "documentId": document_id,
         "bucket": bucket,
         "module": module,
         "forceReprocess": force_reprocess,
+        "autoValidate": auto_validate,
+        "refreshGeneratedDrafts": refresh_generated_drafts,
     }
     redis = await get_arq_redis()
     print(
@@ -200,7 +272,43 @@ async def enqueue_ocr_job(
         _queue_name=OCR_QUEUE,
         _job_id=job_id,
     )
+    await redis.set(
+        f"documents_ocr:active_job:{document_id}",
+        job_id,
+        ex=24 * 60 * 60,
+    )
     print(f"[arq][enqueue] queue={OCR_QUEUE} job_id={job_id}", flush=True)
+
+
+async def cancel_ocr_job(document_id: str) -> bool:
+    """Abort the queued/running OCR job associated with a document."""
+    redis = await get_arq_redis()
+    job_ids: set[str] = set()
+    active_key = f"documents_ocr:active_job:{document_id}"
+    mapped_job_id = await redis.get(active_key)
+    if mapped_job_id:
+        job_ids.add(
+            mapped_job_id.decode() if isinstance(mapped_job_id, bytes) else str(mapped_job_id)
+        )
+
+    # Backward-compatible lookup for jobs queued before active-job tracking
+    # was introduced.
+    async for raw_key in redis.scan_iter(
+        match=f"{job_key_prefix}ocr:{document_id}:*"
+    ):
+        key = raw_key.decode() if isinstance(raw_key, bytes) else str(raw_key)
+        job_ids.add(key.removeprefix(job_key_prefix))
+
+    aborted = False
+    for job_id in job_ids:
+        try:
+            aborted = await Job(job_id, redis).abort(timeout=5) or aborted
+        except (TimeoutError, asyncio.TimeoutError):
+            # The abort request is still registered in Redis and the worker
+            # will observe it at its next cancellation point.
+            aborted = True
+    await redis.delete(active_key)
+    return aborted
 
 
 async def process_detection_job(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
@@ -256,7 +364,7 @@ async def process_detection_job(ctx: dict[str, Any], payload: dict[str, Any]) ->
     except Exception as exc:
         failed_payload = {
             "status": "failed",
-            "message": f"Document classification failed: {exc}",
+            "message": _format_detection_error(exc),
             "classificationJobId": job_id,
             "fileName": file_name,
             "userId": user_id,
@@ -277,6 +385,9 @@ async def process_upload_job(ctx: dict[str, Any], payload: dict[str, Any]) -> di
     document_id = str(payload["documentId"])
     bucket = str(payload["bucket"])
     module = str(payload["module"])
+    force_reprocess = bool(payload.get("forceReprocess", False))
+    auto_validate = bool(payload.get("autoValidate", False))
+    refresh_generated_drafts = bool(payload.get("refreshGeneratedDrafts", False))
     print(
         f"[arq][upload] start documentId={document_id} bucket={bucket} module={module}",
         flush=True,
@@ -300,14 +411,32 @@ async def process_upload_job(ctx: dict[str, Any], payload: dict[str, Any]) -> di
         )
         return {"status": "failed", "reason": f"page_generation_error: {exc}", "documentId": document_id}
 
-    await prisma.document.update(
-        where={"id": document_id},
-        data={"status": "QUEUED"},
-    )
-    print(f"[arq][upload] status->QUEUED documentId={document_id}", flush=True)
-    await enqueue_ocr_job(document_id=document_id, bucket=bucket, module=module)
-    print(f"[arq][upload] enqueued_next queue={OCR_QUEUE} documentId={document_id}", flush=True)
-    return {"status": "queued", "next": OCR_QUEUE, "documentId": document_id}
+    try:
+        await prisma.document.update(
+            where={"id": document_id},
+            data={"status": "QUEUED"},
+        )
+        print(f"[arq][upload] status->QUEUED documentId={document_id}", flush=True)
+        await enqueue_ocr_job(
+            document_id=document_id,
+            bucket=bucket,
+            module=module,
+            force_reprocess=force_reprocess,
+            auto_validate=auto_validate,
+            refresh_generated_drafts=refresh_generated_drafts,
+        )
+        print(f"[arq][upload] enqueued_next queue={OCR_QUEUE} documentId={document_id}", flush=True)
+        return {"status": "queued", "next": OCR_QUEUE, "documentId": document_id}
+    except Exception as exc:
+        await prisma.document.update(
+            where={"id": document_id},
+            data={"status": "UPLOADED"},
+        )
+        print(
+            f"[arq][upload] failed documentId={document_id} reason=ocr_enqueue_error:{exc} status->UPLOADED",
+            flush=True,
+        )
+        return {"status": "failed", "reason": f"ocr_enqueue_error: {exc}", "documentId": document_id}
 
 
 async def _ensure_document_pages(*, prisma, document: Any, module: str) -> None:
@@ -323,20 +452,12 @@ async def _ensure_document_pages(*, prisma, document: Any, module: str) -> None:
     if existing_pages > 0:
         return
 
-    poppler_path = _resolve_poppler_path()
-
     source_bytes = await asyncio.to_thread(
         download_bytes,
         str(document.bucket),
         str(document.objectKey),
     )
-    images = await asyncio.to_thread(
-        convert_from_bytes,
-        source_bytes,
-        dpi=200,
-        fmt="png",
-        poppler_path=poppler_path,
-    )
+    images = await asyncio.to_thread(_render_pdf_pages, source_bytes)
     if not images:
         return
 
@@ -379,6 +500,8 @@ async def process_ocr_job(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[
     payload_bucket = str(payload.get("bucket") or "")
     payload_module = str(payload.get("module") or "")
     force_reprocess = bool(payload.get("forceReprocess", False))
+    auto_validate = bool(payload.get("autoValidate", False))
+    refresh_generated_drafts = bool(payload.get("refreshGeneratedDrafts", False))
     print(
         f"[arq][ocr] start documentId={document_id} bucket={payload_bucket} module={payload_module}",
         flush=True,
@@ -397,7 +520,7 @@ async def process_ocr_job(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[
         flush=True,
     )
 
-    if db_status in {"EXTRACTED", "REVIEWED"} and not force_reprocess:
+    if db_status in {"EXTRACTED", "REVIEWED", "REJECTED", "ARCHIVED"} and not force_reprocess:
         print(
             f"[arq][ocr] skipped documentId={document_id} reason=already_extracted",
             flush=True,
@@ -427,6 +550,8 @@ async def process_ocr_job(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[
             document=document,
             bucket=bucket,
             module=module,
+            auto_validate=auto_validate,
+            refresh_generated_drafts=refresh_generated_drafts,
         )
     except asyncio.CancelledError:
         # ARQ timeout/shutdown can cancel the coroutine; persist state and exit cleanly.
@@ -521,7 +646,7 @@ class DetectWorkerSettings:
     functions = [process_detection_job]
     redis_settings = get_arq_redis_settings()
     queue_name = DETECT_QUEUE
-    job_timeout = 300
+    job_timeout = 600
     max_tries = 1
     on_startup = startup
     on_shutdown = shutdown
@@ -534,6 +659,7 @@ class OcrWorkerSettings:
     # 0 or negative means no timeout (wait until provider responds).
     job_timeout = settings.OCR_JOB_TIMEOUT_SECONDS if settings.OCR_JOB_TIMEOUT_SECONDS > 0 else None
     max_tries = 1
+    allow_abort_jobs = True
     on_startup = startup
     on_shutdown = shutdown
 
@@ -549,6 +675,7 @@ __all__ = [
     "UploadWorkerSettings",
     "OcrWorkerSettings",
     "close_arq_redis",
+    "cancel_ocr_job",
     "enqueue_detection_job",
     "enqueue_ocr_job",
     "enqueue_upload_job",

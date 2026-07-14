@@ -79,8 +79,8 @@ function ReadonlyField({
       : 'bg-gray-50 dark:bg-gray-900/30 text-muted-foreground border border-transparent';
   return (
     <div className="flex flex-col gap-0.5">
-      <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{label}</label>
-      <div className={`px-2.5 py-1.5 text-sm rounded-md min-h-[32px] break-words cursor-not-allowed ${cls}`}>
+      <label className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wide">{label}</label>
+      <div className={`px-2.5 py-1.5 text-[14.5px] rounded-md min-h-[32px] break-words cursor-not-allowed ${cls}`}>
         {String(display)}
       </div>
     </div>
@@ -104,13 +104,13 @@ function EditableField({
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{label}</label>
+      <label className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wide">{label}</label>
       <input
         type={type}
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className={`w-full px-2.5 py-1.5 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 rounded-md border-2 min-h-[32px] cursor-text focus:outline-none focus:ring-2 focus:ring-rose-500 dark:focus:ring-rose-400/50 hover:border-rose-400 transition-colors ${
+        className={`w-full px-2.5 py-1.5 text-[14.5px] text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 rounded-md border-2 min-h-[32px] cursor-text focus:outline-none focus:ring-2 focus:ring-rose-500 dark:focus:ring-rose-400/50 hover:border-rose-400 transition-colors ${
           error ? 'border-red-500 ring-2 ring-red-400' : 'border-rose-300 dark:border-rose-500/30'
         }`}
       />
@@ -136,9 +136,9 @@ function SectionHeader({
       className="w-full flex items-center justify-between px-3 py-2.5 bg-muted/50 hover:bg-muted transition-colors rounded-md"
     >
       <div className="flex items-center gap-2">
-        <span className="text-xs font-bold uppercase tracking-wider text-foreground">{title}</span>
+        <span className="text-[13px] font-bold uppercase tracking-wider text-foreground">{title}</span>
         {badge && (
-          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">{badge}</span>
+          <span className="text-[12px] font-bold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">{badge}</span>
         )}
       </div>
       {open ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
@@ -286,20 +286,20 @@ export function DraftPlEditForm({ open, draftPl, onClose, onSubmit }: Props) {
                 <Package className="w-4 h-4 text-primary" />
               </div>
               <div>
-                <SheetTitle className="text-sm font-bold">Draft O-PL Editor</SheetTitle>
-                <p className="text-[10px] text-muted-foreground mt-0.5">
+                <SheetTitle className="text-[14.5px] font-bold">Draft O-PL Editor</SheetTitle>
+                <p className="text-[12px] text-muted-foreground mt-0.5">
                   Invoice {ocr.invoice_no ?? '—'} · {ocr.org ?? ocr.exporter_name ?? '—'}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
               {isSubmitted ? (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full bg-green-100 text-green-700 border border-green-200">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[13px] font-bold rounded-full bg-green-100 text-green-700 border border-green-200">
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                   PL GENERATED
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[13px] font-bold rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200">
                   <span className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
                   DRAFT
                 </span>
@@ -308,7 +308,7 @@ export function DraftPlEditForm({ open, draftPl, onClose, onSubmit }: Props) {
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-lg text-white transition-colors hover:opacity-90"
+                  className="px-3 py-1.5 text-[13px] font-semibold rounded-lg text-white transition-colors hover:opacity-90"
                   style={{ background: 'hsl(var(--vs-teal, 173 58% 39%))' }}
                 >
                   Submit Packing List
@@ -331,14 +331,14 @@ export function DraftPlEditForm({ open, draftPl, onClose, onSubmit }: Props) {
           <div className="rounded-lg border-2 border-rose-300 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 p-4 space-y-3">
             <div className="flex items-center gap-2 mb-1">
               <span className="w-3 h-3 rounded-full bg-rose-500 animate-pulse flex-shrink-0" />
-              <span className="text-xs font-bold text-rose-900 dark:text-rose-300 uppercase tracking-wide">
+              <span className="text-[13px] font-bold text-rose-900 dark:text-rose-300 uppercase tracking-wide">
                 Manual Fields — Required for Submission
               </span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {/* Gross Weight */}
               <div className="flex flex-col gap-0.5">
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                <label className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wide">
                   Gross Weight (kg) <span className="text-rose-500">*</span>
                 </label>
                 <input
@@ -346,14 +346,14 @@ export function DraftPlEditForm({ open, draftPl, onClose, onSubmit }: Props) {
                   value={formData.manual_fields.gross_weight}
                   onChange={e => updateManual('gross_weight', e.target.value)}
                   placeholder="Enter gross weight"
-                  className={`w-full px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 rounded-md border-2 min-h-[34px] cursor-text focus:outline-none focus:ring-2 focus:ring-rose-500 dark:focus:ring-rose-400/50 hover:border-rose-400 transition-colors ${
+                  className={`w-full px-3 py-2 text-[14.5px] text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 rounded-md border-2 min-h-[34px] cursor-text focus:outline-none focus:ring-2 focus:ring-rose-500 dark:focus:ring-rose-400/50 hover:border-rose-400 transition-colors ${
                     errors.gross_weight ? 'border-red-500 ring-2 ring-red-400' : 'border-rose-300 dark:border-rose-500/30'
                   }`}
                 />
               </div>
               {/* Package Count */}
               <div className="flex flex-col gap-0.5">
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                <label className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wide">
                   Package Count <span className="text-rose-500">*</span>
                 </label>
                 <input
@@ -361,14 +361,14 @@ export function DraftPlEditForm({ open, draftPl, onClose, onSubmit }: Props) {
                   value={formData.manual_fields.package_count}
                   onChange={e => updateManual('package_count', e.target.value)}
                   placeholder="Enter package count"
-                  className={`w-full px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 rounded-md border-2 min-h-[34px] cursor-text focus:outline-none focus:ring-2 focus:ring-rose-500 dark:focus:ring-rose-400/50 hover:border-rose-400 transition-colors ${
+                  className={`w-full px-3 py-2 text-[14.5px] text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 rounded-md border-2 min-h-[34px] cursor-text focus:outline-none focus:ring-2 focus:ring-rose-500 dark:focus:ring-rose-400/50 hover:border-rose-400 transition-colors ${
                     errors.package_count ? 'border-red-500 ring-2 ring-red-400' : 'border-rose-300 dark:border-rose-500/30'
                   }`}
                 />
               </div>
               {/* Dimensions */}
               <div className="flex flex-col gap-0.5">
-                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                <label className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wide">
                   Dimensions (LxWxH cm)
                 </label>
                 <input
@@ -376,12 +376,12 @@ export function DraftPlEditForm({ open, draftPl, onClose, onSubmit }: Props) {
                   value={formData.manual_fields.dimensions}
                   onChange={e => updateManual('dimensions', e.target.value)}
                   placeholder="e.g., 100x80x60"
-                  className="w-full px-3 py-2 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 rounded-md border-2 border-rose-300 dark:border-rose-500/30 min-h-[34px] cursor-text focus:outline-none focus:ring-2 focus:ring-rose-500 dark:focus:ring-rose-400/50 hover:border-rose-400 transition-colors"
+                  className="w-full px-3 py-2 text-[14.5px] text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 rounded-md border-2 border-rose-300 dark:border-rose-500/30 min-h-[34px] cursor-text focus:outline-none focus:ring-2 focus:ring-rose-500 dark:focus:ring-rose-400/50 hover:border-rose-400 transition-colors"
                 />
               </div>
             </div>
             {(errors.gross_weight || errors.package_count) && (
-              <p className="text-xs text-red-600 flex items-center gap-1 mt-1">
+              <p className="text-[13px] text-red-600 flex items-center gap-1 mt-1">
                 <AlertCircle className="w-3 h-3" />
                 Gross Weight and Package Count are required before submission.
               </p>
@@ -396,20 +396,20 @@ export function DraftPlEditForm({ open, draftPl, onClose, onSubmit }: Props) {
                 {/* Row 1: Exporter + Invoice + Exporter Ref */}
                 <div className="grid grid-cols-3 gap-3">
                   <div className="border rounded p-2">
-                    <div className="text-[10px] font-bold mb-1">Exporter:</div>
+                    <div className="text-[12px] font-bold mb-1">Exporter:</div>
                     <ReadonlyField label="" value={ocr.exporter_name} variant="si" />
                     <ReadonlyField label="" value={ocr.exporter_address} variant="si" />
                   </div>
                   <div className="border rounded p-2">
-                    <div className="text-[10px] font-bold mb-1">Invoice No. & Date:</div>
+                    <div className="text-[12px] font-bold mb-1">Invoice No. & Date:</div>
                     <ReadonlyField label="" value={ocr.invoice_no} variant="si" />
                     <ReadonlyField label="" value={ocr.invoice_date} variant="si" />
-                    <div className="text-[10px] font-bold mt-2 mb-1">Buyers Order No. & Date:</div>
+                    <div className="text-[12px] font-bold mt-2 mb-1">Buyers Order No. & Date:</div>
                     <ReadonlyField label="" value={ocr.buyer_po_no} variant="si" />
                     <ReadonlyField label="" value={ocr.buyer_po_date} variant="si" />
                   </div>
                   <div className="border rounded p-2">
-                    <div className="text-[10px] font-bold mb-1">Exporter&apos;s Ref:</div>
+                    <div className="text-[12px] font-bold mb-1">Exporter&apos;s Ref:</div>
                     <ReadonlyField label="IEC#" value={ocr.iec} variant="si" />
                     <ReadonlyField label="GST No." value={ocr.gstin} variant="si" />
                   </div>
@@ -418,25 +418,25 @@ export function DraftPlEditForm({ open, draftPl, onClose, onSubmit }: Props) {
                 {/* Row 2: Consignee + Buyer + Other Ref */}
                 <div className="grid grid-cols-3 gap-3">
                   <div className="border rounded p-2">
-                    <div className="text-[10px] font-bold mb-1">Consignee:</div>
+                    <div className="text-[12px] font-bold mb-1">Consignee:</div>
                     <ReadonlyField label="" value={ocr.consignee_name} variant="si" />
                     <ReadonlyField label="" value={ocr.consignee_address} variant="si" />
                   </div>
                   <div className="border rounded p-2">
-                    <div className="text-[10px] font-bold mb-1">Buyer:</div>
+                    <div className="text-[12px] font-bold mb-1">Buyer:</div>
                     <ReadonlyField label="" value={ocr.buyer_name} variant="si" />
                     <ReadonlyField label="" value={ocr.buyer_address} variant="si" />
                   </div>
                   <div className="border rounded p-2">
-                    <div className="text-[10px] font-bold mb-1">Other Reference(s):</div>
+                    <div className="text-[12px] font-bold mb-1">Other Reference(s):</div>
                     <ReadonlyField label="" value={ocr.reference_1 || '—'} variant="si" />
-                    <div className="text-[10px] font-bold mt-2 mb-1">Pickup Address:</div>
+                    <div className="text-[12px] font-bold mt-2 mb-1">Pickup Address:</div>
                     <ReadonlyField label="" value={ocr.pickup_address || '—'} variant="si" />
                   </div>
                 </div>
 
                 {/* Row 3: Transport details - 4 columns */}
-                <div className="grid grid-cols-4 gap-2 text-xs">
+                <div className="grid grid-cols-4 gap-2 text-[13px]">
                   <div>
                     <ReadonlyField label="Pre-Carriage by" value={ocr.pre_carriage_by || 'ROAD'} variant="si" />
                     <ReadonlyField label="Vessel/Flight No." value={ocr.vessel_flight_no || 'BY SEA'} variant="si" />
@@ -556,7 +556,7 @@ export function DraftPlEditForm({ open, draftPl, onClose, onSubmit }: Props) {
             {sectionsOpen.line_items && (
               <div className="px-1 pt-2 pb-3 space-y-4">
                 {formData.line_items.length === 0 ? (
-                  <p className="text-xs text-muted-foreground py-4 text-center">No line items in this document.</p>
+                  <p className="text-[13px] text-muted-foreground py-4 text-center">No line items in this document.</p>
                 ) : (
                   formData.line_items.map((item, idx) => (
                     <div
@@ -565,15 +565,15 @@ export function DraftPlEditForm({ open, draftPl, onClose, onSubmit }: Props) {
                       style={{ borderColor: 'hsl(var(--border))' }}
                     >
                       <div className="px-3 py-2 bg-muted/30 flex items-center justify-between">
-                        <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                        <span className="text-[12px] font-bold uppercase tracking-wide text-muted-foreground">
                           Line Item {idx + 1}
                         </span>
-                        <span className="text-[10px] text-muted-foreground font-mono">{item.hsn_code}</span>
+                        <span className="text-[12px] text-muted-foreground font-mono">{item.hsn_code}</span>
                       </div>
                       <div className="p-3 space-y-3">
                         {/* Description block — full width */}
                         <div className="border-b pb-2">
-                          <div className="text-[10px] font-bold text-muted-foreground mb-1">
+                          <div className="text-[12px] font-bold text-muted-foreground mb-1">
                             Description, Marks &amp; Nos., CONTAINER NO / SEAL NO, HS Code, Product Code
                           </div>
                           <ReadonlyField
@@ -633,13 +633,13 @@ export function DraftPlEditForm({ open, draftPl, onClose, onSubmit }: Props) {
 
                         {/* Package Type — user input (rose border) */}
                         <div className="flex flex-col gap-0.5 w-1/3">
-                          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                          <label className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wide">
                             Package Type
                           </label>
                           <select
                             value={item.package_type}
                             onChange={e => updateLineItem(idx, 'package_type', e.target.value)}
-                            className="w-full px-2.5 py-1.5 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 rounded-md border-2 border-rose-300 dark:border-rose-500/30 min-h-[32px] cursor-pointer hover:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-500 dark:focus:ring-rose-400/50 transition-colors"
+                            className="w-full px-2.5 py-1.5 text-[14.5px] text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800 rounded-md border-2 border-rose-300 dark:border-rose-500/30 min-h-[32px] cursor-pointer hover:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-500 dark:focus:ring-rose-400/50 transition-colors"
                           >
                             {PACKAGE_TYPES.map(pt => (
                               <option key={pt} value={pt}>{pt}</option>
@@ -663,7 +663,7 @@ export function DraftPlEditForm({ open, draftPl, onClose, onSubmit }: Props) {
           <button
             type="button"
             onClick={handleCancel}
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors px-2"
+            className="text-[14.5px] text-muted-foreground hover:text-foreground transition-colors px-2"
           >
             Cancel
           </button>
@@ -671,7 +671,7 @@ export function DraftPlEditForm({ open, draftPl, onClose, onSubmit }: Props) {
             <button
               type="button"
               onClick={handleSaveDraft}
-              className="px-4 py-2 text-xs font-semibold rounded-lg border bg-background hover:bg-muted transition-colors"
+              className="px-4 py-2 text-[13px] font-semibold rounded-lg border bg-background hover:bg-muted transition-colors"
               style={{ borderColor: 'hsl(var(--border))' }}
             >
               Save Draft
@@ -679,7 +679,7 @@ export function DraftPlEditForm({ open, draftPl, onClose, onSubmit }: Props) {
             <button
               type="button"
               onClick={handleSubmit}
-              className="px-4 py-2 text-xs font-semibold rounded-lg text-white transition-colors hover:opacity-90"
+              className="px-4 py-2 text-[13px] font-semibold rounded-lg text-white transition-colors hover:opacity-90"
               style={{ background: 'hsl(var(--vs-teal, 173 58% 39%))' }}
             >
               Submit Packing List

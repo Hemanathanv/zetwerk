@@ -1,438 +1,1240 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
-import { Button } from '@/components/ui/button';
-import { PageHeader, SlaBar } from '@/components/vs';
+import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionContext';
+import { RequireActivity } from '@/components/PermissionGate';
+import { RoleBadge } from '@/components/RoleBadge';
 import { getAuthToken } from '@/lib/api';
+import {
+  useTaskList,
+  useTaskSummary,
+  useTaskDetail,
+  type TaskScope,
+} from '@/hooks/useOperationalData';
+import {
+  ClipboardList, AlertTriangle, Ban, Clock, ChevronUp, ChevronDown,
+  X, ArrowUpRight, RotateCcw, CheckCircle, SlidersHorizontal,
+  RefreshCw, UserPlus, Loader2, Plus, Users, Play, Send, UserCheck,
+  ArrowRight, Package, BarChart2,
+} from 'lucide-react';
 
-type SlaVariant = 'ok' | 'warning' | 'critical';
-type UrgencyGroup = 'blocker' | 'warning' | 'inprogress';
-type BadgeKind = 'BLOCKER' | 'ESCALATED' | '75% SLA' | 'ON TRACK';
-type DocType = 'SI' | 'MC' | 'DD' | 'BL' | 'PL' | 'SB' | 'FF' | 'DR';
-type TaskFilter = 'all' | 'by-shipment';
+// ─── Design tokens ────────────────────────────────────────────────────────────
 
-type TaskCard = {
-  id: number;
-  group: UrgencyGroup;
-  docType: DocType;
-  title: string;
-  badge: BadgeKind;
-  meta: { label: string; value: string }[];
-  slaPercent: number;
-  slaTime: string;
-  slaVariant: SlaVariant;
-  buttonLabel: string;
-  buttonStyle: 'primary' | 'outline';
-  shipmentId: string;
-  isReport?: boolean;
+const TEAL   = '#0d9488';
+const RED    = '#ef4444';
+const AMBER  = '#f59e0b';
+const BLUE   = '#3b82f6';
+const GREEN  = '#16a34a';
+const INDIGO = '#6366f1';
+const BORDER = 'hsl(var(--border))';
+const FG     = 'hsl(var(--foreground))';
+const MUTED  = 'hsl(var(--muted-foreground))';
+const CARD   = 'hsl(var(--card))';
+const PANEL  = 'hsl(var(--background))';
+
+const URGENCY_COLOR: Record<string, string> = {
+  BLOCKER: RED,
+  WARNING: AMBER,
+  NORMAL:  '#94a3b8',
 };
 
-const DOC_ICON_STYLES: Record<DocType, { bg: string; color: string }> = {
-  SI: { bg: 'hsla(221,83%,53%,0.10)', color: 'hsl(221 83% 45%)' },
-  MC: { bg: 'hsla(173,58%,39%,0.10)', color: 'hsl(var(--vs-teal-dark))' },
-  DD: { bg: 'hsla(152,69%,31%,0.10)', color: 'hsl(152 69% 25%)' },
-  BL: { bg: 'hsla(38,92%,50%,0.12)',  color: 'hsl(38 92% 35%)' },
-  PL: { bg: 'hsla(221,83%,53%,0.10)', color: 'hsl(221 83% 45%)' },
-  SB: { bg: 'hsla(38,92%,50%,0.12)',  color: 'hsl(38 92% 35%)' },
-  FF: { bg: 'hsla(43,96%,56%,0.15)',  color: 'hsl(38 92% 30%)' },
-  DR: { bg: 'hsla(43,96%,56%,0.15)',  color: 'hsl(38 92% 30%)' },
+const STATUS_COLOR: Record<string, string> = {
+  PENDING:     '#94a3b8',
+  ASSIGNED:    INDIGO,
+  IN_PROGRESS: BLUE,
+  ESCALATED:   RED,
+  COMPLETED:   GREEN,
+  CANCELLED:   '#94a3b8',
 };
 
-const BADGE_STYLES: Record<BadgeKind, { bg: string; color: string }> = {
-  'BLOCKER':  { bg: 'hsla(0,84%,60%,0.12)',   color: 'hsl(0 84% 40%)' },
-  'ESCALATED':{ bg: 'hsla(38,92%,50%,0.12)',  color: 'hsl(38 92% 35%)' },
-  '75% SLA':  { bg: 'hsla(38,92%,50%,0.12)',  color: 'hsl(38 92% 35%)' },
-  'ON TRACK': { bg: 'hsla(173,58%,39%,0.10)', color: 'hsl(var(--vs-teal-dark))' },
+const STATUS_LABEL: Record<string, string> = {
+  PENDING:     'Pending',
+  ASSIGNED:    'Assigned',
+  IN_PROGRESS: 'In Progress',
+  ESCALATED:   'Escalated',
+  COMPLETED:   'Completed',
+  CANCELLED:   'Cancelled',
 };
 
-const GROUP_META: Record<UrgencyGroup, { label: string; dotColor: string }> = {
-  blocker:    { label: 'BLOCKER — action required immediately', dotColor: 'hsl(var(--vs-danger))' },
-  warning:    { label: 'WARNING — SLA approaching',             dotColor: 'hsl(var(--vs-warning))' },
-  inprogress: { label: 'IN PROGRESS',                           dotColor: 'hsl(var(--vs-teal))' },
-};
+const URGENCY_ORDER: Record<string, number> = { BLOCKER: 0, WARNING: 1, NORMAL: 2 };
 
-const MOCK_TASKS: TaskCard[] = [
-  {
-    id: 1, group: 'blocker', docType: 'MC',
-    title: 'Resolve MCS weight mismatch', badge: 'BLOCKER',
-    meta: [
-      { label: 'Shipment', value: 'J44CES25090021' },
-      { label: 'Invoice',  value: 'KA/UM/2526/00798' },
-      { label: 'Validation', value: 'V-SSD-01' },
-    ],
-    slaPercent: 100, slaTime: '18h overdue', slaVariant: 'critical',
-    buttonLabel: 'Review', buttonStyle: 'primary',
-    shipmentId: 'J44CES25090021',
-  },
-  {
-    id: 2, group: 'blocker', docType: 'SI',
-    title: 'Upload sales invoice for new booking', badge: 'ESCALATED',
-    meta: [
-      { label: 'Shipment', value: 'J44CES25090024' },
-      { label: 'Trigger',  value: 'Booking TBD-1127' },
-      { label: 'ETD',      value: 'Nov 25' },
-    ],
-    slaPercent: 100, slaTime: '6h overdue', slaVariant: 'critical',
-    buttonLabel: 'Upload', buttonStyle: 'primary',
-    shipmentId: 'J44CES25090024',
-  },
-  {
-    id: 3, group: 'warning', docType: 'DD',
-    title: 'Generate deduction certificate (DDS)', badge: '75% SLA',
-    meta: [
-      { label: 'Shipment',  value: 'J44CES25090015' },
-      { label: 'Invoices',  value: '6 clubbed' },
-      { label: 'Draft',     value: 'Auto-generated' },
-    ],
-    slaPercent: 75, slaTime: '6 hours left', slaVariant: 'warning',
-    buttonLabel: 'Review draft', buttonStyle: 'primary',
-    shipmentId: 'J44CES25090015',
-  },
-  {
-    id: 4, group: 'warning', docType: 'BL',
-    title: 'Confirm draft BOL & send to forwarder', badge: '75% SLA',
-    meta: [
-      { label: 'Shipment',   value: 'BE-250888610007' },
-      { label: 'Forwarder',  value: 'Benevlog' },
-      { label: 'ETD',        value: 'Tomorrow' },
-    ],
-    slaPercent: 70, slaTime: '11 hours left', slaVariant: 'warning',
-    buttonLabel: 'Review', buttonStyle: 'primary',
-    shipmentId: 'BE-250888610007',
-  },
-  {
-    id: 5, group: 'inprogress', docType: 'MC',
-    title: 'Generate metal content sheet', badge: 'ON TRACK',
-    meta: [
-      { label: 'Shipment',   value: 'J44CES25090023' },
-      { label: 'Invoice',    value: 'KA/UM/2526/00810' },
-      { label: 'Source',     value: 'Auto-generated' },
-    ],
-    slaPercent: 30, slaTime: '1d 8h left', slaVariant: 'ok',
-    buttonLabel: 'Review', buttonStyle: 'outline',
-    shipmentId: 'J44CES25090023',
-  },
-  {
-    id: 6, group: 'inprogress', docType: 'PL',
-    title: 'Review auto-generated packing list', badge: 'ON TRACK',
-    meta: [
-      { label: 'Shipment', value: 'J44CES25090025' },
-      { label: 'Source',   value: 'Sales invoice KA/UM/2526/00821' },
-    ],
-    slaPercent: 25, slaTime: '1d 14h left', slaVariant: 'ok',
-    buttonLabel: 'Review', buttonStyle: 'outline',
-    shipmentId: 'J44CES25090025',
-  },
-  {
-    id: 7, group: 'inprogress', docType: 'SB',
-    title: 'Upload shipping bill (from CHA)', badge: 'ON TRACK',
-    meta: [
-      { label: 'Shipment', value: 'BLRCH2526SI00139' },
-      { label: 'CHA',      value: 'Benevlog' },
-      { label: 'ETD',      value: 'Nov 30' },
-    ],
-    slaPercent: 18, slaTime: '2d 4h left', slaVariant: 'ok',
-    buttonLabel: 'Upload', buttonStyle: 'outline',
-    shipmentId: 'BLRCH2526SI00139',
-  },
-  {
-    id: 8, group: 'inprogress', docType: 'FF',
-    title: 'Review freight forwarder bill', badge: 'ON TRACK',
-    meta: [
-      { label: 'Shipment', value: 'J44CES25090019' },
-      { label: 'FF bill',  value: 'INV44260100215' },
-      { label: 'Uploaded', value: '2h ago' },
-    ],
-    slaPercent: 10, slaTime: '3d left', slaVariant: 'ok',
-    buttonLabel: 'Review', buttonStyle: 'outline',
-    shipmentId: 'J44CES25090019',
-  },
-  {
-    id: 9, group: 'inprogress', docType: 'DR',
-    title: 'Confirm daily shipment report', badge: 'ON TRACK',
-    meta: [
-      { label: 'Reference', value: 'DSR-2026-01-28' },
-      { label: 'Summary',   value: '47 shipments · 5 alerts' },
-    ],
-    slaPercent: 15, slaTime: 'Today 6pm', slaVariant: 'ok',
-    buttonLabel: 'Review', buttonStyle: 'outline',
-    shipmentId: '',
-    isReport: true,
-  },
-];
+const CATEGORIES = ['Documents', 'Validation', 'Gates', 'Accounting', 'Inventory', 'General'] as const;
+type TaskCategory = typeof CATEGORIES[number];
 
-const GROUPS: UrgencyGroup[] = ['blocker', 'warning', 'inprogress'];
+const ESCALATION_REASONS = [
+  'SLA breach',
+  'Resource unavailable',
+  'Needs senior sign-off',
+  'Blocked by external party',
+  'Other',
+] as const;
 
-function GroupHeader({ group, isFirst }: { group: UrgencyGroup; isFirst: boolean }) {
-  const { label, dotColor } = GROUP_META[group];
+const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
+
+function authHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getTaskEntityLink(task: any): string {
+  switch (task.entityType) {
+    case 'document':           return `/documents/${task.entityId}`;
+    case 'accounting_ticket':  return '/accounting';
+    case 'gate':
+    case 'validation_result':
+    case 'generation_trigger':
+    case 'shipment_milestone': return task.shipmentId ? `/shipments/${task.shipmentId}` : '/tasks';
+    case 'shipment':           return `/shipments/${task.entityId || task.shipmentId}`;
+    default:                   return task.shipmentId ? `/shipments/${task.shipmentId}` : '/tasks';
+  }
+}
+
+function formatTimeAgo(dateStr: string): string {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (seconds < 60)  return 'just now';
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60)     return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)      return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function formatSlaChip(task: any): { label: string; color: string; bg: string } | null {
+  if (!task.slaDeadline) return null;
+  const deadline = new Date(task.slaDeadline).getTime();
+  const created  = new Date(task.createdAt).getTime();
+  const now      = Date.now();
+  const total    = deadline - created;
+  if (total <= 0) return null;
+  const pct = ((now - created) / total) * 100;
+  const remaining = deadline - now;
+  const hrs = Math.abs(Math.floor(remaining / 3_600_000));
+  const days = Math.floor(hrs / 24);
+  const timeStr = days > 0 ? `${days}d ${hrs % 24}h` : `${hrs}h`;
+
+  if (remaining <= 0) {
+    return { label: `${timeStr} over`, color: RED, bg: 'hsla(0,84%,60%,0.1)' };
+  }
+  if (pct >= 75) {
+    return { label: `${timeStr} left`, color: AMBER, bg: 'hsla(38,92%,50%,0.1)' };
+  }
+  if (pct >= 50) {
+    return { label: `${timeStr} left`, color: BLUE, bg: 'hsla(221,83%,53%,0.1)' };
+  }
+  return null;
+}
+
+function computeSlaBar(task: any) {
+  if (!task.slaDeadline) return null;
+  const created  = new Date(task.createdAt).getTime();
+  const deadline = new Date(task.slaDeadline).getTime();
+  const now      = Date.now();
+  const total    = deadline - created;
+  if (total <= 0) return null;
+  const pct     = Math.min(((now - created) / total) * 100, 100);
+  const remaining = deadline - now;
+  const hrs     = Math.abs(Math.floor(remaining / 3_600_000));
+  const days    = Math.floor(hrs / 24);
+  const timeStr = days > 0 ? `${days}d ${hrs % 24}h` : `${Math.max(hrs, 0)}h`;
+  const isOver  = remaining <= 0;
+  const color   = isOver ? RED : pct >= 75 ? AMBER : BLUE;
+  const label   = isOver ? `${timeStr} overdue` : `${timeStr} remaining`;
+  return { pct, color, label, isOver };
+}
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+// ─── Sortable column header ───────────────────────────────────────────────────
+
+function SortHeader({
+  label, field, sort, onSort, width, textAlign = 'left',
+}: {
+  label: string; field: string;
+  sort: { field: string; dir: 'asc' | 'desc' };
+  onSort: (f: string) => void;
+  width?: number; textAlign?: 'left' | 'right';
+}) {
+  const active = sort.field === field;
   return (
     <div
+      onClick={() => onSort(field)}
       style={{
+        flexShrink: width ? 0 : undefined,
+        flex: width ? undefined : 1,
+        width,
+        minWidth: 0,
+        fontSize: 11,
+        fontWeight: 600,
+        textTransform: 'uppercase',
+        letterSpacing: '0.06em',
+        color: active ? FG : MUTED,
+        textAlign,
+        cursor: 'pointer',
         display: 'flex',
         alignItems: 'center',
-        gap: 8,
-        marginTop: isFirst ? 0 : 28,
-        marginBottom: 12,
+        gap: 2,
+        justifyContent: textAlign === 'right' ? 'flex-end' : 'flex-start',
+        userSelect: 'none',
       }}
     >
+      {label}
+      {active
+        ? sort.dir === 'asc'
+          ? <ChevronUp size={10} />
+          : <ChevronDown size={10} />
+        : <ChevronDown size={10} style={{ opacity: 0.3 }} />}
+    </div>
+  );
+}
+
+// ─── Modal backdrop wrapper ───────────────────────────────────────────────────
+
+function ModalBackdrop({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ─── BulkActionBar ────────────────────────────────────────────────────────────
+
+function BulkActionBar({
+  count,
+  onClear,
+  onMarkComplete,
+  onReassign,
+  onEscalate,
+  loading,
+}: {
+  count: number;
+  onClear: () => void;
+  onMarkComplete: () => void;
+  onReassign: () => void;
+  onEscalate: () => void;
+  loading: boolean;
+}) {
+  const btnStyle = (color: string): React.CSSProperties => ({
+    display: 'flex', alignItems: 'center', gap: 5,
+    fontSize: 12.5, fontWeight: 600, color: '#fff',
+    backgroundColor: color, border: 'none', borderRadius: 6,
+    padding: '6px 12px', cursor: loading ? 'not-allowed' : 'pointer',
+    opacity: loading ? 0.6 : 1, whiteSpace: 'nowrap',
+  });
+
+  return (
+    <div style={{
+      position: 'sticky', top: 0, zIndex: 20,
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '8px 16px',
+      backgroundColor: `${BLUE}10`,
+      borderBottom: `1px solid ${BLUE}30`,
+      borderLeft: `3px solid ${BLUE}`,
+      backdropFilter: 'blur(8px)',
+      WebkitBackdropFilter: 'blur(8px)',
+      flexShrink: 0,
+    }}>
+      <span style={{ fontSize: 13, fontWeight: 600, color: BLUE, minWidth: 80 }}>
+        {count} selected
+      </span>
+      <div style={{ display: 'flex', gap: 6, flex: 1 }}>
+        <RequireActivity code="TSK-002">
+          <button onClick={onMarkComplete} disabled={loading} style={btnStyle(GREEN)}>
+            <CheckCircle size={12} />
+            Mark complete ({count})
+          </button>
+        </RequireActivity>
+        <RequireActivity code="TSK-003">
+          <button onClick={onReassign} disabled={loading} style={btnStyle(INDIGO)}>
+            <RotateCcw size={12} />
+            Reassign ({count})
+          </button>
+        </RequireActivity>
+        <RequireActivity code="TSK-004">
+          <button onClick={onEscalate} disabled={loading} style={btnStyle(AMBER)}>
+            <AlertTriangle size={12} />
+            Escalate ({count})
+          </button>
+        </RequireActivity>
+      </div>
+      <button
+        onClick={onClear}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 4,
+          fontSize: 12, color: MUTED, background: 'none', border: 'none', cursor: 'pointer',
+        }}
+      >
+        <X size={12} /> Clear
+      </button>
+    </div>
+  );
+}
+
+// ─── BulkEscalationModal ──────────────────────────────────────────────────────
+
+function BulkEscalationModal({ count, onClose, onConfirm }: {
+  count: number; onClose: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit() {
+    if (!reason) return;
+    setSubmitting(true);
+    await onConfirm(reason);
+    setSubmitting(false);
+  }
+
+  return (
+    <ModalBackdrop onClose={onClose}>
+      <div style={{ backgroundColor: CARD, borderRadius: 12, width: 400, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: FG, marginBottom: 4 }}>Escalate {count} task{count !== 1 ? 's' : ''}</div>
+        <div style={{ fontSize: 13, color: MUTED, marginBottom: 16 }}>Select a reason for escalation. All selected tasks will be escalated.</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
+          {ESCALATION_REASONS.map(r => (
+            <label key={r} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13.5, color: reason === r ? FG : MUTED, fontWeight: reason === r ? 600 : 400 }}>
+              <span style={{ width: 14, height: 14, borderRadius: '50%', border: `2px solid ${reason === r ? AMBER : BORDER}`, backgroundColor: reason === r ? AMBER : 'transparent', flexShrink: 0, transition: '0.1s' }} />
+              {r}
+              <input type="radio" value={r} checked={reason === r} onChange={() => setReason(r)} style={{ display: 'none' }} />
+            </label>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={handleSubmit} disabled={!reason || submitting} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: 'none', backgroundColor: AMBER, color: '#fff', fontSize: 13, fontWeight: 600, cursor: !reason || submitting ? 'not-allowed' : 'pointer', opacity: !reason || submitting ? 0.6 : 1 }}>
+            {submitting ? 'Escalating…' : 'Escalate all'}
+          </button>
+        </div>
+      </div>
+    </ModalBackdrop>
+  );
+}
+
+// ─── BulkRolePickerModal ──────────────────────────────────────────────────────
+
+function BulkRolePickerModal({ count, onClose, onConfirm }: {
+  count: number; onClose: () => void;
+  onConfirm: (roleId: string) => void;
+}) {
+  const [roles, setRoles] = useState<any[]>([]);
+  const [selectedRoleId, setSelectedRoleId] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/tasks/roles`, { headers: authHeaders() })
+      .then(r => r.json()).then(d => setRoles(d.data ?? [])).catch(() => {});
+  }, []);
+
+  async function handleSubmit() {
+    if (!selectedRoleId) return;
+    setSubmitting(true);
+    await onConfirm(selectedRoleId);
+    setSubmitting(false);
+  }
+
+  return (
+    <ModalBackdrop onClose={onClose}>
+      <div style={{ backgroundColor: CARD, borderRadius: 12, width: 380, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: FG, marginBottom: 4 }}>Reassign {count} task{count !== 1 ? 's' : ''}</div>
+        <div style={{ fontSize: 13, color: MUTED, marginBottom: 16 }}>Select the role to reassign these tasks to.</div>
+        <select
+          value={selectedRoleId}
+          onChange={e => setSelectedRoleId(e.target.value)}
+          style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 7, border: `1px solid ${BORDER}`, backgroundColor: 'hsl(var(--background))', color: FG, marginBottom: 20 }}
+        >
+          <option value="">Select role…</option>
+          {roles.map(r => <option key={r.id} value={r.id}>{r.displayName || r.name}</option>)}
+        </select>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={handleSubmit} disabled={!selectedRoleId || submitting} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: 'none', backgroundColor: INDIGO, color: '#fff', fontSize: 13, fontWeight: 600, cursor: !selectedRoleId || submitting ? 'not-allowed' : 'pointer', opacity: !selectedRoleId || submitting ? 0.6 : 1 }}>
+            {submitting ? 'Reassigning…' : 'Reassign all'}
+          </button>
+        </div>
+      </div>
+    </ModalBackdrop>
+  );
+}
+
+// ─── EscalationDialog ─────────────────────────────────────────────────────────
+
+function EscalationDialog({ taskId, onClose, onSuccess }: {
+  taskId: string; onClose: () => void; onSuccess: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [note, setNote] = useState('');
+  const [roles, setRoles] = useState<any[]>([]);
+  const [targetRoleId, setTargetRoleId] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/tasks/roles?minLevel=3`, { headers: authHeaders() })
+      .then(r => r.json()).then(d => setRoles(d.data ?? [])).catch(() => {});
+  }, []);
+
+  async function handleSubmit() {
+    if (!reason) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${taskId}/escalate`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ reason, note: note || undefined, targetRoleId: targetRoleId || undefined }),
+      });
+      const data = await res.json();
+      if (!data.ok) { setError(data.error || 'Failed to escalate'); setSubmitting(false); return; }
+      onSuccess();
+      onClose();
+    } catch {
+      setError('Network error');
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <ModalBackdrop onClose={onClose}>
+      <div style={{ backgroundColor: CARD, borderRadius: 12, width: 420, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: FG }}>Escalate Task</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: MUTED }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 8 }}>Reason *</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+          {ESCALATION_REASONS.map(r => (
+            <label key={r} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '6px 8px', borderRadius: 6, backgroundColor: reason === r ? `${AMBER}10` : 'transparent', border: `1px solid ${reason === r ? `${AMBER}40` : 'transparent'}` }}>
+              <span style={{ width: 14, height: 14, borderRadius: '50%', border: `2px solid ${reason === r ? AMBER : BORDER}`, backgroundColor: reason === r ? AMBER : 'transparent', flexShrink: 0, transition: '0.1s' }} />
+              <span style={{ fontSize: 13.5, color: reason === r ? FG : MUTED, fontWeight: reason === r ? 600 : 400 }}>{r}</span>
+              <input type="radio" value={r} checked={reason === r} onChange={() => setReason(r)} style={{ display: 'none' }} />
+            </label>
+          ))}
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 6 }}>Escalate to role (optional)</div>
+        <select
+          value={targetRoleId}
+          onChange={e => setTargetRoleId(e.target.value)}
+          style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 7, border: `1px solid ${BORDER}`, backgroundColor: 'hsl(var(--background))', color: FG, marginBottom: 12 }}
+        >
+          <option value="">Auto-determine</option>
+          {roles.map(r => <option key={r.id} value={r.id}>{r.displayName || r.name}</option>)}
+        </select>
+
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 6 }}>Note (optional)</div>
+        <textarea
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          placeholder="Add context for the escalation target…"
+          rows={2}
+          style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 7, border: `1px solid ${BORDER}`, backgroundColor: 'hsl(var(--background))', color: FG, resize: 'vertical', boxSizing: 'border-box', marginBottom: 16 }}
+        />
+
+        {error && <div style={{ fontSize: 12.5, color: RED, marginBottom: 12 }}>{error}</div>}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={handleSubmit} disabled={!reason || submitting} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: 'none', backgroundColor: AMBER, color: '#fff', fontSize: 13, fontWeight: 600, cursor: !reason || submitting ? 'not-allowed' : 'pointer', opacity: !reason || submitting ? 0.6 : 1 }}>
+            {submitting ? 'Escalating…' : 'Escalate & create child task'}
+          </button>
+        </div>
+      </div>
+    </ModalBackdrop>
+  );
+}
+
+// ─── ReassignDialog ───────────────────────────────────────────────────────────
+
+function ReassignDialog({ taskId, onClose, onSuccess }: {
+  taskId: string; onClose: () => void; onSuccess: () => void;
+}) {
+  const [roles, setRoles] = useState<any[]>([]);
+  const [selectedRoleId, setSelectedRoleId] = useState('');
+  const [userSearch, setUserSearch] = useState('');
+  const [users, setUsers] = useState<any[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const debouncedSearch = useDebounce(userSearch, 300);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/tasks/roles`, { headers: authHeaders() })
+      .then(r => r.json()).then(d => setRoles(d.data ?? [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (debouncedSearch.length >= 2) {
+      const params = new URLSearchParams({ search: debouncedSearch });
+      if (selectedRoleId) params.set('roleId', selectedRoleId);
+      fetch(`${API_BASE}/api/tasks/users?${params}`, { headers: authHeaders() })
+        .then(r => r.json()).then(d => setUsers(d.data ?? [])).catch(() => {});
+    } else if (selectedRoleId) {
+      fetch(`${API_BASE}/api/tasks/users?roleId=${selectedRoleId}`, { headers: authHeaders() })
+        .then(r => r.json()).then(d => setUsers(d.data ?? [])).catch(() => {});
+    } else {
+      setUsers([]);
+    }
+  }, [debouncedSearch, selectedRoleId]);
+
+  async function handleSubmit() {
+    if (!selectedRoleId) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${taskId}/reassign`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ assignedRoleId: selectedRoleId, assignedToId: selectedUserId || undefined, note: note || undefined }),
+      });
+      const data = await res.json();
+      if (!data.ok) { setError(data.error || 'Failed to reassign'); setSubmitting(false); return; }
+      onSuccess();
+      onClose();
+    } catch {
+      setError('Network error');
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <ModalBackdrop onClose={onClose}>
+      <div style={{ backgroundColor: CARD, borderRadius: 12, width: 400, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: FG }}>Reassign Task</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: MUTED }}><X size={16} /></button>
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 6 }}>Assign to role *</div>
+        <select
+          value={selectedRoleId}
+          onChange={e => { setSelectedRoleId(e.target.value); setSelectedUserId(''); setUserSearch(''); }}
+          style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 7, border: `1px solid ${BORDER}`, backgroundColor: 'hsl(var(--background))', color: FG, marginBottom: 12 }}
+        >
+          <option value="">Select role…</option>
+          {roles.map(r => <option key={r.id} value={r.id}>{r.displayName || r.name}</option>)}
+        </select>
+
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 6 }}>Specific user (optional)</div>
+        <input
+          value={userSearch}
+          onChange={e => { setUserSearch(e.target.value); setSelectedUserId(''); }}
+          placeholder="Search by name or email…"
+          style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 7, border: `1px solid ${BORDER}`, backgroundColor: 'hsl(var(--background))', color: FG, marginBottom: 6, boxSizing: 'border-box' }}
+        />
+        {users.length > 0 && (
+          <div style={{ border: `1px solid ${BORDER}`, borderRadius: 7, overflow: 'hidden', marginBottom: 12, maxHeight: 160, overflowY: 'auto' }}>
+            {users.map(u => (
+              <div
+                key={u.id}
+                onClick={() => { setSelectedUserId(u.id); setUserSearch(u.fullName); setUsers([]); }}
+                style={{ padding: '8px 10px', cursor: 'pointer', backgroundColor: selectedUserId === u.id ? `${BLUE}10` : 'transparent', borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', gap: 8 }}
+              >
+                <div style={{ fontSize: 13.5, fontWeight: 500, color: FG }}>{u.fullName}</div>
+                <div style={{ fontSize: 11.5, color: MUTED }}>{u.email}</div>
+                {u.level && <span style={{ fontSize: 10, fontWeight: 700, backgroundColor: `${BLUE}15`, color: BLUE, padding: '1px 5px', borderRadius: 999, marginLeft: 'auto' }}>{u.level}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 6 }}>Note (optional)</div>
+        <textarea
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          placeholder="Reason for reassignment…"
+          rows={2}
+          style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 7, border: `1px solid ${BORDER}`, backgroundColor: 'hsl(var(--background))', color: FG, resize: 'vertical', boxSizing: 'border-box', marginBottom: 16 }}
+        />
+
+        {error && <div style={{ fontSize: 12.5, color: RED, marginBottom: 12 }}>{error}</div>}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={handleSubmit} disabled={!selectedRoleId || submitting} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: 'none', backgroundColor: INDIGO, color: '#fff', fontSize: 13, fontWeight: 600, cursor: !selectedRoleId || submitting ? 'not-allowed' : 'pointer', opacity: !selectedRoleId || submitting ? 0.6 : 1 }}>
+            {submitting ? 'Reassigning…' : 'Reassign'}
+          </button>
+        </div>
+      </div>
+    </ModalBackdrop>
+  );
+}
+
+// ─── DelegationDialog ─────────────────────────────────────────────────────────
+
+function DelegationDialog({ taskId, onClose, onSuccess }: {
+  taskId: string; onClose: () => void; onSuccess: () => void;
+}) {
+  const [userSearch, setUserSearch] = useState('');
+  const [users, setUsers] = useState<any[]>([]);
+  const [selectedUser, setSelectedUser] = useState<any | null>(null);
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const debouncedSearch = useDebounce(userSearch, 300);
+
+  useEffect(() => {
+    if (debouncedSearch.length >= 2) {
+      fetch(`${API_BASE}/api/tasks/users?search=${encodeURIComponent(debouncedSearch)}`, { headers: authHeaders() })
+        .then(r => r.json()).then(d => setUsers(d.data ?? [])).catch(() => {});
+    } else {
+      setUsers([]);
+    }
+  }, [debouncedSearch]);
+
+  async function handleSubmit() {
+    if (!selectedUser) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${taskId}/delegate`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ targetUserId: selectedUser.id, note: note || undefined }),
+      });
+      const data = await res.json();
+      if (!data.ok) { setError(data.error || 'Failed to delegate'); setSubmitting(false); return; }
+      onSuccess();
+      onClose();
+    } catch {
+      setError('Network error');
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <ModalBackdrop onClose={onClose}>
+      <div style={{ backgroundColor: CARD, borderRadius: 12, width: 400, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: FG }}>Delegate Task</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: MUTED }}><X size={16} /></button>
+        </div>
+        <div style={{ fontSize: 13, color: MUTED, marginBottom: 16 }}>Delegate authority to another user. You cannot delegate to a lower-level user.</div>
+
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 6 }}>Search user *</div>
+        <input
+          value={userSearch}
+          onChange={e => { setUserSearch(e.target.value); if (!e.target.value) setSelectedUser(null); }}
+          placeholder="Type name or email (≥2 chars)…"
+          style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 7, border: `1px solid ${selectedUser ? `${BLUE}60` : BORDER}`, backgroundColor: 'hsl(var(--background))', color: FG, marginBottom: 6, boxSizing: 'border-box' }}
+        />
+
+        {selectedUser && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', backgroundColor: `${BLUE}10`, border: `1px solid ${BLUE}30`, borderRadius: 7, marginBottom: 12 }}>
+            <UserCheck size={13} color={BLUE} />
+            <span style={{ fontSize: 13.5, fontWeight: 600, color: FG }}>{selectedUser.fullName}</span>
+            <span style={{ fontSize: 11.5, color: MUTED }}>{selectedUser.email}</span>
+            {selectedUser.level && <span style={{ fontSize: 10, fontWeight: 700, backgroundColor: `${BLUE}15`, color: BLUE, padding: '1px 5px', borderRadius: 999, marginLeft: 'auto' }}>{selectedUser.level}</span>}
+            <button onClick={() => { setSelectedUser(null); setUserSearch(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: MUTED, marginLeft: 4 }}><X size={12} /></button>
+          </div>
+        )}
+
+        {!selectedUser && users.length > 0 && (
+          <div style={{ border: `1px solid ${BORDER}`, borderRadius: 7, overflow: 'hidden', marginBottom: 12, maxHeight: 200, overflowY: 'auto' }}>
+            {users.map(u => (
+              <div
+                key={u.id}
+                onClick={() => { setSelectedUser(u); setUserSearch(u.fullName); setUsers([]); }}
+                style={{ padding: '9px 12px', cursor: 'pointer', borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', gap: 8 }}
+                onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'hsl(var(--muted)/0.3)')}
+                onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 500, color: FG }}>{u.fullName}</div>
+                  <div style={{ fontSize: 11.5, color: MUTED }}>{u.email}</div>
+                </div>
+                {u.level && <span style={{ fontSize: 10, fontWeight: 700, backgroundColor: `${BLUE}15`, color: BLUE, padding: '1px 5px', borderRadius: 999, marginLeft: 'auto' }}>{u.level}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 6 }}>Note (optional)</div>
+        <textarea
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          placeholder="Why are you delegating? Handoff context…"
+          rows={2}
+          style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 7, border: `1px solid ${BORDER}`, backgroundColor: 'hsl(var(--background))', color: FG, resize: 'vertical', boxSizing: 'border-box', marginBottom: 16 }}
+        />
+
+        {error && <div style={{ fontSize: 12.5, color: RED, marginBottom: 12 }}>{error}</div>}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={handleSubmit} disabled={!selectedUser || submitting} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: 'none', backgroundColor: TEAL, color: '#fff', fontSize: 13, fontWeight: 600, cursor: !selectedUser || submitting ? 'not-allowed' : 'pointer', opacity: !selectedUser || submitting ? 0.6 : 1 }}>
+            {submitting ? 'Delegating…' : 'Delegate'}
+          </button>
+        </div>
+      </div>
+    </ModalBackdrop>
+  );
+}
+
+// ─── TaskCreationDrawer ───────────────────────────────────────────────────────
+
+function TaskCreationDrawer({ onClose, onCreated }: {
+  onClose: () => void; onCreated: () => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState<TaskCategory>('General');
+  const [urgency, setUrgency] = useState('NORMAL');
+  const [assignedRole, setAssignedRole] = useState('');
+  const [slaDeadline, setSlaDeadline] = useState('');
+  const [shipmentSearch, setShipmentSearch] = useState('');
+  const [shipments, setShipments] = useState<any[]>([]);
+  const [selectedShipment, setSelectedShipment] = useState<any | null>(null);
+  const [roles, setRoles] = useState<any[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const debouncedShipmentSearch = useDebounce(shipmentSearch, 300);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/tasks/roles`, { headers: authHeaders() })
+      .then(r => r.json()).then(d => setRoles(d.data ?? [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (debouncedShipmentSearch.length >= 2) {
+      fetch(`${API_BASE}/api/shipments?search=${encodeURIComponent(debouncedShipmentSearch)}&limit=8`, { headers: authHeaders() })
+        .then(r => r.json()).then(d => setShipments(d.data ?? [])).catch(() => {});
+    } else {
+      setShipments([]);
+    }
+  }, [debouncedShipmentSearch]);
+
+  async function handleSubmit() {
+    if (!title.trim() || !assignedRole) { setError('Title and role are required'); return; }
+    setSubmitting(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          title: title.trim(),
+          description: description.trim() || undefined,
+          category,
+          assignedRole,
+          urgency,
+          shipmentId: selectedShipment?.id || undefined,
+          slaDeadline: slaDeadline || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) { setError(data.error || 'Failed to create task'); setSubmitting(false); return; }
+      onCreated();
+      onClose();
+    } catch {
+      setError('Network error');
+      setSubmitting(false);
+    }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 7,
+    border: `1px solid ${BORDER}`, backgroundColor: 'hsl(var(--background))',
+    color: FG, boxSizing: 'border-box',
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 12, fontWeight: 700, textTransform: 'uppercase' as const,
+    letterSpacing: '0.06em', color: MUTED, marginBottom: 5, display: 'block',
+  };
+
+  const URGENCY_OPTIONS = [
+    { value: 'NORMAL', label: 'Normal', color: '#94a3b8' },
+    { value: 'WARNING', label: 'Warning', color: AMBER },
+    { value: 'BLOCKER', label: 'Blocker', color: RED },
+  ];
+
+  return (
+    <>
+      {/* Backdrop */}
       <div
-        style={{
-          width: 7,
-          height: 7,
-          borderRadius: '50%',
-          backgroundColor: dotColor,
-          flexShrink: 0,
-        }}
+        onClick={onClose}
+        style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 100 }}
       />
-      <span
-        style={{
-          fontSize: 11,
-          fontWeight: 600,
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          color: 'hsl(var(--muted-foreground))',
-        }}
-      >
-        {label}
-      </span>
-    </div>
+      {/* Drawer */}
+      <div style={{
+        position: 'fixed', top: 0, right: 0, bottom: 0, width: 440,
+        backgroundColor: CARD, zIndex: 101, display: 'flex', flexDirection: 'column',
+        boxShadow: '-4px 0 30px rgba(0,0,0,0.25)',
+      }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Plus size={16} color={TEAL} />
+            <span style={{ fontSize: 15, fontWeight: 700, color: FG }}>New Task</span>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: MUTED }}><X size={16} /></button>
+        </div>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* Shipment typeahead */}
+          <div>
+            <span style={labelStyle}>Shipment (optional)</span>
+            {selectedShipment ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', backgroundColor: `${TEAL}10`, border: `1px solid ${TEAL}30`, borderRadius: 7 }}>
+                <Package size={13} color={TEAL} />
+                <span className="vs-mono" style={{ fontSize: 13, fontWeight: 600, color: TEAL }}>{selectedShipment.shipmentNumber}</span>
+                <button onClick={() => { setSelectedShipment(null); setShipmentSearch(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: MUTED, marginLeft: 'auto' }}><X size={12} /></button>
+              </div>
+            ) : (
+              <>
+                <input
+                  value={shipmentSearch}
+                  onChange={e => setShipmentSearch(e.target.value)}
+                  placeholder="Search by shipment number (≥2 chars)…"
+                  style={inputStyle}
+                />
+                {shipments.length > 0 && (
+                  <div style={{ border: `1px solid ${BORDER}`, borderRadius: 7, overflow: 'hidden', marginTop: 4, maxHeight: 160, overflowY: 'auto' }}>
+                    {shipments.map((s: any) => (
+                      <div
+                        key={s.id}
+                        onClick={() => { setSelectedShipment(s); setShipmentSearch(s.shipmentNumber); setShipments([]); }}
+                        style={{ padding: '8px 10px', cursor: 'pointer', borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', gap: 6 }}
+                        onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'hsl(var(--muted)/0.3)')}
+                        onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      >
+                        <span className="vs-mono" style={{ fontSize: 13, color: TEAL, fontWeight: 600 }}>{s.shipmentNumber}</span>
+                        {s.currentStageName && <span style={{ fontSize: 12, color: MUTED }}>— {s.currentStageName}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Title */}
+          <div>
+            <span style={labelStyle}>Title *</span>
+            <input
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="What needs to be done?"
+              style={{ ...inputStyle, border: `1px solid ${!title && error ? RED : BORDER}` }}
+            />
+          </div>
+
+          {/* Description */}
+          <div>
+            <span style={labelStyle}>Description</span>
+            <textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Additional context…"
+              rows={2}
+              style={{ ...inputStyle, resize: 'vertical' }}
+            />
+          </div>
+
+          {/* Category chips */}
+          <div>
+            <span style={labelStyle}>Category</span>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {CATEGORIES.map(c => (
+                <button
+                  key={c}
+                  onClick={() => setCategory(c)}
+                  style={{
+                    padding: '5px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: category === c ? 700 : 400,
+                    cursor: 'pointer', border: `1.5px solid ${category === c ? TEAL : BORDER}`,
+                    backgroundColor: category === c ? `${TEAL}15` : 'transparent',
+                    color: category === c ? TEAL : MUTED,
+                  }}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Role */}
+          <div>
+            <span style={labelStyle}>Assign to role *</span>
+            <select
+              value={assignedRole}
+              onChange={e => setAssignedRole(e.target.value)}
+              style={{ ...inputStyle, border: `1px solid ${!assignedRole && error ? RED : BORDER}` }}
+            >
+              <option value="">Select role…</option>
+              {roles.map(r => <option key={r.id} value={r.id}>{r.displayName || r.name}</option>)}
+            </select>
+            <div style={{ fontSize: 11.5, color: MUTED, marginTop: 4 }}>Will auto-assign to the least-loaded user in this role</div>
+          </div>
+
+          {/* Urgency */}
+          <div>
+            <span style={labelStyle}>Urgency</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {URGENCY_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setUrgency(opt.value)}
+                  style={{
+                    flex: 1, padding: '7px 0', borderRadius: 7, fontSize: 13, fontWeight: urgency === opt.value ? 700 : 400,
+                    cursor: 'pointer', border: `1.5px solid ${urgency === opt.value ? opt.color : BORDER}`,
+                    backgroundColor: urgency === opt.value ? `${opt.color}15` : 'transparent',
+                    color: urgency === opt.value ? opt.color : MUTED,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                  }}
+                >
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: opt.color }} />
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* SLA date/time */}
+          <div>
+            <span style={labelStyle}>SLA deadline (optional)</span>
+            <input
+              type="datetime-local"
+              value={slaDeadline}
+              onChange={e => setSlaDeadline(e.target.value)}
+              style={inputStyle}
+            />
+            <div style={{ fontSize: 11.5, color: MUTED, marginTop: 4 }}>Leave blank to auto-calculate from category defaults</div>
+          </div>
+
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: '16px 20px', borderTop: `1px solid ${BORDER}`, flexShrink: 0 }}>
+          {error && <div style={{ fontSize: 12.5, color: RED, marginBottom: 10 }}>{error}</div>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onClose} style={{ flex: 1, padding: '10px 0', borderRadius: 7, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting}
+              style={{ flex: 2, padding: '10px 0', borderRadius: 7, border: 'none', backgroundColor: TEAL, color: '#fff', fontSize: 13.5, fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+            >
+              {submitting ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />}
+              {submitting ? 'Creating…' : 'Create Task'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
-function ShipmentGroupHeader({ shipmentId, count, isFirst }: { shipmentId: string; count: number; isFirst: boolean }) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        marginTop: isFirst ? 0 : 28,
-        marginBottom: 12,
-        padding: '8px 12px',
-        borderRadius: 8,
-        backgroundColor: 'hsl(var(--muted) / 0.4)',
-      }}
-    >
-      <span
-        className="vs-mono font-semibold"
-        style={{ fontSize: 12, color: 'hsl(var(--foreground))' }}
-      >
-        {shipmentId || 'No shipment'}
-      </span>
-      <span
-        style={{
-          fontSize: 10,
-          fontWeight: 600,
-          padding: '1px 7px',
-          borderRadius: 999,
-          backgroundColor: 'hsl(var(--border))',
-          color: 'hsl(var(--muted-foreground))',
-        }}
-      >
-        {count} task{count !== 1 ? 's' : ''}
-      </span>
-    </div>
-  );
-}
+// ─── Task row ─────────────────────────────────────────────────────────────────
 
-function TaskCardItem({ task, onClick }: { task: TaskCard; onClick: () => void }) {
-  const iconStyle = DOC_ICON_STYLES[task.docType];
-  const badgeStyle = BADGE_STYLES[task.badge];
+function TaskRow({
+  task, selected, onClick,
+  checkable, checked, onCheck,
+}: {
+  task: any; selected: boolean; onClick: () => void;
+  checkable?: boolean; checked?: boolean; onCheck?: (e: React.MouseEvent) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [, navigate] = useLocation();
+  const urgencyColor = URGENCY_COLOR[task.urgency] ?? '#94a3b8';
+  const slaChip     = formatSlaChip(task);
 
-  const borderLeft =
-    task.group === 'blocker'
-      ? '3px solid hsl(var(--vs-danger))'
-      : task.group === 'warning'
-      ? '3px solid hsl(var(--vs-warning))'
-      : 'none';
+  const delegationLog = task.metadata?.delegationLog;
+  const lastDelegate = Array.isArray(delegationLog) && delegationLog.length > 0
+    ? delegationLog[delegationLog.length - 1]
+    : null;
 
   return (
     <div
       onClick={onClick}
-      className="bg-card rounded-xl cursor-pointer"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
-        padding: '18px 20px',
-        marginBottom: 10,
-        borderLeft,
-        boxShadow: 'var(--vs-shadow-card)',
-        transition: 'transform 0.12s ease, box-shadow 0.12s ease',
-      }}
-      onMouseEnter={(e) => {
-        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-1px)';
-        (e.currentTarget as HTMLDivElement).style.boxShadow = 'var(--vs-shadow-elevated)';
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLDivElement).style.transform = '';
-        (e.currentTarget as HTMLDivElement).style.boxShadow = 'var(--vs-shadow-card)';
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '9px 16px 9px 0',
+        minHeight: 56,
+        backgroundColor: selected
+          ? 'hsla(221,83%,53%,0.06)'
+          : hovered ? 'hsl(var(--muted)/0.35)' : 'transparent',
+        borderBottom: `1px solid ${BORDER}`,
+        borderLeft: selected
+          ? `3px solid ${BLUE}`
+          : checked ? `3px solid ${INDIGO}`
+          : `3px solid ${urgencyColor}`,
+        cursor: 'pointer',
+        transition: 'background-color 0.1s',
+        boxSizing: 'border-box',
       }}
     >
-      {/* Desktop: 4-column grid */}
-      <div
-        className="hidden lg:grid"
-        style={{
-          gridTemplateColumns: 'auto minmax(0,1fr) auto auto',
-          gap: 16,
-          alignItems: 'center',
-        }}
-      >
-        {/* Col 1: Doc icon */}
+      {/* Checkbox (when checkable) or urgency spacer */}
+      {checkable ? (
         <div
-          className="vs-mono font-bold flex items-center justify-center flex-shrink-0"
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 10,
-            fontSize: 13,
-            backgroundColor: iconStyle.bg,
-            color: iconStyle.color,
-          }}
+          onClick={(e) => { e.stopPropagation(); onCheck?.(e); }}
+          style={{ width: 28, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
         >
-          {task.docType}
+          <span style={{
+            width: 14, height: 14, borderRadius: 3, flexShrink: 0,
+            border: `1.5px solid ${checked ? INDIGO : BORDER}`,
+            backgroundColor: checked ? INDIGO : 'transparent',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'border-color 0.1s, background-color 0.1s',
+          }}>
+            {checked && <div style={{ width: 5, height: 3.5, borderLeft: '1.5px solid #fff', borderBottom: '1.5px solid #fff', transform: 'rotate(-45deg)', marginTop: -1 }} />}
+          </span>
         </div>
+      ) : (
+        <div style={{ width: 12, flexShrink: 0 }} />
+      )}
 
-        {/* Col 2: Content */}
-        <div style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: 'hsl(var(--foreground))' }}>
-              {task.title}
+      {/* Title + activity code */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: 13.5,
+          fontWeight: 600,
+          color: FG,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          lineHeight: 1.35,
+        }}>
+          {task.title}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
+          <span className="vs-mono" style={{ fontSize: 11.5, color: MUTED, backgroundColor: 'hsl(var(--muted)/0.5)', padding: '0 5px', borderRadius: 3 }}>
+            {task.activityCode}
+          </span>
+          {task.isDelegated && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, color: INDIGO, fontWeight: 500 }}>
+              <UserPlus size={9} /> Delegated
             </span>
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 600,
-                padding: '2px 8px',
-                borderRadius: 999,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                backgroundColor: badgeStyle.bg,
-                color: badgeStyle.color,
-                flexShrink: 0,
-              }}
-            >
-              {task.badge}
+          )}
+          {lastDelegate && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 10, color: BLUE, fontWeight: 500 }}>
+              <ArrowRight size={8} />
+              {lastDelegate.toName}
             </span>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px' }}>
-            {task.meta.map((m) => (
-              <span key={m.label} style={{ fontSize: 12, color: 'hsl(var(--muted-foreground))' }}>
-                {m.label}:{' '}
-                <span className="vs-mono font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
-                  {m.value}
-                </span>
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {/* Col 3: SLA bar */}
-        <div style={{ flexShrink: 0 }}>
-          <SlaBar
-            percentElapsed={task.slaPercent}
-            timeRemaining={task.slaTime}
-            variant={task.slaVariant}
-          />
-        </div>
-
-        {/* Col 4: Action button */}
-        <div style={{ flexShrink: 0 }}>
-          {task.buttonStyle === 'primary' ? (
-            <Button
-              size="sm"
-              className="text-white"
-              style={{
-                padding: '7px 14px',
-                fontSize: 12,
-                backgroundColor: 'hsl(var(--primary))',
-              }}
-              onClick={(e) => { e.stopPropagation(); onClick(); }}
-            >
-              {task.buttonLabel}
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              style={{ padding: '7px 14px', fontSize: 12 }}
-              onClick={(e) => { e.stopPropagation(); onClick(); }}
-            >
-              {task.buttonLabel}
-            </Button>
           )}
         </div>
       </div>
 
-      {/* Mobile: stacked layout */}
-      <div className="flex flex-col gap-3 lg:hidden">
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-          <div
-            className="vs-mono font-bold flex items-center justify-center flex-shrink-0"
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 10,
-              fontSize: 12,
-              backgroundColor: iconStyle.bg,
-              color: iconStyle.color,
-            }}
+      {/* Shipment # */}
+      <div style={{ flexShrink: 0, width: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {task.shipment?.shipmentNumber ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); navigate(`/shipments/${task.shipmentId}`); }}
+            className="vs-mono"
+            style={{ fontSize: 12.5, color: TEAL, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontWeight: 500 }}
           >
-            {task.docType}
+            {task.shipment.shipmentNumber}
+          </button>
+        ) : (
+          <span style={{ fontSize: 12, color: MUTED }}>—</span>
+        )}
+        {task.shipment?.currentStageName && (
+          <div style={{ fontSize: 11, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {task.shipment.currentStageName}
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 5 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'hsl(var(--foreground))' }}>
-                {task.title}
-              </span>
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 600,
-                  padding: '2px 7px',
-                  borderRadius: 999,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  backgroundColor: badgeStyle.bg,
-                  color: badgeStyle.color,
-                  flexShrink: 0,
-                }}
-              >
-                {task.badge}
-              </span>
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px 12px' }}>
-              {task.meta.map((m) => (
-                <span key={m.label} style={{ fontSize: 11, color: 'hsl(var(--muted-foreground))' }}>
-                  {m.label}:{' '}
-                  <span className="vs-mono font-semibold" style={{ color: 'hsl(var(--foreground))' }}>
-                    {m.value}
-                  </span>
-                </span>
-              ))}
-            </div>
-          </div>
+        )}
+      </div>
+
+      {/* Status pill */}
+      <div style={{ flexShrink: 0, width: 100 }}>
+        <span style={{
+          fontSize: 12,
+          fontWeight: 600,
+          padding: '2px 8px',
+          borderRadius: 999,
+          backgroundColor: `${STATUS_COLOR[task.status] ?? '#94a3b8'}18`,
+          color: STATUS_COLOR[task.status] ?? '#94a3b8',
+          whiteSpace: 'nowrap',
+        }}>
+          {STATUS_LABEL[task.status] ?? task.status}
+        </span>
+      </div>
+
+      {/* SLA chip */}
+      <div style={{ flexShrink: 0, width: 108 }}>
+        {slaChip ? (
+          <span style={{
+            fontSize: 11.5,
+            fontWeight: 700,
+            padding: '2px 6px',
+            borderRadius: 999,
+            backgroundColor: slaChip.bg,
+            color: slaChip.color,
+            border: `1px solid ${slaChip.color}40`,
+            whiteSpace: 'nowrap',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 3,
+          }}>
+            <Clock size={9} />
+            {slaChip.label}
+          </span>
+        ) : (
+          task.slaDeadline ? (
+            <span style={{ fontSize: 11.5, color: MUTED }}>On track</span>
+          ) : null
+        )}
+      </div>
+
+      {/* Role badge */}
+      <div style={{ flexShrink: 0, width: 86, overflow: 'hidden' }}>
+        {task.assignedRole && <RoleBadge roleId={task.assignedRole} size="sm" />}
+      </div>
+
+      {/* Action: Open */}
+      <div style={{ flexShrink: 0, width: 60, display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          onClick={(e) => { e.stopPropagation(); navigate(getTaskEntityLink(task)); }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 3,
+            fontSize: 12.5, color: TEAL, fontWeight: 600,
+            background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px',
+            borderRadius: 5,
+          }}
+        >
+          Open <ArrowUpRight size={11} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Filter sidebar ───────────────────────────────────────────────────────────
+
+function FilterSidebar({
+  urgencyFilter, setUrgencyFilter,
+  statusFilter, setStatusFilter,
+}: {
+  urgencyFilter: string;
+  setUrgencyFilter: (v: string) => void;
+  statusFilter: string[];
+  setStatusFilter: (v: string[]) => void;
+}) {
+  const statusOptions: { value: string; label: string }[] = [
+    { value: 'PENDING',     label: 'Pending' },
+    { value: 'IN_PROGRESS', label: 'In Progress' },
+    { value: 'ESCALATED',   label: 'Escalated' },
+  ];
+  const urgencyOptions: { value: string; label: string; color: string }[] = [
+    { value: '',        label: 'All',     color: MUTED },
+    { value: 'BLOCKER', label: 'Blocker', color: RED },
+    { value: 'WARNING', label: 'Warning', color: AMBER },
+    { value: 'NORMAL',  label: 'Normal',  color: TEAL },
+  ];
+
+  function toggleStatus(v: string) {
+    setStatusFilter(
+      statusFilter.includes(v) ? statusFilter.filter(s => s !== v) : [...statusFilter, v]
+    );
+  }
+
+  return (
+    <div style={{
+      width: 210,
+      flexShrink: 0,
+      borderRight: `1px solid ${BORDER}`,
+      padding: '16px 14px',
+      overflowY: 'auto',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 20,
+    }}>
+      {/* Urgency */}
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: MUTED, marginBottom: 8 }}>
+          Urgency
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-          <SlaBar
-            percentElapsed={task.slaPercent}
-            timeRemaining={task.slaTime}
-            variant={task.slaVariant}
-          />
-          {task.buttonStyle === 'primary' ? (
-            <Button
-              size="sm"
-              className="text-white"
-              style={{ padding: '7px 14px', fontSize: 12, backgroundColor: 'hsl(var(--primary))' }}
-              onClick={(e) => { e.stopPropagation(); onClick(); }}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {urgencyOptions.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => setUrgencyFilter(opt.value)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7,
+                fontSize: 13, fontWeight: urgencyFilter === opt.value ? 600 : 400,
+                color: urgencyFilter === opt.value ? FG : MUTED,
+                backgroundColor: urgencyFilter === opt.value ? `${BLUE}10` : 'transparent',
+                border: urgencyFilter === opt.value ? `1px solid ${BLUE}30` : '1px solid transparent',
+                borderRadius: 6,
+                padding: '5px 8px',
+                cursor: 'pointer',
+                textAlign: 'left',
+              }}
             >
-              {task.buttonLabel}
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              style={{ padding: '7px 14px', fontSize: 12 }}
-              onClick={(e) => { e.stopPropagation(); onClick(); }}
+              <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: opt.color, flexShrink: 0, opacity: opt.value ? 1 : 0.4 }} />
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Status */}
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: MUTED, marginBottom: 8 }}>
+          Status
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          {statusOptions.map(opt => {
+            const checked = statusFilter.includes(opt.value);
+            return (
+              <label
+                key={opt.value}
+                onClick={() => toggleStatus(opt.value)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: checked ? FG : MUTED, fontWeight: checked ? 500 : 400 }}
+              >
+                <span style={{
+                  width: 14, height: 14, borderRadius: 3, flexShrink: 0,
+                  border: `1.5px solid ${checked ? BLUE : BORDER}`,
+                  backgroundColor: checked ? BLUE : 'transparent',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'border-color 0.1s, background-color 0.1s',
+                }}>
+                  {checked && <div style={{ width: 5, height: 3.5, borderLeft: '1.5px solid #fff', borderBottom: '1.5px solid #fff', transform: 'rotate(-45deg)', marginTop: -1 }} />}
+                </span>
+                {opt.label}
+              </label>
+            );
+          })}
+          {statusFilter.length > 0 && (
+            <button
+              onClick={() => setStatusFilter([])}
+              style={{ fontSize: 11.5, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: '2px 0', marginTop: 2 }}
             >
-              {task.buttonLabel}
-            </Button>
+              Clear status filter
+            </button>
           )}
         </div>
       </div>
@@ -440,318 +1242,1323 @@ function TaskCardItem({ task, onClick }: { task: TaskCard; onClick: () => void }
   );
 }
 
-// ─── API → TaskCard mapper ────────────────────────────────────────────────────
-function mapApiTask(t: any, idx: number): TaskCard {
-  const alertLevel = t.currentAlertLevel ?? (t.status === 'overdue' ? 'critical' : null);
-  const group: UrgencyGroup =
-    alertLevel === 'critical' || t.status === 'overdue' ? 'blocker'
-    : alertLevel === 'warning' ? 'warning' : 'inprogress';
-  const badge: BadgeKind = group === 'blocker' ? 'BLOCKER' : group === 'warning' ? '75% SLA' : 'ON TRACK';
-  const at = (t.activity?.activityType ?? '').toUpperCase();
-  const docType: DocType =
-    at.includes('BL') || at.includes('LADING') ? 'BL'
-    : at.includes('SI') || at.includes('SALES') ? 'SI'
-    : at.includes('PL') || at.includes('PACKING') ? 'PL'
-    : at.includes('SB') || at.includes('SHIPPING') ? 'SB'
-    : at.includes('FF') || at.includes('FREIGHT') ? 'FF'
-    : at.includes('MC') ? 'MC' : 'DR';
-  const slaTime = t.slaDeadline ? (() => {
-    const diff = new Date(t.slaDeadline).getTime() - Date.now();
-    if (diff < 0) return `${Math.round(-diff / 3600000)}h overdue`;
-    if (diff < 3600000) return `${Math.round(diff / 60000)}m left`;
-    if (diff < 86400000) return `${Math.round(diff / 3600000)}h left`;
-    return `${Math.round(diff / 86400000)}d left`;
-  })() : '—';
-  const slaVariant: SlaVariant = group === 'blocker' ? 'critical' : group === 'warning' ? 'warning' : 'ok';
-  return {
-    id: idx + 1,
-    group,
-    docType,
-    title: t.activity?.description || t.notes || `Pending · ${t.shipment?.shipmentNumber ?? ''}`,
-    badge,
-    meta: [
-      { label: 'Shipment', value: t.shipment?.shipmentNumber ?? '—' },
-      ...(t.stage?.name ? [{ label: 'Stage', value: t.stage.name }] : []),
-    ],
-    slaPercent: t.slaPercentElapsed ?? 0,
-    slaTime,
-    slaVariant,
-    buttonLabel: 'Review',
-    buttonStyle: group === 'blocker' ? 'primary' : 'outline',
-    shipmentId: t.shipment?.shipmentNumber ?? '',
-  };
-}
+// ─── Detail panel ─────────────────────────────────────────────────────────────
 
-export function TasksPage() {
+function DetailPanel({
+  taskId, onClose, onRefresh,
+}: {
+  taskId: string; onClose: () => void; onRefresh: () => void;
+}) {
   const [, navigate] = useLocation();
-  const [activeTab, setActiveTab] = useState(0);
-  const [taskFilter, setTaskFilter] = useState<TaskFilter>('all');
-  const [tasks, setTasks] = useState<TaskCard[]>(MOCK_TASKS);
+  const { task, loading, refetch: refetchDetail } = useTaskDetail(taskId);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [showEscalation, setShowEscalation] = useState(false);
+  const [showReassign, setShowReassign] = useState(false);
+  const [showDelegate, setShowDelegate] = useState(false);
 
-  useEffect(() => {
-    const token = getAuthToken();
-    fetch('/api/tasks/my', {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    })
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(json => {
-        const live: TaskCard[] = (json.data ?? []).map(mapApiTask);
-        setTasks(live.length > 0 ? live : MOCK_TASKS);
-      })
-      .catch(() => { /* keep MOCK_TASKS */ });
-  }, []);
+  const slaBar = task ? computeSlaBar(task) : null;
 
-  const TABS = [
-    { label: 'Pending review', count: 9,   countVariant: 'danger' as const },
-    { label: 'In review',      count: 3,   countVariant: 'muted'  as const },
-    { label: 'Completed',      count: 142, countVariant: 'muted'  as const },
-  ];
+  function refreshAll() { onRefresh(); refetchDetail(); }
 
-  const FILTERS: { key: TaskFilter; label: string }[] = [
-    { key: 'all',         label: 'All tasks'   },
-    { key: 'by-shipment', label: 'By shipment' },
-  ];
-
-  function handleTaskClick(task: TaskCard) {
-    const target = task.isReport
-      ? '/reports/dsr'
-      : `/documents/${task.shipmentId}`;
-    navigate(target);
-  }
-
-  // Group tasks by shipment
-  const shipmentGroups: { shipmentId: string; tasks: TaskCard[] }[] = [];
-  if (taskFilter === 'by-shipment') {
-    const seen = new Map<string, TaskCard[]>();
-    for (const t of tasks) {
-      const key = t.shipmentId || 'no-shipment';
-      if (!seen.has(key)) seen.set(key, []);
-      seen.get(key)!.push(t);
-    }
-    for (const [shipmentId, tasks] of seen) {
-      shipmentGroups.push({ shipmentId: shipmentId === 'no-shipment' ? '' : shipmentId, tasks });
+  async function handleComplete() {
+    if (!task) return;
+    if (!window.confirm(`Mark "${task.title}" as complete?`)) return;
+    setActionLoading(true);
+    try {
+      await fetch(`${API_BASE}/api/tasks/${task.id}/complete`, {
+        method: 'POST', headers: authHeaders(),
+      });
+      refreshAll();
+      onClose();
+    } finally {
+      setActionLoading(false);
     }
   }
+
+  async function handleStart() {
+    if (!task) return;
+    setActionLoading(true);
+    try {
+      await fetch(`${API_BASE}/api/tasks/${task.id}/start`, {
+        method: 'POST', headers: authHeaders(),
+      });
+      refreshAll();
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleResolveEscalation() {
+    if (!task) return;
+    if (!window.confirm(`Resolve escalation for "${task.title}"?`)) return;
+    setActionLoading(true);
+    try {
+      await fetch(`${API_BASE}/api/tasks/${task.id}/complete`, {
+        method: 'POST', headers: authHeaders(),
+      });
+      refreshAll();
+      onClose();
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  const isTerminal = task?.status === 'COMPLETED' || task?.status === 'CANCELLED';
+  const delegationLog = task?.metadata?.delegationLog;
+  const lastDelegate = Array.isArray(delegationLog) && delegationLog.length > 0
+    ? delegationLog[delegationLog.length - 1]
+    : null;
 
   return (
-    <div className="p-7">
-
-      {/* Section 1: Page Header */}
-      <PageHeader
-        title="My tasks"
-        badge={{ label: 'India logistics · Priya K', variant: 'teal' }}
-        subtitle="9 pending tasks across 5 shipments · 2 SLA breached · updated just now"
-        actions={
-          <Button
-            size="sm"
-            className="text-white"
-            style={{ backgroundColor: 'hsl(var(--primary))' }}
-            onClick={() => navigate('/shipments/new')}
+    <>
+      <div style={{
+        width: 340,
+        flexShrink: 0,
+        borderLeft: `1px solid ${BORDER}`,
+        display: 'flex',
+        flexDirection: 'column',
+        backgroundColor: PANEL,
+        overflowY: 'auto',
+      }}>
+        {/* Panel header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '14px 16px',
+          borderBottom: `1px solid ${BORDER}`,
+          flexShrink: 0,
+          backgroundColor: 'hsl(var(--muted)/0.2)',
+        }}>
+          <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: MUTED }}>
+            Task Detail
+          </span>
+          <button
+            onClick={onClose}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 5, background: 'none', border: 'none', cursor: 'pointer', color: MUTED }}
           >
-            + Create shipment
-          </Button>
-        }
-      />
-
-      {/* Section 2: Escalation banner */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: 14,
-          padding: '14px 18px',
-          borderRadius: 12,
-          marginBottom: 20,
-          backgroundColor: 'hsla(0,84%,60%,0.08)',
-          border: '1px solid hsla(0,84%,60%,0.3)',
-        }}
-      >
-        <div
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 10,
-            backgroundColor: 'hsl(var(--vs-danger))',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-            color: '#fff',
-            fontSize: 18,
-            fontWeight: 700,
-            lineHeight: 1,
-          }}
-        >
-          !
+            <X size={14} />
+          </button>
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'hsl(0 84% 40%)' }}>
-            2 tasks are past SLA and escalated to your supervisor.
-          </div>
-          <div style={{ fontSize: 12, color: 'hsl(0 84% 45%)', marginTop: 3, lineHeight: 1.5 }}>
-            The packing list for J44CES25090021 was due 18 hours ago. Container validation
-            failed — MCS weight mismatch needs resolution before workflow can proceed.
-          </div>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          style={{ flexShrink: 0, alignSelf: 'center', fontSize: 12 }}
-        >
-          View details
-        </Button>
-      </div>
 
-      {/* Section 3: Tab bar + filter sub-tabs */}
-      <div style={{ borderBottom: '1px solid hsl(var(--border))', marginBottom: 0 }}>
-        {/* Main tabs */}
-        <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-          {TABS.map((tab, i) => {
-            const isActive = activeTab === i;
-            return (
+        {loading && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: MUTED, gap: 8, fontSize: 14 }}>
+            <Loader2 size={16} style={{ animation: 'spin 1s linear infinite', color: TEAL }} />
+            Loading task...
+          </div>
+        )}
+
+        {!loading && !task && (
+          <div style={{ padding: 24, color: MUTED, fontSize: 14, textAlign: 'center' }}>
+            Task not found
+          </div>
+        )}
+
+        {!loading && task && (
+          <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Urgency + status badges */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{
+                fontSize: 11.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999,
+                backgroundColor: `${URGENCY_COLOR[task.urgency] ?? '#94a3b8'}18`,
+                color: URGENCY_COLOR[task.urgency] ?? '#94a3b8',
+                border: `1px solid ${URGENCY_COLOR[task.urgency] ?? '#94a3b8'}35`,
+              }}>
+                {task.urgency}
+              </span>
+              <span style={{
+                fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 999,
+                backgroundColor: `${STATUS_COLOR[task.status] ?? '#94a3b8'}18`,
+                color: STATUS_COLOR[task.status] ?? '#94a3b8',
+              }}>
+                {STATUS_LABEL[task.status] ?? task.status}
+              </span>
+              {task.escalationLevel > 0 && (
+                <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 999, backgroundColor: `${RED}15`, color: RED }}>
+                  L{task.escalationLevel} ESC
+                </span>
+              )}
+            </div>
+
+            {/* Title */}
+            <div>
+              <div style={{ fontSize: 15.5, fontWeight: 700, color: FG, lineHeight: 1.4 }}>
+                {task.title}
+              </div>
+              {task.description && (
+                <p style={{ fontSize: 13, color: MUTED, marginTop: 6, lineHeight: 1.6 }}>
+                  {task.description}
+                </p>
+              )}
+            </div>
+
+            {/* Delegation badge */}
+            {lastDelegate && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', backgroundColor: `${BLUE}08`, border: `1px solid ${BLUE}20`, borderRadius: 7 }}>
+                <UserPlus size={12} color={BLUE} />
+                <span style={{ fontSize: 12, color: BLUE }}>Delegated → <strong>{lastDelegate.toName}</strong></span>
+              </div>
+            )}
+
+            {/* Parent task link */}
+            {task.parentTask && (
+              <div style={{ fontSize: 12, color: MUTED }}>
+                <span>Parent: </span>
+                <span style={{ color: FG, fontWeight: 500 }}>{task.parentTask.title}</span>
+              </div>
+            )}
+
+            {/* Meta grid */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <MetaRow label="Activity">
+                <span className="vs-mono" style={{ fontSize: 12, backgroundColor: 'hsl(var(--muted)/0.5)', padding: '1px 6px', borderRadius: 3 }}>
+                  {task.activityCode}
+                </span>
+              </MetaRow>
+              {task.assignedRole && (
+                <MetaRow label="Assigned role">
+                  <RoleBadge roleId={task.assignedRole} size="sm" />
+                </MetaRow>
+              )}
+              {task.assignedUser && (
+                <MetaRow label="Assigned to">
+                  <span style={{ fontSize: 13, color: FG }}>{task.assignedUser.fullName}</span>
+                </MetaRow>
+              )}
+              {task.shipment && (
+                <MetaRow label="Shipment">
+                  <button
+                    onClick={() => navigate(`/shipments/${task.shipmentId}`)}
+                    className="vs-mono"
+                    style={{ fontSize: 12.5, color: TEAL, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}
+                  >
+                    {task.shipment.shipmentNumber}
+                  </button>
+                </MetaRow>
+              )}
+              <MetaRow label="Created">
+                <span style={{ fontSize: 12.5, color: MUTED }}>{formatTimeAgo(task.createdAt)}</span>
+              </MetaRow>
+              {task.startedAt && (
+                <MetaRow label="Started">
+                  <span style={{ fontSize: 12.5, color: MUTED }}>{formatTimeAgo(task.startedAt)}</span>
+                </MetaRow>
+              )}
+              {task.escalationType && (
+                <MetaRow label="Escalation type">
+                  <span style={{ fontSize: 12, color: MUTED }}>{task.escalationType.replace(/_/g, ' ')}</span>
+                </MetaRow>
+              )}
+              {task.metadata?.escalationReason && (
+                <MetaRow label="Esc. reason">
+                  <span style={{ fontSize: 12, color: AMBER, fontWeight: 500 }}>{task.metadata.escalationReason}</span>
+                </MetaRow>
+              )}
+            </div>
+
+            {/* SLA bar */}
+            {slaBar && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <span style={{ fontSize: 12, color: MUTED, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Clock size={11} /> SLA
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: slaBar.color }}>{slaBar.label}</span>
+                </div>
+                <div style={{ height: 6, borderRadius: 3, backgroundColor: 'hsl(var(--muted)/0.4)', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${slaBar.pct}%`, backgroundColor: slaBar.color, borderRadius: 3, transition: 'width 0.3s' }} />
+                </div>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 4 }}>
+              {/* Open entity link */}
               <button
-                key={tab.label}
-                onClick={() => setActiveTab(i)}
+                onClick={() => navigate(getTaskEntityLink(task))}
                 style={{
-                  padding: '12px 16px',
-                  fontSize: 13,
-                  fontWeight: isActive ? 600 : 500,
-                  color: isActive ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: isActive ? '2px solid hsl(var(--primary))' : '2px solid transparent',
-                  marginBottom: -1,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 7,
-                  transition: 'color 0.12s',
-                  whiteSpace: 'nowrap',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  fontSize: 13.5, fontWeight: 600, color: '#fff',
+                  backgroundColor: TEAL, border: 'none', borderRadius: 7,
+                  padding: '9px 14px', cursor: 'pointer',
                 }}
               >
-                {tab.label}
-                <span
-                  className="vs-mono"
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    padding: '1px 6px',
-                    borderRadius: 999,
-                    backgroundColor:
-                      tab.countVariant === 'danger'
-                        ? 'hsla(0,84%,60%,0.12)'
-                        : 'hsl(var(--border))',
-                    color:
-                      tab.countVariant === 'danger'
-                        ? 'hsl(0 84% 45%)'
-                        : 'hsl(var(--muted-foreground))',
-                  }}
-                >
-                  {tab.count}
-                </span>
+                Open linked item <ArrowUpRight size={13} />
               </button>
-            );
-          })}
 
-          {/* All roles — pushed right */}
-          <button
-            style={{
-              marginLeft: 'auto',
-              padding: '12px 16px',
-              fontSize: 13,
-              fontWeight: 500,
-              color: 'hsl(var(--muted-foreground))',
-              background: 'none',
-              border: 'none',
-              borderBottom: '2px solid transparent',
-              marginBottom: -1,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
+              {/* Start Working — PENDING or ASSIGNED tasks */}
+              {['PENDING', 'ASSIGNED'].includes(task.status) && (
+                <RequireActivity code="TSK-002">
+                  <button
+                    onClick={handleStart}
+                    disabled={actionLoading}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      fontSize: 13, fontWeight: 600, color: BLUE,
+                      backgroundColor: `${BLUE}12`, border: `1px solid ${BLUE}35`, borderRadius: 7,
+                      padding: '8px 14px', cursor: actionLoading ? 'not-allowed' : 'pointer', opacity: actionLoading ? 0.6 : 1,
+                    }}
+                  >
+                    <Play size={13} /> Start Working
+                  </button>
+                </RequireActivity>
+              )}
+
+              {/* Mark Complete — IN_PROGRESS or ASSIGNED tasks */}
+              {['IN_PROGRESS', 'ASSIGNED'].includes(task.status) && (
+                <RequireActivity code="TSK-002">
+                  <button
+                    onClick={handleComplete}
+                    disabled={actionLoading}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      fontSize: 13, fontWeight: 600, color: GREEN,
+                      backgroundColor: `${GREEN}12`, border: `1px solid ${GREEN}35`, borderRadius: 7,
+                      padding: '8px 14px', cursor: actionLoading ? 'not-allowed' : 'pointer', opacity: actionLoading ? 0.6 : 1,
+                    }}
+                  >
+                    <CheckCircle size={13} /> Mark Complete
+                  </button>
+                </RequireActivity>
+              )}
+
+              {/* Resolve Escalation */}
+              {task.status === 'ESCALATED' && (
+                <RequireActivity code="TSK-003">
+                  <button
+                    onClick={handleResolveEscalation}
+                    disabled={actionLoading}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      fontSize: 13, fontWeight: 600, color: GREEN,
+                      backgroundColor: `${GREEN}12`, border: `1px solid ${GREEN}35`, borderRadius: 7,
+                      padding: '8px 14px', cursor: actionLoading ? 'not-allowed' : 'pointer', opacity: actionLoading ? 0.6 : 1,
+                    }}
+                  >
+                    <CheckCircle size={13} /> Resolve Escalation
+                  </button>
+                </RequireActivity>
+              )}
+
+              {/* Escalate — IN_PROGRESS or ASSIGNED tasks only */}
+              {['IN_PROGRESS', 'ASSIGNED'].includes(task.status) && (
+                <RequireActivity code="TSK-004">
+                  <button
+                    onClick={() => setShowEscalation(true)}
+                    disabled={actionLoading}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      fontSize: 13, fontWeight: 600, color: AMBER,
+                      backgroundColor: `${AMBER}12`, border: `1px solid ${AMBER}35`, borderRadius: 7,
+                      padding: '8px 14px', cursor: actionLoading ? 'not-allowed' : 'pointer', opacity: actionLoading ? 0.6 : 1,
+                    }}
+                  >
+                    <AlertTriangle size={13} /> Escalate
+                  </button>
+                </RequireActivity>
+              )}
+
+              {/* Reassign — IN_PROGRESS or ASSIGNED tasks */}
+              {['IN_PROGRESS', 'ASSIGNED'].includes(task.status) && (
+                <RequireActivity code="TSK-003">
+                  <button
+                    onClick={() => setShowReassign(true)}
+                    disabled={actionLoading}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      fontSize: 13, fontWeight: 500, color: MUTED,
+                      backgroundColor: 'transparent', border: `1px solid ${BORDER}`, borderRadius: 7,
+                      padding: '8px 14px', cursor: actionLoading ? 'not-allowed' : 'pointer', opacity: actionLoading ? 0.6 : 1,
+                    }}
+                  >
+                    <RotateCcw size={13} /> Reassign
+                  </button>
+                </RequireActivity>
+              )}
+
+              {/* Delegate — IN_PROGRESS or ASSIGNED tasks (TSK-007) */}
+              {['IN_PROGRESS', 'ASSIGNED'].includes(task.status) && (
+                <RequireActivity code="TSK-007">
+                  <button
+                    onClick={() => setShowDelegate(true)}
+                    disabled={actionLoading}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      fontSize: 13, fontWeight: 500, color: INDIGO,
+                      backgroundColor: `${INDIGO}08`, border: `1px solid ${INDIGO}25`, borderRadius: 7,
+                      padding: '8px 14px', cursor: actionLoading ? 'not-allowed' : 'pointer', opacity: actionLoading ? 0.6 : 1,
+                    }}
+                  >
+                    <UserPlus size={13} /> Delegate
+                  </button>
+                </RequireActivity>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Detail panel dialogs */}
+      {showEscalation && task && (
+        <EscalationDialog
+          taskId={task.id}
+          onClose={() => setShowEscalation(false)}
+          onSuccess={refreshAll}
+        />
+      )}
+      {showReassign && task && (
+        <ReassignDialog
+          taskId={task.id}
+          onClose={() => setShowReassign(false)}
+          onSuccess={refreshAll}
+        />
+      )}
+      {showDelegate && task && (
+        <DelegationDialog
+          taskId={task.id}
+          onClose={() => setShowDelegate(false)}
+          onSuccess={refreshAll}
+        />
+      )}
+    </>
+  );
+}
+
+function MetaRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontSize: 11.5, color: MUTED, fontWeight: 600, minWidth: 100, flexShrink: 0 }}>{label}</span>
+      {children}
+    </div>
+  );
+}
+
+// ─── Analytics components ─────────────────────────────────────────────────────
+
+interface AnalyticsData {
+  scorecard: { openCount: number; breachedCount: number; avgDaysOverdue: number; completedLast7d: number };
+  tasksByRole: { roleId: string; roleCode: string; roleName: string; color: string; total: number; blockers: number; warnings: number; normal: number }[];
+  slaTrend: { date: string; breached: number }[];
+  hotspots: { shipmentId: string; shipmentNumber: string; currentGateName: string | null; blockers: number; warnings: number; oldestTaskAgeDays: number }[];
+  categoryBreakdown: { prefix: string; category: string; count: number }[];
+  generatedAt: string;
+}
+
+function useTaskAnalytics() {
+  const [data, setData] = useState<AnalyticsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const doFetch = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await window.fetch(`${API_BASE}/api/tasks/analytics`, { headers: authHeaders() });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error ?? 'Failed');
+      setData(json.data);
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to load analytics');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { doFetch(); }, [doFetch]);
+  return { data, loading, error, refetch: doFetch };
+}
+
+// ── Skeleton ──────────────────────────────────────────────────────────────────
+
+function AnalyticsSkeleton() {
+  return (
+    <div style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      {/* 4 scorecard tiles */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} style={{ height: 96, borderRadius: 12, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
+        ))}
+      </div>
+      {/* 5-col grid: col-span-3 role chart + col-span-2 trend */}
+      <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 20 }}>
+        <div style={{ height: 256, borderRadius: 12, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
+        <div style={{ height: 256, borderRadius: 12, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
+      </div>
+      {/* Table */}
+      <div style={{ height: 192, borderRadius: 12, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
+    </div>
+  );
+}
+
+// ── Scorecard ─────────────────────────────────────────────────────────────────
+
+function ScorecardTile({
+  label, value, suffix, colorFn, pulse,
+}: {
+  label: string;
+  value: number;
+  suffix?: string;
+  colorFn: (v: number) => string;
+  pulse?: boolean;
+}) {
+  const color = colorFn(value);
+  const bgMap: Record<string, string> = {
+    [TEAL]: `${TEAL}15`,
+    [AMBER]: `${AMBER}18`,
+    [RED]: `${RED}12`,
+    [GREEN]: `${GREEN}12`,
+  };
+  const bg = bgMap[color] ?? 'hsl(var(--muted)/0.25)';
+  return (
+    <div style={{ background: bg, borderRadius: 12, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 6 }}
+      className={pulse && value > 5 ? 'animate-pulse' : undefined}
+    >
+      <span style={{ fontSize: 10, fontWeight: 600, color, opacity: 0.75, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{label}</span>
+      <span style={{ fontSize: 32, fontWeight: 800, color, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+        {typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(1) : value}
+        {suffix && <span style={{ fontSize: 18, fontWeight: 600 }}>{suffix}</span>}
+      </span>
+    </div>
+  );
+}
+
+function ScorecardRow({ s }: { s: AnalyticsData['scorecard'] }) {
+  const openColor = (v: number) => v < 20 ? TEAL : v <= 50 ? AMBER : RED;
+  const redIfAny = (v: number) => v > 0 ? RED : TEAL;
+  const overdueColor = (v: number) => v > 2 ? RED : v > 0.5 ? AMBER : TEAL;
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+      <ScorecardTile label="Open Tasks"      value={s.openCount}       colorFn={openColor} />
+      <ScorecardTile label="SLA Breached"    value={s.breachedCount}   colorFn={redIfAny}  pulse />
+      <ScorecardTile label="Avg Days Overdue" value={s.avgDaysOverdue} suffix="d" colorFn={overdueColor} />
+      <ScorecardTile label="Completed (7d)"  value={s.completedLast7d} colorFn={() => TEAL} />
+    </div>
+  );
+}
+
+// ── Tasks by role chart ───────────────────────────────────────────────────────
+
+function TaskRoleBar({ row, maxTotal }: { row: AnalyticsData['tasksByRole'][number]; maxTotal: number }) {
+  const isUnassigned = row.roleId === '_unassigned';
+  return (
+    <button
+      onClick={() => {
+        window.dispatchEvent(new CustomEvent('filter-by-role', { detail: { roleCode: row.roleCode, roleId: row.roleId } }));
+      }}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+        background: 'none', border: 'none', cursor: 'pointer', padding: '3px 0', textAlign: 'left',
+      }}
+    >
+      <div style={{ width: 150, flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+        <span style={{ fontSize: 12.5, color: FG, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 148 }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = TEAL; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = FG; }}
+        >
+          {row.roleName}
+        </span>
+        {isUnassigned && (
+          <span style={{ fontSize: 10, color: AMBER, fontWeight: 600 }}>needs assignment</span>
+        )}
+      </div>
+      <div style={{ flex: 1, height: 22, borderRadius: 5, overflow: 'hidden', backgroundColor: 'hsl(var(--muted)/0.25)', display: 'flex' }}>
+        {row.blockers > 0 && (
+          <div style={{ width: `${(row.blockers / maxTotal) * 100}%`, backgroundColor: RED, display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 22 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: '#fff' }}>{row.blockers}</span>
+          </div>
+        )}
+        {row.warnings > 0 && (
+          <div style={{ width: `${(row.warnings / maxTotal) * 100}%`, backgroundColor: AMBER, display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 22 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: '#fff' }}>{row.warnings}</span>
+          </div>
+        )}
+        {row.normal > 0 && (
+          <div style={{ width: `${(row.normal / maxTotal) * 100}%`, backgroundColor: TEAL, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.65, minWidth: row.normal > 0 ? 20 : 0 }}>
+            <span style={{ fontSize: 9, fontWeight: 700, color: '#fff' }}>{row.normal}</span>
+          </div>
+        )}
+      </div>
+      <div style={{ width: 26, fontSize: 12, fontWeight: 700, color: FG, fontVariantNumeric: 'tabular-nums', textAlign: 'right', flexShrink: 0 }}>{row.total}</div>
+    </button>
+  );
+}
+
+function TasksByRoleChart({ rows }: { rows: AnalyticsData['tasksByRole'] }) {
+  if (rows.length === 0) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 140, color: MUTED, fontSize: 13 }}>
+      No active tasks assigned to any role
+    </div>
+  );
+  const maxTotal = Math.max(...rows.map(r => r.total), 1);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {rows.map(r => <TaskRoleBar key={r.roleId} row={r} maxTotal={maxTotal} />)}
+      <div style={{ display: 'flex', gap: 14, marginTop: 6 }}>
+        {([{ color: RED, label: 'Blocker / Overdue' }, { color: AMBER, label: 'Warning' }, { color: TEAL, label: 'Normal', opacity: 0.65 }] as { color: string; label: string; opacity?: number }[]).map(l => (
+          <span key={l.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: MUTED }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: l.color, opacity: l.opacity ?? 1, display: 'inline-block', flexShrink: 0 }} />
+            {l.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── SLA Trend sparkline ───────────────────────────────────────────────────────
+
+function SlaTrendChart({ rows }: { rows: AnalyticsData['slaTrend'] }) {
+  const vbW = 320; const vbH = 100;
+  const padX = 30; const padY = 15;
+  const chartW = vbW - padX * 2; const chartH = vbH - padY * 2;
+
+  const total14d = rows.reduce((s, r) => s + r.breached, 0);
+  const maxCount = Math.max(...rows.map(r => r.breached), 1);
+  const n = rows.length;
+
+  const xOf = (i: number) => padX + (n <= 1 ? chartW / 2 : (i / (n - 1)) * chartW);
+  const yOf = (v: number) => padY + chartH - (v / maxCount) * chartH;
+  const zeroY = padY + chartH; // y=0 line (bottom of chart area)
+
+  // Trend direction: first 7 days vs last 7 days
+  const first7 = rows.slice(0, 7).reduce((s, r) => s + r.breached, 0);
+  const last7  = rows.slice(7).reduce((s, r) => s + r.breached, 0);
+  const trend = first7 === 0 && last7 === 0 ? 'stable' : last7 < first7 ? 'improving' : last7 > first7 ? 'worsening' : 'stable';
+  const trendColor = trend === 'improving' ? TEAL : trend === 'worsening' ? RED : '#94a3b8';
+  const trendLabel = trend === 'improving' ? '↓ Improving' : trend === 'worsening' ? '↑ Worsening' : '→ Stable';
+
+  const points = rows.map((r, i) => `${xOf(i)},${yOf(r.breached)}`).join(' ');
+
+  const gridLevels = [0, 0.25, 0.5, 0.75, 1];
+
+  if (rows.length < 2) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: vbH, color: MUTED, fontSize: 13 }}>Not enough data</div>
+  );
+
+  return (
+    <div>
+      {/* Header: title + trend chip */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: FG }}>SLA Breaches — 14 days</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: trendColor, backgroundColor: `${trendColor}15`, borderRadius: 999, padding: '2px 8px' }}>
+          {trendLabel}
+        </span>
+      </div>
+
+      <svg viewBox={`0 0 ${vbW} ${vbH}`} style={{ width: '100%', height: vbH }}>
+        {/* Grid lines */}
+        {gridLevels.map((f, i) => {
+          const y = padY + chartH - f * chartH;
+          return <line key={i} x1={padX} y1={y} x2={vbW - padX} y2={y} stroke="currentColor" strokeOpacity={0.06} strokeWidth={1} />;
+        })}
+
+        {/* Zero-target dashed line (teal) */}
+        <line x1={padX} y1={zeroY} x2={vbW - padX} y2={zeroY} stroke={TEAL} strokeWidth={1} strokeDasharray="3 3" />
+
+        {/* Data polyline */}
+        <polyline points={points} fill="none" stroke={trendColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* Data dots */}
+        {rows.map((r, i) => (
+          <circle key={i} cx={xOf(i)} cy={yOf(r.breached)} r={r.breached > 0 ? 3 : 1.5}
+            fill={trendColor} fillOpacity={r.breached > 0 ? 1 : 0.35}
           >
-            All roles
+            <title>{r.date}: {r.breached} breaches</title>
+          </circle>
+        ))}
+
+        {/* Y-axis labels */}
+        <text x={padX - 4} y={padY + 4} fontSize={8} fill="currentColor" fillOpacity={0.5} textAnchor="end">{maxCount}</text>
+        <text x={padX - 4} y={zeroY + 3} fontSize={8} fill="currentColor" fillOpacity={0.5} textAnchor="end">0</text>
+
+        {/* X-axis labels */}
+        <text x={padX} y={vbH - 2} fontSize={8} fill="currentColor" fillOpacity={0.5} textAnchor="middle">{rows[0]?.date?.slice(5)}</text>
+        <text x={vbW - padX} y={vbH - 2} fontSize={8} fill="currentColor" fillOpacity={0.5} textAnchor="middle">{rows[rows.length - 1]?.date?.slice(5)}</text>
+      </svg>
+
+      {/* Footer: 14-day total */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+        <span style={{ fontSize: 11.5, color: MUTED }}>14-day total: <strong style={{ color: total14d > 0 ? RED : MUTED }}>{total14d} breaches</strong></span>
+      </div>
+    </div>
+  );
+}
+
+// ── Hotspot Shipments table ───────────────────────────────────────────────────
+
+function HotspotShipmentsTable({ rows }: { rows: AnalyticsData['hotspots'] }) {
+  const [sortBy, setSortBy] = useState<'blockers' | 'oldestTaskAgeDays'>('blockers');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  function toggleSort(col: 'blockers' | 'oldestTaskAgeDays') {
+    if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortBy(col); setSortDir('desc'); }
+  }
+
+  const sorted = [...rows].sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return (a[sortBy] - b[sortBy]) * dir;
+  });
+
+  if (sorted.length === 0) return (
+    <div style={{ padding: '32px 0', textAlign: 'center', color: MUTED, fontSize: 13 }}>No shipments with open blockers</div>
+  );
+
+  const SortTh = ({ col, label }: { col: 'blockers' | 'oldestTaskAgeDays'; label: string }) => (
+    <th
+      onClick={() => toggleSort(col)}
+      style={{ padding: '5px 8px', textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: sortBy === col ? FG : MUTED, cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none' }}
+    >
+      {label} {sortBy === col ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+    </th>
+  );
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <thead>
+          <tr style={{ borderBottom: `1px solid ${BORDER}` }}>
+            <th style={{ padding: '5px 8px', textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED }}>Shipment</th>
+            <SortTh col="blockers" label="Blockers" />
+            <th style={{ padding: '5px 8px', textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED }}>Warnings</th>
+            <SortTh col="oldestTaskAgeDays" label="Oldest Task" />
+            <th style={{ padding: '5px 8px', textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED }}>Gate</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map(r => (
+            <tr key={r.shipmentId}
+              style={{ borderBottom: `1px solid hsl(var(--border)/0.4)`, backgroundColor: r.blockers > 2 ? `${RED}08` : 'transparent' }}
+            >
+              <td style={{ padding: '7px 8px' }}>
+                <a href={`/shipments/${r.shipmentId}`} style={{ color: TEAL, fontWeight: 600, fontFamily: 'monospace', textDecoration: 'none', fontSize: 12.5 }}>
+                  {r.shipmentNumber}
+                </a>
+              </td>
+              <td style={{ padding: '7px 8px' }}>
+                {r.blockers > 0 ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, backgroundColor: `${RED}18`, color: RED, borderRadius: 5, padding: '1px 7px', fontWeight: 700, fontSize: 12 }}>
+                    {r.blockers}
+                  </span>
+                ) : <span style={{ color: MUTED }}>—</span>}
+              </td>
+              <td style={{ padding: '7px 8px' }}>
+                {r.warnings > 0 ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, backgroundColor: `${AMBER}18`, color: AMBER, borderRadius: 5, padding: '1px 7px', fontWeight: 700, fontSize: 12 }}>
+                    {r.warnings}
+                  </span>
+                ) : <span style={{ color: MUTED }}>—</span>}
+              </td>
+              <td style={{ padding: '7px 8px', fontWeight: r.oldestTaskAgeDays > 3 ? 700 : 400, color: r.oldestTaskAgeDays > 3 ? RED : FG }}>
+                {r.oldestTaskAgeDays}d
+              </td>
+              <td style={{ padding: '7px 8px', color: MUTED, fontSize: 12 }}>
+                {r.currentGateName ?? '—'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── TaskAnalyticsPanel ────────────────────────────────────────────────────────
+
+function TaskAnalyticsPanel() {
+  const { data, loading, error, refetch } = useTaskAnalytics();
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  // 5-minute auto-refresh
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refetch();
+      setLastUpdated(new Date());
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [refetch]);
+
+  function handleRefresh() {
+    refetch();
+    setLastUpdated(new Date());
+  }
+
+  if (loading && !data) return <AnalyticsSkeleton />;
+
+  if (error && !data) return (
+    <div style={{ padding: 48, textAlign: 'center' }}>
+      <div style={{ fontSize: 14, color: RED, marginBottom: 12 }}>Failed to load analytics: {error}</div>
+      <button onClick={handleRefresh} style={{ fontSize: 13, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>↻ Retry</button>
+    </div>
+  );
+
+  if (!data) return null;
+  const { scorecard, tasksByRole, slaTrend, hotspots } = data;
+
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: FG, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <BarChart2 size={15} style={{ color: TEAL }} />
+          Task Overview
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 11.5, color: MUTED }}>Updated {formatTimeAgo(lastUpdated.toISOString())}</span>
+          <button
+            onClick={handleRefresh}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: MUTED, background: 'none', border: `1px solid ${BORDER}`, borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}
+          >
+            <RefreshCw size={11} /> ↻ Refresh
           </button>
         </div>
       </div>
 
-      {/* Filter sub-tabs: All tasks | By shipment */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 4,
-          padding: '10px 0',
-          marginBottom: 16,
-          borderBottom: '1px solid hsl(var(--border))',
-        }}
-      >
-        {FILTERS.map((f) => {
-          const isActive = taskFilter === f.key;
-          return (
-            <button
-              key={f.key}
-              onClick={() => setTaskFilter(f.key)}
-              style={{
-                padding: '5px 14px',
-                fontSize: 12,
-                fontWeight: isActive ? 600 : 500,
-                borderRadius: 6,
-                border: isActive
-                  ? '1px solid hsl(var(--primary) / 0.4)'
-                  : '1px solid transparent',
-                backgroundColor: isActive
-                  ? 'hsl(var(--primary) / 0.08)'
-                  : 'transparent',
-                color: isActive
-                  ? 'hsl(var(--primary))'
-                  : 'hsl(var(--muted-foreground))',
-                cursor: 'pointer',
-                transition: 'all 0.12s',
-              }}
-            >
-              {f.label}
-            </button>
-          );
-        })}
+      {/* Scorecard */}
+      <ScorecardRow s={scorecard} />
+
+      {/* Two-column: role chart (3) + trend (2) */}
+      <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 20 }}>
+        <div style={{ backgroundColor: CARD, borderRadius: 12, padding: '18px 20px', border: `1px solid ${BORDER}` }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: FG, marginBottom: 14 }}>Tasks by Role</div>
+          <TasksByRoleChart rows={tasksByRole} />
+        </div>
+        <div style={{ backgroundColor: CARD, borderRadius: 12, padding: '18px 20px', border: `1px solid ${BORDER}` }}>
+          <SlaTrendChart rows={slaTrend} />
+        </div>
       </div>
 
-      {/* Section 4: Task list */}
-      {taskFilter === 'all' ? (
-        /* All tasks — grouped by urgency */
-        GROUPS.map((group, gi) => {
-          const cards = tasks.filter((t) => t.group === group);
-          if (cards.length === 0) return null;
-          return (
-            <div key={group}>
-              <GroupHeader group={group} isFirst={gi === 0} />
-              {cards.map((task) => (
-                <TaskCardItem
-                  key={task.id}
-                  task={task}
-                  onClick={() => handleTaskClick(task)}
-                />
-              ))}
-            </div>
-          );
-        })
-      ) : (
-        /* By shipment — grouped by shipment ID */
-        shipmentGroups.map(({ shipmentId, tasks }, gi) => (
-          <div key={shipmentId || 'none'}>
-            <ShipmentGroupHeader
-              shipmentId={shipmentId}
-              count={tasks.length}
-              isFirst={gi === 0}
-            />
-            {tasks.map((task) => (
-              <TaskCardItem
-                key={task.id}
-                task={task}
-                onClick={() => handleTaskClick(task)}
+      {/* Hotspot table */}
+      <div style={{ backgroundColor: CARD, borderRadius: 12, padding: '18px 20px', border: `1px solid ${BORDER}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: FG }}>Hotspot Shipments</div>
+          <span style={{ fontSize: 11, color: MUTED }}>Top 10 by blocker count</span>
+        </div>
+        <HotspotShipmentsTable rows={hotspots} />
+      </div>
+
+      <div style={{ height: 20 }} />
+    </div>
+  );
+}
+
+// ─── TasksPage ────────────────────────────────────────────────────────────────
+
+type SortField = 'urgency' | 'slaDeadline' | 'createdAt' | 'status' | 'title';
+
+export function TasksPage() {
+  const { user } = useAuth();
+  const { activities } = usePermissions();
+  const isExternal = !!(user?.role?.category?.includes('external'));
+  const isL3Plus = ['L3', 'L4'].includes((user as any)?.level ?? '');
+  const canSeeOverview = isL3Plus && !isExternal && activities.includes('TSK-001');
+
+  // Can show checkboxes
+  const canManageTasks = activities.includes('TSK-002') || activities.includes('TSK-003');
+
+  const [activeTab, setActiveTab]       = useState<'tasks' | 'overview'>('tasks');
+  const [scope, setScope]               = useState<TaskScope>('mine');
+  const [assigneeRoleId, setAssigneeRoleId] = useState<string | undefined>(undefined);
+  const [selectedId, setSelectedId]     = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen]   = useState(true);
+  const [search, setSearch]             = useState('');
+  const [urgencyFilter, setUrgencyFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [sort, setSort]                 = useState<{ field: SortField; dir: 'asc' | 'desc' }>({ field: 'urgency', dir: 'asc' });
+  const [refreshing, setRefreshing]     = useState(false);
+
+  // Bulk selection
+  const [selectedIds, setSelectedIds]     = useState<Set<string>>(new Set());
+  const [bulkActionLoading, setBulkActionLoading] = useState(false);
+  const [showBulkEscalation, setShowBulkEscalation] = useState(false);
+  const [showBulkReassign, setShowBulkReassign]     = useState(false);
+
+  // Creation drawer
+  const [showCreationDrawer, setShowCreationDrawer] = useState(false);
+
+  const effectiveScope: TaskScope = isExternal ? 'mine' : scope;
+
+  const { tasks, loading, error, refetch } = useTaskList(effectiveScope, { assignedRoleId: assigneeRoleId });
+  const { summary, refetch: refetchSummary } = useTaskSummary();
+
+  // filter-by-role custom event: role bar click → switch to All Tasks with role pre-filtered
+  useEffect(() => {
+    function handleFilterByRole(e: Event) {
+      const detail = (e as CustomEvent<{ roleCode: string; roleId: string }>).detail;
+      setActiveTab('tasks');
+      setScope('all');
+      setAssigneeRoleId(detail?.roleId || undefined);
+      setSelectedId(null);
+      clearSelection();
+    }
+    window.addEventListener('filter-by-role', handleFilterByRole);
+    return () => window.removeEventListener('filter-by-role', handleFilterByRole);
+  }, []);
+
+  function handleRefresh() {
+    setRefreshing(true);
+    Promise.all([refetch(), refetchSummary()]).finally(() => setRefreshing(false));
+  }
+
+  function handleSort(field: string) {
+    setSort(prev =>
+      prev.field === field
+        ? { field: field as SortField, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { field: field as SortField, dir: 'asc' }
+    );
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function clearSelection() { setSelectedIds(new Set()); }
+
+  async function handleBulkComplete() {
+    setBulkActionLoading(true);
+    await Promise.allSettled([...selectedIds].map(id =>
+      fetch(`${API_BASE}/api/tasks/${id}/complete`, { method: 'POST', headers: authHeaders() })
+    ));
+    clearSelection();
+    handleRefresh();
+    setBulkActionLoading(false);
+  }
+
+  async function handleBulkEscalate(reason: string) {
+    setBulkActionLoading(true);
+    await Promise.allSettled([...selectedIds].map(id =>
+      fetch(`${API_BASE}/api/tasks/${id}/escalate`, {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ reason }),
+      })
+    ));
+    setShowBulkEscalation(false);
+    clearSelection();
+    handleRefresh();
+    setBulkActionLoading(false);
+  }
+
+  async function handleBulkReassign(roleId: string) {
+    setBulkActionLoading(true);
+    await Promise.allSettled([...selectedIds].map(id =>
+      fetch(`${API_BASE}/api/tasks/${id}/reassign`, {
+        method: 'POST', headers: authHeaders(),
+        body: JSON.stringify({ assignedRoleId: roleId }),
+      })
+    ));
+    setShowBulkReassign(false);
+    clearSelection();
+    handleRefresh();
+    setBulkActionLoading(false);
+  }
+
+  const filteredAndSorted = useMemo(() => {
+    let list = [...tasks];
+
+    // Client-side filters
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter(t =>
+        t.title.toLowerCase().includes(q) ||
+        (t.shipment?.shipmentNumber ?? '').toLowerCase().includes(q) ||
+        t.activityCode.toLowerCase().includes(q) ||
+        (t.description ?? '').toLowerCase().includes(q)
+      );
+    }
+    if (urgencyFilter) list = list.filter(t => t.urgency === urgencyFilter);
+    if (statusFilter.length > 0) list = list.filter(t => statusFilter.includes(t.status));
+
+    // Sort
+    list.sort((a, b) => {
+      const dir = sort.dir === 'asc' ? 1 : -1;
+      if (sort.field === 'urgency') {
+        return ((URGENCY_ORDER[a.urgency] ?? 9) - (URGENCY_ORDER[b.urgency] ?? 9)) * dir;
+      }
+      if (sort.field === 'slaDeadline') {
+        const da = a.slaDeadline ? new Date(a.slaDeadline).getTime() : Infinity;
+        const db = b.slaDeadline ? new Date(b.slaDeadline).getTime() : Infinity;
+        return (da - db) * dir;
+      }
+      if (sort.field === 'createdAt') {
+        return (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * dir;
+      }
+      if (sort.field === 'status') {
+        return a.status.localeCompare(b.status) * dir;
+      }
+      if (sort.field === 'title') {
+        return a.title.localeCompare(b.title) * dir;
+      }
+      return 0;
+    });
+
+    return list;
+  }, [tasks, search, urgencyFilter, statusFilter, sort]);
+
+  const activeFilters = (urgencyFilter ? 1 : 0) + statusFilter.length + (search ? 1 : 0);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', backgroundColor: PANEL }}>
+
+      {/* ── Header ── */}
+      <div style={{
+        padding: '14px 20px 0 20px',
+        flexShrink: 0,
+        borderBottom: `1px solid ${BORDER}`,
+        backgroundColor: CARD,
+      }}>
+        {/* Title row */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <ClipboardList size={18} style={{ color: TEAL }} />
+            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: FG }}>
+              Tasks
+            </h1>
+            {summary.blockers > 0 && (
+              <span style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                fontSize: 12, fontWeight: 700,
+                backgroundColor: `${RED}15`, color: RED, padding: '2px 8px', borderRadius: 999,
+                border: `1px solid ${RED}30`,
+              }}>
+                <Ban size={10} />
+                {summary.blockers} blocker{summary.blockers !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Search */}
+            <div style={{ position: 'relative' }}>
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search tasks..."
+                style={{
+                  fontSize: 13,
+                  border: `1px solid ${BORDER}`,
+                  borderRadius: 7,
+                  padding: '5px 10px 5px 28px',
+                  width: 190,
+                  backgroundColor: 'hsl(var(--background))',
+                  color: FG,
+                  outline: 'none',
+                }}
               />
+              <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: MUTED, pointerEvents: 'none' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+              </span>
+            </div>
+            {/* Filter sidebar toggle */}
+            <button
+              onClick={() => setSidebarOpen(v => !v)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                fontSize: 13, fontWeight: sidebarOpen ? 600 : 400,
+                color: sidebarOpen ? BLUE : MUTED,
+                backgroundColor: sidebarOpen ? `${BLUE}10` : 'transparent',
+                border: `1px solid ${sidebarOpen ? `${BLUE}30` : BORDER}`,
+                borderRadius: 7, padding: '5px 10px', cursor: 'pointer',
+              }}
+            >
+              <SlidersHorizontal size={13} />
+              Filters
+              {activeFilters > 0 && (
+                <span style={{ fontSize: 11, fontWeight: 700, backgroundColor: BLUE, color: '#fff', borderRadius: 999, padding: '0 5px' }}>
+                  {activeFilters}
+                </span>
+              )}
+            </button>
+            {/* Refresh */}
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing || loading}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 30, height: 30, borderRadius: 7,
+                backgroundColor: 'transparent', border: `1px solid ${BORDER}`, cursor: 'pointer',
+                color: MUTED,
+                opacity: (refreshing || loading) ? 0.5 : 1,
+              }}
+            >
+              <RefreshCw size={13} style={{ animation: (refreshing || loading) ? 'spin 1s linear infinite' : 'none' }} />
+            </button>
+            {/* New Task button (internal users with TSK-003 only) */}
+            {!isExternal && (
+              <RequireActivity code="TSK-003">
+                <button
+                  onClick={() => setShowCreationDrawer(true)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    fontSize: 13, fontWeight: 600, color: '#fff',
+                    backgroundColor: TEAL, border: 'none',
+                    borderRadius: 7, padding: '6px 12px', cursor: 'pointer',
+                  }}
+                >
+                  <Plus size={13} /> New Task
+                </button>
+              </RequireActivity>
+            )}
+          </div>
+        </div>
+
+        {/* Scope tabs (hidden for external users) */}
+        {!isExternal && (
+          <div style={{ display: 'flex', gap: 0 }}>
+            {/* Overview tab — leftmost, L3+ with TSK-001 only */}
+            {canSeeOverview && (
+              <button
+                onClick={() => { setActiveTab('overview'); setSelectedId(null); clearSelection(); }}
+                style={{
+                  fontSize: 13.5,
+                  fontWeight: activeTab === 'overview' ? 600 : 400,
+                  color: activeTab === 'overview' ? TEAL : MUTED,
+                  background: 'none',
+                  borderTop: 'none',
+                  borderLeft: 'none',
+                  borderRight: 'none',
+                  borderBottom: `2px solid ${activeTab === 'overview' ? TEAL : 'transparent'}`,
+                  padding: '6px 14px 8px 14px',
+                  cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  marginRight: 4,
+                }}
+              >
+                <BarChart2 size={13} />
+                Overview
+              </button>
+            )}
+            {([
+              { key: 'mine',  label: 'Mine',  count: summary.myCount },
+              { key: 'team',  label: 'Team',  count: summary.teamCount },
+              { key: 'all',   label: 'All',   count: null },
+            ] as const).map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => { setScope(tab.key); setActiveTab('tasks'); setSelectedId(null); clearSelection(); setAssigneeRoleId(undefined); }}
+                style={{
+                  fontSize: 13.5,
+                  fontWeight: activeTab === 'tasks' && scope === tab.key ? 600 : 400,
+                  color: activeTab === 'tasks' && scope === tab.key ? BLUE : MUTED,
+                  background: 'none',
+                  borderTop: 'none',
+                  borderLeft: 'none',
+                  borderRight: 'none',
+                  borderBottom: `2px solid ${activeTab === 'tasks' && scope === tab.key ? BLUE : 'transparent'}`,
+                  padding: '6px 14px 8px 14px',
+                  cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 5,
+                }}
+              >
+                {tab.label}
+                {tab.count != null && tab.count > 0 && (
+                  <span style={{
+                    fontSize: 11, fontWeight: 700,
+                    backgroundColor: activeTab === 'tasks' && scope === tab.key ? BLUE : 'hsl(var(--muted)/0.6)',
+                    color: activeTab === 'tasks' && scope === tab.key ? '#fff' : MUTED,
+                    borderRadius: 999, padding: '0 5px',
+                  }}>
+                    {tab.count}
+                  </span>
+                )}
+              </button>
             ))}
           </div>
-        ))
+        )}
+      </div>
+
+      {/* ── Stat strip (hidden when overview is active) ── */}
+      {activeTab !== 'overview' && <div style={{
+        display: 'flex', gap: 0, padding: '0 20px',
+        borderBottom: `1px solid ${BORDER}`,
+        flexShrink: 0,
+        backgroundColor: 'hsl(var(--muted)/0.15)',
+      }}>
+        {[
+          { label: 'Total',     value: summary.total,     color: FG },
+          { label: 'Blockers',  value: summary.blockers,  color: summary.blockers  > 0 ? RED   : MUTED },
+          { label: 'Warnings',  value: summary.warnings,  color: summary.warnings  > 0 ? AMBER : MUTED },
+          { label: 'Escalated', value: summary.escalated, color: summary.escalated > 0 ? RED   : MUTED },
+        ].map((stat, i) => (
+          <div key={stat.label} style={{
+            padding: '8px 20px 8px 0',
+            marginRight: 24,
+            borderRight: i < 3 ? `1px solid ${BORDER}` : 'none',
+            paddingRight: 24,
+          }}>
+            <span style={{ fontSize: 18, fontWeight: 700, color: stat.color, fontVariantNumeric: 'tabular-nums' }}>
+              {stat.value}
+            </span>
+            <span style={{ fontSize: 11.5, color: MUTED, marginLeft: 5 }}>{stat.label}</span>
+          </div>
+        ))}
+      </div>}
+
+      {/* ── Body (sidebar + table + detail) ── */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', minHeight: 0 }}>
+
+        {/* Overview panel (replaces normal body for L3+ users) */}
+        {activeTab === 'overview' && <TaskAnalyticsPanel />}
+
+        {/* Filter sidebar */}
+        {activeTab === 'tasks' && sidebarOpen && (
+          <FilterSidebar
+            urgencyFilter={urgencyFilter}
+            setUrgencyFilter={setUrgencyFilter}
+            statusFilter={statusFilter}
+            setStatusFilter={setStatusFilter}
+          />
+        )}
+
+        {/* Main table area (only shown in tasks tab) */}
+        {activeTab === 'tasks' && <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+
+          {/* Bulk action bar — shown when items selected */}
+          {selectedIds.size > 0 && (
+            <BulkActionBar
+              count={selectedIds.size}
+              onClear={clearSelection}
+              onMarkComplete={handleBulkComplete}
+              onReassign={() => setShowBulkReassign(true)}
+              onEscalate={() => setShowBulkEscalation(true)}
+              loading={bulkActionLoading}
+            />
+          )}
+
+          {/* Column headers */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            padding: '6px 16px 6px 0',
+            borderBottom: `1px solid ${BORDER}`,
+            backgroundColor: 'hsl(var(--muted)/0.25)',
+            flexShrink: 0,
+          }}>
+            {/* Checkbox header / select-all */}
+            {canManageTasks ? (
+              <div
+                style={{ width: 28, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+                onClick={() => {
+                  if (selectedIds.size === filteredAndSorted.length && filteredAndSorted.length > 0) {
+                    clearSelection();
+                  } else {
+                    setSelectedIds(new Set(filteredAndSorted.map(t => t.id)));
+                  }
+                }}
+              >
+                <span style={{
+                  width: 14, height: 14, borderRadius: 3, flexShrink: 0,
+                  border: `1.5px solid ${selectedIds.size > 0 ? INDIGO : BORDER}`,
+                  backgroundColor: selectedIds.size === filteredAndSorted.length && filteredAndSorted.length > 0 ? INDIGO : 'transparent',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'border-color 0.1s, background-color 0.1s',
+                }}>
+                  {selectedIds.size > 0 && selectedIds.size < filteredAndSorted.length && (
+                    <div style={{ width: 6, height: 1.5, backgroundColor: INDIGO, borderRadius: 1 }} />
+                  )}
+                  {selectedIds.size === filteredAndSorted.length && filteredAndSorted.length > 0 && (
+                    <div style={{ width: 5, height: 3.5, borderLeft: '1.5px solid #fff', borderBottom: '1.5px solid #fff', transform: 'rotate(-45deg)', marginTop: -1 }} />
+                  )}
+                </span>
+              </div>
+            ) : (
+              <div style={{ width: 12, flexShrink: 0 }} />
+            )}
+            <SortHeader label="Task" field="title" sort={sort} onSort={handleSort} />
+            <SortHeader label="Shipment" field="shipment" sort={sort} onSort={handleSort} width={110} />
+            <SortHeader label="Status" field="status" sort={sort} onSort={handleSort} width={100} />
+            <SortHeader label="SLA" field="slaDeadline" sort={sort} onSort={handleSort} width={108} />
+            <div style={{ flexShrink: 0, width: 86, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED }}>Role</div>
+            <div style={{ flexShrink: 0, width: 60 }} />
+          </div>
+
+          {/* Rows scroll area */}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {loading && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} style={{ height: 56, borderBottom: `1px solid ${BORDER}`, backgroundColor: i % 2 === 0 ? 'hsl(var(--muted)/0.12)' : 'transparent' }} className="animate-pulse" />
+                ))}
+              </div>
+            )}
+
+            {!loading && error && (
+              <div style={{ padding: 32, textAlign: 'center', color: RED, fontSize: 14 }}>
+                Failed to load tasks: {error}
+              </div>
+            )}
+
+            {!loading && !error && filteredAndSorted.length === 0 && (
+              <div style={{ padding: '48px 24px', textAlign: 'center' }}>
+                <ClipboardList size={32} style={{ color: MUTED, opacity: 0.4, margin: '0 auto 12px' }} />
+                <div style={{ fontSize: 15, fontWeight: 600, color: FG }}>No tasks</div>
+                <div style={{ fontSize: 13, color: MUTED, marginTop: 4 }}>
+                  {tasks.length > 0
+                    ? 'No tasks match your current filters'
+                    : "You're all caught up — no active tasks assigned to you"}
+                </div>
+                {activeFilters > 0 && (
+                  <button
+                    onClick={() => { setUrgencyFilter(''); setStatusFilter([]); setSearch(''); }}
+                    style={{ marginTop: 12, fontSize: 13, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    Clear all filters
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!loading && !error && filteredAndSorted.map(task => (
+              <TaskRow
+                key={task.id}
+                task={task}
+                selected={task.id === selectedId}
+                onClick={() => setSelectedId(task.id === selectedId ? null : task.id)}
+                checkable={canManageTasks}
+                checked={selectedIds.has(task.id)}
+                onCheck={() => toggleSelect(task.id)}
+              />
+            ))}
+
+            {/* Bottom padding */}
+            <div style={{ height: 32 }} />
+          </div>
+        </div>}
+
+        {/* Detail panel (tasks tab only) */}
+        {activeTab === 'tasks' && selectedId && (
+          <DetailPanel
+            taskId={selectedId}
+            onClose={() => setSelectedId(null)}
+            onRefresh={() => { refetch(); refetchSummary(); }}
+          />
+        )}
+      </div>
+
+      {/* ── Bulk modals ── */}
+      {showBulkEscalation && (
+        <BulkEscalationModal
+          count={selectedIds.size}
+          onClose={() => setShowBulkEscalation(false)}
+          onConfirm={handleBulkEscalate}
+        />
+      )}
+      {showBulkReassign && (
+        <BulkRolePickerModal
+          count={selectedIds.size}
+          onClose={() => setShowBulkReassign(false)}
+          onConfirm={handleBulkReassign}
+        />
+      )}
+
+      {/* ── Creation drawer ── */}
+      {showCreationDrawer && (
+        <TaskCreationDrawer
+          onClose={() => setShowCreationDrawer(false)}
+          onCreated={() => { handleRefresh(); setShowCreationDrawer(false); }}
+        />
       )}
     </div>
   );

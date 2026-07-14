@@ -5,7 +5,6 @@ import { TrackingTimeline } from './TrackingTimeline';
 import { DocumentStatusBoard } from './DocumentStatusBoard';
 import { ActivityFeed } from './ActivityFeed';
 import { StatusBadge } from './StatusBadge';
-import { Radio } from 'lucide-react';
 
 type Tab = 'overview' | 'tracking' | 'documents' | 'activity';
 
@@ -38,7 +37,7 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
 
   if (!shipment) {
     return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+      <div className="flex-1 flex items-center justify-center text-muted-foreground text-[14.5px]">
         Select a shipment to view details
       </div>
     );
@@ -57,11 +56,11 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
               <span className="text-base font-bold">{shipment.id}</span>
               <StatusBadge status={shipment.status} />
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="text-[13px] text-muted-foreground mt-0.5">
               {shipment.invoiceNo} · {shipment.carrier} · ETA {shipment.eta}
             </p>
           </div>
-          <span className="text-xs font-medium text-muted-foreground">{shipment.stage}</span>
+          <span className="text-[13px] font-medium text-muted-foreground">{shipment.stage}</span>
         </div>
 
         {/* Tabs */}
@@ -70,7 +69,7 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
+              className={`px-3 py-2 text-[13px] font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.id
                   ? 'border-primary text-primary'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -95,15 +94,15 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
                   style={{ borderColor: 'hsl(var(--border))' }}
                   data-testid={`overview-field-${field.label.toLowerCase().replace(/ /g, '-')}`}
                 >
-                  <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">{field.label}</p>
-                  <p className="text-xs font-medium text-foreground mt-0.5 truncate">{field.value}</p>
+                  <p className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">{field.label}</p>
+                  <p className="text-[13px] font-medium text-foreground mt-0.5 truncate">{field.value}</p>
                 </div>
               ))}
             </div>
 
             {/* Stage Tracker */}
             <div>
-              <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Shipment Progress</p>
+              <p className="text-[12px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Shipment Progress</p>
               <StageTracker activeStage={2} />
             </div>
           </div>
@@ -111,21 +110,6 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
 
         {activeTab === 'tracking' && (
           <div>
-            {/* Shipsy Live indicator */}
-            <div className="flex items-center gap-2 mb-4">
-              <span
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
-                style={{ backgroundColor: 'hsl(152 69% 35% / 0.1)', color: 'hsl(152 69% 35%)' }}
-              >
-                <Radio className="w-3 h-3" />
-                Shipsy Live
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
-                </span>
-              </span>
-              <span className="text-xs text-muted-foreground">Real-time tracking via Shipsy</span>
-            </div>
             <TrackingTimeline events={trackingEvents} />
           </div>
         )}

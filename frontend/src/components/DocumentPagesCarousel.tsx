@@ -3,7 +3,7 @@ import { getAuthToken } from '@/lib/api';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react';
 
-const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? 'http://localhost:8000').replace(/\/$/, '');
+const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
 
 interface PageRecord {
   id: string;
@@ -54,15 +54,16 @@ export function DocumentPagesCarousel({ documentId }: Props) {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'hsl(var(--muted-foreground))' }}>
-        <Loader2 className="w-3 h-3 animate-spin" /> Loading pages…
+      <div style={{ minHeight: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: 'hsl(var(--muted-foreground))', fontSize: 14 }}>
+        <Loader2 size={16} className="animate-spin" />
+        Loading page images...
       </div>
     );
   }
 
   if (!pages.length) {
     return (
-      <p style={{ fontSize: 12, color: 'hsl(var(--muted-foreground))' }}>
+      <p style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>
         No page images available yet.
       </p>
     );
@@ -115,7 +116,7 @@ export function DocumentPagesCarousel({ documentId }: Props) {
                 loading="lazy"
               />
             ) : (
-              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: 'hsl(var(--muted-foreground))' }}>
+              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
                 —
               </div>
             )}
@@ -123,7 +124,7 @@ export function DocumentPagesCarousel({ documentId }: Props) {
               position: 'absolute',
               bottom: 2,
               right: 3,
-              fontSize: 9,
+              fontSize: 14.5,
               fontWeight: 700,
               color: 'hsl(var(--muted-foreground))',
               background: 'hsla(0,0%,100%,0.85)',
@@ -173,7 +174,7 @@ export function DocumentPagesCarousel({ documentId }: Props) {
             {/* Page nav */}
             <div style={{
               display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px',
-              fontSize: 12, fontWeight: 500, color: 'hsl(var(--muted-foreground))',
+              fontSize: 14, fontWeight: 500, color: 'hsl(var(--muted-foreground))',
               background: 'hsl(var(--muted) / 0.5)',
               width: '100%', justifyContent: 'center',
             }}>

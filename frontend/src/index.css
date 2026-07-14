@@ -138,6 +138,18 @@
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
+  /* ── Typography scale ───────────────────────────────────────────────────── */
+  --text-page-title-size:   36px;
+  --text-page-title-weight: 800;
+  --text-admin-title-size:  28px;
+  --text-admin-title-weight: 700;
+  --text-section-size:      20px;
+  --text-section-weight:    700;
+  --text-body-size:         14.5px;
+  --text-meta-size:         12.5px;
+  --text-label-size:        12px;
+  --text-subtitle-size:     14.5px;
+
   --sidebar-primary-border: hsl(var(--sidebar-primary));
   --sidebar-accent-border: hsl(var(--sidebar-accent));
   --primary-border: hsl(var(--primary));
@@ -333,6 +345,23 @@
     animation: pulse-ring 1.5s ease-out infinite;
   }
 
+  /* ── Milestone strip — active node pulse ── */
+  @keyframes milestone-pulse {
+    0%   { transform: scale(1);   opacity: 0.65; }
+    70%  { transform: scale(1.9); opacity: 0;    }
+    100% { transform: scale(1.9); opacity: 0;    }
+  }
+
+  .milestone-active-pulse::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    border: 2px solid hsl(var(--vs-teal));
+    animation: milestone-pulse 2s ease-out infinite;
+    pointer-events: none;
+  }
+
   /* ── VentureSight typography ── */
   .vs-mono {
     font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -377,6 +406,12 @@
     100% { transform: translateX(400%); }
   }
 
+  /* ── Recent uploads infinite carousel ── */
+  @keyframes recentScroll {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+
   /* ── Status pill base ── */
   .vs-pill {
     display: inline-block;
@@ -386,3 +421,4 @@
     font-weight: 500;
   }
 }
+

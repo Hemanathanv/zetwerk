@@ -1,478 +1,518 @@
-import { useState } from 'react';
-import { useLocation, Link } from 'wouter';
-import { FileText, Upload, UploadCloud, Download, Loader2, ChevronRight } from 'lucide-react';
-import { PageHeader } from '@/components/vs';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import React, { useState, useMemo } from 'react';
+import { useLocation } from 'wouter';
+import { Layers, FileText, Fingerprint, Loader2, Plus, ShieldOff } from 'lucide-react';
+import { useConfig } from '@/contexts/ConfigContext';
+import { RequireActivity } from '@/components/PermissionGate';
+import { apiPost } from '@/lib/api';
 
-const TEAL        = 'hsl(var(--vs-teal))';
-const TEAL_DARK   = 'hsl(var(--vs-teal-dark))';
-const TEAL_ACTIVE_BG = 'hsla(173,58%,39%,0.04)';
-const MUTED       = 'hsl(var(--muted-foreground))';
-const DESTRUCTIVE = 'hsl(var(--destructive))';
+// ─── helpers ───────────────────────────────────────────────────────────────
 
-type Method = 'invoice' | 'csv';
+function genShipmentNumber(): string {
+  const ts = Date.now().toString(36).toUpperCase();
+  return `SHP-${ts}`;
+}
 
-type FormState = {
-  invoiceNumber: string;
-  invoiceDate: string;
-  exporter: string;
-  buyer: string;
+// ─── types ─────────────────────────────────────────────────────────────────
+
+interface FormData {
   shipmentType: string;
-  workflowTemplate: string;
+  exporterName: string;
+  buyerName: string;
   portOfLoading: string;
   destination: string;
-  projectRef: string;
   estimatedValue: string;
-  incoterm: string;
-  notes: string;
-  indiaOwner: string;
-  usOwner: string;
-};
+  currency: string;
+  projectRef: string;
+}
 
-type Errors = Partial<Record<keyof FormState, string>>;
+// ─── sub-components ────────────────────────────────────────────────────────
 
-const REQUIRED: (keyof FormState)[] = ['invoiceNumber', 'invoiceDate', 'exporter', 'buyer', 'shipmentType', 'workflowTemplate'];
-
-function FieldLabel({ children, required }: { children: React.ReactNode; required?: boolean }) {
+function PermissionBlock() {
   return (
-    <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 6, color: 'hsl(var(--foreground))' }}>
-      {children}
-      {required && <span style={{ color: DESTRUCTIVE, marginLeft: 2 }}>*</span>}
-    </label>
+    <div style={{ padding: '48px', textAlign: 'center' }}>
+      <ShieldOff style={{ width: 40, height: 40, margin: '0 auto 12px', color: 'hsl(var(--muted-foreground) / 0.4)' }} />
+      <h3 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 6px' }}>Permission required</h3>
+      <p style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', margin: 0 }}>
+        You don't have permission to create shipments.
+      </p>
+    </div>
   );
 }
 
-function HelperText({ children, error }: { children?: React.ReactNode; error?: string }) {
-  if (error) return <p style={{ fontSize: 11, color: DESTRUCTIVE, marginTop: 4 }}>{error}</p>;
-  if (children) return <p style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>{children}</p>;
-  return null;
-}
+// ─── main page ─────────────────────────────────────────────────────────────
 
-function StyledSelect({
-  value,
-  onChange,
-  children,
-  error,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  children: React.ReactNode;
-  error?: string;
-}) {
+function CreateShipmentForm() {
+  const [, navigate] = useLocation();
+  const { templates, docTypes: allDocTypes } = useConfig();
+
+  const activeTemplates = useMemo(
+    () => (templates as any[]).filter((t: any) => t.templateStatus === 'ACTIVE'),
+    [templates],
+  );
+
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
+    activeTemplates.length === 1 ? activeTemplates[0].id : null,
+  );
+
+  const [formData, setFormData] = useState<FormData>({
+    shipmentType: activeTemplates.length === 1
+      ? (() => {
+          const types = activeTemplates[0].shipmentTypes;
+          return Array.isArray(types) ? (types[0] ?? '') : '';
+        })()
+      : '',
+    exporterName: '',
+    buyerName: '',
+    portOfLoading: '',
+    destination: '',
+    estimatedValue: '',
+    currency: 'USD',
+    projectRef: '',
+  });
+
+  const [submitting, setSubmitting] = useState(false);
+
+  // ── derived template state ────────────────────────────────────────────────
+
+  const selectedTemplate = useMemo(
+    () => (templates as any[]).find((t: any) => t.id === selectedTemplateId),
+    [templates, selectedTemplateId],
+  );
+
+  const templateGates = useMemo(
+    () => ((selectedTemplate?.gates as any[]) || []).sort((a: any, b: any) => a.gateNumber - b.gateNumber),
+    [selectedTemplate],
+  );
+
+  const templateDocCount = useMemo(
+    () => templateGates.reduce((sum: number, g: any) => sum + (g.docTypeGates?.length || 0), 0),
+    [templateGates],
+  );
+
+  const templateShipmentTypes = useMemo(() => {
+    if (!selectedTemplate) return [];
+    const types = (selectedTemplate as any).shipmentTypes;
+    if (Array.isArray(types)) return types as string[];
+    if (typeof types === 'string') return (types as string).split(',').map((t: string) => t.trim()).filter(Boolean);
+    return [];
+  }, [selectedTemplate]);
+
+  // ── handlers ─────────────────────────────────────────────────────────────
+
+  function selectTemplate(t: any) {
+    setSelectedTemplateId(t.id);
+    const types = Array.isArray(t.shipmentTypes)
+      ? t.shipmentTypes
+      : typeof t.shipmentTypes === 'string'
+      ? t.shipmentTypes.split(',').map((s: string) => s.trim()).filter(Boolean)
+      : [];
+    setFormData(prev => ({ ...prev, shipmentType: types[0] ?? '' }));
+  }
+
+  function setField<K extends keyof FormData>(key: K, value: FormData[K]) {
+    setFormData(prev => ({ ...prev, [key]: value }));
+  }
+
+  async function handleCreate() {
+    if (!selectedTemplateId) return;
+    setSubmitting(true);
+    try {
+      const body: Record<string, unknown> = {
+        templateId: selectedTemplateId,
+        shipmentNumber: genShipmentNumber(),
+        shipmentType: formData.shipmentType || undefined,
+        exporterName: formData.exporterName || undefined,
+        buyerName: formData.buyerName || undefined,
+        portOfLoading: formData.portOfLoading || undefined,
+        destination: formData.destination || undefined,
+        estimatedValue: formData.estimatedValue ? parseFloat(formData.estimatedValue) : undefined,
+        currency: formData.currency || undefined,
+        projectRef: formData.projectRef || undefined,
+      };
+
+      const res = await apiPost<any>('/api/shipments/from-template', body);
+      if (!res.ok) throw new Error(res.error || 'Failed to create shipment');
+
+      const newId = res.data?.id;
+      window.location.href = newId ? `/shipments/${newId}` : '/dashboard';
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  // ── styles ────────────────────────────────────────────────────────────────
+
+  const inputCls = 'w-full text-sm border rounded-lg px-3 py-2 bg-background text-foreground outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400';
+  const selectCls = inputCls;
+  const labelStyle: React.CSSProperties = {
+    display: 'block', fontSize: 14.5, fontWeight: 500,
+    color: 'hsl(var(--muted-foreground))', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em',
+  };
+  const cardStyle: React.CSSProperties = {
+    background: 'hsl(var(--card))', borderRadius: 16, padding: 20, marginBottom: 20,
+    border: '1px solid hsl(var(--border))',
+  };
+  const sectionLabelStyle: React.CSSProperties = {
+    fontSize: 14, fontWeight: 600, color: 'hsl(var(--muted-foreground))',
+    textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14,
+  };
+
+  // ── render ────────────────────────────────────────────────────────────────
+
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      style={{
-        width: '100%',
-        padding: '8px 12px',
-        borderRadius: 8,
-        border: `1px solid ${error ? DESTRUCTIVE : 'hsl(var(--border))'}`,
-        background: 'hsl(var(--card))',
-        color: 'hsl(var(--foreground))',
-        fontSize: 14,
-        outline: 'none',
-        cursor: 'pointer',
-        appearance: 'auto',
-      }}
-    >
-      {children}
-    </select>
+    <div style={{ padding: '28px', maxWidth: 840, margin: '0 auto' }}>
+
+      {/* ── header ── */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <a
+            href="/dashboard"
+            style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', textDecoration: 'none' }}
+          >
+            ← Back
+          </a>
+          <span style={{ color: 'hsl(var(--muted-foreground))' }}>/</span>
+          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', margin: 0, color: 'hsl(var(--foreground))', lineHeight: 1.2 }}>Create Shipment</h1>
+        </div>
+        <p style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', margin: 0 }}>
+          Select a workflow template and enter shipment details to begin processing.
+        </p>
+      </div>
+
+      {/* ── section 2: template selector ── */}
+      <div style={{ marginBottom: 20 }}>
+        <p style={sectionLabelStyle}>Workflow Template</p>
+
+        {activeTemplates.length === 0 ? (
+          <div style={{
+            background: 'hsl(38 92% 97%)', border: '1px solid hsl(38 92% 80%)',
+            borderRadius: 12, padding: 16,
+          }}>
+            <p style={{ fontSize: 14.5, color: 'hsl(38 55% 40%)', margin: 0 }}>
+              No active templates available. Contact your administrator to activate a workflow template.
+            </p>
+          </div>
+        ) : (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${Math.min(activeTemplates.length, 3)}, 1fr)`,
+            gap: 12,
+          }}>
+            {activeTemplates.map((t: any) => {
+              const tGates = ((t.gates || []) as any[]);
+              const tDocCount = tGates.reduce((s: number, g: any) => s + (g.docTypeGates?.length || 0), 0);
+              const tTypes: string[] = Array.isArray(t.shipmentTypes)
+                ? t.shipmentTypes
+                : typeof t.shipmentTypes === 'string'
+                ? t.shipmentTypes.split(',').map((s: string) => s.trim()).filter(Boolean)
+                : [];
+              const isSelected = selectedTemplateId === t.id;
+
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => selectTemplate(t)}
+                  style={{
+                    textAlign: 'left',
+                    padding: 16,
+                    borderRadius: 14,
+                    border: isSelected
+                      ? '2px solid hsl(173 58% 39%)'
+                      : '1px solid hsl(var(--border))',
+                    background: isSelected
+                      ? 'hsla(173,58%,39%,0.05)'
+                      : 'hsl(var(--card))',
+                    cursor: 'pointer',
+                    transition: 'all 150ms',
+                    outline: isSelected ? '2px solid hsla(173,58%,39%,0.15)' : 'none',
+                    outlineOffset: 1,
+                  }}
+                >
+                  <div style={{ fontSize: 14.5, fontWeight: 600, marginBottom: 2 }}>{t.name}</div>
+                  <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginBottom: 2 }}>
+                    {t.corridor || 'No corridor specified'}
+                  </div>
+                  {t.commodity && (
+                    <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginBottom: 8 }}>
+                      {t.commodity}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 12, fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <Layers size={11} />
+                      {tGates.length} gate{tGates.length !== 1 ? 's' : ''}
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <FileText size={11} />
+                      {tDocCount} doc{tDocCount !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+
+                  {tTypes.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
+                      {tTypes.map((type: string) => (
+                        <span
+                          key={type}
+                          style={{
+                            fontSize: 13, background: 'hsl(var(--muted))',
+                            borderRadius: 999, padding: '2px 8px',
+                            color: 'hsl(var(--muted-foreground))',
+                          }}
+                        >
+                          {type}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── section 3: template preview ── */}
+      {selectedTemplate && (
+        <div style={cardStyle}>
+          <p style={sectionLabelStyle}>Template Preview</p>
+
+          {/* Gate progression */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 2, marginBottom: 12, flexWrap: 'wrap' }}>
+            {templateGates.map((gate: any, idx: number) => (
+              <React.Fragment key={gate.id}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: '50%',
+                    background: 'hsl(var(--muted))',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 14.5, fontWeight: 700,
+                  }}>
+                    {gate.gateNumber}
+                  </div>
+                  <div style={{
+                    fontSize: 13, color: 'hsl(var(--muted-foreground))',
+                    marginTop: 4, textAlign: 'center', maxWidth: 64,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>
+                    {gate.gateName}
+                  </div>
+                  {gate.isIdentityGate && (
+                    <Fingerprint size={11} style={{ color: 'hsl(173 58% 39%)', marginTop: 2 }} />
+                  )}
+                </div>
+                {idx < templateGates.length - 1 && (
+                  <div style={{
+                    flex: 1, height: 1, background: 'hsl(var(--border))',
+                    marginTop: 16, minWidth: 8,
+                  }} />
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+
+          {/* Stats row */}
+          <div style={{ display: 'flex', gap: 8, fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginBottom: 12 }}>
+            <span>{templateGates.length} gate{templateGates.length !== 1 ? 's' : ''}</span>
+            <span>·</span>
+            <span>{templateDocCount} document{templateDocCount !== 1 ? 's' : ''}</span>
+            {templateGates.find((g: any) => g.isIdentityGate) && (
+              <>
+                <span>·</span>
+                <span>Identity at gate {templateGates.find((g: any) => g.isIdentityGate)?.gateNumber}</span>
+              </>
+            )}
+          </div>
+
+          {/* Per-gate doc summary */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {templateGates.map((gate: any) => {
+              const gateDocs = ((gate.docTypeGates || []) as any[]);
+              const criticalCount = gateDocs.filter((d: any) => d.roleInGate === 'GATE_CRITICAL').length;
+              const generatedCount = gateDocs.filter((d: any) => d.isGenerated).length;
+
+              return (
+                <div key={gate.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, width: 20 }}>G{gate.gateNumber}</span>
+                  <span style={{ color: 'hsl(var(--muted-foreground))', flex: 1 }}>
+                    {gateDocs.length} doc{gateDocs.length !== 1 ? 's' : ''}
+                    {criticalCount > 0 && (
+                      <span style={{ color: 'hsl(0 72% 50%)', marginLeft: 4 }}>({criticalCount} critical)</span>
+                    )}
+                    {generatedCount > 0 && (
+                      <span style={{ color: 'hsl(38 92% 45%)', marginLeft: 4 }}>({generatedCount} auto-gen)</span>
+                    )}
+                  </span>
+                  <span style={{ color: 'hsl(var(--muted-foreground) / 0.5)', fontFamily: 'monospace' }}>
+                    {gateDocs.map((d: any) => {
+                      const dtInfo = (allDocTypes as any[]).find((dt: any) => dt.typeCode === d.docType);
+                      return dtInfo?.displayName || '??';
+                    }).join(' · ')}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── section 4: shipment details form ── */}
+      {selectedTemplate && (
+        <div style={cardStyle}>
+          <p style={sectionLabelStyle}>Shipment Details</p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 20px' }}>
+
+            {/* Shipment Type — from template (G-S14) */}
+            <div>
+              <label style={labelStyle}>Shipment Type</label>
+              {templateShipmentTypes.length > 0 ? (
+                <select
+                  value={formData.shipmentType}
+                  onChange={e => setField('shipmentType', e.target.value)}
+                  className={selectCls}
+                  style={{ width: '100%' }}
+                >
+                  {templateShipmentTypes.map((type: string) => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={formData.shipmentType}
+                  onChange={e => setField('shipmentType', e.target.value)}
+                  className={inputCls}
+                  placeholder="e.g., Container FCL"
+                />
+              )}
+            </div>
+
+            {/* Exporter Name */}
+            <div>
+              <label style={labelStyle}>Exporter Name</label>
+              <input
+                value={formData.exporterName}
+                onChange={e => setField('exporterName', e.target.value)}
+                className={inputCls}
+                placeholder="Exporter / shipper name"
+              />
+            </div>
+
+            {/* Buyer Name */}
+            <div>
+              <label style={labelStyle}>Buyer Name</label>
+              <input
+                value={formData.buyerName}
+                onChange={e => setField('buyerName', e.target.value)}
+                className={inputCls}
+                placeholder="Buyer / consignee name"
+              />
+            </div>
+
+            {/* Port of Loading */}
+            <div>
+              <label style={labelStyle}>Port of Loading</label>
+              <input
+                value={formData.portOfLoading}
+                onChange={e => setField('portOfLoading', e.target.value)}
+                className={inputCls}
+                placeholder="e.g., Mundra"
+              />
+            </div>
+
+            {/* Destination */}
+            <div>
+              <label style={labelStyle}>Destination</label>
+              <input
+                value={formData.destination}
+                onChange={e => setField('destination', e.target.value)}
+                className={inputCls}
+                placeholder="e.g., Oakland, CA"
+              />
+            </div>
+
+            {/* Estimated Value + Currency */}
+            <div>
+              <label style={labelStyle}>Estimated Value</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <select
+                  value={formData.currency}
+                  onChange={e => setField('currency', e.target.value)}
+                  style={{ width: 72, fontSize: 14.5, borderRadius: 8, padding: '8px 6px', border: '1px solid hsl(var(--border))', background: 'hsl(var(--background))' }}
+                >
+                  <option value="USD">USD</option>
+                  <option value="INR">INR</option>
+                  <option value="EUR">EUR</option>
+                </select>
+                <input
+                  type="number"
+                  value={formData.estimatedValue}
+                  onChange={e => setField('estimatedValue', e.target.value)}
+                  className={inputCls}
+                  placeholder="0.00"
+                  style={{ flex: 1, fontFamily: 'monospace' }}
+                />
+              </div>
+            </div>
+
+            {/* PO / Project Reference — full width */}
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={labelStyle}>PO / Project Reference</label>
+              <input
+                value={formData.projectRef}
+                onChange={e => setField('projectRef', e.target.value)}
+                className={inputCls}
+                placeholder="Purchase order or project reference number"
+              />
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ── section 5: submit ── */}
+      {selectedTemplate && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <p style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', margin: 0 }}>
+            Creating with{' '}
+            <span style={{ fontWeight: 600 }}>{selectedTemplate.name}</span>
+            {' '}· {templateGates.length} gate{templateGates.length !== 1 ? 's' : ''} will be initialized
+            {' '}· Gate 1 will be active immediately
+          </p>
+          <button
+            onClick={handleCreate}
+            disabled={submitting || !formData.exporterName || !formData.buyerName}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '10px 24px', borderRadius: 10, border: 'none',
+              background: 'hsl(173 58% 39%)', color: '#fff',
+              fontSize: 14.5, fontWeight: 500, cursor: 'pointer',
+              opacity: submitting || !formData.exporterName || !formData.buyerName ? 0.5 : 1,
+              transition: 'opacity 150ms', whiteSpace: 'nowrap',
+            }}
+          >
+            {submitting ? (
+              <><Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> Creating...</>
+            ) : (
+              <><Plus size={15} /> Create Shipment</>
+            )}
+          </button>
+        </div>
+      )}
+
+    </div>
   );
 }
 
 export function CreateShipmentPage() {
-  const [, navigate] = useLocation();
-  const [method, setMethod] = useState<Method>('invoice');
-  const [creating, setCreating] = useState(false);
-  const [errors, setErrors] = useState<Errors>({});
-  const [csvFile, setCsvFile] = useState<File | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-
-  const [form, setForm] = useState<FormState>({
-    invoiceNumber: '',
-    invoiceDate: '',
-    exporter: 'Zetwerk Manufacturing Businesses Pvt Ltd',
-    buyer: 'Unimacts Manufacturing Mx., LLC',
-    shipmentType: 'container',
-    workflowTemplate: 'standard-container',
-    portOfLoading: 'Mundra',
-    destination: '',
-    projectRef: '',
-    estimatedValue: '',
-    incoterm: 'FOB',
-    notes: '',
-    indiaOwner: '',
-    usOwner: '',
-  });
-
-  function setField(key: keyof FormState, value: string) {
-    setForm((f) => ({ ...f, [key]: value }));
-    if (errors[key]) setErrors((e) => { const next = { ...e }; delete next[key]; return next; });
-  }
-
-  function validate(): boolean {
-    const next: Errors = {};
-    for (const key of REQUIRED) {
-      if (!form[key].trim()) next[key] = 'This field is required';
-    }
-    setErrors(next);
-    return Object.keys(next).length === 0;
-  }
-
-  function handleCreate() {
-    if (!validate()) return;
-    setCreating(true);
-    setTimeout(() => {
-      setCreating(false);
-      navigate('/dashboard');
-    }, 1000);
-  }
-
-  const inputStyle = (key: keyof FormState) => ({
-    borderColor: errors[key] ? DESTRUCTIVE : undefined,
-  });
-
   return (
-    <div style={{ padding: '28px', maxWidth: 800, margin: '0 auto' }}>
-
-      {/* Breadcrumb */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: MUTED, marginBottom: 10 }}>
-        <Link href="/dashboard" style={{ color: MUTED, textDecoration: 'none' }}>
-          Shipments
-        </Link>
-        <ChevronRight style={{ width: 12, height: 12 }} />
-        <span style={{ color: 'hsl(var(--foreground))' }}>New shipment</span>
-      </div>
-
-      <PageHeader
-        title="Create new shipment"
-        subtitle="Start a new shipment by entering the Sales Invoice details or uploading a CSV file"
-      />
-
-      {/* ── Method toggle ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
-        {[
-          {
-            key: 'invoice' as Method,
-            icon: FileText,
-            title: 'From Sales Invoice',
-            desc: 'Enter or pull invoice details from the accounting system. Best for single shipments.',
-          },
-          {
-            key: 'csv' as Method,
-            icon: Upload,
-            title: 'CSV Bulk Upload',
-            desc: 'Upload a CSV file with multiple shipments. Template available for download.',
-          },
-        ].map(({ key, icon: Icon, title, desc }) => {
-          const active = method === key;
-          return (
-            <div
-              key={key}
-              onClick={() => setMethod(key)}
-              style={{
-                padding: 20,
-                borderRadius: 12,
-                border: active ? `2px solid ${TEAL}` : '1px solid hsl(var(--border))',
-                background: active ? TEAL_ACTIVE_BG : 'hsl(var(--card))',
-                cursor: 'pointer',
-                transition: 'all 200ms',
-              }}
-            >
-              <Icon style={{ width: 24, height: 24, color: active ? TEAL : MUTED, marginBottom: 10 }} />
-              <p style={{ fontSize: 14, fontWeight: 600, margin: '0 0 6px', color: 'hsl(var(--foreground))' }}>{title}</p>
-              <p style={{ fontSize: 12, color: MUTED, margin: 0, lineHeight: 1.5 }}>{desc}</p>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* ── Invoice form ── */}
-      {method === 'invoice' && (
-        <div style={{ background: 'hsl(var(--card))', borderRadius: 12, padding: 24, boxShadow: '0 1px 4px hsla(0,0%,0%,0.06)' }}>
-          <h3 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 20px' }}>Shipment details</h3>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px 24px' }}>
-
-            {/* Row 1 */}
-            <div>
-              <FieldLabel required>Sales Invoice Number</FieldLabel>
-              <Input
-                placeholder="e.g., KA/UM/2526/00773"
-                value={form.invoiceNumber}
-                onChange={(e) => setField('invoiceNumber', e.target.value)}
-                style={inputStyle('invoiceNumber')}
-              />
-              {errors.invoiceNumber
-                ? <HelperText error={errors.invoiceNumber} />
-                : <HelperText>Enter the invoice number from your accounting system</HelperText>
-              }
-            </div>
-
-            <div>
-              <FieldLabel required>Invoice Date</FieldLabel>
-              <Input
-                type="date"
-                value={form.invoiceDate}
-                onChange={(e) => setField('invoiceDate', e.target.value)}
-                style={inputStyle('invoiceDate')}
-              />
-              <HelperText error={errors.invoiceDate} />
-            </div>
-
-            {/* Row 2 */}
-            <div>
-              <FieldLabel required>Exporter</FieldLabel>
-              <StyledSelect value={form.exporter} onChange={(v) => setField('exporter', v)} error={errors.exporter}>
-                <option>Zetwerk Manufacturing Businesses Pvt Ltd</option>
-                <option>Immadi E-Commerce Pvt Ltd</option>
-              </StyledSelect>
-              <HelperText error={errors.exporter} />
-            </div>
-
-            <div>
-              <FieldLabel required>Buyer / Consignee</FieldLabel>
-              <Input
-                value={form.buyer}
-                onChange={(e) => setField('buyer', e.target.value)}
-                style={inputStyle('buyer')}
-              />
-              <HelperText error={errors.buyer} />
-            </div>
-
-            {/* Row 3 */}
-            <div>
-              <FieldLabel required>Shipment Type</FieldLabel>
-              <StyledSelect value={form.shipmentType} onChange={(v) => setField('shipmentType', v)} error={errors.shipmentType}>
-                <option value="container">Container (FCL)</option>
-                <option value="breakbulk">Break Bulk</option>
-              </StyledSelect>
-              <HelperText error={errors.shipmentType} />
-            </div>
-
-            <div>
-              <FieldLabel required>Workflow Template</FieldLabel>
-              <StyledSelect value={form.workflowTemplate} onChange={(v) => setField('workflowTemplate', v)} error={errors.workflowTemplate}>
-                <option value="standard-container">Standard India → US (Container)</option>
-                <option value="standard-breakbulk">Standard India → US (Break Bulk)</option>
-                <option value="custom">Custom...</option>
-              </StyledSelect>
-              <HelperText error={errors.workflowTemplate}>Defines the stages, SLAs, and role assignments</HelperText>
-            </div>
-
-            {/* Row 4 */}
-            <div>
-              <FieldLabel>Port of Loading</FieldLabel>
-              <StyledSelect value={form.portOfLoading} onChange={(v) => setField('portOfLoading', v)}>
-                <option>Mundra</option>
-                <option>Chennai</option>
-                <option>Nhava Sheva</option>
-                <option>Kolkata</option>
-              </StyledSelect>
-            </div>
-
-            <div>
-              <FieldLabel>Final Destination</FieldLabel>
-              <Input
-                placeholder="e.g., 14600 Arville St, Sloan NV 89054"
-                value={form.destination}
-                onChange={(e) => setField('destination', e.target.value)}
-              />
-            </div>
-
-            {/* Row 5 — full width */}
-            <div style={{ gridColumn: '1 / -1' }}>
-              <FieldLabel>Project / PO Reference</FieldLabel>
-              <Input
-                placeholder="e.g., J44CES25090019"
-                value={form.projectRef}
-                onChange={(e) => setField('projectRef', e.target.value)}
-              />
-              <HelperText>Links this shipment to a project for consolidated tracking</HelperText>
-            </div>
-
-            {/* Row 6 */}
-            <div>
-              <FieldLabel>Estimated Value (USD)</FieldLabel>
-              <Input
-                className="vs-mono"
-                placeholder="e.g., 142,384"
-                value={form.estimatedValue}
-                onChange={(e) => setField('estimatedValue', e.target.value)}
-              />
-            </div>
-
-            <div>
-              <FieldLabel>Incoterm</FieldLabel>
-              <StyledSelect value={form.incoterm} onChange={(v) => setField('incoterm', v)}>
-                <option>FOB</option>
-                <option>CIF</option>
-                <option>CFR</option>
-                <option>EXW</option>
-                <option>DDP</option>
-              </StyledSelect>
-            </div>
-
-            {/* Row 7 — full width */}
-            <div style={{ gridColumn: '1 / -1' }}>
-              <FieldLabel>Internal Notes</FieldLabel>
-              <textarea
-                rows={3}
-                placeholder="Any special instructions for this shipment..."
-                value={form.notes}
-                onChange={(e) => setField('notes', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  border: '1px solid hsl(var(--border))',
-                  background: 'hsl(var(--card))',
-                  color: 'hsl(var(--foreground))',
-                  fontSize: 14,
-                  resize: 'vertical',
-                  outline: 'none',
-                  fontFamily: 'inherit',
-                  lineHeight: 1.5,
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Assignment section */}
-          <div style={{ borderTop: '1px solid hsl(var(--border))', paddingTop: 20, marginTop: 20 }}>
-            <h4 style={{ fontSize: 16, fontWeight: 600, margin: '0 0 16px' }}>Assignment</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px 24px' }}>
-              <div>
-                <FieldLabel>India Logistics Owner</FieldLabel>
-                <StyledSelect value={form.indiaOwner} onChange={(v) => setField('indiaOwner', v)}>
-                  <option value="priya">Priya K</option>
-                  <option value="">Unassigned</option>
-                </StyledSelect>
-              </div>
-              <div>
-                <FieldLabel>US Logistics Owner</FieldLabel>
-                <StyledSelect value={form.usOwner} onChange={(v) => setField('usOwner', v)}>
-                  <option value="">Unassigned</option>
-                  <option value="james">James R</option>
-                </StyledSelect>
-              </div>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <HelperText>You can reassign at any stage from the shipment detail page</HelperText>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── CSV upload ── */}
-      {method === 'csv' && (
-        <div style={{ background: 'hsl(var(--card))', borderRadius: 12, padding: 24, boxShadow: '0 1px 4px hsla(0,0%,0%,0.06)' }}>
-          <h3 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 20px' }}>Upload shipment CSV</h3>
-
-          <div
-            onClick={() => document.getElementById('csv-file-input')?.click()}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragOver(false);
-              const file = e.dataTransfer.files[0];
-              if (file) setCsvFile(file);
-            }}
-            style={{
-              border: `2px dashed ${dragOver ? TEAL : 'hsl(var(--border))'}`,
-              borderRadius: 12,
-              padding: 40,
-              textAlign: 'center',
-              background: dragOver ? TEAL_ACTIVE_BG : 'hsl(var(--background))',
-              cursor: 'pointer',
-              transition: 'all 200ms',
-            }}
-          >
-            <input
-              id="csv-file-input"
-              type="file"
-              accept=".csv,.xlsx"
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) setCsvFile(file);
-              }}
-            />
-            <UploadCloud style={{ width: 40, height: 40, color: MUTED, margin: '0 auto 12px' }} />
-            <p style={{ fontSize: 14, fontWeight: 500, margin: '0 0 6px', color: 'hsl(var(--foreground))' }}>
-              {csvFile ? csvFile.name : 'Drop CSV file here or click to browse'}
-            </p>
-            <p style={{ fontSize: 12, color: MUTED, margin: 0 }}>
-              {csvFile ? `${(csvFile.size / 1024).toFixed(1)} KB` : 'Supports .csv and .xlsx files up to 5MB'}
-            </p>
-          </div>
-
-          {/* Template download */}
-          <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Download style={{ width: 14, height: 14, color: TEAL }} />
-            <a
-              href="#"
-              onClick={(e) => e.preventDefault()}
-              style={{ fontSize: 13, color: TEAL, textDecoration: 'none' }}
-              onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
-              onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
-            >
-              Download CSV template
-            </a>
-          </div>
-          <p style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>Use this template to ensure correct column mapping</p>
-
-          {/* Column mapping preview */}
-          <div style={{
-            background: 'hsl(var(--muted))',
-            borderRadius: 8,
-            padding: 16,
-            marginTop: 16,
-          }}>
-            <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 6px', color: 'hsl(var(--foreground))' }}>CSV Preview</p>
-            <p style={{ fontSize: 12, color: MUTED, margin: 0 }}>
-              {csvFile
-                ? `File "${csvFile.name}" selected. Column mapping will appear here after processing.`
-                : 'No file selected. Upload a CSV to see column mapping and row preview.'
-              }
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* ── Action buttons ── */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24 }}>
-        <Button variant="outline" onClick={() => navigate('/dashboard')}>
-          Cancel
-        </Button>
-        <button
-          onClick={handleCreate}
-          disabled={creating}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '8px 20px',
-            borderRadius: 8,
-            border: 'none',
-            background: creating ? TEAL_DARK : TEAL,
-            color: '#fff',
-            fontSize: 14,
-            fontWeight: 500,
-            cursor: creating ? 'not-allowed' : 'pointer',
-            transition: 'background 200ms',
-            opacity: creating ? 0.85 : 1,
-          }}
-          onMouseEnter={(e) => { if (!creating) (e.currentTarget as HTMLElement).style.background = TEAL_DARK; }}
-          onMouseLeave={(e) => { if (!creating) (e.currentTarget as HTMLElement).style.background = TEAL; }}
-        >
-          {creating && <Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />}
-          {creating ? 'Creating...' : 'Create shipment'}
-        </button>
-      </div>
-    </div>
+    <RequireActivity
+      code="SHP-001"
+      fallback={<PermissionBlock />}
+    >
+      <CreateShipmentForm />
+    </RequireActivity>
   );
 }

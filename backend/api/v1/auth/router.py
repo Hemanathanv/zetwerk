@@ -37,6 +37,84 @@ class CreateUserRequest(BaseModel):
     last_name: str
     roles: List[str] = ["user"]
 
+
+def _attr_values(attributes: dict | None, key: str) -> list[str]:
+    raw = (attributes or {}).get(key)
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(item) for item in raw if str(item)]
+    return [str(raw)] if str(raw) else []
+
+
+def _attr_value(attributes: dict | None, key: str, default: str = "") -> str:
+    values = _attr_values(attributes, key)
+    return values[0] if values else default
+
+
+def _normalize_data_scope(scope: str) -> str:
+    normalized = str(scope or "").strip().upper()
+    if normalized in {"ALL", "TEAM", "TAGGED"}:
+        return normalized
+    if normalized in {"ASSIGNED", "ASSIGNED_ONLY"}:
+        return "TAGGED"
+    return "TEAM"
+
+
+def _expand_modules(modules: list[str]) -> list[str]:
+    expanded = set(modules)
+    if "inventory" in expanded:
+        expanded.update({"warehouse", "dnd"})
+    return sorted(expanded)
+
+
+def _primary_role_name(role_names: list[str]) -> str:
+    normalized = {role.upper().replace("-", "_"): role for role in role_names}
+    for role in ("SUPER_ADMIN", "ADMIN"):
+        if role in normalized:
+            return normalized[role]
+    for role in role_names:
+        normalized_role = role.upper().replace("-", "_")
+        if (
+            not role.startswith("default-roles-")
+            and role not in {"offline_access", "uma_authorization"}
+            and normalized_role not in {"USER", "ADMIN", "SUPER_ADMIN"}
+        ):
+            return role
+    if "USER" in normalized:
+        return normalized["USER"]
+    return "USER"
+
+
+def _legacy_activity_codes(activities: list[str]) -> list[str]:
+    codes = set(activities)
+    if "documents.generate_draft" in codes or "documents.approve_draft" in codes:
+        codes.add("DOC-003")
+    return sorted(codes)
+
+
+def _permissions_from_role(role: dict) -> dict:
+    attrs = role.get("attributes") or {}
+    role_name = str(role.get("name") or "USER")
+    role_category = _attr_value(attrs, "ewms.category", "org_internal")
+    modules = _expand_modules(_attr_values(attrs, "ewms.modules"))
+    activities = _legacy_activity_codes(_attr_values(attrs, "ewms.activities"))
+    return {
+        "modules": modules,
+        "gates": [],
+        "docTypes": {},
+        "ticketCategories": [],
+        "activities": activities,
+        "dataScope": _normalize_data_scope(_attr_value(attrs, "ewms.dataScope", "TEAM")),
+        "role": {
+            "id": role_name,
+            "name": _attr_value(attrs, "ewms.displayName", role_name.replace("_", " ").title()),
+            "category": role_category,
+            "color": _attr_value(attrs, "ewms.color", "#0f766e"),
+            "systemCode": role_name.lower(),
+        },
+    }
+
 # =================================================================
 # Core Authentication Endpoints
 # =================================================================
@@ -100,6 +178,126 @@ async def get_roles(roles: List[str] = Depends(get_keycloak_roles)):
     Get current user's roles from Keycloak
     """
     return {"roles": roles}
+
+
+LEVEL_ORDER = {"L1": 1, "L2": 2, "L3": 3, "L4": 4}
+
+ACTIVITY_MIN_LEVELS = {
+    "shipments.view": "L1",
+    "shipments.create": "L2",
+    "shipments.edit_metadata": "L2",
+    "shipments.assign_user": "L3",
+    "shipments.archive": "L3",
+    "shipments.delete": "L4",
+    "shipments.override_blocked_stage": "L4",
+    "shipments.tag_partner": "L2",
+    "documents.upload": "L1",
+    "documents.view_extracted": "L1",
+    "documents.download_export": "L1",
+    "documents.edit_extracted": "L2",
+    "documents.generate_draft": "L2",
+    "documents.approve_draft": "L2",
+    "documents.override_validation": "L3",
+    "documents.reprocess_ocr": "L3",
+    "documents.delete": "L4",
+    "inventory.view_timeline": "L1",
+    "inventory.view_container": "L1",
+    "inventory.update_milestone": "L2",
+    "inventory.upload_pod": "L2",
+    "inventory.acknowledge_dnd": "L2",
+    "accounting.view_queue": "L1",
+    "accounting.view_ap_aging": "L1",
+    "accounting.export_data": "L2",
+    "accounting.review_ticket": "L2",
+    "accounting.edit_entry": "L2",
+    "accounting.reject_ticket": "L2",
+    "accounting.post_to_erp": "L3",
+    "reports.view_dashboard": "L1",
+    "reports.generate_dsr": "L2",
+    "reports.export_report": "L2",
+    "reports.schedule_auto": "L3",
+    "tasks.view": "L1",
+    "admin.manage": "L3",
+    "users.manage": "L3",
+    "roles.view": "L2",
+    "roles.manage": "L4",
+    "documents.manage": "L2",
+    "shipments.manage": "L2",
+    "admin.manage_users": "L3",
+    "admin.configure_roles": "L4",
+    "admin.edit_workflows": "L4",
+    "admin.configure_doctypes": "L3",
+    "admin.edit_account_mappings": "L3",
+    "admin.manage_partners": "L3",
+    "admin.view_audit_log": "L3",
+    "admin.security_settings": "L4",
+}
+
+
+def _level_at_least(user_level: str, required_level: str) -> bool:
+    return LEVEL_ORDER.get(str(user_level or "L1").upper(), 0) >= LEVEL_ORDER.get(str(required_level or "L1").upper(), 0)
+
+
+def _highest_level(levels: list[str]) -> str:
+    return sorted(levels or ["L1"], key=lambda item: LEVEL_ORDER.get(str(item).upper(), 0))[-1]
+
+
+def _activities_for_level(activities: list[str], user_level: str) -> list[str]:
+    return [
+        activity
+        for activity in activities
+        if _level_at_least(user_level, ACTIVITY_MIN_LEVELS.get(activity, "L1"))
+    ]
+
+
+def _user_level_from_keycloak(keycloak_admin, userinfo: dict, role: dict) -> str:
+    attrs = role.get("attributes") or {}
+    default_level = _highest_level(_attr_values(attrs, "ewms.levels"))
+    user_id = str(userinfo.get("sub") or "")
+    email = str(userinfo.get("email") or userinfo.get("preferred_username") or "").lower()
+    try:
+        if user_id:
+            user = keycloak_admin.get_user(user_id)
+        else:
+            keycloak_id = keycloak_admin.get_user_id(email)
+            user = keycloak_admin.get_user(keycloak_id) if keycloak_id else {}
+        return _attr_value(user.get("attributes") or {}, "ewms.level", default_level)
+    except Exception:
+        return default_level
+
+
+@router.get("/permissions")
+async def get_permissions(
+    userinfo: dict = Depends(get_keycloak_user),
+    roles: List[str] = Depends(get_keycloak_roles),
+):
+    """
+    Return current user's screen and activity access from Keycloak role attributes.
+    """
+    role_name = _primary_role_name(roles)
+    try:
+        keycloak_admin = get_keycloak_admin()
+        role = keycloak_admin.get_realm_role(role_name)
+        user_level = _user_level_from_keycloak(keycloak_admin, userinfo, role)
+    except Exception:
+        fallback_modules = ["dashboard", "shipments", "documents", "tasks"]
+        role = {
+            "name": role_name,
+            "attributes": {
+                "ewms.displayName": [role_name.replace("_", " ").title()],
+                "ewms.category": ["org_internal"],
+                "ewms.modules": fallback_modules,
+                "ewms.activities": ["shipments.view", "documents.view_extracted"],
+                "ewms.dataScope": ["TEAM"],
+                "ewms.color": ["#0f766e"],
+            },
+        }
+        user_level = _highest_level(_attr_values(role["attributes"], "ewms.levels"))
+
+    permissions = _permissions_from_role(role)
+    permissions["level"] = user_level
+    permissions["activities"] = _activities_for_level(permissions["activities"], user_level)
+    return {"ok": True, "data": permissions}
 
 # =================================================================
 # Role-Based Access Control Endpoints

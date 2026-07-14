@@ -1,4 +1,6 @@
 import { AuthProvider as ConnectedAuthProvider, useAuth as useConnectedAuth } from '@/auth/AuthContext';
+import { SESSION_TOKEN_KEY } from '@/auth/api';
+import type { RbacPermissions } from '@/contexts/PermissionContext';
 import type { ReactNode } from 'react';
 
 export type Permission = {
@@ -8,8 +10,8 @@ export type Permission = {
   conditions: Record<string, unknown> | null;
 };
 
-const ADMIN_MODULES = ['reports', 'shipments', 'documents', 'inventory', 'accounting', 'admin', 'settings'];
-const USER_MODULES = ['reports', 'shipments', 'documents', 'inventory', 'accounting', 'settings'];
+const ADMIN_MODULES = ['dashboard', 'reports', 'shipments', 'tasks', 'documents', 'inventory', 'warehouse', 'dnd', 'accounting', 'admin', 'settings'];
+const USER_MODULES = ['dashboard', 'reports', 'shipments', 'tasks', 'documents', 'inventory', 'warehouse', 'dnd', 'accounting', 'settings'];
 
 function permissionsForModules(modules: string[], isAdmin: boolean): Permission[] {
   const basePermissions = modules.map((module) => ({
@@ -51,16 +53,35 @@ function getAuthErrorMessage(error: unknown): string {
 
 export function useAuth() {
   const auth = useConnectedAuth();
+  const keycloakPermissions = (auth.user as any)?.rbacPermissions as RbacPermissions | undefined;
   const isKnownAdmin = auth.user?.email?.toLowerCase() === 'admin@sprconsultech.com';
   const isAdmin = isKnownAdmin || auth.user?.systemRole === 'ADMIN' || auth.user?.systemRole === 'SUPER_ADMIN';
-  const modules = isAdmin ? ADMIN_MODULES : USER_MODULES;
+  const modules = keycloakPermissions?.modules ?? (isAdmin ? ADMIN_MODULES : USER_MODULES);
+  const rbacPermissions: RbacPermissions | null = auth.user
+    ? keycloakPermissions ?? {
+        modules,
+        gates: [],
+        docTypes: {},
+        ticketCategories: [],
+        activities: ['DOC-003'],
+        dataScope: isAdmin ? 'ALL' : 'TAGGED',
+        level: isAdmin ? 'L4' : 'L1',
+        role: {
+          id: isKnownAdmin ? 'ADMIN' : auth.user.systemRole,
+          name: (isKnownAdmin ? 'ADMIN' : auth.user.systemRole).replace(/_/g, ' '),
+          category: isKnownAdmin ? 'ADMIN' : auth.user.systemRole,
+          color: '#0f766e',
+        },
+      }
+    : null;
+  const keycloakRole = keycloakPermissions?.role;
   const user = auth.user
     ? {
         ...auth.user,
         fullName: auth.user.name,
         systemRole: isKnownAdmin ? 'ADMIN' : auth.user.systemRole,
-        userType: isKnownAdmin ? 'ADMIN' : auth.user.systemRole,
-        role: {
+        userType: keycloakRole?.category ?? (isKnownAdmin ? 'ADMIN' : auth.user.systemRole),
+        role: keycloakRole ?? {
           id: isKnownAdmin ? 'ADMIN' : auth.user.systemRole,
           name: (isKnownAdmin ? 'ADMIN' : auth.user.systemRole).replace(/_/g, ' '),
           category: isKnownAdmin ? 'ADMIN' : auth.user.systemRole,
@@ -68,12 +89,15 @@ export function useAuth() {
         org: null,
         permissions: permissionsForModules(modules, isAdmin),
         modules,
+        level: keycloakPermissions?.level ?? (isAdmin ? 'L4' : 'L1'),
       }
     : null;
 
   return {
     ...auth,
     user,
+    token: window.localStorage.getItem(SESSION_TOKEN_KEY),
+    rbacPermissions,
     login: async (email: string, password: string) => {
       try {
         await auth.login(email, password);

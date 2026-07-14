@@ -249,7 +249,7 @@ const OUTWARD_PL_GEN: DocGenSchema = {
 
 const DRAFT_BOE_GEN: DocGenSchema = {
   generatedDocType: 'ENTRY_SUMMARY',
-  displayName: 'Draft Bill of Entry (Entry Summary)',
+  displayName: 'Draft BOE',
   triggerCondition: 'BOL APPROVED (extraction confirmed by human)',
   sourceDocs: ['BILL_OF_LADING', 'SALES_INVOICE'],
   humanAction: 'Add HTS codes, review duty calculations, send to US broker for filing',

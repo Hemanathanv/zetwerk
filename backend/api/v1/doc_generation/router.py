@@ -2,15 +2,15 @@ import json
 import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
 from typing import Any, Literal
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from db import get_prisma
 from doc_generation import DOC_GEN_SCHEMAS, get_doc_gen_schema
+from doc_generation.db_setup import ensure_doc_generation_views
 from helpers.config import settings
 from helpers.dependencies import get_current_user
 
@@ -18,14 +18,22 @@ GeneratedDocType = Literal["PACKING_LIST", "US_PACKING_LIST", "ENTRY_SUMMARY"]
 
 router = APIRouter(prefix=settings.API_SLUG + "/doc-generation", tags=["Document Generation"])
 
-BACKEND_ROOT = Path(__file__).resolve().parents[3]
-DOCGEN_SQL_DIR = BACKEND_ROOT / "doc_generation"
-_DOCGEN_DB_READY = False
-
 
 class CreateDraftRequest(BaseModel):
     generatedDocType: GeneratedDocType
     sourceDocumentIds: dict[str, str] = Field(default_factory=dict)
+
+
+class UpdatePackageTypeRequest(BaseModel):
+    lineItemIndex: int = Field(ge=0)
+    packageType: str = Field(min_length=1, max_length=80)
+    customPackageTypes: list[str] = Field(default_factory=list)
+
+
+class UpdateDraftRequest(BaseModel):
+    fields: dict[str, str | None] = Field(default_factory=dict)
+    lineItems: list[dict[str, Any]] | None = None
+    status: Literal["DRAFT", "IN_REVIEW", "CONFIRMED", "GENERATED"] = "DRAFT"
 
 
 class FieldValue(BaseModel):
@@ -60,6 +68,7 @@ class DraftPayload(BaseModel):
     lineItems: list[dict[str, Any]]
     containers: list[dict[str, Any]]
     stats: dict[str, int]
+    customPackageTypes: list[str] = Field(default_factory=list)
     createdAt: str | None = None
     updatedAt: str | None = None
 
@@ -109,6 +118,19 @@ def _format_total(value: Decimal) -> str:
     return f"{value:,.2f}"
 
 
+def _positive_decimal_or_none(value: Any) -> Decimal | None:
+    parsed = _decimal(value)
+    return parsed if parsed > 0 else None
+
+
+def _divide_as_total(numerator: Any, denominator: Any) -> str | None:
+    top = _positive_decimal_or_none(numerator)
+    bottom = _positive_decimal_or_none(denominator)
+    if top is None or bottom is None:
+        return None
+    return _format_total(top / bottom)
+
+
 def _sum_line_item_values(items: list[dict[str, Any]], *keys: str) -> tuple[Decimal, bool]:
     total = Decimal("0")
     found = False
@@ -120,6 +142,32 @@ def _sum_line_item_values(items: list[dict[str, Any]], *keys: str) -> tuple[Deci
             total += _decimal(value)
             found = True
             break
+    return total, found
+
+
+def _sum_bundle_values(items: list[dict[str, Any]]) -> tuple[Decimal, bool]:
+    total = Decimal("0")
+    found = False
+    for item in items:
+        value = _item_value(
+            item,
+            "noOfBundles",
+            "bundles",
+            "bundleCount",
+            "bundle_count",
+            "noOfPackages",
+            "no_of_packages",
+            "packageCount",
+            "package_count",
+        )
+        if value is None:
+            value, _package_kind = _parse_package(
+                _item_value(item, "packageDescription", "package_description", "package", "packages")
+            )
+        if value is None or str(value).strip() == "":
+            continue
+        total += _decimal(value)
+        found = True
     return total, found
 
 
@@ -166,6 +214,19 @@ def _merge_missing_fields(base: dict[str, Any], fallback: dict[str, Any]) -> dic
     return merged
 
 
+def _line_item_identity(item: dict[str, Any], *, include_container: bool = True) -> tuple[str, ...]:
+    """Return stable business keys used to align persisted rows to OCR order."""
+    keys = [
+        _item_value(item, "productCode", "product_code", "itemCode", "item_code"),
+        _item_value(item, "quantity", "totalQtyInPcs", "quantityTotal", "qty"),
+    ]
+    if include_container:
+        keys.append(_item_value(
+            item, "containerNo", "container_no", "containerNumber", "container_number", "container"
+        ))
+    return tuple(re.sub(r"[^A-Z0-9.]+", "", str(value or "").upper()) for value in keys)
+
+
 def _source_line_items(row: dict[str, Any]) -> list[dict[str, Any]]:
     source_items = _as_list(row.get("line_items"))
     raw_items = _raw_line_items(row)
@@ -173,10 +234,32 @@ def _source_line_items(row: dict[str, Any]) -> list[dict[str, Any]]:
         return raw_items
     if not raw_items:
         return source_items
-    return [
-        _merge_missing_fields(item, raw_items[index] if index < len(raw_items) else {})
-        for index, item in enumerate(source_items)
-    ]
+
+    # The SQL view historically aggregated persisted children by UUID, which
+    # does not preserve the row order printed on the Sales Invoice. Keep the
+    # OCR array as the ordering authority and match persisted/editable values
+    # back by product + quantity + container (then product + quantity).
+    unused = set(range(len(source_items)))
+    ordered: list[dict[str, Any]] = []
+    for raw_item in raw_items:
+        match_index: int | None = None
+        for include_container in (True, False):
+            identity = _line_item_identity(raw_item, include_container=include_container)
+            for index in unused:
+                if _line_item_identity(source_items[index], include_container=include_container) == identity:
+                    match_index = index
+                    break
+            if match_index is not None:
+                break
+        if match_index is None:
+            ordered.append(raw_item)
+            continue
+        unused.remove(match_index)
+        ordered.append(_merge_missing_fields(source_items[match_index], raw_item))
+
+    # Retain any database-only rows after the source-ordered rows.
+    ordered.extend(source_items[index] for index in sorted(unused))
+    return ordered
 
 
 def _row_value(row: dict[str, Any], source_field: str | None) -> str | None:
@@ -205,7 +288,7 @@ def _calculated_field_value(target_field: str, row: dict[str, Any]) -> str | Non
         return str(len(line_items))
 
     if target_field == "totalBundles":
-        total, found = _sum_line_item_values(line_items, "noOfBundles", "bundles")
+        total, found = _sum_bundle_values(line_items)
         return _format_total(total) if found else None
 
     if target_field in {"totalQty", "totalPiecesAggregate"}:
@@ -232,6 +315,23 @@ def _calculated_field_value(target_field: str, row: dict[str, Any]) -> str | Non
                 return None
             kilograms = _format_total(total)
         return _format_decimal(_decimal(kilograms) * Decimal("2.20462"))
+
+    if target_field in {"mpfTotal", "hmfTotal", "totalOtherFees", "totalOther", "grandTotal"}:
+        entered_value = _decimal(_first_non_empty(row.get("taxable_value"), row.get("total_amount")))
+        mpf = entered_value * Decimal("0.003464")
+        hmf = entered_value * Decimal("0.00125")
+        if target_field == "mpfTotal":
+            return _format_decimal(mpf)
+        if target_field == "hmfTotal":
+            return _format_decimal(hmf)
+        if target_field in {"totalOtherFees", "totalOther"}:
+            return _format_decimal(mpf + hmf)
+        tax = _decimal(row.get("tax_amount"))
+        return _format_decimal(mpf + hmf + tax)
+
+    if target_field == "totalDuty":
+        total, found = _sum_line_item_values(line_items, "dutyAmount")
+        return _format_decimal(total) if found else None
 
     return None
 
@@ -298,9 +398,11 @@ def _build_line_items(generated_doc_type: str, row: dict[str, Any]) -> list[dict
         return [
             {
                 "lineNo": index + 1,
-                "description": item.get("productDescription"),
+                "lineMerchandiseDescription": item.get("productDescription"),
+                "lineHtsusNumber": None,
+                "quantity": item.get("quantity"),
+                "quantityUnit": item.get("unit"),
                 "enteredValue": item.get("lineTotal"),
-                "htsNumber": None,
                 "dutyRate": None,
                 "dutyAmount": None,
             }
@@ -324,7 +426,7 @@ def _build_line_items(generated_doc_type: str, row: dict[str, Any]) -> list[dict
 
 
 def _build_packing_list_line_item(index: int, item: dict[str, Any]) -> dict[str, Any]:
-    _package_count, package_kind = _parse_package(
+    package_count, package_kind = _parse_package(
         _item_value(item, "packageDescription", "package_description", "package", "packages")
     )
     description = _item_value(
@@ -340,8 +442,19 @@ def _build_packing_list_line_item(index: int, item: dict[str, Any]) -> dict[str,
         "product_specification",
     )
     quantity = _item_value(item, "quantity", "totalQtyInPcs", "quantityTotal", "qty")
-    no_of_bundles = _item_value(item, "noOfBundles", "bundles")
+    no_of_bundles = _item_value(
+        item,
+        "noOfBundles",
+        "bundles",
+        "bundleCount",
+        "bundle_count",
+        "noOfPackages",
+        "no_of_packages",
+        "packageCount",
+        "package_count",
+    ) or package_count
     kind_of_pkg = _item_value(item, "kindOfPkg", "kind_of_pkg", "packageType", "package_type") or package_kind
+    qty_per_bundle = _divide_as_total(quantity, no_of_bundles)
 
     return {
         "lineNo": index + 1,
@@ -354,6 +467,7 @@ def _build_packing_list_line_item(index: int, item: dict[str, Any]) -> dict[str,
         "totalQtyInPcs": quantity,
         "quantity": quantity,
         "noOfBundles": no_of_bundles,
+        "qtyPerBundle": qty_per_bundle,
         "kindOfPkg": kind_of_pkg,
         "containerNo": _item_value(item, "containerNo", "container_no", "containerNumber", "container_number", "container"),
         "sealNo": _item_value(item, "sealNo", "seal_no", "sealNumber", "seal_number", "seal"),
@@ -394,228 +508,32 @@ async def _execute_raw(prisma, sql: str, *params) -> Any:
     return await execute_raw(sql, *params)
 
 
-def _split_sql_statements(sql: str) -> list[str]:
-    statements: list[str] = []
-    current: list[str] = []
-    in_single_quote = False
-    in_double_quote = False
-    dollar_tag: str | None = None
-    index = 0
-
-    while index < len(sql):
-        char = sql[index]
-        nxt = sql[index + 1] if index + 1 < len(sql) else ""
-
-        if dollar_tag:
-            current.append(char)
-            if sql.startswith(dollar_tag, index):
-                current.extend(sql[index + 1 : index + len(dollar_tag)])
-                index += len(dollar_tag)
-                dollar_tag = None
-                continue
-            index += 1
-            continue
-
-        if not in_single_quote and not in_double_quote and char == "-" and nxt == "-":
-            while index < len(sql) and sql[index] != "\n":
-                index += 1
-            continue
-
-        if not in_single_quote and not in_double_quote and char == "$":
-            match = re.match(r"\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$", sql[index:])
-            if match:
-                dollar_tag = match.group(0)
-                current.append(dollar_tag)
-                index += len(dollar_tag)
-                continue
-
-        if char == "'" and not in_double_quote:
-            current.append(char)
-            if in_single_quote and nxt == "'":
-                current.append(nxt)
-                index += 2
-                continue
-            in_single_quote = not in_single_quote
-            index += 1
-            continue
-
-        if char == '"' and not in_single_quote:
-            in_double_quote = not in_double_quote
-            current.append(char)
-            index += 1
-            continue
-
-        if char == ";" and not in_single_quote and not in_double_quote:
-            statement = "".join(current).strip()
-            if statement:
-                statements.append(statement)
-            current = []
-            index += 1
-            continue
-
-        current.append(char)
-        index += 1
-
-    tail = "".join(current).strip()
-    if tail:
-        statements.append(tail)
-    return statements
-
-
-async def _ensure_doc_generation_db(prisma) -> None:
-    global _DOCGEN_DB_READY
-    if _DOCGEN_DB_READY:
-        return
-
-    for sql_file in ("tables.sql", "views.sql"):
-        path = DOCGEN_SQL_DIR / sql_file
-        if not path.exists():
-            raise RuntimeError(f"Missing doc generation SQL file: {path}")
-        for statement in _split_sql_statements(path.read_text(encoding="utf-8")):
-            try:
-                await _execute_raw(prisma, statement)
-            except Exception:
-                if statement.lstrip().upper().startswith("CREATE EXTENSION"):
-                    continue
-                if sql_file == "views.sql":
-                    continue
-                raise
-
-    _DOCGEN_DB_READY = True
-
-
 async def _select_source_row(prisma, generated_doc_type: str, source_ids: dict[str, str], user_id: str) -> dict[str, Any]:
     if generated_doc_type == "PACKING_LIST":
         document_id = source_ids.get("SALES_INVOICE")
         if document_id:
-            sql = """
-                SELECT
-                  d.id AS source_document_id,
-                  si.id AS sales_invoice_id,
-                  si.invoice_no,
-                  si.invoice_date,
-                  si.buyer_po_no,
-                  si.buyer_po_date,
-                  si.zetwerk_ref,
-                  si.other_references,
-                  si.exporter_name,
-                  si.exporter_address,
-                  si.buyer_name,
-                  si.buyer_address,
-                  si.consignee_name,
-                  si.consignee_address,
-                  si.gstin,
-                  si.iec,
-                  si.ship_to,
-                  si.port_of_loading,
-                  si.port_of_discharge,
-                  si.country_of_origin,
-                  si.country_of_final_destination,
-                  si.final_destination,
-                  si.place_of_receipt,
-                  si.vessel_flight_no,
-                  si.gross_weight,
-                  si.total_quantity,
-                  si.pre_carriage_by,
-                  si.signatory_name,
-                  si.signatory_designation,
-                  si.din_number,
-                  si.raw_data,
-                  COALESCE(
-                    jsonb_agg(
-                      jsonb_build_object(
-                        'hsnCode', li.hsn_code,
-                        'productCode', li.product_code,
-                        'productDescription', li.product_description,
-                        'productSpecification', li.product_specification,
-                        'packageDescription', li.package_description,
-                        'productMarks', li.product_marks,
-                        'quantity', li.quantity,
-                        'quantityTotal', li.quantity_total,
-                        'noOfPackages', li.no_of_packages,
-                        'kindOfPkg', li.kind_of_pkg,
-                        'containerNo', li.container_no,
-                        'sealNo', li.seal_no,
-                        'lineTotal', li.line_total
-                      )
-                      ORDER BY li.id
-                    ) FILTER (WHERE li.id IS NOT NULL),
-                    '[]'::jsonb
-                  ) AS line_items
-                FROM public.documents d
-                JOIN aiextraction.sales_invoice_extractions si ON si.document_id = d.id
-                LEFT JOIN aiextraction.sales_invoice_line_items li ON li.sales_invoice_id = si.id
-                WHERE d.is_deleted = false
-                  AND d.uploaded_by = $1
-                  AND d.id = $2::uuid
-                GROUP BY d.id, si.id
+            rows = await _query_raw(
+                prisma,
+                """
+                SELECT * FROM docgen.v_packing_list_source
+                WHERE source_document_id::text = $1::text
+                  AND uploaded_by::text = $2::text
                 LIMIT 1
-            """
-            rows = await _query_raw(prisma, sql, user_id, document_id)
+                """,
+                document_id,
+                user_id
+            )
         else:
-            sql = """
-                SELECT
-                  d.id AS source_document_id,
-                  si.id AS sales_invoice_id,
-                  si.invoice_no,
-                  si.invoice_date,
-                  si.buyer_po_no,
-                  si.buyer_po_date,
-                  si.zetwerk_ref,
-                  si.other_references,
-                  si.exporter_name,
-                  si.exporter_address,
-                  si.buyer_name,
-                  si.buyer_address,
-                  si.consignee_name,
-                  si.consignee_address,
-                  si.gstin,
-                  si.iec,
-                  si.ship_to,
-                  si.port_of_loading,
-                  si.port_of_discharge,
-                  si.country_of_origin,
-                  si.country_of_final_destination,
-                  si.final_destination,
-                  si.place_of_receipt,
-                  si.vessel_flight_no,
-                  si.gross_weight,
-                  si.total_quantity,
-                  si.pre_carriage_by,
-                  si.signatory_name,
-                  si.signatory_designation,
-                  si.din_number,
-                  si.raw_data,
-                  COALESCE(
-                    jsonb_agg(
-                      jsonb_build_object(
-                        'hsnCode', li.hsn_code,
-                        'productCode', li.product_code,
-                        'productDescription', li.product_description,
-                        'productSpecification', li.product_specification,
-                        'packageDescription', li.package_description,
-                        'productMarks', li.product_marks,
-                        'quantity', li.quantity,
-                        'quantityTotal', li.quantity_total,
-                        'noOfPackages', li.no_of_packages,
-                        'kindOfPkg', li.kind_of_pkg,
-                        'containerNo', li.container_no,
-                        'sealNo', li.seal_no,
-                        'lineTotal', li.line_total
-                      )
-                      ORDER BY li.id
-                    ) FILTER (WHERE li.id IS NOT NULL),
-                    '[]'::jsonb
-                  ) AS line_items
-                FROM public.documents d
-                JOIN aiextraction.sales_invoice_extractions si ON si.document_id = d.id
-                LEFT JOIN aiextraction.sales_invoice_line_items li ON li.sales_invoice_id = si.id
-                WHERE d.uploaded_by = $1 AND d.is_deleted = false
-                GROUP BY d.id, si.id
-                ORDER BY d.created_at DESC
+            rows = await _query_raw(
+                prisma,
+                """
+                SELECT * FROM docgen.v_packing_list_source
+                WHERE uploaded_by::text = $1::text
+                ORDER BY created_at DESC
                 LIMIT 1
-            """
-            rows = await _query_raw(prisma, sql, user_id)
+                """,
+                user_id
+            )
         if rows:
             rows[0]["_source_document_ids"] = {"SALES_INVOICE": str(rows[0]["source_document_id"])}
             return rows[0]
@@ -628,10 +546,10 @@ async def _select_source_row(prisma, generated_doc_type: str, source_ids: dict[s
             FROM docgen.v_us_packing_list_source v
             JOIN public.documents pl_doc ON pl_doc.id = v.packing_list_document_id
             JOIN public.documents bol_doc ON bol_doc.id = v.bol_document_id
-            WHERE pl_doc.uploaded_by = $1
-              AND bol_doc.uploaded_by = $1
-              AND ($2::uuid IS NULL OR v.packing_list_document_id = $2::uuid)
-              AND ($3::uuid IS NULL OR v.bol_document_id = $3::uuid)
+            WHERE pl_doc.uploaded_by::text = $1::text
+              AND bol_doc.uploaded_by::text = $1::text
+              AND ($2::text IS NULL OR v.packing_list_document_id::text = $2::text)
+              AND ($3::text IS NULL OR v.bol_document_id::text = $3::text)
             ORDER BY pl_doc.created_at DESC, bol_doc.created_at DESC
             LIMIT 1
             """,
@@ -654,10 +572,10 @@ async def _select_source_row(prisma, generated_doc_type: str, source_ids: dict[s
             FROM docgen.v_entry_summary_source v
             JOIN public.documents bol_doc ON bol_doc.id = v.bol_document_id
             JOIN public.documents si_doc ON si_doc.id = v.sales_invoice_document_id
-            WHERE bol_doc.uploaded_by = $1
-              AND si_doc.uploaded_by = $1
-              AND ($2::uuid IS NULL OR v.bol_document_id = $2::uuid)
-              AND ($3::uuid IS NULL OR v.sales_invoice_document_id = $3::uuid)
+            WHERE bol_doc.uploaded_by::text = $1::text
+              AND si_doc.uploaded_by::text = $1::text
+              AND ($2::text IS NULL OR v.bol_document_id::text = $2::text)
+              AND ($3::text IS NULL OR v.sales_invoice_document_id::text = $3::text)
             ORDER BY bol_doc.created_at DESC, si_doc.created_at DESC
             LIMIT 1
             """,
@@ -675,8 +593,8 @@ async def _select_source_row(prisma, generated_doc_type: str, source_ids: dict[s
     raise HTTPException(
         status_code=404,
         detail=(
-            "No eligible source documents found. Install backend/doc_generation/views.sql "
-            "and make sure the required OCR documents exist for this generated document type."
+            "No eligible source documents found. Upload and extract the required source documents "
+            "before generating this draft."
         ),
     )
 
@@ -702,9 +620,10 @@ async def _persist_draft(prisma, payload: DraftPayload, user_id: str) -> None:
         await _execute_raw(
             prisma,
             """
-            INSERT INTO docgen.draft_line_items (draft_id, line_no, payload, created_at, updated_at)
-            VALUES ($1::uuid, $2, $3::jsonb, NOW(), NOW())
+            INSERT INTO docgen.draft_line_items (id, draft_id, line_no, payload, created_at, updated_at)
+            VALUES ($1::uuid, $2::uuid, $3, $4::jsonb, NOW(), NOW())
             """,
+            str(uuid4()),
             payload.draftId,
             line_no,
             json.dumps(item),
@@ -715,14 +634,329 @@ async def _persist_draft(prisma, payload: DraftPayload, user_id: str) -> None:
             prisma,
             """
             INSERT INTO docgen.container_allocations
-              (draft_id, container_number, seal_number, payload, created_at, updated_at)
-            VALUES ($1::uuid, $2, $3, $4::jsonb, NOW(), NOW())
+              (id, draft_id, container_number, seal_number, payload, created_at, updated_at)
+            VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb, NOW(), NOW())
             """,
+            str(uuid4()),
             payload.draftId,
             container.get("containerNumber"),
             container.get("sealNumber"),
             json.dumps(container),
         )
+
+
+async def _replace_draft_payload(prisma, payload: DraftPayload) -> None:
+    await _execute_raw(
+        prisma,
+        """
+        UPDATE docgen.drafts
+        SET schema_version = $2,
+            status = 'DRAFT'::docgen."DocGenerationStatus",
+            source_document_ids = $3::jsonb,
+            rendered_payload = $4::jsonb,
+            updated_at = NOW()
+        WHERE id::text = $1::text
+        """,
+        payload.draftId,
+        payload.schemaVersion,
+        json.dumps(payload.sourceDocumentIds),
+        payload.model_dump_json(),
+    )
+    await _execute_raw(
+        prisma,
+        "DELETE FROM docgen.draft_line_items WHERE draft_id::text = $1::text",
+        payload.draftId,
+    )
+    await _execute_raw(
+        prisma,
+        "DELETE FROM docgen.container_allocations WHERE draft_id::text = $1::text",
+        payload.draftId,
+    )
+
+    for line_no, item in enumerate(payload.lineItems, start=1):
+        await _execute_raw(
+            prisma,
+            """
+            INSERT INTO docgen.draft_line_items (id, draft_id, line_no, payload, created_at, updated_at)
+            VALUES ($1::uuid, $2::uuid, $3, $4::jsonb, NOW(), NOW())
+            """,
+            str(uuid4()),
+            payload.draftId,
+            line_no,
+            json.dumps(item),
+        )
+
+    for container in payload.containers:
+        await _execute_raw(
+            prisma,
+            """
+            INSERT INTO docgen.container_allocations
+              (id, draft_id, container_number, seal_number, payload, created_at, updated_at)
+            VALUES ($1::uuid, $2::uuid, $3, $4, $5::jsonb, NOW(), NOW())
+            """,
+            str(uuid4()),
+            payload.draftId,
+            container.get("containerNumber"),
+            container.get("sealNumber"),
+            json.dumps(container),
+        )
+
+
+async def refresh_generated_drafts_for_source_document(
+    *,
+    prisma,
+    source_document_id: str,
+    user_id: str,
+) -> dict[str, int]:
+    await ensure_doc_generation_views(prisma)
+    drafts = await _query_raw(
+        prisma,
+        """
+        SELECT id, generated_doc_type, source_document_ids
+        FROM docgen.drafts
+        WHERE created_by::text = $1::text
+        """,
+        user_id,
+    )
+    updated = 0
+    skipped = 0
+    for draft in drafts:
+        draft_id = str(draft["id"])
+        generated_doc_type = str(draft["generated_doc_type"])
+        source_ids = _coerce_json(draft.get("source_document_ids"))
+        if not isinstance(source_ids, dict):
+            skipped += 1
+            continue
+        if source_document_id not in {str(value) for value in source_ids.values()}:
+            continue
+        try:
+            row = await _select_source_row(
+                prisma=prisma,
+                generated_doc_type=generated_doc_type,
+                source_ids={key: str(value) for key, value in source_ids.items()},
+                user_id=user_id,
+            )
+            payload = _build_payload(generated_doc_type, draft_id, row)
+            await _replace_draft_payload(prisma, payload)
+            updated += 1
+        except Exception as exc:
+            skipped += 1
+            print(f"[docgen][refresh] skipped draftId={draft_id} error={exc}", flush=True)
+    return {"eligible": len(drafts), "updated": updated, "skipped": skipped}
+
+
+async def ensure_packing_list_draft_for_sales_invoice(
+    *,
+    prisma,
+    sales_invoice_document_id: str,
+    user_id: str,
+) -> str:
+    """Create the Packing List draft for a Sales Invoice exactly once."""
+    await ensure_doc_generation_views(prisma)
+    existing = await _query_raw(
+        prisma,
+        """
+        SELECT id
+        FROM docgen.drafts
+        WHERE generated_doc_type = 'PACKING_LIST'
+          AND source_document_ids ->> 'SALES_INVOICE' = $1
+          AND created_by::text = $2::text
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        sales_invoice_document_id,
+        user_id,
+    )
+    if existing:
+        return str(existing[0]["id"])
+
+    row = await _select_source_row(
+        prisma,
+        "PACKING_LIST",
+        {"SALES_INVOICE": sales_invoice_document_id},
+        user_id,
+    )
+    deterministic_id = str(
+        uuid5(
+            NAMESPACE_URL,
+            f"ewms:packing-list:{user_id}:{sales_invoice_document_id}",
+        )
+    )
+    payload = _build_payload("PACKING_LIST", deterministic_id, row)
+    try:
+        await _persist_draft(prisma, payload, user_id)
+    except Exception:
+        # Concurrent API startup/backfill processes may race. The deterministic
+        # primary key guarantees that only one draft can win.
+        created = await _query_raw(
+            prisma,
+            """
+            SELECT id
+            FROM docgen.drafts
+            WHERE id::text = $1::text
+              AND created_by::text = $2::text
+            LIMIT 1
+            """,
+            deterministic_id,
+            user_id,
+        )
+        if not created:
+            raise
+    return payload.draftId
+
+
+async def backfill_missing_packing_list_drafts(prisma) -> dict[str, int]:
+    """Generate missing PL drafts for existing extracted/reviewed Sales Invoices."""
+    await ensure_doc_generation_views(prisma)
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT d.id, d.uploaded_by
+        FROM public.documents d
+        JOIN aiextraction.sales_invoice_extractions si
+          ON si.document_id = d.id
+        WHERE d.doc_type = 'SALES_INVOICE'::public."DocType"
+          AND d.status IN (
+            'EXTRACTED'::public."DocumentStatus",
+            'REVIEWED'::public."DocumentStatus"
+          )
+          AND d.is_deleted = FALSE
+          AND NOT EXISTS (
+            SELECT 1
+            FROM docgen.drafts draft
+            WHERE draft.generated_doc_type = 'PACKING_LIST'
+              AND draft.source_document_ids ->> 'SALES_INVOICE' = d.id::text
+          )
+        ORDER BY d.created_at ASC
+        """,
+    )
+    created = 0
+    failed = 0
+    for row in rows:
+        try:
+            await ensure_packing_list_draft_for_sales_invoice(
+                prisma=prisma,
+                sales_invoice_document_id=str(row["id"]),
+                user_id=str(row["uploaded_by"]),
+            )
+            created += 1
+        except Exception as exc:
+            failed += 1
+            print(
+                f"[docgen][backfill] failed salesInvoiceId={row.get('id')} error={exc}",
+                flush=True,
+            )
+    return {"eligible": len(rows), "created": created, "failed": failed}
+
+
+async def reorder_existing_packing_list_drafts(prisma) -> dict[str, int]:
+    """Align every existing PL draft to its Sales Invoice's printed row order."""
+    await ensure_doc_generation_views(prisma)
+    drafts = await _query_raw(
+        prisma,
+        """
+        SELECT id, created_by, source_document_ids, rendered_payload
+        FROM docgen.drafts
+        WHERE generated_doc_type = 'PACKING_LIST'
+        ORDER BY created_at ASC
+        """,
+    )
+    updated = 0
+    skipped = 0
+    mutable_fields = {
+        "kindOfPkg",
+        "noOfBundles",
+        "qtyPerBundle",
+        "containerNo",
+        "sealNo",
+        "netWeight",
+        "netWeightKgs",
+        "grossWeight",
+        "grossWeightKgs",
+    }
+
+    for draft in drafts:
+        source_ids = _coerce_json(draft.get("source_document_ids"))
+        payload = _coerce_json(draft.get("rendered_payload"))
+        if not isinstance(source_ids, dict) or not isinstance(payload, dict):
+            skipped += 1
+            continue
+        sales_invoice_document_id = source_ids.get("SALES_INVOICE")
+        if not sales_invoice_document_id:
+            skipped += 1
+            continue
+        try:
+            source_row = await _select_source_row(
+                prisma,
+                "PACKING_LIST",
+                {"SALES_INVOICE": str(sales_invoice_document_id)},
+                str(draft["created_by"]),
+            )
+        except Exception:
+            skipped += 1
+            continue
+
+        reordered = _build_line_items("PACKING_LIST", source_row)
+        existing = payload.get("lineItems")
+        existing = existing if isinstance(existing, list) else []
+        unused = set(range(len(existing)))
+        merged_rows: list[dict[str, Any]] = []
+        for new_row in reordered:
+            match_index: int | None = None
+            for include_container in (True, False):
+                identity = _line_item_identity(new_row, include_container=include_container)
+                for index in unused:
+                    old_row = existing[index]
+                    if isinstance(old_row, dict) and _line_item_identity(
+                        old_row, include_container=include_container
+                    ) == identity:
+                        match_index = index
+                        break
+                if match_index is not None:
+                    break
+            merged = dict(new_row)
+            if match_index is not None:
+                unused.remove(match_index)
+                old_row = existing[match_index]
+                for field in mutable_fields:
+                    if field in old_row and old_row[field] not in (None, ""):
+                        merged[field] = old_row[field]
+            merged_rows.append(merged)
+
+        if merged_rows == existing:
+            continue
+        payload["lineItems"] = merged_rows
+        await _execute_raw(
+            prisma,
+            """
+            UPDATE docgen.drafts
+            SET rendered_payload = $2::jsonb, updated_at = NOW()
+            WHERE id::text = $1::text
+            """,
+            str(draft["id"]),
+            json.dumps(payload),
+        )
+        await _execute_raw(
+            prisma,
+            "DELETE FROM docgen.draft_line_items WHERE draft_id::text = $1::text",
+            str(draft["id"]),
+        )
+        for line_no, item in enumerate(merged_rows, start=1):
+            await _execute_raw(
+                prisma,
+                """
+                INSERT INTO docgen.draft_line_items
+                  (id, draft_id, line_no, payload, created_at, updated_at)
+                VALUES ($1::uuid, $2::uuid, $3, $4::jsonb, NOW(), NOW())
+                """,
+                str(uuid4()),
+                str(draft["id"]),
+                line_no,
+                json.dumps(item),
+            )
+        updated += 1
+
+    return {"eligible": len(drafts), "updated": updated, "skipped": skipped}
 
 
 def _build_payload(generated_doc_type: str, draft_id: str, row: dict[str, Any]) -> DraftPayload:
@@ -742,7 +976,7 @@ def _build_payload(generated_doc_type: str, draft_id: str, row: dict[str, Any]) 
         generatedDocType=generated_doc_type,  # type: ignore[arg-type]
         displayName=schema["displayName"],
         status="DRAFT",
-        schemaVersion=1,
+        schemaVersion=2 if generated_doc_type == "ENTRY_SUMMARY" else 1,
         sourceDocs=schema["sourceDocs"],
         sourceDocumentIds=source_document_ids,
         sections=sections,
@@ -761,7 +995,37 @@ async def list_doc_generation_schemas(user=Depends(get_current_user)):
 async def create_doc_generation_draft(request: CreateDraftRequest, user=Depends(get_current_user)):
     prisma = await get_prisma()
     try:
-        await _ensure_doc_generation_db(prisma)
+        await ensure_doc_generation_views(prisma)
+        if request.generatedDocType == "PACKING_LIST":
+            source_document_id = request.sourceDocumentIds.get("SALES_INVOICE")
+            if not source_document_id:
+                source_row = await _select_source_row(
+                    prisma=prisma,
+                    generated_doc_type="PACKING_LIST",
+                    source_ids={},
+                    user_id=str(user.id),
+                )
+                source_document_id = str(source_row["source_document_id"])
+            draft_id = await ensure_packing_list_draft_for_sales_invoice(
+                prisma=prisma,
+                sales_invoice_document_id=source_document_id,
+                user_id=str(user.id),
+            )
+            rows = await _query_raw(
+                prisma,
+                """
+                SELECT rendered_payload
+                FROM docgen.drafts
+                WHERE id::text = $1::text AND created_by::text = $2::text
+                LIMIT 1
+                """,
+                draft_id,
+                str(user.id),
+            )
+            if not rows:
+                raise HTTPException(status_code=404, detail="Packing List draft not found")
+            return DraftPayload.model_validate(_coerce_json(rows[0]["rendered_payload"]))
+
         row = await _select_source_row(
             prisma=prisma,
             generated_doc_type=request.generatedDocType,
@@ -780,6 +1044,56 @@ async def create_doc_generation_draft(request: CreateDraftRequest, user=Depends(
         )
 
 
+@router.get("/drafts", response_model=list[DraftPayload])
+async def list_doc_generation_drafts(
+    generatedDocType: GeneratedDocType,
+    user=Depends(get_current_user),
+):
+    """Return one draft per source-document set for the current user."""
+    prisma = await get_prisma()
+    try:
+        await ensure_doc_generation_views(prisma)
+        if generatedDocType == "PACKING_LIST":
+            source_key = "SALES_INVOICE"
+        elif generatedDocType == "US_PACKING_LIST":
+            source_key = "PACKING_LIST"
+        else:
+            source_key = "BILL_OF_LADING"
+
+        rows = await _query_raw(
+            prisma,
+            """
+            SELECT rendered_payload, created_at, updated_at
+            FROM (
+                SELECT DISTINCT ON (source_document_ids ->> $3)
+                       rendered_payload, created_at, updated_at
+                FROM docgen.drafts
+                WHERE generated_doc_type = $1
+                  AND created_by::text = $2::text
+                  AND ($1 <> 'ENTRY_SUMMARY' OR schema_version >= 2)
+                  AND source_document_ids ->> $3 IS NOT NULL
+                ORDER BY source_document_ids ->> $3, updated_at DESC
+            ) latest_drafts
+            ORDER BY created_at DESC, updated_at DESC
+            """,
+            generatedDocType,
+            str(user.id),
+            source_key,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to list document generation drafts: {exc}")
+
+    drafts: list[DraftPayload] = []
+    for row in rows:
+        payload = _coerce_json(row.get("rendered_payload"))
+        if not isinstance(payload, dict):
+            continue
+        payload["createdAt"] = str(row.get("created_at")) if row.get("created_at") else None
+        payload["updatedAt"] = str(row.get("updated_at")) if row.get("updated_at") else None
+        drafts.append(DraftPayload.model_validate(payload))
+    return drafts
+
+
 @router.get("/drafts/{draft_id}", response_model=DraftPayload)
 async def get_doc_generation_draft(draft_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
@@ -789,7 +1103,7 @@ async def get_doc_generation_draft(draft_id: str, user=Depends(get_current_user)
             """
             SELECT rendered_payload, created_at, updated_at
             FROM docgen.drafts
-            WHERE id = $1::uuid AND created_by = $2::uuid
+            WHERE id::text = $1::text AND created_by::text = $2::text
             LIMIT 1
             """,
             draft_id,
@@ -808,3 +1122,141 @@ async def get_doc_generation_draft(draft_id: str, user=Depends(get_current_user)
     payload["createdAt"] = str(rows[0].get("created_at")) if rows[0].get("created_at") else None
     payload["updatedAt"] = str(rows[0].get("updated_at")) if rows[0].get("updated_at") else None
     return DraftPayload(**payload)
+
+
+@router.patch("/drafts/{draft_id}/package-type", response_model=DraftPayload)
+async def update_draft_package_type(
+    draft_id: str,
+    request: UpdatePackageTypeRequest,
+    user=Depends(get_current_user),
+):
+    """Persist a Packing List line item's package type and user-defined options."""
+    prisma = await get_prisma()
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT rendered_payload, created_at
+        FROM docgen.drafts
+        WHERE id::text = $1::text
+          AND created_by::text = $2::text
+          AND generated_doc_type = 'PACKING_LIST'
+        LIMIT 1
+        """,
+        draft_id,
+        str(user.id),
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Packing List draft not found")
+
+    payload = _coerce_json(rows[0]["rendered_payload"])
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=500, detail="Draft payload is invalid")
+
+    line_items = payload.get("lineItems")
+    if not isinstance(line_items, list) or request.lineItemIndex >= len(line_items):
+        raise HTTPException(status_code=400, detail="Packing List line item does not exist")
+
+    package_type = request.packageType.strip()
+    custom_types = list(dict.fromkeys(
+        value.strip()
+        for value in request.customPackageTypes
+        if value.strip() and value.strip().upper() not in {"PKGS", "BUNDLE"}
+    ))
+    line_items[request.lineItemIndex]["kindOfPkg"] = package_type
+    payload["customPackageTypes"] = custom_types
+
+    await _execute_raw(
+        prisma,
+        """
+        UPDATE docgen.drafts
+        SET rendered_payload = $3::jsonb, updated_at = NOW()
+        WHERE id::text = $1::text AND created_by::text = $2::text
+        """,
+        draft_id,
+        str(user.id),
+        json.dumps(payload),
+    )
+    await _execute_raw(
+        prisma,
+        """
+        UPDATE docgen.draft_line_items
+        SET payload = jsonb_set(payload, '{kindOfPkg}', to_jsonb($3::text), true),
+            updated_at = NOW()
+        WHERE draft_id::text = $1::text AND line_no = $2
+        """,
+        draft_id,
+        request.lineItemIndex + 1,
+        package_type,
+    )
+
+    payload["createdAt"] = str(rows[0].get("created_at")) if rows[0].get("created_at") else None
+    return DraftPayload.model_validate(payload)
+
+
+@router.patch("/drafts/{draft_id}", response_model=DraftPayload)
+async def update_doc_generation_draft(
+    draft_id: str,
+    request: UpdateDraftRequest,
+    user=Depends(get_current_user),
+):
+    """Persist reviewed field values, tariff lines, calculations, and draft status."""
+    prisma = await get_prisma()
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT rendered_payload, created_at
+        FROM docgen.drafts
+        WHERE id::text = $1::text AND created_by::text = $2::text
+        LIMIT 1
+        """,
+        draft_id,
+        str(user.id),
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Document-generation draft not found")
+
+    payload = _coerce_json(rows[0]["rendered_payload"])
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=500, detail="Draft payload is invalid")
+
+    for section in payload.get("sections", []):
+        for field in section.get("fields", []):
+            target = field.get("targetField")
+            if target in request.fields:
+                field["value"] = request.fields[target]
+                field["validationStatus"] = "valid" if request.fields[target] not in (None, "") else "missing"
+
+    if request.lineItems is not None:
+        payload["lineItems"] = request.lineItems
+    payload["status"] = request.status
+
+    await _execute_raw(
+        prisma,
+        """
+        UPDATE docgen.drafts
+        SET rendered_payload = $3::jsonb,
+            status = $4::docgen."DocGenerationStatus",
+            updated_at = NOW()
+        WHERE id::text = $1::text AND created_by::text = $2::text
+        """,
+        draft_id,
+        str(user.id),
+        json.dumps(payload),
+        request.status,
+    )
+    if request.lineItems is not None:
+        for line_no, item in enumerate(request.lineItems, start=1):
+            await _execute_raw(
+                prisma,
+                """
+                UPDATE docgen.draft_line_items
+                SET payload = $3::jsonb, updated_at = NOW()
+                WHERE draft_id::text = $1::text AND line_no = $2
+                """,
+                draft_id,
+                line_no,
+                json.dumps(item),
+            )
+
+    payload["createdAt"] = str(rows[0].get("created_at")) if rows[0].get("created_at") else None
+    return DraftPayload.model_validate(payload)

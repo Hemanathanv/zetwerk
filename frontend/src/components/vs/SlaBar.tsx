@@ -51,7 +51,7 @@ export function SlaBar({ percentElapsed, timeRemaining, variant }: SlaBarProps) 
       </div>
       <span
         className="vs-mono font-bold"
-        style={{ fontSize: 12, color: textColors[v] }}
+        style={{ fontSize: 14, color: textColors[v] }}
       >
         {timeRemaining}
       </span>

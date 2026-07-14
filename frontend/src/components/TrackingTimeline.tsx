@@ -28,7 +28,7 @@ export function TrackingTimeline({ events }: TrackingTimelineProps) {
             {/* Icon + line */}
             <div className="flex flex-col items-center">
               <div
-                className={`relative w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 z-10 transition-all ${
+                className={`relative w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 z-10 transition-all ${
                   evt.isCompleted
                     ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
                     : evt.isActive
@@ -66,21 +66,21 @@ export function TrackingTimeline({ events }: TrackingTimelineProps) {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p
-                    className={`text-sm font-medium leading-snug ${
+                    className={`text-[14.5px] font-medium leading-snug ${
                       evt.isActive ? 'text-foreground' : evt.isCompleted ? 'text-foreground/80' : 'text-muted-foreground'
                     }`}
                   >
                     {evt.event}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{evt.location}</p>
+                  <p className="text-[13px] text-muted-foreground mt-0.5">{evt.location}</p>
                 </div>
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   {evt.isActive && (
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary text-primary-foreground uppercase tracking-wide">
+                    <span className="text-[12px] font-bold px-2 py-0.5 rounded bg-primary text-primary-foreground uppercase tracking-wide">
                       Live
                     </span>
                   )}
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">{evt.timestamp}</span>
+                  <span className="text-[12px] text-muted-foreground whitespace-nowrap">{evt.timestamp}</span>
                 </div>
               </div>
             </div>

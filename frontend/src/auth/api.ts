@@ -1,21 +1,24 @@
 import axios from 'axios';
 import type {
   AdminStorageListing,
+  ApproveDocumentResponse,
   AuthStatusResponse,
   AuthUser,
   DocumentClassificationBulkResponse,
   DocumentClassificationQueuedResponse,
   DocumentDetailRecord,
+  DocumentRecord,
   DocumentClassificationResponse,
   DocumentClassificationStatusResponse,
-  DocumentRecord,
+  ContainerMappingResponse,
+  DocumentListResponse,
   UserProfile,
 } from '@/types/backend';
 
 const SESSION_TOKEN_KEY = 'session_token_fallback';
 const REFRESH_TOKEN_KEY = 'refresh_token_fallback';
 const BACKEND_API_BASE = (import.meta.env.VITE_BACKEND_API_BASE || '').replace(/\/$/, '');
-const CLASSIFICATION_POLL_TIMEOUT_MS = 180000;
+const CLASSIFICATION_POLL_TIMEOUT_MS = 600000;
 const CLASSIFICATION_POLL_INTERVAL_MS = 1000;
 
 type TokenRefreshResponse = {
@@ -72,7 +75,8 @@ api.interceptors.response.use(
         const isAuthStatusRequest =
           requestUrl.includes('/auth/status') ||
           requestUrl.includes('/auth/userinfo') ||
-          requestUrl.includes('/auth/roles');
+          requestUrl.includes('/auth/roles') ||
+          requestUrl.includes('/auth/permissions');
         const isTokenEndpoint =
           requestUrl.includes('/auth/login') ||
           requestUrl.includes('/auth/refresh');
@@ -132,6 +136,23 @@ function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function statusToClassification(status: DocumentClassificationStatusResponse): DocumentClassificationResponse | null {
+  if (status.status !== 'success' || !status.docType || !status.label || status.confidence === null) {
+    return null;
+  }
+  return {
+    status: 'success',
+    message: status.message,
+    docType: status.docType,
+    label: status.label,
+    confidence: status.confidence,
+    reasoning: status.reasoning ?? '',
+    matchedFields: status.matchedFields,
+    alternatives: status.alternatives,
+    fileName: status.fileName,
+  };
+}
+
 async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY);
   if (!refreshToken) return null;
@@ -176,6 +197,23 @@ type KeycloakUserInfo = {
   family_name?: string;
 };
 
+type KeycloakPermissions = {
+  modules: string[];
+  gates: unknown[];
+  docTypes: Record<string, string[]>;
+  ticketCategories: string[];
+  activities: string[];
+  dataScope: string;
+  level?: string;
+  role: {
+    id: string;
+    name: string;
+    category: string;
+    color: string;
+    systemCode?: string;
+  };
+};
+
 function roleFromKeycloakRoles(roles: string[]): AuthUser['systemRole'] {
   const normalized = new Set(roles.map((role) => role.toUpperCase().replace(/-/g, '_')));
   if (normalized.has('SUPER_ADMIN')) return 'SUPER_ADMIN';
@@ -183,7 +221,7 @@ function roleFromKeycloakRoles(roles: string[]): AuthUser['systemRole'] {
   return 'USER';
 }
 
-function normalizeKeycloakUser(userInfo: KeycloakUserInfo, roles: string[]): AuthUser {
+function normalizeKeycloakUser(userInfo: KeycloakUserInfo, roles: string[], permissions?: KeycloakPermissions): AuthUser {
   const email = (userInfo.email ?? userInfo.preferred_username ?? '').toLowerCase();
   const name =
     userInfo.name ||
@@ -197,6 +235,7 @@ function normalizeKeycloakUser(userInfo: KeycloakUserInfo, roles: string[]): Aut
     email,
     systemRole,
     isActive: true,
+    ...(permissions ? { rbacPermissions: permissions, modules: permissions.modules, role: permissions.role, level: permissions.level } : {}),
   };
 }
 
@@ -230,10 +269,15 @@ const authApi = {
     return Promise.all([
       api.get<{ user: KeycloakUserInfo }>('/auth/userinfo'),
       api.get<{ roles: string[] }>('/auth/roles'),
-    ]).then(([userResponse, rolesResponse]) => ({
+      api.get<{ ok: boolean; data: KeycloakPermissions }>('/auth/permissions'),
+    ]).then(([userResponse, rolesResponse, permissionsResponse]) => ({
       data: {
         status: 'success',
-        user: normalizeKeycloakUser(userResponse.data.user, rolesResponse.data.roles ?? []),
+        user: normalizeKeycloakUser(
+          userResponse.data.user,
+          rolesResponse.data.roles ?? [],
+          permissionsResponse.data.data,
+        ),
       } satisfies AuthStatusResponse,
     }));
   },
@@ -277,16 +321,38 @@ const authApi = {
 };
 
 const documentApi = {
-  list: () => api.get<DocumentRecord[]>('/uploads/documents'),
+  list: (params?: { page?: number; pageSize?: number; section?: string }) =>
+    api.get<DocumentListResponse>('/uploads/documents', { params }),
+  getQueueItem: (documentId: string) => api.get<DocumentRecord>(`/uploads/documents/${documentId}/queue-item`),
   getById: (documentId: string) => api.get<DocumentDetailRecord>(`/uploads/documents/${documentId}`),
+  getContainerMapping: (documentId: string, page = 1, pageSize = 20, unmappedOnly = false) =>
+    api.get<ContainerMappingResponse>(`/uploads/documents/${documentId}/container-mapping`, {
+      params: { page, pageSize, unmappedOnly },
+    }),
+  saveContainerMapping: (
+    documentId: string,
+    assignments: Array<{ lineItemId: string; containerNo: string | null }>,
+  ) => api.patch(`/uploads/documents/${documentId}/container-mapping`, { assignments }),
   retry: (documentId: string) => api.post(`/uploads/documents/${documentId}/retry`),
-  approve: (documentId: string) => api.post(`/uploads/documents/${documentId}/approve`),
+  reupload: (documentId: string, formData: FormData) =>
+    api.post(`/uploads/documents/${documentId}/reupload`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  stop: (documentId: string) => api.post(`/uploads/documents/${documentId}/stop`),
+  updateExtraction: (
+    documentId: string,
+    payload: {
+      fields?: Record<string, unknown>;
+      arrays?: Record<string, Array<Record<string, unknown>>>;
+    },
+  ) => api.patch(`/uploads/documents/${documentId}/extraction`, payload),
+  approve: (documentId: string) => api.post<ApproveDocumentResponse>(`/uploads/documents/${documentId}/approve`),
   classify: async (formData: FormData) => {
     const config = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
-      timeout: 180000,
+      timeout: CLASSIFICATION_POLL_TIMEOUT_MS,
     };
     let queued;
     try {
@@ -314,34 +380,77 @@ const documentApi = {
       if (status.status === 'failed') {
         throw new Error(status.message || 'Document classification failed.');
       }
-      if (status.status === 'success' && status.docType && status.label && status.confidence !== null) {
+      const classification = statusToClassification(status);
+      if (classification) {
         return {
           ...statusResponse,
-          data: {
-            status: 'success' as const,
-            message: status.message,
-            docType: status.docType,
-            label: status.label,
-            confidence: status.confidence,
-            reasoning: status.reasoning ?? '',
-            matchedFields: status.matchedFields,
-            alternatives: status.alternatives,
-            fileName: status.fileName,
-          },
+          data: classification,
         };
       }
     }
     throw new Error('Document classification timed out.');
   },
-  classifyBulk: (formData: FormData) =>
-    api.post<DocumentClassificationBulkResponse>('/uploads/classify/bulk', formData, {
+  classifyBulk: async (formData: FormData) => {
+    const config = {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
-      timeout: 180000,
-    }),
-  getClassificationJob: (classificationJobId: string) =>
-    api.get<DocumentClassificationStatusResponse>(`/uploads/classify/jobs/${classificationJobId}`),
+      timeout: CLASSIFICATION_POLL_TIMEOUT_MS,
+    };
+    try {
+      return await api.post<DocumentClassificationBulkResponse>('/uploads/classify/bulk', formData, config);
+    } catch (error) {
+      if (!axios.isAxiosError(error) || error.response?.status !== 404 || !BACKEND_API_BASE) {
+        throw error;
+      }
+      return api.post<DocumentClassificationBulkResponse>(`${BACKEND_API_BASE}/api/uploads/classify/bulk`, formData, config);
+    }
+  },
+  classifyBulkAndWait: async (formData: FormData) => {
+    const queued = await documentApi.classifyBulk(formData);
+    const startedAt = Date.now();
+    const pending = new Map(queued.data.jobs.map((job) => [job.classificationJobId, job]));
+    const completed = new Map<string, { result: DocumentClassificationResponse | null; error?: string }>();
+
+    while (pending.size > 0 && Date.now() - startedAt < CLASSIFICATION_POLL_TIMEOUT_MS) {
+      await wait(CLASSIFICATION_POLL_INTERVAL_MS);
+      await Promise.all(
+        Array.from(pending.keys()).map(async (jobId) => {
+          const statusResponse = await documentApi.getClassificationJob(jobId);
+          const status = statusResponse.data;
+          if (status.status === 'failed') {
+            completed.set(jobId, { result: null, error: status.message || 'Document classification failed.' });
+            pending.delete(jobId);
+            return;
+          }
+          const classification = statusToClassification(status);
+          if (classification) {
+            completed.set(jobId, { result: classification });
+            pending.delete(jobId);
+          }
+        }),
+      );
+    }
+
+    for (const jobId of pending.keys()) {
+      completed.set(jobId, { result: null, error: 'Document classification timed out.' });
+    }
+
+    return queued.data.jobs.map((job) => ({
+      fileName: job.fileName,
+      ...(completed.get(job.classificationJobId) ?? { result: null, error: 'Document classification timed out.' }),
+    }));
+  },
+  getClassificationJob: async (classificationJobId: string) => {
+    try {
+      return await api.get<DocumentClassificationStatusResponse>(`/uploads/classify/jobs/${classificationJobId}`);
+    } catch (error) {
+      if (!axios.isAxiosError(error) || error.response?.status !== 404 || !BACKEND_API_BASE) {
+        throw error;
+      }
+      return api.get<DocumentClassificationStatusResponse>(`${BACKEND_API_BASE}/api/uploads/classify/jobs/${classificationJobId}`);
+    }
+  },
   upload: (formData: FormData) =>
     api.post('/uploads/upload', formData, {
       headers: {

@@ -115,6 +115,7 @@ async def main() -> None:
         run_openrouter_ocr,
         page_images=page_images,
         prompt=prompt,
+        document_name=args.input.name,
     )
     print("\n===== RAW MODEL OUTPUT =====")
     print(json.dumps(raw_result, indent=2, ensure_ascii=False, default=str))

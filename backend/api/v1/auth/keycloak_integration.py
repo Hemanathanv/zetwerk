@@ -42,6 +42,8 @@ def get_keycloak_admin():
         username=settings.KEYCLOAK_ADMIN_USERNAME,
         password=settings.KEYCLOAK_ADMIN_PASSWORD,
         realm_name=settings.KEYCLOAK_REALM,
+        user_realm_name="master",
+        client_id="admin-cli",
         verify=True
     )
 

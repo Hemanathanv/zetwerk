@@ -3,7 +3,7 @@ import { useLocation } from 'wouter';
 import { Folder, FileText, ChevronRight, Home, RefreshCw, AlertCircle, HardDrive } from 'lucide-react';
 import { getAuthToken } from '@/lib/api';
 
-const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? 'http://localhost:8000').replace(/\/$/, '');
+const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
 
 interface S3Folder {
   name: string;
@@ -142,13 +142,13 @@ export function S3BrowserPanel({ initialBucket }: Props) {
       {/* Bucket selector */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <HardDrive style={{ width: 15, height: 15, color: TEAL, flexShrink: 0 }} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: MUTED_C, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Bucket</span>
+        <span style={{ fontSize: 14, fontWeight: 600, color: MUTED_C, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Bucket</span>
         {buckets.length > 1 ? (
           <select
             value={activeBucket}
             onChange={e => { setActiveBucket(e.target.value); setPrefix(''); }}
             style={{
-              fontSize: 12, border: `1px solid ${BORDER_C}`, borderRadius: 6,
+              fontSize: 14, border: `1px solid ${BORDER_C}`, borderRadius: 6,
               padding: '3px 8px', background: 'hsl(var(--background))',
               color: 'hsl(var(--foreground))', cursor: 'pointer',
             }}
@@ -158,7 +158,7 @@ export function S3BrowserPanel({ initialBucket }: Props) {
             ))}
           </select>
         ) : (
-          <span style={{ fontSize: 12, fontWeight: 600, color: 'hsl(var(--foreground))' }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'hsl(var(--foreground))' }}>
             {activeBucket || 'No bucket configured'}
           </span>
         )}
@@ -170,7 +170,7 @@ export function S3BrowserPanel({ initialBucket }: Props) {
             marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
             padding: '4px 10px', borderRadius: 6, border: `1px solid ${BORDER_C}`,
             background: 'transparent', cursor: loading ? 'not-allowed' : 'pointer',
-            fontSize: 12, color: MUTED_C,
+            fontSize: 14, color: MUTED_C,
           }}
         >
           <RefreshCw style={{ width: 12, height: 12 }} className={loading ? 'animate-spin' : ''} />
@@ -186,7 +186,7 @@ export function S3BrowserPanel({ initialBucket }: Props) {
       }}>
         <button
           onClick={navigateHome}
-          style={{ display: 'flex', alignItems: 'center', gap: 4, color: prefix ? TEAL : 'hsl(var(--foreground))', fontSize: 12, fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4 }}
+          style={{ display: 'flex', alignItems: 'center', gap: 4, color: prefix ? TEAL : 'hsl(var(--foreground))', fontSize: 14, fontWeight: 500, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4 }}
         >
           <Home style={{ width: 12, height: 12 }} />
           {activeBucket || 'root'}
@@ -199,7 +199,7 @@ export function S3BrowserPanel({ initialBucket }: Props) {
               style={{
                 color: i === crumbs.length - 1 ? 'hsl(var(--foreground))' : TEAL,
                 fontWeight: i === crumbs.length - 1 ? 600 : 400,
-                fontSize: 12, background: 'none', border: 'none',
+                fontSize: 14, background: 'none', border: 'none',
                 cursor: i === crumbs.length - 1 ? 'default' : 'pointer',
                 padding: '2px 4px', borderRadius: 4,
               }}
@@ -219,10 +219,10 @@ export function S3BrowserPanel({ initialBucket }: Props) {
         }}>
           <AlertCircle style={{ width: 15, height: 15, color: 'hsl(0 72% 40%)', marginTop: 1, flexShrink: 0 }} />
           <div>
-            <p style={{ fontSize: 13, fontWeight: 600, color: 'hsl(0 72% 40%)', margin: '0 0 2px' }}>
+            <p style={{ fontSize: 14.5, fontWeight: 600, color: 'hsl(0 72% 40%)', margin: '0 0 2px' }}>
               Unable to browse S3
             </p>
-            <p style={{ fontSize: 12, color: MUTED_C, margin: 0 }}>{error}</p>
+            <p style={{ fontSize: 14, color: MUTED_C, margin: 0 }}>{error}</p>
           </div>
         </div>
       )}
@@ -246,18 +246,18 @@ export function S3BrowserPanel({ initialBucket }: Props) {
           {result.folders.length === 0 && result.files.length === 0 ? (
             <div style={{ padding: '32px 16px', textAlign: 'center' }}>
               <Folder style={{ width: 32, height: 32, color: MUTED_C, margin: '0 auto 8px' }} />
-              <p style={{ fontSize: 13, color: MUTED_C, margin: 0 }}>
+              <p style={{ fontSize: 14.5, color: MUTED_C, margin: 0 }}>
                 {prefix ? 'This folder is empty' : 'No files uploaded to this bucket yet'}
               </p>
             </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
               <thead>
                 <tr style={{ background: 'hsl(var(--muted))' }}>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 10, color: MUTED_C, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: `1px solid ${BORDER_C}` }}>Name</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, fontSize: 10, color: MUTED_C, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: `1px solid ${BORDER_C}`, width: 90 }}>Size</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 10, color: MUTED_C, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: `1px solid ${BORDER_C}`, width: 180 }}>Last Modified</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 600, fontSize: 10, color: MUTED_C, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: `1px solid ${BORDER_C}`, width: 100 }}>Document</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 14, color: MUTED_C, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: `1px solid ${BORDER_C}` }}>Name</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, fontSize: 14, color: MUTED_C, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: `1px solid ${BORDER_C}`, width: 90 }}>Size</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, fontSize: 14, color: MUTED_C, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: `1px solid ${BORDER_C}`, width: 180 }}>Last Modified</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 600, fontSize: 14, color: MUTED_C, textTransform: 'uppercase', letterSpacing: '0.05em', borderBottom: `1px solid ${BORDER_C}`, width: 100 }}>Document</th>
                 </tr>
               </thead>
               <tbody>
@@ -284,7 +284,7 @@ export function S3BrowserPanel({ initialBucket }: Props) {
                   <tr
                     key={file.key}
                     style={{ borderBottom: `1px solid ${BORDER_C}`, cursor: file.documentId ? 'pointer' : 'default' }}
-                    onClick={() => { if (file.documentId) navigate(`/documents/upload/${file.documentId}`); }}
+                    onClick={() => { if (file.documentId) navigate(`/documents/${file.documentId}`); }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'hsl(var(--muted)/0.4)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                   >
@@ -307,13 +307,13 @@ export function S3BrowserPanel({ initialBucket }: Props) {
                             display: 'inline-flex', alignItems: 'center', gap: 4,
                             padding: '2px 8px', borderRadius: 12,
                             background: TEAL_BG, color: TEAL,
-                            fontSize: 10, fontWeight: 600,
+                            fontSize: 14, fontWeight: 600,
                           }}
                         >
                           View
                         </span>
                       ) : (
-                        <span style={{ color: MUTED_C, fontSize: 10 }}>—</span>
+                        <span style={{ color: MUTED_C, fontSize: 14 }}>—</span>
                       )}
                     </td>
                   </tr>
@@ -326,7 +326,7 @@ export function S3BrowserPanel({ initialBucket }: Props) {
 
       {/* Summary footer */}
       {result && (result.folders.length > 0 || result.files.length > 0) && (
-        <p style={{ fontSize: 11, color: MUTED_C, margin: 0 }}>
+        <p style={{ fontSize: 14.5, color: MUTED_C, margin: 0 }}>
           {result.folders.length} folder{result.folders.length !== 1 ? 's' : ''},&nbsp;
           {result.files.length} file{result.files.length !== 1 ? 's' : ''}
           {result.files.some(f => f.documentId) && (

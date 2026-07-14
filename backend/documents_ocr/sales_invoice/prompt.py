@@ -122,6 +122,7 @@ CURATED_EXAMPLES: dict[str, str] = {
     "cargoWeightKg": "12450.500",
     "cargoNetWeightKg": "11890.000",
     "cargoGrossWeightKg": "12450.500",
+    "containerRowSpan": "3",
 }
 
 
@@ -319,7 +320,9 @@ def _build_output_rules(model: type[BaseModel], document_type: str, extractor_la
         "Line item product fields: `productCode` is only the SKU/internal code; `productDescription` is the short product name only; `productSpecification` is technical spec only (dimensions, grade, material, finish, length). Never put HSN in `productDescription`; use `hsnCode`/`hsnCodeDestination`.",
         "Package fields: keep `packageDescription` descriptive only. If the PDF shows a count such as \"12 PKGS\" or \"3 Boxes\", put the number in `noOfPackages` and the package type in `kindOfPkg` instead of copying the count into `packageDescription`.",
         "`quantityTotal`: if the invoice line table has a quantity column, set `quantityTotal` on every line-item row to the sum of all line-item `quantity` values for the document.",
-        "Use `rate` only for unit price; do not emit `unitPrice`. Put per-line marks in `productMarks`. Extract `boCode` from BO Code and split combined CONTAINER NO / SEAL NO values into `containerNo` and `sealNo`.",
+        "Use `rate` only for unit price; do not emit `unitPrice`. Put per-line marks in `productMarks`. Extract `boCode` from BO Code.",
+        "The invoice table has one combined `CONTAINER NO / SEAL NO` column. Its cell normally shows the container on the first line and the seal on the second line: split them into `containerNo` and `sealNo`; never put both values in one field. A container number is 4 letters plus 7 digits (for example KAXU4714201).",
+        "For a vertically merged CONTAINER NO / SEAL NO cell, use the HORIZONTAL CELL BORDERS—not the vertical position of its centered text—to determine the exact product rows it covers. On the TOPMOST covered line-item row, set `containerNo`, `sealNo`, and `containerRowSpan` to the exact number of product rows covered (for example \"3\"). On its remaining covered rows set all three fields to null. A new merged-cell top border starts the next container even when its printed text is vertically centered beside a later row. `containerRowSpan` is mandatory for every merged container cell.",
     ]
 
     if arrays:

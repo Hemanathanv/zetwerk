@@ -33,7 +33,7 @@ export function ShipmentTable({ shipments, selectedId, onSelect }: ShipmentTable
           <button
             key={f}
             onClick={() => setActiveFilter(f)}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+            className={`px-3 py-1 rounded-full text-[13px] font-medium transition-all ${
               activeFilter === f
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80'
@@ -47,13 +47,13 @@ export function ShipmentTable({ shipments, selectedId, onSelect }: ShipmentTable
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
-        <table className="w-full text-sm border-collapse min-w-[680px]">
+        <table className="w-full border-collapse min-w-[680px]">
           <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur-sm">
             <tr>
               {['Shipment ID', 'Invoice No', 'BOL', 'Booking No', 'Carrier', 'Stage', 'ETA', 'Status'].map((col) => (
                 <th
                   key={col}
-                  className="text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide py-2.5 px-3 border-b whitespace-nowrap"
+                  className="text-left text-[12px] font-semibold text-muted-foreground uppercase tracking-wide py-3.5 px-5 border-b whitespace-nowrap"
                   style={{ borderColor: 'hsl(var(--border))' }}
                 >
                   {col}
@@ -79,14 +79,14 @@ export function ShipmentTable({ shipments, selectedId, onSelect }: ShipmentTable
                   }}
                   data-testid={`row-shipment-${s.id}`}
                 >
-                  <td className="py-2.5 px-3 font-semibold text-primary text-xs">{s.id}</td>
-                  <td className="py-2.5 px-3 text-xs text-muted-foreground">{s.invoiceNo}</td>
-                  <td className="py-2.5 px-3 text-xs text-muted-foreground">{s.bol}</td>
-                  <td className="py-2.5 px-3 text-xs text-muted-foreground">{s.bookingNo}</td>
-                  <td className="py-2.5 px-3 text-xs font-medium">{s.carrier}</td>
-                  <td className="py-2.5 px-3 text-xs text-muted-foreground">{s.stage}</td>
-                  <td className="py-2.5 px-3 text-xs font-medium">{s.eta}</td>
-                  <td className="py-2.5 px-3">
+                  <td className="py-4 px-5 font-semibold text-primary text-[13px]">{s.id}</td>
+                  <td className="py-4 px-5 text-[13px] text-muted-foreground">{s.invoiceNo}</td>
+                  <td className="py-4 px-5 text-[13px] text-muted-foreground">{s.bol}</td>
+                  <td className="py-4 px-5 text-[13px] text-muted-foreground">{s.bookingNo}</td>
+                  <td className="py-4 px-5 text-[13px] font-medium">{s.carrier}</td>
+                  <td className="py-4 px-5 text-[13px] text-muted-foreground">{s.stage}</td>
+                  <td className="py-4 px-5 text-[13px] font-medium">{s.eta}</td>
+                  <td className="py-4 px-5">
                     <StatusBadge status={s.status} />
                   </td>
                 </tr>
@@ -97,7 +97,7 @@ export function ShipmentTable({ shipments, selectedId, onSelect }: ShipmentTable
       </div>
 
       {/* Pagination Footer */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-t text-xs text-muted-foreground" style={{ borderColor: 'hsl(var(--border))' }}>
+      <div className="flex items-center justify-between px-4 py-3 border-t text-[13px] text-muted-foreground" style={{ borderColor: 'hsl(var(--border))' }}>
         <span>Showing 1–{filtered.length} of {filtered.length} shipments</span>
         <div className="flex items-center gap-1">
           <button
@@ -107,7 +107,7 @@ export function ShipmentTable({ shipments, selectedId, onSelect }: ShipmentTable
           >
             <ChevronLeft className="w-3.5 h-3.5" />
           </button>
-          <span className="px-2 py-1 rounded bg-primary text-primary-foreground text-xs font-medium">1</span>
+          <span className="px-2 py-1 rounded bg-primary text-primary-foreground text-[13px] font-medium">1</span>
           <button
             className="p-1.5 rounded hover:bg-muted disabled:opacity-40 transition-colors"
             disabled

@@ -22,6 +22,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Check authentication status on initial load
   const checkAuth = async () => {
+    const token = window.localStorage.getItem(SESSION_TOKEN_KEY);
+    if (!token) {
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       const response = await authApi.checkAuth();
@@ -43,6 +50,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       location === '/reset-password';
 
     if (isPublicAuthPage) {
+      setLoading(false);
+      return;
+    }
+
+    if (!window.localStorage.getItem(SESSION_TOKEN_KEY)) {
+      setUser(null);
       setLoading(false);
       return;
     }

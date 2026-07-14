@@ -21,7 +21,7 @@ export function FilterChips({ chips, activeIndex, onSelect }: FilterChipsProps) 
             style={{
               padding: '7px 14px',
               borderRadius: 999,
-              fontSize: 13,
+              fontSize: 14.5,
               fontWeight: 500,
               cursor: 'pointer',
               transition: 'all 0.15s ease',

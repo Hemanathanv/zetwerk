@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { getAuthToken } from '@/lib/api';
 
-const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? 'http://localhost:8000').replace(/\/$/, '');
+const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
 
 export type OcrStatus =
   | 'UPLOADED'

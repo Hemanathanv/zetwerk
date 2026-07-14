@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from prisma import Json
 
 from documents_ocr.Customer_broker_bill.prompt import build_customer_broker_bill_prompt
-from documents_ocr.schema_loader import load_extraction_schema
+from documents_ocr.schema_loader import load_extraction_schema, upsert_extraction_with_children
 
 
 _SCHEMA = load_extraction_schema(parent_model="CustomerBrokerBillExtraction")
@@ -70,7 +70,7 @@ class CustomerBrokerBillStructuredResult(BaseModel):
     __array_field_schema__: ClassVar[dict[str, list[str]]] = ARRAY_ITEM_FIELDS
 
     source: str | None = None
-    documentType: str | None = "Customer Broker Bill"
+    documentType: str | None = "Customs Broker Bill"
     compliance: ComplianceSection = Field(default_factory=ComplianceSection)
     entities: EntitiesSection = Field(default_factory=EntitiesSection)
     financial: FinancialSection = Field(default_factory=FinancialSection)
@@ -89,7 +89,7 @@ def matches_customerbrokerbill(*, bucket: str, module: str, document: Any) -> bo
         getattr(document, "docType", ""),
     ]
     normalized = ["".join(ch for ch in str(value or "").lower() if ch.isalnum()) for value in candidates]
-    return any(token in {'customerbroker', 'customerbrokerbill', 'customerbrokerbills', 'brokerbill'} for token in normalized)
+    return any(token in {'customsbroker', 'customsbrokerbill', 'customsbrokerbills', 'custombroker', 'custombrokerbill', 'brokerbill'} for token in normalized)
 
 
 def build_prompt() -> str:
@@ -186,7 +186,7 @@ def to_prisma_data(*, result: CustomerBrokerBillStructuredResult, raw_data: dict
         if value is None:
             data[field_name] = None
         else:
-            data[field_name] = Json(value)
+            data[field_name] = value
 
     data["rawData"] = Json(raw_data)
     data["extractedAt"] = datetime.now(timezone.utc)
@@ -195,46 +195,13 @@ def to_prisma_data(*, result: CustomerBrokerBillStructuredResult, raw_data: dict
 
 async def persist_extraction(*, prisma, document_id: str, result: CustomerBrokerBillStructuredResult, raw_data: dict[str, Any]):
     extraction_data = to_prisma_data(result=result, raw_data=raw_data)
-    create_data = {
-        **extraction_data,
-        "documentId": document_id,
-        "document": {"connect": {"id": document_id}},
-    }
-
-    for _ in range(20):
-        try:
-            return await prisma.customerbrokerbillextraction.upsert(
-                where={"documentId": document_id},
-                data={
-                    "create": create_data,
-                    "update": extraction_data,
-                },
-            )
-        except Exception as exc:
-            error_text = str(exc)
-            field_name: str | None = None
-
-            path_match = re.search(r"Could not find field at `[^`]*\.(\w+)`", error_text)
-            if path_match:
-                field_name = path_match.group(1)
-            else:
-                path_match = re.search(r"`[^`]*\.(\w+)`", error_text)
-                if path_match and "Field does not exist in enclosing type" in error_text:
-                    field_name = path_match.group(1)
-            if not field_name:
-                unknown_match = re.search(r"Unknown (?:arg|field) `(\w+)`", error_text)
-                if unknown_match:
-                    field_name = unknown_match.group(1)
-            if not field_name:
-                raise
-            had_update_field = field_name in extraction_data
-            had_create_field = field_name in create_data
-            extraction_data.pop(field_name, None)
-            create_data.pop(field_name, None)
-            if not had_update_field and not had_create_field:
-                raise
-
-    raise RuntimeError("Failed to persist extraction after dropping unsupported fields")
+    return await upsert_extraction_with_children(
+        prisma=prisma,
+        model_accessor_name="customerbrokerbillextraction",
+        schema=_SCHEMA,
+        document_id=document_id,
+        extraction_data=extraction_data,
+    )
 
 
 __all__ = [

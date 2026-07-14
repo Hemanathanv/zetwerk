@@ -3,6 +3,8 @@ CREATE SCHEMA IF NOT EXISTS docgen;
 CREATE OR REPLACE VIEW docgen.v_packing_list_source AS
 SELECT
   d.id AS source_document_id,
+  d.uploaded_by,
+  d.created_at,
   si.id AS sales_invoice_id,
   si.invoice_no,
   si.invoice_date,
@@ -146,12 +148,20 @@ SELECT
         'productDescription', li.product_description,
         'lineTotal', li.line_total,
         'quantity', li.quantity,
+        'unit', li.unit,
         'hsnCodeDestination', li.hsn_code_destination
       )
       ORDER BY li.id
     ) FILTER (WHERE li.id IS NOT NULL),
     '[]'::jsonb
-  ) AS line_items
+  ) AS line_items,
+  bol.export_shipping_bill_date,
+  bol.country_of_origin,
+  bol.notify_party_address,
+  si.taxable_value,
+  si.tax_amount,
+  si.exporter_name,
+  si.exporter_address
 FROM public.documents bol_doc
 JOIN aiextraction.bills_of_lading bol ON bol.document_id = bol_doc.id
 JOIN aiextraction.sales_invoice_extractions si
