@@ -12,11 +12,15 @@ from db import get_prisma
 from doc_generation import DOC_GEN_SCHEMAS, get_doc_gen_schema
 from doc_generation.db_setup import ensure_doc_generation_views
 from helpers.config import settings
-from helpers.dependencies import get_current_user
+from helpers.dependencies import get_current_user, get_session_token
+from helpers.rbac_data_access import access_role
+from helpers.rbac import authorize_activity, require_activity
 
 GeneratedDocType = Literal["PACKING_LIST", "US_PACKING_LIST", "ENTRY_SUMMARY"]
 
 router = APIRouter(prefix=settings.API_SLUG + "/doc-generation", tags=["Document Generation"])
+
+SHARED_DOCGEN_SOURCE_ROLES = {"SUPER_ADMIN", "ADMIN", "OPS_MANAGER", "INDIA_LOGISTICS"}
 
 
 class CreateDraftRequest(BaseModel):
@@ -508,32 +512,60 @@ async def _execute_raw(prisma, sql: str, *params) -> Any:
     return await execute_raw(sql, *params)
 
 
-async def _select_source_row(prisma, generated_doc_type: str, source_ids: dict[str, str], user_id: str) -> dict[str, Any]:
+async def _select_source_row(
+    prisma,
+    generated_doc_type: str,
+    source_ids: dict[str, str],
+    user_id: str,
+    user_role: str | None = None,
+) -> dict[str, Any]:
+    shared_sources = (user_role or "").upper().replace("-", "_") in SHARED_DOCGEN_SOURCE_ROLES
     if generated_doc_type == "PACKING_LIST":
         document_id = source_ids.get("SALES_INVOICE")
         if document_id:
-            rows = await _query_raw(
-                prisma,
-                """
-                SELECT * FROM docgen.v_packing_list_source
-                WHERE source_document_id::text = $1::text
-                  AND uploaded_by::text = $2::text
-                LIMIT 1
-                """,
-                document_id,
-                user_id
-            )
+            if shared_sources:
+                rows = await _query_raw(
+                    prisma,
+                    """
+                    SELECT * FROM docgen.v_packing_list_source
+                    WHERE source_document_id::text = $1::text
+                    LIMIT 1
+                    """,
+                    document_id,
+                )
+            else:
+                rows = await _query_raw(
+                    prisma,
+                    """
+                    SELECT * FROM docgen.v_packing_list_source
+                    WHERE source_document_id::text = $1::text
+                      AND uploaded_by::text = $2::text
+                    LIMIT 1
+                    """,
+                    document_id,
+                    user_id,
+                )
         else:
-            rows = await _query_raw(
-                prisma,
-                """
-                SELECT * FROM docgen.v_packing_list_source
-                WHERE uploaded_by::text = $1::text
-                ORDER BY created_at DESC
-                LIMIT 1
-                """,
-                user_id
-            )
+            if shared_sources:
+                rows = await _query_raw(
+                    prisma,
+                    """
+                    SELECT * FROM docgen.v_packing_list_source
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                )
+            else:
+                rows = await _query_raw(
+                    prisma,
+                    """
+                    SELECT * FROM docgen.v_packing_list_source
+                    WHERE uploaded_by::text = $1::text
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    user_id,
+                )
         if rows:
             rows[0]["_source_document_ids"] = {"SALES_INVOICE": str(rows[0]["source_document_id"])}
             return rows[0]
@@ -750,6 +782,7 @@ async def ensure_packing_list_draft_for_sales_invoice(
     prisma,
     sales_invoice_document_id: str,
     user_id: str,
+    user_role: str | None = None,
 ) -> str:
     """Create the Packing List draft for a Sales Invoice exactly once."""
     await ensure_doc_generation_views(prisma)
@@ -775,6 +808,7 @@ async def ensure_packing_list_draft_for_sales_invoice(
         "PACKING_LIST",
         {"SALES_INVOICE": sales_invoice_document_id},
         user_id,
+        user_role,
     )
     deterministic_id = str(
         uuid5(
@@ -992,10 +1026,15 @@ async def list_doc_generation_schemas(user=Depends(get_current_user)):
 
 
 @router.post("/drafts", response_model=DraftPayload)
-async def create_doc_generation_draft(request: CreateDraftRequest, user=Depends(get_current_user)):
+async def create_doc_generation_draft(
+    request: CreateDraftRequest,
+    user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.generate_draft")),
+):
     prisma = await get_prisma()
     try:
         await ensure_doc_generation_views(prisma)
+        user_role = access_role(user)
         if request.generatedDocType == "PACKING_LIST":
             source_document_id = request.sourceDocumentIds.get("SALES_INVOICE")
             if not source_document_id:
@@ -1004,12 +1043,14 @@ async def create_doc_generation_draft(request: CreateDraftRequest, user=Depends(
                     generated_doc_type="PACKING_LIST",
                     source_ids={},
                     user_id=str(user.id),
+                    user_role=user_role,
                 )
                 source_document_id = str(source_row["source_document_id"])
             draft_id = await ensure_packing_list_draft_for_sales_invoice(
                 prisma=prisma,
                 sales_invoice_document_id=source_document_id,
                 user_id=str(user.id),
+                user_role=user_role,
             )
             rows = await _query_raw(
                 prisma,
@@ -1031,6 +1072,7 @@ async def create_doc_generation_draft(request: CreateDraftRequest, user=Depends(
             generated_doc_type=request.generatedDocType,
             source_ids=request.sourceDocumentIds,
             user_id=str(user.id),
+            user_role=user_role,
         )
         payload = _build_payload(request.generatedDocType, str(uuid4()), row)
         await _persist_draft(prisma, payload, str(user.id))
@@ -1129,6 +1171,7 @@ async def update_draft_package_type(
     draft_id: str,
     request: UpdatePackageTypeRequest,
     user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.generate_draft")),
 ):
     """Persist a Packing List line item's package type and user-defined options."""
     prisma = await get_prisma()
@@ -1198,8 +1241,15 @@ async def update_doc_generation_draft(
     draft_id: str,
     request: UpdateDraftRequest,
     user=Depends(get_current_user),
+    token: str | None = Depends(get_session_token),
+    _authz=Depends(require_activity("documents.generate_draft")),
 ):
     """Persist reviewed field values, tariff lines, calculations, and draft status."""
+    if request.status in {"CONFIRMED", "GENERATED"}:
+        if not token:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        authorize_activity(token, "documents.approve_draft")
+
     prisma = await get_prisma()
     rows = await _query_raw(
         prisma,

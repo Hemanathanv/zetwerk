@@ -37,6 +37,9 @@ from documents_ocr.Bill_of_lading.container_mapping import (
 )
 from helpers.config import settings
 from helpers.dependencies import get_current_user
+from helpers.rbac_data_access import document_prisma_where, document_sql_where, has_role_document_scope, user_id
+from helpers.rbac import require_activity
+from helpers.shipment_operational import create_or_update_shipment_from_bol_document
 from objectstore import (
     DEFAULT_BUCKET,
     S3_ENDPOINT,
@@ -854,6 +857,7 @@ def _serialize_detection_status(payload: dict[str, Any]) -> DocumentClassificati
 async def classify_upload_document(
     file: UploadFile = File(...),
     user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.upload")),
 ):
     return await _stage_detection_file(file=file, user_id=user.id)
 
@@ -863,6 +867,7 @@ async def classify_upload_document(
 async def classify_upload_documents_bulk(
     files: list[UploadFile] = File(...),
     user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.upload")),
 ):
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded")
@@ -906,6 +911,7 @@ async def upload_document(
     bucket: str | None = Form(None),
     module: str | None = Form(None),
     user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.upload")),
 ):
     prisma = await get_prisma()
 
@@ -1044,15 +1050,32 @@ DOCUMENT_SECTION_STATUS_FILTERS: Final[dict[str, set[str]]] = {
 }
 
 
-def _document_section_where(*, user_id: str, section: str) -> dict[str, Any]:
-    where: dict[str, Any] = {"uploadedBy": user_id, "isDeleted": False}
+def _document_section_where(*, user: Any, section: str) -> dict[str, Any]:
+    where: dict[str, Any] = document_prisma_where(user)
     statuses = DOCUMENT_SECTION_STATUS_FILTERS.get(section)
     if statuses:
         where["status"] = {"in": sorted(statuses)}
     return where
 
 
-async def _document_count(*, prisma, user_id: str, section: str) -> int:
+async def _document_count(*, prisma, user: Any, section: str) -> int:
+    if has_role_document_scope(user):
+        try:
+            rows = await prisma.document.find_many(where=_document_section_where(user=user, section="all"))
+            validation_statuses = await _document_validation_statuses(prisma, [str(row.id) for row in rows])
+            return sum(
+                1
+                for row in rows
+                if _document_matches_section(
+                    str(row.status),
+                    validation_statuses.get(str(row.id)),
+                    section,
+                )
+            )
+        except Exception:
+            return 0
+
+    current_user_id = user_id(user)
     if section in {"cross-validating", "done"}:
         validation_done_clause = """
             EXISTS (
@@ -1084,12 +1107,12 @@ async def _document_count(*, prisma, user_id: str, section: str) -> int:
             """
         try:
             await _ensure_cross_validation_tables(prisma)
-            rows = await prisma.query_raw(sql, user_id)
+            rows = await prisma.query_raw(sql, current_user_id)
             return int((rows[0] if rows else {}).get("count") or 0)
         except Exception:
             return 0
     try:
-        return int(await prisma.document.count(where=_document_section_where(user_id=user_id, section=section)))
+        return int(await prisma.document.count(where=_document_section_where(user=user, section=section)))
     except Exception:
         return 0
 
@@ -1237,7 +1260,7 @@ async def list_documents(
         raise HTTPException(status_code=400, detail=f"Unsupported document section: {section!r}")
 
     try:
-        where = _document_section_where(user_id=user.id, section=normalized_section)
+        where = _document_section_where(user=user, section=normalized_section)
         total = int(await prisma.document.count(where=where))
         total_pages = max(1, (total + page_size - 1) // page_size)
         safe_page = min(page, total_pages)
@@ -1286,12 +1309,12 @@ async def list_documents(
                 )
             )
         counts = DocumentListCounts(
-            total=await _document_count(prisma=prisma, user_id=user.id, section="all"),
-            needsApproval=await _document_count(prisma=prisma, user_id=user.id, section="needs-approval"),
-            processing=await _document_count(prisma=prisma, user_id=user.id, section="processing"),
-            crossValidating=await _document_count(prisma=prisma, user_id=user.id, section="cross-validating"),
-            draftReview=await _document_count(prisma=prisma, user_id=user.id, section="draft-review"),
-            done=await _document_count(prisma=prisma, user_id=user.id, section="done"),
+            total=await _document_count(prisma=prisma, user=user, section="all"),
+            needsApproval=await _document_count(prisma=prisma, user=user, section="needs-approval"),
+            processing=await _document_count(prisma=prisma, user=user, section="processing"),
+            crossValidating=await _document_count(prisma=prisma, user=user, section="cross-validating"),
+            draftReview=await _document_count(prisma=prisma, user=user, section="draft-review"),
+            done=await _document_count(prisma=prisma, user=user, section="done"),
         )
         return DocumentListResponse(
             documents=documents,
@@ -1314,16 +1337,18 @@ async def list_approved_documents_for_shipments(user=Depends(get_current_user)):
     """Read the automatically updated document-module SQL view."""
     prisma = await get_prisma()
     await ensure_document_module_views(prisma)
+    access_where, access_params, _ = document_sql_where("d", user)
     projection = await prisma.query_raw(
-        """
-        SELECT document_id, doc_type, file_name, document_number,
-               gate_number, gate_code, is_parallel, approved_at,
-               extracted_at, extracted_data, shipment_id
-        FROM document_module.v_shipment_gate_documents
-        WHERE uploaded_by::text = $1::text
-        ORDER BY approved_at DESC
+        f"""
+        SELECT v.document_id, v.doc_type, v.file_name, v.document_number,
+               v.gate_number, v.gate_code, v.is_parallel, v.approved_at,
+               v.extracted_at, v.extracted_data, v.shipment_id
+        FROM document_module.v_shipment_gate_documents v
+        JOIN public.documents d ON d.id = v.document_id
+        WHERE {access_where}
+        ORDER BY v.approved_at DESC
         """,
-        str(user.id),
+        *access_params,
     )
     documents: list[dict[str, Any]] = []
     for row in projection:
@@ -1505,6 +1530,7 @@ async def update_document_extraction(
     document_id: str,
     payload: UpdateExtractionRequest,
     user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.edit_extracted")),
 ):
     prisma = await get_prisma()
     document = await prisma.document.find_first(
@@ -1590,6 +1616,7 @@ async def update_bol_container_mapping(
     document_id: str,
     payload: SaveContainerMappingRequest,
     user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.approve_draft")),
 ):
     try:
         return await save_container_mapping(
@@ -1605,7 +1632,11 @@ async def update_bol_container_mapping(
 
 
 @router.post("/documents/{document_id}/retry", response_model=RetryOcrResponse)
-async def retry_document_ocr(document_id: str, user=Depends(get_current_user)):
+async def retry_document_ocr(
+    document_id: str,
+    user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.reprocess_ocr")),
+):
     prisma = await get_prisma()
     document = await prisma.document.find_first(
         where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
@@ -1640,6 +1671,7 @@ async def reupload_document_for_validation(
     file: UploadFile = File(...),
     refreshGeneratedDrafts: bool = Form(False),
     user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.upload")),
 ):
     prisma = await get_prisma()
     document = await prisma.document.find_first(
@@ -1721,7 +1753,11 @@ async def reupload_document_for_validation(
 
 
 @router.post("/documents/{document_id}/stop", response_model=StopOcrResponse)
-async def stop_document_ocr(document_id: str, user=Depends(get_current_user)):
+async def stop_document_ocr(
+    document_id: str,
+    user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.reprocess_ocr")),
+):
     prisma = await get_prisma()
     document = await prisma.document.find_first(
         where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
@@ -2629,10 +2665,16 @@ async def auto_review_and_validate_document(
 
 
 @router.post("/documents/{document_id}/approve", response_model=ApproveDocumentResponse)
-async def approve_document_extraction(document_id: str, user=Depends(get_current_user)):
+async def approve_document_extraction(
+    document_id: str,
+    user=Depends(get_current_user),
+    authz=Depends(require_activity("documents.approve_draft")),
+):
     prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
     document = await prisma.document.find_first(
-        where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
+        where=where,
     )
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -2665,7 +2707,11 @@ async def approve_document_extraction(document_id: str, user=Depends(get_current
         extraction=extraction,
         child_arrays=child_arrays,
     )
-    if not mandatory_result.ok:
+    can_override_missing_fields = (
+        str(authz.get("role") or "").upper().replace("-", "_") in {"ADMIN", "SUPER_ADMIN"}
+        or "documents.override_validation" in set(authz.get("activities") or [])
+    )
+    if not mandatory_result.ok and not can_override_missing_fields:
         missing = ", ".join(mandatory_result.missing_fields)
         raise HTTPException(
             status_code=400,
@@ -2692,6 +2738,11 @@ async def approve_document_extraction(document_id: str, user=Depends(get_current
         user_id=str(user.id),
         current_payload=current_payload,
     )
+    if doc_type == "BILL_OF_LADING":
+        try:
+            await create_or_update_shipment_from_bol_document(prisma, document_id)
+        except Exception as exc:
+            print(f"[shipments] warning: could not create shipment from approved BOL {document_id}: {exc}", flush=True)
 
     return ApproveDocumentResponse(
         status="success",

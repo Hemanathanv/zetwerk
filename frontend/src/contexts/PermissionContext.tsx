@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import api from '@/auth/api';
 
 export interface GateAccess {
   gateNumber: number;
@@ -15,7 +16,7 @@ export interface RbacPermissions {
   ticketCategories: string[];
   activities: string[];
   dataScope: string;
-  level?: string;
+  capabilities?: Record<string, boolean>;
   role: { id: string; name: string; category: string; color: string };
 }
 
@@ -31,12 +32,24 @@ const defaultState: PermissionContextType = {
   ticketCategories: [],
   activities: [],
   dataScope: 'TAGGED',
+  capabilities: {},
   role: { id: '', name: '', category: '', color: '#666' },
   refreshPermissions: async () => {},
   loaded: false,
 };
 
 const PermissionContext = createContext<PermissionContextType>(defaultState);
+
+function capabilitiesFromActivities(activities: string[]): Record<string, boolean> {
+  const allowed = new Set(activities);
+  return {
+    isApprove: allowed.has('documents.approve_draft'),
+    isEdit: allowed.has('documents.edit_extracted'),
+    isUpload: allowed.has('documents.upload'),
+    isOverride: allowed.has('documents.override_validation'),
+    isReprocess: allowed.has('documents.reprocess_ocr'),
+  };
+}
 
 export function PermissionProvider({
   initialPermissions,
@@ -50,24 +63,63 @@ export function PermissionProvider({
   const [permissions, setPermissions] = useState<RbacPermissions | null>(initialPermissions);
   const [loaded, setLoaded] = useState(!!initialPermissions);
 
+  const fetchPermissions = useCallback(async () => {
+    if (!authToken) {
+      setPermissions(null);
+      setLoaded(false);
+      return;
+    }
+
+    const [permissionsResponse, levelResponse] = await Promise.all([
+      api.get<{ ok: boolean; data: RbacPermissions }>('/auth/permissions'),
+      api.get<{ ok: boolean; data: { activities: string[] } }>('/auth/level'),
+    ]);
+    const nextPermissions = permissionsResponse.data.data;
+    const activities = levelResponse.data.data.activities ?? nextPermissions.activities;
+    setPermissions({
+      ...nextPermissions,
+      activities,
+      capabilities: capabilitiesFromActivities(activities),
+    });
+    setLoaded(true);
+  }, [authToken]);
+
   useEffect(() => {
     if (initialPermissions) {
       setPermissions(initialPermissions);
       setLoaded(true);
-    } else {
+    } else if (!authToken) {
       setPermissions(null);
       setLoaded(false);
     }
-  }, [initialPermissions]);
+  }, [initialPermissions, authToken]);
 
   const refreshPermissions = useCallback(async () => {
     if (initialPermissions) {
       setPermissions(initialPermissions);
       setLoaded(true);
+      return;
     }
-  }, [initialPermissions]);
+
+    try {
+      await fetchPermissions();
+    } catch (error) {
+      console.error('Permission refresh failed:', error);
+      setPermissions(null);
+      setLoaded(false);
+    }
+  }, [fetchPermissions, initialPermissions]);
 
   // On page reload, initialPermissions may be null but token is set — fetch once
+  useEffect(() => {
+    if (initialPermissions || !authToken) return;
+    fetchPermissions().catch((error) => {
+      console.error('Permission load failed:', error);
+      setPermissions(null);
+      setLoaded(false);
+    });
+  }, [authToken, fetchPermissions, initialPermissions]);
+
   const value: PermissionContextType = {
     ...(permissions ?? defaultState),
     refreshPermissions,

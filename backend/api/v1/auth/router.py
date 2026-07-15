@@ -7,6 +7,7 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 
 from helpers.config import settings
+from helpers.rbac_data_access import doc_type_permissions_for_role
 from .keycloak_integration import (
     get_keycloak_user, get_keycloak_roles, check_role, check_any_role,
     get_keycloak_token, get_keycloak_auth_url, create_keycloak_user, get_keycloak_admin,
@@ -102,7 +103,7 @@ def _permissions_from_role(role: dict) -> dict:
     return {
         "modules": modules,
         "gates": [],
-        "docTypes": {},
+        "docTypes": doc_type_permissions_for_role(role_name),
         "ticketCategories": [],
         "activities": activities,
         "dataScope": _normalize_data_scope(_attr_value(attrs, "ewms.dataScope", "TEAM")),
@@ -233,6 +234,30 @@ ACTIVITY_MIN_LEVELS = {
     "admin.security_settings": "L4",
 }
 
+IMPLIED_ACTIVITY_CODES = {
+    "documents.manage": {
+        "documents.upload",
+        "documents.view_extracted",
+        "documents.edit_extracted",
+        "documents.generate_draft",
+        "documents.approve_draft",
+        "documents.override_validation",
+        "documents.reprocess_ocr",
+        "documents.download_export",
+        "documents.delete",
+    },
+    "shipments.manage": {
+        "shipments.view",
+        "shipments.create",
+        "shipments.edit_metadata",
+        "shipments.assign_user",
+        "shipments.archive",
+        "shipments.delete",
+        "shipments.override_blocked_stage",
+        "shipments.tag_partner",
+    },
+}
+
 
 def _level_at_least(user_level: str, required_level: str) -> bool:
     return LEVEL_ORDER.get(str(user_level or "L1").upper(), 0) >= LEVEL_ORDER.get(str(required_level or "L1").upper(), 0)
@@ -243,9 +268,12 @@ def _highest_level(levels: list[str]) -> str:
 
 
 def _activities_for_level(activities: list[str], user_level: str) -> list[str]:
+    expanded = set(activities)
+    for activity in activities:
+        expanded.update(IMPLIED_ACTIVITY_CODES.get(activity, set()))
     return [
         activity
-        for activity in activities
+        for activity in expanded
         if _level_at_least(user_level, ACTIVITY_MIN_LEVELS.get(activity, "L1"))
     ]
 
@@ -295,9 +323,38 @@ async def get_permissions(
         user_level = _highest_level(_attr_values(role["attributes"], "ewms.levels"))
 
     permissions = _permissions_from_role(role)
-    permissions["level"] = user_level
     permissions["activities"] = _activities_for_level(permissions["activities"], user_level)
     return {"ok": True, "data": permissions}
+
+
+@router.get("/level")
+async def get_level(
+    userinfo: dict = Depends(get_keycloak_user),
+    roles: List[str] = Depends(get_keycloak_roles),
+):
+    """
+    Return current user's EWMS authority level and level-filtered activities.
+    """
+    role_name = _primary_role_name(roles)
+    try:
+        keycloak_admin = get_keycloak_admin()
+        role = keycloak_admin.get_realm_role(role_name)
+        level = _user_level_from_keycloak(keycloak_admin, userinfo, role)
+        activities = _activities_for_level(
+            _legacy_activity_codes(_attr_values(role.get("attributes") or {}, "ewms.activities")),
+            level,
+        )
+    except Exception:
+        role = {"attributes": {"ewms.levels": ["L1"]}}
+        level = _highest_level(_attr_values(role["attributes"], "ewms.levels"))
+        activities = []
+
+    return {
+        "ok": True,
+        "data": {
+            "activities": activities,
+        },
+    }
 
 # =================================================================
 # Role-Based Access Control Endpoints

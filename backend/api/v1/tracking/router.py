@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from db import get_prisma
 from helpers.dependencies import get_current_user
+from helpers.rbac_data_access import document_sql_where
 
 
 router = APIRouter(prefix="/api/tracking", tags=["Tracking"])
@@ -156,8 +157,7 @@ BASE_CONTAINER_SQL = """
     FROM aiextraction.bill_of_lading_containers bc
     JOIN aiextraction.bills_of_lading bol ON bol.id = bc.bill_of_lading_id
     JOIN public.documents d ON d.id = bol.document_id
-    WHERE d.uploaded_by::text = $1::text
-      AND d.is_deleted = false
+    WHERE {access_where}
       AND COALESCE((bol.raw_data->>'containerMappingApproved')::boolean, false) = true
       AND COALESCE(bc.number, '') <> ''
 """
@@ -167,7 +167,7 @@ SC_CONTAINER_SQL = BASE_CONTAINER_SQL.replace(
     "NULL::text AS sc_shipment_id,\n      NULL::text AS sc_shipment_number,\n      NULL::text AS sc_status,\n      NULL::text AS sc_sealine,\n      NULL::jsonb AS sc_vessels,\n      NULL::text AS event_id,\n      NULL::text AS event_code,\n      NULL::text AS event_status,\n      NULL::text AS event_description,\n      NULL::jsonb AS event_location,\n      NULL::jsonb AS event_facility,\n      NULL::timestamptz AS event_occurred_at,\n      NULL::boolean AS event_is_actual",
     "sc.shipment_id AS sc_shipment_id,\n      sc.shipment_number AS sc_shipment_number,\n      sc.sc_status,\n      sc.sealine AS sc_sealine,\n      sc.vessels AS sc_vessels,\n      sc.event_id,\n      sc.event_code,\n      sc.event_status,\n      sc.event_description,\n      sc.event_location,\n      sc.event_facility,\n      sc.event_occurred_at,\n      sc.event_is_actual",
 ).replace(
-    "WHERE d.uploaded_by::text = $1::text",
+    "WHERE {access_where}",
     """
     LEFT JOIN LATERAL (
       SELECT
@@ -190,35 +190,35 @@ SC_CONTAINER_SQL = BASE_CONTAINER_SQL.replace(
       ORDER BY ev.occurred_at DESC NULLS LAST, ev.created_at DESC
       LIMIT 1
     ) sc ON true
-    WHERE d.uploaded_by::text = $1::text
+    WHERE {access_where}
     """,
 )
 
 
-async def _container_rows(prisma, uploaded_by: str, container_id: str | None = None) -> list[dict[str, Any]]:
+async def _container_rows(prisma, user: Any, container_id: str | None = None) -> list[dict[str, Any]]:
+    access_where, params, next_param = document_sql_where("d", user)
     suffix = ""
-    params: list[Any] = [uploaded_by]
     if container_id:
-        suffix = " AND bc.id::text = $2::text"
+        suffix = f" AND bc.id::text = ${next_param}::text"
         params.append(container_id)
     order = " ORDER BY bol.updated_at DESC, bc.item_index NULLS LAST, bc.number ASC"
     try:
-        return await _query_raw(prisma, SC_CONTAINER_SQL + suffix + order, *params)
+        return await _query_raw(prisma, SC_CONTAINER_SQL.format(access_where=access_where) + suffix + order, *params)
     except Exception:
-        return await _query_raw(prisma, BASE_CONTAINER_SQL + suffix + order, *params)
+        return await _query_raw(prisma, BASE_CONTAINER_SQL.format(access_where=access_where) + suffix + order, *params)
 
 
 @router.get("/containers/all")
 async def list_inventory_containers(user=Depends(get_current_user)):
     prisma = await get_prisma()
-    rows = await _container_rows(prisma, _user_id(user))
+    rows = await _container_rows(prisma, user)
     return {"ok": True, "data": [_container_payload(row) for row in rows]}
 
 
 @router.get("/containers/{container_id}")
 async def get_inventory_container(container_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
-    rows = await _container_rows(prisma, _user_id(user), container_id)
+    rows = await _container_rows(prisma, user, container_id)
     if not rows:
         raise HTTPException(status_code=404, detail="Container not found")
     events = await _tracking_events(prisma, str(rows[0].get("container_number") or ""))
@@ -228,21 +228,21 @@ async def get_inventory_container(container_id: str, user=Depends(get_current_us
 @router.get("/containers/{container_id}/contents")
 async def get_inventory_container_contents(container_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
+    access_where, access_params, next_param = document_sql_where("d", user)
     rows = await _query_raw(
         prisma,
-        """
+        f"""
         SELECT item AS row
         FROM aiextraction.bill_of_lading_containers bc
         JOIN aiextraction.bills_of_lading bol ON bol.id = bc.bill_of_lading_id
         JOIN public.documents d ON d.id = bol.document_id
         CROSS JOIN LATERAL jsonb_array_elements(COALESCE(bol.raw_data->'containerMappingRows', '[]'::jsonb)) AS item
-        WHERE d.uploaded_by::text = $1::text
-          AND d.is_deleted = false
-          AND bc.id::text = $2::text
+        WHERE {access_where}
+          AND bc.id::text = ${next_param}::text
           AND item->>'containerNo' = bc.number
         ORDER BY item->>'productCode', item->>'description'
         """,
-        _user_id(user),
+        *access_params,
         container_id,
     )
     data = []

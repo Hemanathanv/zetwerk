@@ -1,4 +1,4 @@
-import { Anchor } from 'lucide-react';
+import { MapPin } from 'lucide-react';
 
 export function EwmsShipLoader({
   compact = false,
@@ -7,157 +7,164 @@ export function EwmsShipLoader({
   compact?: boolean;
   fullPage?: boolean;
 }) {
-  const width = fullPage ? 680 : compact ? 300 : 520;
-  const height = fullPage ? 250 : compact ? 138 : 188;
+  // Size tokens per variant — kept small and quiet on purpose.
+  const s = fullPage
+    ? { ship: 132, route: 260, shipH: 46, hull: 22, title: 15, sub: 13, gap: 22 }
+    : compact
+    ? { ship: 84, route: 156, shipH: 30, hull: 15, title: 12, sub: 0, gap: 10 }
+    : { ship: 104, route: 196, shipH: 37, hull: 18, title: 13.5, sub: 12, gap: 16 };
+
+  const travel = s.route - s.ship; // px the ship travels along the route
 
   return (
     <div
       style={{
+        position: fullPage ? 'fixed' : 'relative',
+        inset: fullPage ? 0 : undefined,
+        width: fullPage ? '100vw' : '100%',
         minHeight: fullPage ? '100vh' : undefined,
-        width: fullPage ? '100vw' : undefined,
-        padding: fullPage ? '40px 20px' : compact ? '22px 14px' : '44px 32px 52px',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        justifyContent: fullPage ? 'center' : undefined,
-        gap: compact ? 10 : 14,
-        background: fullPage
-          ? 'linear-gradient(180deg, hsl(205 42% 96%) 0%, hsl(200 48% 90%) 38%, hsl(196 62% 72%) 39%, hsl(199 70% 42%) 100%)'
-          : undefined,
+        justifyContent: 'center',
+        gap: s.gap,
+        padding: compact ? 20 : 32,
+        background: 'rgba(255,255,255,0.86)',
+        backdropFilter: 'blur(14px)',
+        WebkitBackdropFilter: 'blur(14px)',
+        zIndex: fullPage ? 9999 : undefined,
       }}
     >
       <style>{`
-        @keyframes ewms-cargo-cross {
-          0% { left: 17%; transform: translateX(-50%) translateY(1px); }
-          25% { transform: translateX(-50%) translateY(-2px); }
-          50% { transform: translateX(-50%) translateY(1px); }
-          75% { transform: translateX(-50%) translateY(-2px); }
-          100% { left: 83%; transform: translateX(-50%) translateY(1px); }
+        @keyframes ewms-voyage {
+          0%, 100% { transform: translateX(0); }
+          50% { transform: translateX(${travel}px); }
         }
-        @keyframes ewms-sea-a {
-          from { transform: translateX(-36px); }
-          to { transform: translateX(36px); }
+        @keyframes ewms-bob {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-2px); }
         }
-        @keyframes ewms-sea-b {
-          from { transform: translateX(28px); }
-          to { transform: translateX(-28px); }
+        @keyframes ewms-wake {
+          0%, 100% { opacity: .35; transform: scaleX(.9); }
+          50% { opacity: .6; transform: scaleX(1.05); }
         }
-        @keyframes ewms-route-flow {
-          from { background-position: 0 0; }
-          to { background-position: 78px 0; }
-        }
-        @keyframes ewms-beacon {
-          0%, 100% { opacity: .38; transform: scale(.86); }
-          50% { opacity: .95; transform: scale(1); }
-        }
-        @keyframes ewms-smoke {
-          0% { transform: translate(0, 0) scale(.72); opacity: .28; }
-          60% { opacity: .18; }
-          100% { transform: translate(-14px, -18px) scale(1.22); opacity: 0; }
-        }
-        @keyframes ewms-status {
-          0%, 100% { opacity: .72; }
-          50% { opacity: 1; }
+        @keyframes ewms-dot {
+          0%, 80%, 100% { opacity: .22; }
+          40% { opacity: 1; }
         }
       `}</style>
 
+      {/* soft ambient glow — the one restrained flourish */}
       <div
         style={{
-          width,
-          maxWidth: fullPage ? 'min(92vw, 680px)' : '88vw',
-          height,
-          position: 'relative',
-          overflow: 'hidden',
-          borderRadius: fullPage ? 8 : 14,
-          border: fullPage ? '1px solid hsla(188,58%,32%,.16)' : '1px solid hsla(188,58%,32%,.22)',
-          background:
-            fullPage
-              ? 'linear-gradient(180deg, hsl(205 46% 94%) 0%, hsl(202 54% 86%) 42%, hsl(197 63% 58%) 43%, hsl(200 70% 36%) 100%)'
-              : 'linear-gradient(180deg, hsl(205 34% 92%) 0%, hsl(202 42% 86%) 43%, hsl(198 58% 58%) 44%, hsl(200 66% 39%) 100%)',
-          boxShadow: fullPage
-            ? '0 30px 80px hsla(205,54%,24%,.18), inset 0 1px 0 rgba(255,255,255,.86)'
-            : '0 22px 52px hsla(205,54%,24%,.14), inset 0 1px 0 rgba(255,255,255,.82)',
+          position: 'absolute',
+          width: s.route * 1.6,
+          height: s.route * 1.6,
+          borderRadius: '50%',
+          background: 'radial-gradient(circle, hsla(190,55%,68%,0.16), transparent 70%)',
+          filter: 'blur(6px)',
+          pointerEvents: 'none',
         }}
-      >
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background:
-              'radial-gradient(circle at 12% 21%, rgba(255,255,255,.52) 0 22px, transparent 23px), radial-gradient(circle at 70% 17%, rgba(255,255,255,.35) 0 34px, transparent 35px)',
-          }}
-        />
+      />
+
+      {/* voyage track */}
+      <div style={{ position: 'relative', width: s.route, height: s.shipH + 14 }}>
         <div
           style={{
             position: 'absolute',
             left: 0,
             right: 0,
-            top: compact ? 60 : 84,
+            top: s.shipH / 2 + 5,
             height: 1,
-            background: 'linear-gradient(90deg, transparent, hsla(188,58%,32%,.28), transparent)',
+            backgroundImage:
+              'linear-gradient(90deg, hsla(190,30%,55%,.5) 0 5px, transparent 5px 12px)',
+            backgroundSize: '12px 1px',
           }}
         />
-
-        <PortMarker label="INDIA" side="left" compact={compact} />
-        <PortMarker label="USA" side="right" compact={compact} />
 
         <div
           style={{
             position: 'absolute',
-            left: compact ? 54 : 82,
-            right: compact ? 54 : 82,
-            top: compact ? 74 : 104,
-            height: 2,
-            borderRadius: 999,
-            backgroundImage: 'linear-gradient(90deg, hsla(173,58%,39%,.68) 0 14px, transparent 14px 26px)',
-            backgroundSize: '52px 2px',
-            animation: 'ewms-route-flow 1.8s linear infinite',
+            left: 0,
+            top: s.shipH / 2 + 5,
+            transform: 'translate(-50%, -100%)',
+            color: 'hsl(190 55% 34%)',
           }}
-        />
-
-        <CargoShip compact={compact} />
+        >
+          <MapPin size={s.hull * 0.95} strokeWidth={2.2} fill="hsl(190 45% 88%)" />
+        </div>
+        <div
+          style={{
+            position: 'absolute',
+            left: s.route,
+            top: s.shipH / 2 + 5,
+            transform: 'translate(-50%, -100%)',
+            color: 'hsl(9 55% 42%)',
+          }}
+        >
+          <MapPin size={s.hull * 0.95} strokeWidth={2.2} fill="hsl(9 55% 90%)" />
+        </div>
 
         <div
           style={{
             position: 'absolute',
-            left: -34,
-            right: -34,
-            bottom: compact ? 23 : 31,
-            height: compact ? 15 : 20,
-            background: 'repeating-radial-gradient(ellipse at center, hsla(185,42%,88%,.42) 0 5px, transparent 6px 18px)',
-            animation: 'ewms-sea-a 1.25s linear infinite alternate',
-            opacity: .78,
+            left: 0,
+            top: 0,
+            width: s.ship,
+            height: s.shipH,
+            animation: 'ewms-voyage 4.8s ease-in-out infinite',
           }}
-        />
-        <div
-          style={{
-            position: 'absolute',
-            left: -26,
-            right: -26,
-            bottom: compact ? 9 : 12,
-            height: compact ? 12 : 16,
-            background: 'repeating-radial-gradient(ellipse at center, hsla(202,64%,24%,.34) 0 5px, transparent 6px 20px)',
-            animation: 'ewms-sea-b 1.5s linear infinite alternate',
-            opacity: .7,
-          }}
-        />
+        >
+          <div style={{ animation: 'ewms-bob 1.6s ease-in-out infinite', width: '100%', height: '100%', position: 'relative' }}>
+            <CargoShip width={s.ship} height={s.shipH} hull={s.hull} />
+          </div>
+          <div
+            style={{
+              position: 'absolute',
+              bottom: -3,
+              left: s.ship * 0.08,
+              width: s.ship * 0.7,
+              height: 4,
+              borderRadius: 999,
+              background: 'hsla(195,35%,60%,.4)',
+              filter: 'blur(1.5px)',
+              animation: 'ewms-wake 1.6s ease-in-out infinite',
+            }}
+          />
+        </div>
       </div>
 
       <div style={{ textAlign: 'center' }}>
         <div
           style={{
-            fontSize: fullPage ? 16 : compact ? 12 : 14,
-            fontWeight: 900,
-            color: 'hsl(190 56% 28%)',
-            letterSpacing: fullPage ? '.06em' : '.08em',
-            animation: 'ewms-status 1.6s ease-in-out infinite',
+            display: 'flex',
+            alignItems: 'baseline',
+            justifyContent: 'center',
+            gap: 3,
+            fontSize: s.title,
+            fontWeight: 600,
+            color: 'hsl(215 25% 24%)',
+            letterSpacing: '.01em',
           }}
         >
-          EWMS CARGO IN TRANSIT
+          <span>Loading</span>
+          <span style={{ display: 'inline-flex', gap: 2 }}>
+            {[0, 0.2, 0.4].map((d) => (
+              <span
+                key={d}
+                style={{
+                  animation: `ewms-dot 1.3s ease-in-out ${d}s infinite`,
+                  fontWeight: 700,
+                }}
+              >
+                .
+              </span>
+            ))}
+          </span>
         </div>
         {!compact && (
-          <div style={{ marginTop: 4, fontSize: 12.5, color: 'hsl(215 16% 46%)' }}>
-            Sailing documents from India to USA
+          <div style={{ marginTop: 4, fontSize: s.sub, color: 'hsl(215 12% 52%)' }}>
+            Preparing your shipping documents
           </div>
         )}
       </div>
@@ -165,187 +172,65 @@ export function EwmsShipLoader({
   );
 }
 
-function CargoShip({ compact }: { compact: boolean }) {
-  const shipWidth = compact ? 150 : 220;
-  const shipHeight = compact ? 52 : 72;
-  const hullHeight = compact ? 24 : 32;
-  const containerSize = compact ? { width: 20, height: 9 } : { width: 28, height: 12 };
-  const containers = [
-    ['hsl(9 72% 46%)', 'hsl(42 82% 48%)', 'hsl(205 66% 42%)', 'hsl(154 54% 36%)'],
-    ['hsl(205 66% 42%)', 'hsl(154 54% 36%)', 'hsl(9 72% 46%)'],
-    ['hsl(42 82% 48%)', 'hsl(205 66% 42%)'],
-  ];
+function CargoShip({ width, height, hull }: { width: number; height: number; hull: number }) {
+  const crateH = hull * 0.42;
+  const crateW = width * 0.13;
+  const crateGap = width * 0.02;
+  const crates = ['hsl(9 62% 50%)', 'hsl(190 45% 38%)', 'hsl(42 70% 50%)'];
 
   return (
-    <div
-      style={{
-        position: 'absolute',
-        width: shipWidth,
-        height: shipHeight,
-        left: '17%',
-        top: compact ? 56 : 78,
-        transform: 'translateX(-50%)',
-        animation: 'ewms-cargo-cross 4.6s ease-in-out infinite',
-        zIndex: 4,
-      }}
-    >
+    <div style={{ position: 'relative', width, height }}>
+      {/* crates on deck */}
       <div
         style={{
           position: 'absolute',
-          left: compact ? 20 : 32,
-          top: compact ? 5 : 7,
+          left: width * 0.22,
+          top: height - hull - crateH + 1,
           display: 'flex',
-          alignItems: 'flex-end',
-          gap: compact ? 3 : 4,
+          gap: crateGap,
         }}
       >
-        {containers.flatMap((row, rowIndex) =>
-          row.map((color, index) => (
-            <span
-              key={`${rowIndex}-${index}`}
-              style={{
-                width: containerSize.width,
-                height: containerSize.height,
-                background: color,
-                border: '1px solid rgba(255,255,255,.30)',
-                boxShadow: 'inset 0 -3px 0 rgba(0,0,0,.12)',
-                position: 'absolute',
-                left: index * (containerSize.width + (compact ? 2 : 3)) + rowIndex * (compact ? 11 : 15),
-                top: (2 - rowIndex) * (containerSize.height + (compact ? 1 : 2)),
-              }}
-            />
-          )),
-        )}
-      </div>
-
-      <div
-        style={{
-          position: 'absolute',
-          right: compact ? 28 : 40,
-          top: compact ? 12 : 16,
-          width: compact ? 30 : 42,
-          height: compact ? 24 : 32,
-          background: 'linear-gradient(180deg, hsl(210 18% 94%), hsl(210 14% 78%))',
-          borderRadius: '3px 3px 1px 1px',
-          border: '1px solid hsla(210,20%,35%,.18)',
-          boxShadow: 'inset 0 -5px 0 rgba(0,0,0,.08)',
-        }}
-      >
-        <span style={{ position: 'absolute', left: 5, top: 5, width: 6, height: 4, background: 'hsl(200 58% 42%)', borderRadius: 1 }} />
-        <span style={{ position: 'absolute', left: 15, top: 5, width: 6, height: 4, background: 'hsl(200 58% 42%)', borderRadius: 1 }} />
-        <span style={{ position: 'absolute', right: 6, bottom: 6, width: 8, height: 5, background: 'hsl(200 58% 42%)', borderRadius: 1 }} />
-      </div>
-
-      <div style={{ position: 'absolute', right: compact ? 36 : 52, top: compact ? 2 : 3, width: 6, height: 16, background: 'hsl(215 22% 28%)', borderRadius: '2px 2px 0 0' }}>
-        {[0, 0.75, 1.5].map((delay) => (
+        {crates.map((color, i) => (
           <span
-            key={delay}
+            key={i}
             style={{
-              position: 'absolute',
-              left: -2,
-              top: -5,
-              width: 10,
-              height: 10,
-              borderRadius: '50%',
-              background: 'hsla(210,14%,58%,.38)',
-              animation: `ewms-smoke 2.1s ease-out ${delay}s infinite`,
+              width: crateW,
+              height: crateH,
+              background: color,
+              borderRadius: 1,
+              boxShadow: 'inset 0 -2px 0 rgba(0,0,0,.14)',
             }}
           />
         ))}
       </div>
 
+      {/* hull with EWMS wordmark */}
       <div
         style={{
           position: 'absolute',
           left: 0,
           right: 0,
           bottom: 0,
-          height: hullHeight,
-          background: 'linear-gradient(180deg, hsl(213 33% 28%), hsl(213 42% 18%))',
-          clipPath: 'polygon(3% 0, 92% 0, 100% 36%, 86% 100%, 16% 100%, 0 35%)',
-          boxShadow: 'inset 0 -8px 0 hsla(0,0%,0%,.18)',
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          left: compact ? 15 : 22,
-          right: compact ? 18 : 28,
-          bottom: compact ? 12 : 17,
-          height: 2,
-          background: 'hsl(43 76% 52%)',
-          opacity: .9,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          left: compact ? -26 : -36,
-          bottom: compact ? 2 : 4,
-          width: compact ? 42 : 58,
-          height: compact ? 8 : 10,
-          background: 'linear-gradient(90deg, transparent, hsla(185,48%,92%,.72), transparent)',
-          borderRadius: 999,
-          filter: 'blur(.2px)',
-        }}
-      />
-    </div>
-  );
-}
-
-function PortMarker({ label, side, compact }: { label: string; side: 'left' | 'right'; compact: boolean }) {
-  const anchorPosition = side === 'left' ? { left: compact ? 14 : 22 } : { right: compact ? 14 : 22 };
-  const labelPosition = side === 'left' ? { left: compact ? 12 : 20 } : { right: compact ? 12 : 20 };
-
-  return (
-    <>
-      <div
-        style={{
-          position: 'absolute',
-          top: compact ? 55 : 78,
-          ...anchorPosition,
-          width: compact ? 32 : 40,
-          height: compact ? 32 : 40,
-          borderRadius: 8,
-          background: 'linear-gradient(180deg, rgba(255,255,255,.84), rgba(255,255,255,.62))',
-          border: '1px solid hsla(188,58%,32%,.25)',
-          color: 'hsl(188 58% 30%)',
+          height: hull,
+          background: 'linear-gradient(180deg, hsl(213 30% 30%), hsl(213 40% 17%))',
+          clipPath: 'polygon(4% 0, 94% 0, 100% 40%, 88% 100%, 12% 100%, 0 38%)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          boxShadow: '0 8px 18px hsla(205,46%,26%,.12)',
-          zIndex: 3,
         }}
       >
-        <Anchor size={compact ? 15 : 18} strokeWidth={2.2} />
+        <span
+          style={{
+            fontSize: Math.max(hull * 0.4, 9),
+            fontWeight: 800,
+            letterSpacing: '.09em',
+            color: 'hsl(0 0% 97%)',
+            marginTop: hull * 0.06,
+          }}
+        >
+          EWMS
+        </span>
       </div>
-      <div
-        style={{
-          position: 'absolute',
-          bottom: compact ? 9 : 12,
-          ...labelPosition,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          fontSize: compact ? 10 : 11,
-          fontWeight: 900,
-          letterSpacing: '.08em',
-          color: 'hsl(188 58% 26%)',
-          zIndex: 3,
-        }}
-      >
-        {side === 'left' && <span style={beaconStyle} />}
-        <span>{label}</span>
-        {side === 'right' && <span style={beaconStyle} />}
-      </div>
-    </>
+    </div>
   );
 }
-
-const beaconStyle = {
-  width: 7,
-  height: 7,
-  borderRadius: '50%',
-  background: 'hsl(173 58% 39%)',
-  animation: 'ewms-beacon 1.5s ease-in-out infinite',
-} as const;

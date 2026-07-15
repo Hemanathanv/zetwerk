@@ -1,18 +1,14 @@
-import { useRef, useMemo } from 'react'
-import Map, { Source, Layer, Marker } from 'react-map-gl/maplibre'
-import 'maplibre-gl/dist/maplibre-gl.css'
-import type { MapRef, LngLatBoundsLike } from 'react-map-gl/maplibre'
-import type { VesselMapProps, RouteNode } from '../utils/safeCubeMapAdapter'
+import { useEffect, useMemo } from 'react'
+import L, { type LatLngBoundsExpression } from 'leaflet'
+import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip, useMap } from 'react-leaflet'
+import 'leaflet/dist/leaflet.css'
+import type { BreadcrumbPoint, RouteNode, StopPoint, VesselMapProps } from '../utils/safeCubeMapAdapter'
 import { resolvePortCoords } from '../utils/mapProjection'
 
-const MAP_STYLE = 'https://tiles.openfreemap.org/styles/dark'
-
-const TEAL      = '#1D9E75'
-const AMBER     = '#D97706'
+const TEAL = '#1D9E75'
+const AMBER = '#D97706'
 const WHITE_DIM = 'rgba(255,255,255,0.55)'
-const WHITE_FULL= 'rgba(255,255,255,0.92)'
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
+const WHITE_FULL = 'rgba(255,255,255,0.92)'
 
 function fmtDate(d: string | null, isActual: boolean): string {
   if (!d) return ''
@@ -23,11 +19,11 @@ function fmtDate(d: string | null, isActual: boolean): string {
 function aisLabel(status: string | null): string {
   if (!status) return ''
   const m: Record<string, string> = {
-    UNDERWAY_USING_ENGINE:      'Underway',
-    AT_ANCHOR:                  'At anchor',
-    MOORED:                     'Moored',
-    UNDERWAY_SAILING:           'Under sail',
-    NOT_UNDER_COMMAND:          'Not under command',
+    UNDERWAY_USING_ENGINE: 'Underway',
+    AT_ANCHOR: 'At anchor',
+    MOORED: 'Moored',
+    UNDERWAY_SAILING: 'Under sail',
+    NOT_UNDER_COMMAND: 'Not under command',
     RESTRICTED_MANOEUVRABILITY: 'Restricted',
   }
   return m[status] ?? status.replace(/_/g, ' ').toLowerCase()
@@ -48,17 +44,18 @@ function deriveHeading(breadcrumb: { lat: number; lng: number }[]): number {
 }
 
 function nodeRingColor(node: RouteNode): string {
-  if (node.cleared)  return TEAL
+  if (node.cleared) return TEAL
   if (node.isActual) return AMBER
   return 'rgba(255,255,255,0.25)'
 }
 
-// Deduplicate breadcrumb: drop points within 0.4° of the previous kept point
-// so multiple events at the same port don't create micro-zigzags.
-function dedupBreadcrumb(pts: { lat: number; lng: number }[]): { lat: number; lng: number }[] {
-  const out: { lat: number; lng: number }[] = []
+function dedupBreadcrumb(pts: BreadcrumbPoint[]): BreadcrumbPoint[] {
+  const out: BreadcrumbPoint[] = []
   for (const p of pts) {
-    if (out.length === 0) { out.push(p); continue }
+    if (out.length === 0) {
+      out.push(p)
+      continue
+    }
     const prev = out[out.length - 1]
     if (Math.abs(p.lat - prev.lat) > 0.4 || Math.abs(p.lng - prev.lng) > 0.4) {
       out.push(p)
@@ -67,130 +64,91 @@ function dedupBreadcrumb(pts: { lat: number; lng: number }[]): { lat: number; ln
   return out
 }
 
-// ── Port marker component ─────────────────────────────────────────────────────
-function PortMarker({ node }: { node: RouteNode & { lat: number; lng: number } }) {
-  const ring  = nodeRingColor(node)
-  const label = node.locode ?? node.name.split(' ').slice(0, 2).join(' ')
-  const date  = fmtDate(node.at, node.isActual)
+function createDivIcon(html: string, className: string, size: [number, number], anchor: [number, number]) {
+  return L.divIcon({
+    html,
+    className,
+    iconSize: size,
+    iconAnchor: anchor,
+  })
+}
 
-  return (
-    <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', pointerEvents: 'none' }}>
-      {/* Glow behind cleared nodes */}
-      {node.cleared && (
-        <div style={{
-          position: 'absolute', top: -3, left: -3,
-          width: 18, height: 18, borderRadius: '50%',
-          background: TEAL, opacity: 0.18,
-        }} />
-      )}
-      {/* Ring */}
-      <div style={{
-        width: 12, height: 12, borderRadius: '50%',
-        background: ring,
-        border: `1.5px solid ${node.cleared ? TEAL : 'rgba(255,255,255,0.2)'}`,
-        boxShadow: node.cleared ? `0 0 6px ${TEAL}88` : 'none',
-        position: 'relative', zIndex: 1,
-      }}>
-        {/* Centre pip */}
-        <div style={{
-          position: 'absolute', top: '50%', left: '50%',
-          transform: 'translate(-50%,-50%)',
-          width: 4, height: 4, borderRadius: '50%',
-          background: node.cleared ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.2)',
-        }} />
-      </div>
-      {/* Label */}
-      <div style={{ marginTop: 5, textAlign: 'center', lineHeight: 1.3 }}>
-        <div style={{
-          fontSize: 9, fontWeight: 600, letterSpacing: '0.06em',
-          color: node.cleared ? WHITE_FULL : WHITE_DIM,
-          textTransform: 'uppercase',
-          textShadow: '0 1px 3px rgba(0,0,0,0.9)',
-          whiteSpace: 'nowrap',
-        }}>
-          {label}
-        </div>
-        {date && (
-          <div style={{
-            fontSize: 8.5, fontWeight: 500,
-            color: node.isActual ? TEAL : AMBER,
-            textShadow: '0 1px 3px rgba(0,0,0,0.9)',
-            whiteSpace: 'nowrap',
-          }}>
-            {date}
-          </div>
-        )}
-      </div>
-    </div>
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
+function portIcon(node: RouteNode) {
+  const ring = nodeRingColor(node)
+  const label = escapeHtml(node.locode ?? node.name.split(' ').slice(0, 2).join(' '))
+  const date = escapeHtml(fmtDate(node.at, node.isActual))
+  const glow = node.cleared
+    ? `<span class="ewms-port-glow"></span>`
+    : ''
+  const dateHtml = date
+    ? `<span class="ewms-port-date" style="color:${node.isActual ? TEAL : AMBER}">${date}</span>`
+    : ''
+
+  return createDivIcon(
+    `<span class="ewms-port-marker">
+      ${glow}
+      <span class="ewms-port-ring" style="background:${ring};border-color:${node.cleared ? TEAL : 'rgba(255,255,255,0.2)'}">
+        <span style="background:${node.cleared ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.2)'}"></span>
+      </span>
+      <span class="ewms-port-label" style="color:${node.cleared ? WHITE_FULL : WHITE_DIM}">${label}</span>
+      ${dateHtml}
+    </span>`,
+    'ewms-leaflet-div-icon',
+    [92, 56],
+    [46, 8],
   )
 }
 
-// ── Vessel icon component ─────────────────────────────────────────────────────
-function VesselIcon({ heading }: { heading: number }) {
-  return (
-    <div style={{ position: 'relative', width: 0, height: 0 }}>
-      {/* Pulse ring */}
-      <div style={{
-        position: 'absolute', top: -14, left: -14,
-        width: 28, height: 28, borderRadius: '50%',
-        border: `1.5px solid ${TEAL}`,
-        animation: 'vessel-pulse 2.2s ease-out infinite',
-      }} />
-      {/* Ship SVG rotated by heading */}
-      <div style={{ transform: `translate(-50%, -50%) rotate(${heading}deg)`, position: 'absolute' }}>
-        <svg width="32" height="32" viewBox="-16 -16 32 32">
-          {/* Hull */}
-          <rect x={-10} y={-4} width={20} height={8} rx={3} fill="#E6F1FB" />
-          {/* Superstructure */}
-          <rect x={-5} y={-9} width={10} height={6} rx={2} fill="#B5D4F4" />
-          {/* Mast */}
-          <rect x={-1} y={-13} width={2} height={5} fill="#378ADD" />
-          {/* Boom */}
-          <rect x={0} y={-13} width={6} height={3} rx={1} fill="#378ADD" opacity={0.55} />
-          {/* Waterline shadow */}
-          <rect x={-11} y={3} width={22} height={2.5} rx={1.2} fill="#0F6E56" opacity={0.45} />
+function stopIcon(stop: StopPoint) {
+  const label = escapeHtml(stop.locode ?? stop.name?.split(' ').slice(0, 2).join(' ') ?? 'Stop')
+  return createDivIcon(
+    `<span class="ewms-stop-marker">
+      <span class="ewms-stop-dot"></span>
+      <span class="ewms-stop-label">${label}</span>
+    </span>`,
+    'ewms-leaflet-div-icon',
+    [72, 34],
+    [36, 7],
+  )
+}
+
+function vesselIcon(heading: number) {
+  return createDivIcon(
+    `<span class="ewms-vessel-marker">
+      <span class="ewms-vessel-pulse"></span>
+      <span class="ewms-vessel-ship" style="transform:translate(-50%, -50%) rotate(${heading}deg)">
+        <svg width="32" height="32" viewBox="-16 -16 32 32" aria-hidden="true">
+          <rect x="-10" y="-4" width="20" height="8" rx="3" fill="#E6F1FB" />
+          <rect x="-5" y="-9" width="10" height="6" rx="2" fill="#B5D4F4" />
+          <rect x="-1" y="-13" width="2" height="5" fill="#378ADD" />
+          <rect x="0" y="-13" width="6" height="3" rx="1" fill="#378ADD" opacity="0.55" />
+          <rect x="-11" y="3" width="22" height="2.5" rx="1.2" fill="#0F6E56" opacity="0.45" />
         </svg>
-      </div>
-    </div>
+      </span>
+    </span>`,
+    'ewms-leaflet-div-icon',
+    [36, 36],
+    [18, 18],
   )
 }
 
-// ── MapLibre layer paint configs ──────────────────────────────────────────────
-const routeSpineLayer: any = {
-  id: 'route-spine',
-  type: 'line',
-  paint: {
-    'line-color': 'rgba(255,255,255,0.22)',
-    'line-width': 1.5,
-    'line-dasharray': [5, 4],
-  },
-  layout: { 'line-join': 'round', 'line-cap': 'round' },
+function FitBounds({ bounds }: { bounds?: LatLngBoundsExpression }) {
+  const map = useMap()
+  useEffect(() => {
+    if (bounds) map.fitBounds(bounds, { padding: [48, 48], maxZoom: 8 })
+  }, [bounds, map])
+  return null
 }
 
-const breadcrumbLayer: any = {
-  id: 'breadcrumb',
-  type: 'line',
-  paint: {
-    'line-color': TEAL,
-    'line-width': 2.5,
-    'line-opacity': 0.85,
-  },
-  layout: { 'line-join': 'round', 'line-cap': 'round' },
-}
-
-const breadcrumbDotsLayer: any = {
-  id: 'breadcrumb-dots',
-  type: 'circle',
-  paint: {
-    'circle-radius': 3,
-    'circle-color': TEAL,
-    'circle-opacity': 0.7,
-    'circle-stroke-color': 'rgba(7,30,50,0.8)',
-    'circle-stroke-width': 1,
-  },
-}
-
-// ── Main component ────────────────────────────────────────────────────────────
 export default function VesselRouteMap({
   liveLat,
   liveLng,
@@ -200,80 +158,58 @@ export default function VesselRouteMap({
   vesselImo,
   vesselFlag,
   routeNodes,
+  routePoints,
   breadcrumb,
+  stops,
   currentLocationName,
   etaAt,
   etaLabel,
   scheduleStatus,
 }: VesselMapProps) {
-
-  const mapRef = useRef<MapRef>(null)
-
-  // ── Resolve port coordinates ────────────────────────────────────────────────
   const portCoords = useMemo(() =>
-    routeNodes.map(node => {
-      const c = resolvePortCoords(node.locode, node.name)
-      return c ? { ...node, lat: c.lat, lng: c.lng } : null
-    }).filter(Boolean) as Array<RouteNode & { lat: number; lng: number }>
+    routeNodes
+      .map(node => {
+        const c = node.lat != null && node.lng != null
+          ? { lat: node.lat, lng: node.lng }
+          : resolvePortCoords(node.locode, node.name)
+        return c ? { ...node, lat: c.lat, lng: c.lng } : null
+      })
+      .filter(Boolean) as Array<RouteNode & { lat: number; lng: number }>
   , [routeNodes])
 
-  // ── Route spine GeoJSON ────────────────────────────────────────────────────
-  const routeGeoJSON = useMemo(() => {
-    if (portCoords.length < 2) return null
-    return {
-      type: 'FeatureCollection' as const,
-      features: [{
-        type: 'Feature' as const,
-        geometry: { type: 'LineString' as const, coordinates: portCoords.map(p => [p.lng, p.lat]) },
-        properties: {},
-      }],
-    }
-  }, [portCoords])
+  const dedupedBreadcrumb = useMemo(() => dedupBreadcrumb(breadcrumb), [breadcrumb])
 
-  // ── Breadcrumb GeoJSON ─────────────────────────────────────────────────────
-  const crumbGeoJSON = useMemo(() => {
-    const deduped = dedupBreadcrumb(breadcrumb)
-    if (deduped.length === 0) return null
-    const coords = deduped.map(b => [b.lng, b.lat])
-    return {
-      type: 'FeatureCollection' as const,
-      features: [
-        ...(coords.length >= 2 ? [{
-          type: 'Feature' as const,
-          geometry: { type: 'LineString' as const, coordinates: coords },
-          properties: {},
-        }] : []),
-        ...coords.map(c => ({
-          type: 'Feature' as const,
-          geometry: { type: 'Point' as const, coordinates: c },
-          properties: {},
-        })),
-      ],
-    }
-  }, [breadcrumb])
+  const portLine = useMemo(() =>
+    portCoords.map(p => [p.lat, p.lng] as [number, number])
+  , [portCoords])
 
-  // ── Camera bounds ───────────────────────────────────────────────────────────
-  const initialBounds = useMemo((): LngLatBoundsLike | undefined => {
+  const seaRouteLine = useMemo(() =>
+    routePoints.map(p => [p.lat, p.lng] as [number, number])
+  , [routePoints])
+
+  const stopCoords = useMemo(() =>
+    stops.map(p => [p.lat, p.lng] as [number, number])
+  , [stops])
+
+  const breadcrumbLine = useMemo(() =>
+    dedupedBreadcrumb.map(p => [p.lat, p.lng] as [number, number])
+  , [dedupedBreadcrumb])
+
+  const bounds = useMemo((): LatLngBoundsExpression | undefined => {
     const all: [number, number][] = [
-      ...portCoords.map(p => [p.lng, p.lat] as [number, number]),
-      ...breadcrumb.map(b => [b.lng, b.lat] as [number, number]),
-      ...(liveLat != null && liveLng != null ? [[liveLng, liveLat] as [number, number]] : []),
+      ...seaRouteLine,
+      ...portLine,
+      ...stopCoords,
+      ...(liveLat != null && liveLng != null ? [[liveLat, liveLng] as [number, number]] : []),
     ]
     if (all.length === 0) return undefined
-    const lngs = all.map(c => c[0])
-    const lats = all.map(c => c[1])
-    const pad = 8
-    return [
-      [Math.min(...lngs) - pad, Math.min(...lats) - pad],
-      [Math.max(...lngs) + pad, Math.max(...lats) + pad],
-    ]
-  }, [portCoords, breadcrumb, liveLat, liveLng])
+    return all
+  }, [seaRouteLine, portLine, stopCoords, liveLat, liveLng])
 
-  const heading = useMemo(() => deriveHeading(breadcrumb), [breadcrumb])
+  const heading = useMemo(() => deriveHeading(dedupedBreadcrumb), [dedupedBreadcrumb])
   const etaDisplay = etaLabel ?? (etaAt ? new Date(etaAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '')
 
-  // ── Empty guard ─────────────────────────────────────────────────────────────
-  if (portCoords.length === 0 && liveLat == null) {
+  if (portCoords.length === 0 && seaRouteLine.length === 0 && liveLat == null) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 320, borderRadius: 14, background: '#071e32', border: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ textAlign: 'center' }}>
@@ -286,73 +222,220 @@ export default function VesselRouteMap({
 
   return (
     <>
-      {/* Pulse keyframe — injected once */}
       <style>{`
         @keyframes vessel-pulse {
-          0%   { transform: scale(0.8); opacity: 0.6; }
-          70%  { transform: scale(1.6); opacity: 0; }
+          0% { transform: scale(0.8); opacity: 0.6; }
+          70% { transform: scale(1.6); opacity: 0; }
           100% { transform: scale(0.8); opacity: 0; }
+        }
+        .ewms-vessel-route-map .leaflet-container {
+          width: 100%;
+          height: 100%;
+          background: #071e32;
+          font-family: inherit;
+        }
+        .ewms-vessel-route-map .leaflet-control-attribution {
+          display: none;
+        }
+        .ewms-leaflet-div-icon {
+          background: transparent;
+          border: 0;
+        }
+        .ewms-port-marker {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          pointer-events: auto;
+          width: 92px;
+        }
+        .ewms-port-glow {
+          position: absolute;
+          top: -3px;
+          width: 18px;
+          height: 18px;
+          border-radius: 50%;
+          background: ${TEAL};
+          opacity: 0.18;
+        }
+        .ewms-port-ring {
+          position: relative;
+          z-index: 1;
+          width: 12px;
+          height: 12px;
+          border-radius: 50%;
+          border: 1.5px solid rgba(255,255,255,0.2);
+          box-shadow: 0 0 6px ${TEAL}55;
+        }
+        .ewms-port-ring > span {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          width: 4px;
+          height: 4px;
+          border-radius: 50%;
+          transform: translate(-50%, -50%);
+        }
+        .ewms-port-label,
+        .ewms-port-date {
+          margin-top: 5px;
+          max-width: 92px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          text-align: center;
+          text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+        }
+        .ewms-port-label {
+          font-size: 9px;
+          font-weight: 600;
+          text-transform: uppercase;
+        }
+        .ewms-port-date {
+          margin-top: 2px;
+          font-size: 8.5px;
+          font-weight: 500;
+        }
+        .ewms-vessel-marker {
+          position: relative;
+          display: block;
+          width: 36px;
+          height: 36px;
+        }
+        .ewms-vessel-pulse {
+          position: absolute;
+          top: 4px;
+          left: 4px;
+          width: 28px;
+          height: 28px;
+          border-radius: 50%;
+          border: 1.5px solid ${TEAL};
+          animation: vessel-pulse 2.2s ease-out infinite;
+        }
+        .ewms-vessel-ship {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform-origin: center;
+        }
+        .ewms-stop-marker {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          width: 72px;
+        }
+        .ewms-stop-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: rgba(255,255,255,0.88);
+          border: 2px solid ${TEAL};
+          box-shadow: 0 0 0 3px rgba(29,158,117,0.16);
+        }
+        .ewms-stop-label {
+          margin-top: 4px;
+          max-width: 72px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: rgba(255,255,255,0.78);
+          font-size: 8px;
+          font-weight: 600;
+          text-transform: uppercase;
+          text-shadow: 0 1px 3px rgba(0,0,0,0.9);
         }
       `}</style>
 
-      <div style={{ position: 'relative', height: 320, borderRadius: 14, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
-
-        {/* ── MapLibre map ──────────────────────────────────────────────── */}
-        <Map
-          ref={mapRef}
-          mapStyle={MAP_STYLE}
-          initialViewState={
-            initialBounds
-              ? { bounds: initialBounds, fitBoundsOptions: { padding: 48, maxZoom: 8 } }
-              : { longitude: 90, latitude: 25, zoom: 2 }
-          }
-          style={{ width: '100%', height: '100%' }}
-          scrollZoom
-          dragPan
-          attributionControl={false}
+      <div className="ewms-vessel-route-map" style={{ position: 'relative', height: 320, borderRadius: 14, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+        <MapContainer
+          center={liveLat != null && liveLng != null ? [liveLat, liveLng] : [25, 90]}
+          zoom={liveLat != null && liveLng != null ? 5 : 2}
+          scrollWheelZoom
+          zoomControl={false}
         >
-          {/* Planned route spine */}
-          {routeGeoJSON && (
-            <Source id="route-spine-src" type="geojson" data={routeGeoJSON}>
-              <Layer {...routeSpineLayer} />
-            </Source>
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution="&copy; OpenStreetMap contributors"
+          />
+          <FitBounds bounds={bounds} />
+
+          {portLine.length >= 2 && seaRouteLine.length < 2 && (
+            <Polyline
+              positions={portLine}
+              pathOptions={{ color: 'rgba(255,255,255,0.42)', weight: 2, dashArray: '6 6' }}
+            />
           )}
 
-          {/* Sailed breadcrumb line + dots */}
-          {crumbGeoJSON && (
-            <Source id="crumb-src" type="geojson" data={crumbGeoJSON}>
-              <Layer {...breadcrumbLayer} filter={['==', '$type', 'LineString']} />
-              <Layer {...breadcrumbDotsLayer} filter={['==', '$type', 'Point']} />
-            </Source>
+          {seaRouteLine.length >= 2 && (
+            <Polyline
+              positions={seaRouteLine}
+              pathOptions={{ color: TEAL, weight: 3, opacity: 0.88 }}
+            />
           )}
 
-          {/* Port node markers */}
-          {portCoords.map(node => (
+          {seaRouteLine.length < 2 && breadcrumbLine.length >= 2 && (
+            <Polyline
+              positions={breadcrumbLine}
+              pathOptions={{ color: TEAL, weight: 3, opacity: 0.88 }}
+            />
+          )}
+
+          {stops.map(stop => (
             <Marker
-              key={node.type}
-              longitude={node.lng}
-              latitude={node.lat}
-              anchor="top"
-              offset={[0, -6]}
+              key={stop.id}
+              position={[stop.lat, stop.lng]}
+              icon={stopIcon(stop)}
             >
-              <PortMarker node={node} />
+              <Popup>
+                <strong>{stop.name || stop.locode || 'Ship stop'}</strong>
+                {stop.locode ? <div>{stop.locode}</div> : null}
+                {stop.description ? <div>{stop.description}</div> : null}
+                {stop.eventAt ? <div>{new Date(stop.eventAt).toLocaleString()}</div> : null}
+              </Popup>
             </Marker>
           ))}
 
-          {/* Live vessel */}
+          {dedupedBreadcrumb.map(point => (
+            <CircleMarker
+              key={`${point.sequenceNo}-${point.lat}-${point.lng}`}
+              center={[point.lat, point.lng]}
+              radius={3}
+              pathOptions={{ color: 'rgba(7,30,50,0.8)', weight: 1, fillColor: TEAL, fillOpacity: 0.75 }}
+            >
+              <Tooltip direction="top" offset={[0, -4]}>
+                {point.locationName || point.description || 'Tracking event'}
+              </Tooltip>
+            </CircleMarker>
+          ))}
+
+          {portCoords.map(node => (
+            <Marker
+              key={node.type}
+              position={[node.lat, node.lng]}
+              icon={portIcon(node)}
+            >
+              <Popup>
+                <strong>{node.name}</strong>
+                {node.locode ? <div>{node.locode}</div> : null}
+                {node.at ? <div>{fmtDate(node.at, node.isActual)}</div> : null}
+              </Popup>
+            </Marker>
+          ))}
+
           {liveLat != null && liveLng != null && (
-            <Marker longitude={liveLng} latitude={liveLat} anchor="center">
-              <VesselIcon heading={heading} />
+            <Marker position={[liveLat, liveLng]} icon={vesselIcon(heading)}>
+              <Popup>
+                <strong>{vesselName || 'Vessel'}</strong>
+                {currentLocationName ? <div>{currentLocationName}</div> : null}
+              </Popup>
             </Marker>
           )}
-        </Map>
+        </MapContainer>
 
-        {/* ── HUD overlays (above the map) ─────────────────────────────── */}
-
-        {/* Top-left: AIS status */}
         {aisStatus && (
           <div style={{
-            position: 'absolute', top: 10, left: 10, zIndex: 10,
+            position: 'absolute', top: 10, left: 10, zIndex: 500,
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '4px 10px', borderRadius: 99,
             background: 'rgba(7,30,50,0.88)',
@@ -360,30 +443,28 @@ export default function VesselRouteMap({
             fontSize: 10, fontWeight: 500, color: WHITE_FULL,
             backdropFilter: 'blur(4px)',
           }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#34d399', display: 'inline-block', animation: 'pulse 2s infinite' }} />
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#34d399', display: 'inline-block' }} />
             {aisLabel(aisStatus)}
             {vesselFlag && <span style={{ marginLeft: 2, opacity: 0.55 }}>{vesselFlag}</span>}
           </div>
         )}
 
-        {/* Current location label (near top-left, below AIS badge if both present) */}
         {currentLocationName && !aisStatus && (
           <div style={{
-            position: 'absolute', top: 10, left: 10, zIndex: 10,
+            position: 'absolute', top: 10, left: 10, zIndex: 500,
             padding: '4px 10px', borderRadius: 99,
             background: 'rgba(7,30,50,0.88)',
             border: '0.5px solid rgba(255,255,255,0.12)',
             fontSize: 10, color: WHITE_DIM,
             backdropFilter: 'blur(4px)',
           }}>
-            {currentLocationName.length > 28 ? currentLocationName.slice(0, 28) + '…' : currentLocationName}
+            {currentLocationName.length > 28 ? `${currentLocationName.slice(0, 28)}...` : currentLocationName}
           </div>
         )}
 
-        {/* Top-right: ETA chip */}
         {etaDisplay && (
           <div style={{
-            position: 'absolute', top: 10, right: 10, zIndex: 10,
+            position: 'absolute', top: 10, right: 10, zIndex: 500,
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '4px 10px', borderRadius: 99,
             background: 'rgba(7,30,50,0.88)',
@@ -394,15 +475,14 @@ export default function VesselRouteMap({
             <span style={{ color: WHITE_DIM }}>ETA</span>
             <span style={{ color: WHITE_FULL }}>{etaDisplay}</span>
             {scheduleStatus && (
-              <span style={{ color: scheduleColor(scheduleStatus) }}>· {scheduleStatus}</span>
+              <span style={{ color: scheduleColor(scheduleStatus) }}>- {scheduleStatus}</span>
             )}
           </div>
         )}
 
-        {/* Bottom-left: vessel identity */}
         {vesselName && (
           <div style={{
-            position: 'absolute', bottom: 10, left: 10, zIndex: 10,
+            position: 'absolute', bottom: 10, left: 10, zIndex: 500,
             fontSize: 10, color: WHITE_DIM,
             textShadow: '0 1px 4px rgba(0,0,0,0.8)',
           }}>
@@ -411,10 +491,9 @@ export default function VesselRouteMap({
           </div>
         )}
 
-        {/* Bottom-right: last AIS update */}
         {livePositionUpdatedAt && (
           <div style={{
-            position: 'absolute', bottom: 10, right: 10, zIndex: 10,
+            position: 'absolute', bottom: 10, right: 10, zIndex: 500,
             fontSize: 10, color: 'rgba(255,255,255,0.28)',
             textShadow: '0 1px 4px rgba(0,0,0,0.8)',
           }}>

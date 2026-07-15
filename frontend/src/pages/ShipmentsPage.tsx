@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useLocation } from 'wouter';
-import { Search, Plus, X, ChevronUp, ChevronDown, RefreshCw } from 'lucide-react';
+import { Search, Plus, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { StatusPill, FilterChips, ProgressBar, PageHeader } from '@/components/vs';
@@ -13,7 +13,7 @@ import { ScheduleStatusBadge } from '@/components/SafeCubePanel';
 interface ShipmentListRow {
   realId: string;
   id: string;
-  bol: string;
+  mbl: string;
   buyer: string;
   vessel: string;
   route: string;
@@ -45,9 +45,10 @@ interface ShipmentListRow {
 
 type SortKey = 'id' | 'vessel' | 'projectCode' | 'stage' | 'loadMode' | 'docs' | 'eta' | 'alerts';
 type SortDir = 'asc' | 'desc';
+const PAGE_SIZE = 20;
 
 const COLUMNS: { label: string; key: SortKey }[] = [
-  { label: 'Shipment / BOL',  key: 'id'          },
+  { label: 'Shipment ID / MBL', key: 'id'        },
   { label: 'Vessel · Route',  key: 'vessel'       },
   { label: 'Project',         key: 'projectCode'  },
   { label: 'Stage · Phase',   key: 'stage'        },
@@ -74,7 +75,7 @@ function mapApiShipment(s: any): ShipmentListRow {
   const gates = [...(s.shipmentGates ?? [])].sort(
     (a: any, b: any) => (a.gateConfig?.gateNumber ?? 999) - (b.gateConfig?.gateNumber ?? 999)
   );
-  const activeGate  = gates.find((g: any) => g.status === 'ACTIVE');
+  const activeGate  = gates.find((g: any) => g.status === 'ACTIVE' || g.status === 'OPEN');
   const blockedGate = gates.find((g: any) => g.status === 'BLOCKED');
   const passedCount = gates.filter((g: any) => g.status === 'PASSED').length;
   const totalGates  = gates.length;
@@ -137,7 +138,7 @@ function mapApiShipment(s: any): ShipmentListRow {
   return {
     realId:      s.id,
     id:          s.shipmentNumber ?? s.id,
-    bol:         s.bolNumber ?? '—',
+    mbl:         s.mblNumber ?? s.shipmentNumber ?? '—',
     buyer:       s.buyerName ?? s.exporterName ?? '—',
     vessel:      s.vesselName ?? 'TBD',
     route:       [s.portOfLoading, s.portOfDischarge].filter(Boolean).join(' → ') || '—',
@@ -228,11 +229,13 @@ export function ShipmentsPage() {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
   const [total,   setTotal]   = useState(0);
+  const [page,    setPage]    = useState(1);
   const [lastFetch, setLastFetch] = useState<Date | null>(null);
 
   const [activeChip,     setActiveChip]     = useState(0);
   const [projectFilter,  setProjectFilter]  = useState('All Projects');
   const [search,         setSearch]         = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sortKey,        setSortKey]        = useState<SortKey>('eta');
   const [sortDir,        setSortDir]        = useState<SortDir>('asc');
 
@@ -248,7 +251,12 @@ export function ShipmentsPage() {
     setError(null);
     try {
       const token = getAuthToken();
-      const res   = await fetch('/api/shipments?limit=200', {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(PAGE_SIZE),
+      });
+      if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
+      const res   = await fetch(`/api/shipments?${params.toString()}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const json = await res.json();
@@ -264,7 +272,12 @@ export function ShipmentsPage() {
     }
   }
 
-  useEffect(() => { fetchShipments(); }, []);
+  useEffect(() => {
+    const handle = window.setTimeout(() => setDebouncedSearch(search), 300);
+    return () => window.clearTimeout(handle);
+  }, [search]);
+
+  useEffect(() => { fetchShipments(); }, [page, debouncedSearch]);
 
   // ── Derived filter counts ──────────────────────────────────────────────────
   const filterChips = useMemo(() => [
@@ -303,7 +316,7 @@ export function ShipmentsPage() {
       if (search) {
         const q = search.toLowerCase();
         return r.id.toLowerCase().includes(q)  ||
-               r.bol.toLowerCase().includes(q) ||
+               r.mbl.toLowerCase().includes(q) ||
                r.vessel.toLowerCase().includes(q) ||
                r.buyer.toLowerCase().includes(q);
       }
@@ -328,11 +341,14 @@ export function ShipmentsPage() {
 
   // ── Subtitle ───────────────────────────────────────────────────────────────
   const subtitle = (() => {
-    const active = rows.filter(r => r.stageVariant !== 'blocked').length;
+    const active = total || rows.filter(r => r.stageVariant !== 'blocked').length;
     const mins   = lastFetch ? Math.floor((Date.now() - lastFetch.getTime()) / 60_000) : null;
     const ago    = mins === null ? '' : mins === 0 ? ' · updated just now' : ` · updated ${mins}m ago`;
     return `India → US export corridor · ${active} active shipments${ago}`;
   })();
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const showingStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const showingEnd = Math.min(page * PAGE_SIZE, total);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -395,8 +411,8 @@ export function ShipmentsPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" style={{ width: 15, height: 15 }} />
           <Input
             value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by ID, BOL, vessel, buyer…"
+            onChange={e => { setPage(1); setSearch(e.target.value); }}
+            placeholder="Search by ID, MBL, vessel, buyer..."
             className="pl-9 focus-visible:ring-1"
             style={{ fontSize: 14.5 }}
           />
@@ -459,7 +475,7 @@ export function ShipmentsPage() {
                 {/* Shipment ID */}
                 <td style={{ padding: 16 }}>
                   <div className="vs-mono font-semibold" style={{ fontSize: 14, color: 'hsl(var(--primary))' }}>{s.id}</div>
-                  <div className="vs-mono" style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>BOL: {s.bol}</div>
+                  <div className="vs-mono" style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>MBL: {s.mbl}</div>
                 </td>
 
                 {/* Vessel / Route */}
@@ -546,10 +562,35 @@ export function ShipmentsPage() {
       </div>
 
       {/* Footer */}
-      <div style={{ marginTop: 12, fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
-        {loading && rows.length > 0
-          ? 'Refreshing…'
-          : `Showing ${filtered.length} of ${rows.length} shipments`}
+      <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
+        <span>
+          {loading && rows.length > 0
+            ? 'Refreshing...'
+            : `Showing ${showingStart}-${showingEnd} of ${total} shipments`}
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={loading || page <= 1}
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            className="flex items-center gap-1.5"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+            Prev
+          </Button>
+          <span style={{ fontSize: 14 }}>Page {page} of {totalPages}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={loading || page >= totalPages}
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            className="flex items-center gap-1.5"
+          >
+            Next
+            <ChevronRight className="w-3.5 h-3.5" />
+          </Button>
+        </div>
       </div>
     </div>
   );

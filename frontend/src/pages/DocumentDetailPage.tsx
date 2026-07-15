@@ -145,6 +145,20 @@ function formatDateTime(value: string | null | undefined) {
   return date.toLocaleString();
 }
 
+function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const response = (error as { response?: { data?: { detail?: unknown; message?: unknown } } }).response;
+    const detail = response?.data?.detail;
+    const message = response?.data?.message;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) return detail.map(item => (
+      typeof item === 'string' ? item : JSON.stringify(item)
+    )).join(', ');
+    if (typeof message === 'string') return message;
+  }
+  return error instanceof Error ? error.message : fallback;
+}
+
 function docCode(docType: string) {
   const config = getDocConfig(docType);
   if (config?.shortCode) return config.shortCode;
@@ -612,7 +626,7 @@ export function DocumentDetailPage() {
       setDocumentDetail(data);
       navigate(`/documents/upload/${documentDetail.id}/approve`);
     } catch (err) {
-      toast({ title: 'Approval failed', description: err instanceof Error ? err.message : 'Unable to approve this document.', variant: 'destructive' });
+      toast({ title: 'Approval failed', description: getApiErrorMessage(err, 'Unable to approve this document.'), variant: 'destructive' });
     } finally {
       setActionLoading(null);
     }

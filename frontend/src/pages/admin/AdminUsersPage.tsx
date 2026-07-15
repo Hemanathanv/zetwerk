@@ -184,16 +184,26 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
   const [users, setUsers] = useState<User[]>([]);
   const [delegations, setDelegations] = useState<Delegation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   async function fetchAll() {
-    try {
-      const [u, d] = await Promise.all([
-        apiGet<any>('/api/admin/users'),
-        apiGet<any>('/api/admin/delegations'),
-      ]);
-      setUsers(u.data ?? []);
-      setDelegations(d.data ?? []);
-    } catch { /* ignore */ }
+    setLoading(true);
+    setLoadError('');
+    const [u, d] = await Promise.allSettled([
+      apiGet<any>('/api/admin/users'),
+      apiGet<any>('/api/admin/delegations'),
+    ]);
+    if (u.status === 'fulfilled') {
+      setUsers(u.value.data ?? []);
+    } else {
+      setUsers([]);
+      setLoadError(u.reason instanceof Error ? u.reason.message : 'Could not load users.');
+    }
+    if (d.status === 'fulfilled') {
+      setDelegations(d.value.data ?? []);
+    } else {
+      setDelegations([]);
+    }
     setLoading(false);
   }
   useEffect(() => { fetchAll(); }, []);
@@ -579,6 +589,12 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
           badge={{ label: 'active users', count: stats.active }}
           actions={<Button size="sm" onClick={openCreate}>Add User</Button>}
         />
+      )}
+
+      {loadError && (
+        <div style={{ marginBottom: 12, padding: '9px 12px', borderRadius: 8, border: '1px solid hsl(0 72% 75%)', background: 'hsl(0 72% 96%)', color: 'hsl(0 65% 35%)', fontSize: 14 }}>
+          {loadError}
+        </div>
       )}
 
       {/* Summary */}

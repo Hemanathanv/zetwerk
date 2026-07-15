@@ -1309,6 +1309,7 @@ export function ShipmentDetailPage() {
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
   const [acting,        setActing]        = useState(false);
+  const [trackingMessage, setTrackingMessage] = useState<string | null>(null);
 
   const { data: scData, loading: scLoading, refetch: scRefetch } = useSafeCubeTracking(shipmentId);
   const { documents, loading: docsLoading, refetch: refetchDocs } = useShipmentDocuments(shipmentId);
@@ -1323,15 +1324,22 @@ export function ShipmentDetailPage() {
   useEffect(() => {
     if (scLoading || scData || !shipmentId || autoLinkedRef.current) return;
     autoLinkedRef.current = true;
-    const authH = token ? { Authorization: `Bearer ${token}` } : {};
+    const authH: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
     fetch(`/api/shipments/${shipmentId}/safecube/link`, {
       method: 'POST',
       headers: { ...authH, 'Content-Type': 'application/json' },
       body: '{}',
     })
       .then(r => r.json())
-      .then(j => { if (j.ok) scRefetch(); })
-      .catch(() => {});
+      .then(j => {
+        if (j.ok) {
+          setTrackingMessage(null);
+          scRefetch();
+        } else {
+          setTrackingMessage(j.error ?? j.detail ?? 'SafeCube tracking is not linked yet');
+        }
+      })
+      .catch(() => setTrackingMessage('SafeCube tracking is not reachable'));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scLoading]);
 
@@ -1519,7 +1527,7 @@ export function ShipmentDetailPage() {
             {shipment && (
               <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 14px', fontSize: 14.5, color: MUTED }}>
                 {shipment.loadMode && <span style={{ fontWeight: 500, color: FG }}>Load: {shipment.loadMode}</span>}
-                {shipment.blNumber && <span>BOL: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.blNumber}</span></span>}
+                {shipment.blNumber && <span>MBL: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.blNumber}</span></span>}
                 {shipment.vesselName && <span>Vessel: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.vesselName}</span></span>}
                 {(shipment.portOfLoading || shipment.portOfDischarge) && <span>Route: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.portOfLoading ?? '—'} → {shipment.portOfDischarge ?? '—'}</span></span>}
                 {revTicket && <span>Value: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{fmtAmount(revTicket.amount, revTicket.currency)}</span></span>}
@@ -1545,19 +1553,21 @@ export function ShipmentDetailPage() {
       </div>
 
       {/* ── Vessel route map ── */}
-      {!scLoading && (mapProps || scData) && (
+      {!scLoading && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.8)', margin: 0 }}>Vessel tracking</h3>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: MUTED, margin: 0 }}>Vessel tracking</h3>
             {mapProps?.shippingStatus && (
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{mapProps.shippingStatus}</span>
+              <span style={{ fontSize: 11, color: MUTED }}>{mapProps.shippingStatus}</span>
             )}
           </div>
           {mapProps ? (
             <VesselRouteMap {...mapProps} />
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 260, borderRadius: 14, background: '#071e32', border: '1px solid rgba(255,255,255,0.05)' }}>
-              <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)' }}>No tracking data available</p>
+              <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.38)' }}>
+                {trackingMessage ?? 'Waiting for SafeCube tracking from MBL or booking reference'}
+              </p>
             </div>
           )}
         </div>

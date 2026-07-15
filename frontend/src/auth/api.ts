@@ -18,6 +18,8 @@ import type {
 const SESSION_TOKEN_KEY = 'session_token_fallback';
 const REFRESH_TOKEN_KEY = 'refresh_token_fallback';
 const BACKEND_API_BASE = (import.meta.env.VITE_BACKEND_API_BASE || '').replace(/\/$/, '');
+const KEYCLOAK_URL = (import.meta.env.VITE_KEYCLOAK_URL || '').replace(/\/$/, '');
+const KEYCLOAK_REALM = import.meta.env.VITE_KEYCLOAK_REALM || '';
 const CLASSIFICATION_POLL_TIMEOUT_MS = 600000;
 const CLASSIFICATION_POLL_INTERVAL_MS = 1000;
 
@@ -76,7 +78,8 @@ api.interceptors.response.use(
           requestUrl.includes('/auth/status') ||
           requestUrl.includes('/auth/userinfo') ||
           requestUrl.includes('/auth/roles') ||
-          requestUrl.includes('/auth/permissions');
+          requestUrl.includes('/auth/permissions') ||
+          requestUrl.includes('/auth/level');
         const isTokenEndpoint =
           requestUrl.includes('/auth/login') ||
           requestUrl.includes('/auth/refresh');
@@ -204,7 +207,6 @@ type KeycloakPermissions = {
   ticketCategories: string[];
   activities: string[];
   dataScope: string;
-  level?: string;
   role: {
     id: string;
     name: string;
@@ -214,6 +216,75 @@ type KeycloakPermissions = {
   };
 };
 
+type LevelAuthorization = {
+  activities: string[];
+};
+
+type KeycloakTokenPayload = {
+  sub?: string;
+  email?: string;
+  name?: string;
+  preferred_username?: string;
+  given_name?: string;
+  family_name?: string;
+  realm_access?: { roles?: string[] };
+  resource_access?: Record<string, { roles?: string[] }>;
+};
+
+function decodeJwtPayload(token: string): KeycloakTokenPayload {
+  const payload = token.split('.')[1];
+  if (!payload) return {};
+  try {
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const json = decodeURIComponent(
+      Array.from(atob(padded))
+        .map((char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`)
+        .join(''),
+    );
+    return JSON.parse(json) as KeycloakTokenPayload;
+  } catch {
+    return {};
+  }
+}
+
+function rolesFromAccessToken(token: string): string[] {
+  const payload = decodeJwtPayload(token);
+  const roles = [...(payload.realm_access?.roles ?? [])];
+  Object.values(payload.resource_access ?? {}).forEach((clientAccess) => {
+    roles.push(...(clientAccess.roles ?? []));
+  });
+  return [...new Set(roles.map(String))];
+}
+
+function userInfoFromAccessToken(token: string): KeycloakUserInfo {
+  const payload = decodeJwtPayload(token);
+  return {
+    sub: payload.sub,
+    email: payload.email,
+    name: payload.name,
+    preferred_username: payload.preferred_username,
+    given_name: payload.given_name,
+    family_name: payload.family_name,
+  };
+}
+
+async function getKeycloakUserInfo(token: string): Promise<KeycloakUserInfo> {
+  if (!KEYCLOAK_URL || !KEYCLOAK_REALM) {
+    throw new Error('Keycloak frontend URL is not configured.');
+  }
+  const response = await axios.get<KeycloakUserInfo>(
+    `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/userinfo`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    },
+  );
+  return response.data;
+}
+
 function roleFromKeycloakRoles(roles: string[]): AuthUser['systemRole'] {
   const normalized = new Set(roles.map((role) => role.toUpperCase().replace(/-/g, '_')));
   if (normalized.has('SUPER_ADMIN')) return 'SUPER_ADMIN';
@@ -221,7 +292,23 @@ function roleFromKeycloakRoles(roles: string[]): AuthUser['systemRole'] {
   return 'USER';
 }
 
-function normalizeKeycloakUser(userInfo: KeycloakUserInfo, roles: string[], permissions?: KeycloakPermissions): AuthUser {
+function capabilitiesFromActivities(activities: string[]): Record<string, boolean> {
+  const allowed = new Set(activities);
+  return {
+    isApprove: allowed.has('documents.approve_draft'),
+    isEdit: allowed.has('documents.edit_extracted'),
+    isUpload: allowed.has('documents.upload'),
+    isOverride: allowed.has('documents.override_validation'),
+    isReprocess: allowed.has('documents.reprocess_ocr'),
+  };
+}
+
+function normalizeKeycloakUser(
+  userInfo: KeycloakUserInfo,
+  roles: string[],
+  permissions?: KeycloakPermissions,
+  levelAuth?: LevelAuthorization,
+): AuthUser {
   const email = (userInfo.email ?? userInfo.preferred_username ?? '').toLowerCase();
   const name =
     userInfo.name ||
@@ -235,7 +322,15 @@ function normalizeKeycloakUser(userInfo: KeycloakUserInfo, roles: string[], perm
     email,
     systemRole,
     isActive: true,
-    ...(permissions ? { rbacPermissions: permissions, modules: permissions.modules, role: permissions.role, level: permissions.level } : {}),
+    ...(permissions ? {
+      rbacPermissions: {
+        ...permissions,
+        activities: levelAuth?.activities ?? permissions.activities,
+        capabilities: capabilitiesFromActivities(levelAuth?.activities ?? permissions.activities),
+      },
+      modules: permissions.modules,
+      role: permissions.role,
+    } : {}),
   };
 }
 
@@ -266,17 +361,22 @@ const authApi = {
    * @returns Promise with current user data
    */
   checkAuth: () => {
+    const token = window.localStorage.getItem(SESSION_TOKEN_KEY);
+    if (!token) {
+      return Promise.reject(new Error('Missing access token'));
+    }
     return Promise.all([
-      api.get<{ user: KeycloakUserInfo }>('/auth/userinfo'),
-      api.get<{ roles: string[] }>('/auth/roles'),
+      getKeycloakUserInfo(token).catch(() => userInfoFromAccessToken(token)),
       api.get<{ ok: boolean; data: KeycloakPermissions }>('/auth/permissions'),
-    ]).then(([userResponse, rolesResponse, permissionsResponse]) => ({
+      api.get<{ ok: boolean; data: LevelAuthorization }>('/auth/level'),
+    ]).then(([userInfo, permissionsResponse, levelResponse]) => ({
       data: {
         status: 'success',
         user: normalizeKeycloakUser(
-          userResponse.data.user,
-          rolesResponse.data.roles ?? [],
+          userInfo,
+          rolesFromAccessToken(token),
           permissionsResponse.data.data,
+          levelResponse.data.data,
         ),
       } satisfies AuthStatusResponse,
     }));

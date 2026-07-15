@@ -63,24 +63,32 @@ export interface SafeCubeData {
 
   prepodName: string | null;
   prepodLocode: string | null;
+  prepodLat: number | null;
+  prepodLng: number | null;
   prepodAt: string | null;
   prepodActual: boolean | null;
   prepodPredictiveEta: string | null;
 
   polName: string | null;
   polLocode: string | null;
+  polLat: number | null;
+  polLng: number | null;
   polAt: string | null;
   polActual: boolean | null;
   polPredictiveEta: string | null;
 
   podName: string | null;
   podLocode: string | null;
+  podLat: number | null;
+  podLng: number | null;
   podAt: string | null;
   podActual: boolean | null;
   podPredictiveEta: string | null;
 
   postpodName: string | null;
   postpodLocode: string | null;
+  postpodLat: number | null;
+  postpodLng: number | null;
   postpodAt: string | null;
   postpodActual: boolean | null;
   postpodPredictiveEta: string | null;

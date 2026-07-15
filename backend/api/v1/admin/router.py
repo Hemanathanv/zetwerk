@@ -70,7 +70,12 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L1", "L2", "L3", "L4"],
         "defaultDataScope": "ALL",
         "defaultModules": ROLE_DEFINITIONS[0]["modules"],
-        "activityCodes": ["admin.manage", "users.manage", "roles.manage", "documents.manage", "shipments.manage"],
+        "activityCodes": [
+            "admin.manage", "users.manage", "roles.manage", "documents.manage", "shipments.manage",
+            "documents.upload", "documents.view_extracted", "documents.edit_extracted",
+            "documents.generate_draft", "documents.approve_draft", "documents.override_validation",
+            "documents.reprocess_ocr", "documents.download_export", "documents.delete",
+        ],
     },
     "ADMIN": {
         "name": "Org Admin",
@@ -80,7 +85,11 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L2", "L3", "L4"],
         "defaultDataScope": "ALL",
         "defaultModules": ROLE_DEFINITIONS[1]["modules"],
-        "activityCodes": ["users.manage", "roles.view", "documents.manage", "shipments.manage"],
+        "activityCodes": [
+            "users.manage", "roles.view", "documents.manage", "shipments.manage",
+            "documents.upload", "documents.view_extracted", "documents.edit_extracted",
+            "documents.generate_draft", "documents.approve_draft", "documents.download_export",
+        ],
     },
     "USER": {
         "name": "User",
@@ -1031,8 +1040,11 @@ def _guess_content_type(name: str) -> str | None:
 @router.get("/users")
 @legacy_router.get("/users")
 async def list_admin_users(_user=Depends(get_admin_user)):
-    prisma = await get_prisma()
     keycloak_admin = get_keycloak_admin()
+    try:
+        prisma = await get_prisma()
+    except Exception:
+        prisma = None
     try:
         users = keycloak_admin.get_users({})
         rows = []
@@ -1045,11 +1057,12 @@ async def list_admin_users(_user=Depends(get_admin_user)):
                 if role.get("name")
             ]
             groups = keycloak_admin.get_user_groups(keycloak_user["id"])
-            await _sync_local_user_from_keycloak(
-                prisma=prisma,
-                keycloak_user=keycloak_user,
-                roles=roles,
-            )
+            if prisma is not None:
+                await _sync_local_user_from_keycloak(
+                    prisma=prisma,
+                    keycloak_user=keycloak_user,
+                    roles=roles,
+                )
             rows.append(_keycloak_user_row(keycloak_user, roles, groups))
         rows.sort(key=lambda item: item["email"].lower())
         return {"ok": True, "data": rows}

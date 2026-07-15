@@ -93,7 +93,7 @@ export function useUploadableDocTypes() {
 export function useApprovableDocTypes() {
   const { docTypes } = useConfig();
   const { activities } = usePermissions();
-  const canApprove = activities.includes('documents.approve');
+  const canApprove = activities.includes('documents.approve_draft');
   return docTypes.filter(dt => dt.hasExtraction && canApprove);
 }
 

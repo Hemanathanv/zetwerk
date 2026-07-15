@@ -153,6 +153,7 @@ def get_container_tracking_details(
         headers={
             "API_KEY": load_safecube_api_key(),
             "Accept": "application/json",
+            "User-Agent": "EWMS/1.0",
         },
         method="GET",
     )

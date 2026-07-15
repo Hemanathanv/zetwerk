@@ -56,21 +56,22 @@ def _parse_shipped_on_board_date(value: Any) -> date:
 
 
 def generate_shipment_id(
-    bol_number: Any,
+    reference_number: Any,
     shipped_on_board_date: Any,
 ) -> str:
     """
     Return ``ZTW-YYMMDD-NNNN``.
 
     YYMMDD comes from the BOL Vessel/Shipped On Board Date. NNNN is the
-    final four alphanumeric characters of the BOL number.
+    final four alphanumeric characters of the MBL/booking reference, falling
+    back to HBL only when no master reference exists.
     """
-    normalized_bol = re.sub(r"[^A-Za-z0-9]", "", str(bol_number or "")).upper()
-    if len(normalized_bol) < 4:
-        raise ValueError("BOL number must contain at least four characters")
+    normalized_reference = re.sub(r"[^A-Za-z0-9]", "", str(reference_number or "")).upper()
+    if len(normalized_reference) < 4:
+        raise ValueError("Shipment reference must contain at least four characters")
 
     shipped_date = _parse_shipped_on_board_date(shipped_on_board_date)
-    return f"{SHIPMENT_ID_PREFIX}-{shipped_date:%y%m%d}-{normalized_bol[-4:]}"
+    return f"{SHIPMENT_ID_PREFIX}-{shipped_date:%y%m%d}-{normalized_reference[-4:]}"
 
 
 def _normalized_key(value: str) -> str:
@@ -117,12 +118,23 @@ def generate_shipment_id_from_bol_data(extracted_data: Any) -> str:
         )
     preferred_data = raw_data if raw_data not in (None, "", {}) else extracted_data
 
-    bol_keys = {
+    master_reference_keys = {
+        "mblnumber",
+        "masterblnumber",
+        "masterbolnumber",
+        "masterbillofladingnumber",
+        "bookingreferencenumber",
+        "bookingreference",
+        "bookingnumber",
+        "bookingno",
+    }
+    fallback_hbl_keys = {
         "bolnumber",
         "billofladingnumber",
         "blnumber",
-        "masterblnumber",
-        "mblnumber",
+        "hblnumber",
+        "houseblnumber",
+        "housebillofladingnumber",
     }
     date_keys = {
         "shippedonboarddate",
@@ -130,12 +142,18 @@ def generate_shipment_id_from_bol_data(extracted_data: Any) -> str:
         "shippeddate",
         "vesselshippedonboarddate",
     }
-    bol_number = _find_value(
+    reference_number = _find_value(
         preferred_data,
-        bol_keys,
+        master_reference_keys,
     ) or _find_value(
         extracted_data,
-        bol_keys,
+        master_reference_keys,
+    ) or _find_value(
+        preferred_data,
+        fallback_hbl_keys,
+    ) or _find_value(
+        extracted_data,
+        fallback_hbl_keys,
     )
     shipped_on_board_date = _find_value(
         preferred_data,
@@ -144,4 +162,4 @@ def generate_shipment_id_from_bol_data(extracted_data: Any) -> str:
         extracted_data,
         date_keys,
     )
-    return generate_shipment_id(bol_number, shipped_on_board_date)
+    return generate_shipment_id(reference_number, shipped_on_board_date)

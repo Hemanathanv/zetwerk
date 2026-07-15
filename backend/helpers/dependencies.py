@@ -1,6 +1,7 @@
 from typing import Optional, Callable
 from datetime import datetime, timezone
 from functools import wraps
+from types import SimpleNamespace
 from fastapi import Request, HTTPException, Depends, Cookie, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from keycloak import KeycloakOpenID
@@ -121,10 +122,7 @@ async def get_current_user(
     try:
         session_user = await _get_session_user(token)
     except Exception:
-        raise HTTPException(
-            status_code=503,
-            detail="Authentication service unavailable",
-        )
+        session_user = None
 
     if session_user:
         return session_user
@@ -167,6 +165,22 @@ def _role_from_keycloak_roles(roles: list[str]) -> str:
     return "USER"
 
 
+def _primary_keycloak_role(roles: list[str]) -> str:
+    normalized = {str(role).upper().replace("-", "_"): str(role) for role in roles}
+    for role in (
+        "SUPER_ADMIN",
+        "ADMIN",
+        "OPS_MANAGER",
+        "INDIA_LOGISTICS",
+        "US_LOGISTICS",
+        "FINANCE_AP_INDIA",
+        "THREE_PL_PARTNER",
+    ):
+        if role in normalized:
+            return role
+    return "USER"
+
+
 def _extract_keycloak_roles(token_info: dict) -> list[str]:
     roles = list(token_info.get("realm_access", {}).get("roles", []) or [])
     resource_access = token_info.get("resource_access", {}) or {}
@@ -203,20 +217,50 @@ async def _get_keycloak_local_user(token: str):
         or str(userinfo.get("preferred_username") or email).strip()
     )
     role = "ADMIN" if email in KEYCLOAK_ADMIN_EMAILS else _role_from_keycloak_roles(roles)
-    prisma = await get_prisma()
+    primary_role = _primary_keycloak_role(roles)
+    try:
+        prisma = await get_prisma()
+    except Exception:
+        return SimpleNamespace(
+            id=str(userinfo.get("sub") or email),
+            email=email,
+            name=name,
+            role=role,
+            keycloakRoles=roles,
+            keycloakPrimaryRole=primary_role,
+            isActive=True,
+        )
+
     existing = await prisma.user.find_unique(where={"email": email})
     if existing:
         if not existing.isActive:
             raise HTTPException(status_code=403, detail="User account is inactive")
         try:
-            return await prisma.user.update(
+            updated = await prisma.user.update(
                 where={"id": existing.id},
                 data={"name": name, "role": role},
             )
+            return SimpleNamespace(
+                id=str(updated.id),
+                email=updated.email,
+                name=updated.name,
+                role=updated.role,
+                keycloakRoles=roles,
+                keycloakPrimaryRole=primary_role,
+                isActive=updated.isActive,
+            )
         except Exception:
-            return existing
+            return SimpleNamespace(
+                id=str(existing.id),
+                email=existing.email,
+                name=existing.name,
+                role=existing.role,
+                keycloakRoles=roles,
+                keycloakPrimaryRole=primary_role,
+                isActive=existing.isActive,
+            )
 
-    return await prisma.user.create(
+    created = await prisma.user.create(
         data={
             "name": name,
             "email": email,
@@ -224,6 +268,15 @@ async def _get_keycloak_local_user(token: str):
             "role": role,
             "isActive": True,
         }
+    )
+    return SimpleNamespace(
+        id=str(created.id),
+        email=created.email,
+        name=created.name,
+        role=created.role,
+        keycloakRoles=roles,
+        keycloakPrimaryRole=primary_role,
+        isActive=created.isActive,
     )
 
 

@@ -65,7 +65,13 @@ export function useAuth() {
         ticketCategories: [],
         activities: ['DOC-003'],
         dataScope: isAdmin ? 'ALL' : 'TAGGED',
-        level: isAdmin ? 'L4' : 'L1',
+        capabilities: {
+          isApprove: isAdmin,
+          isEdit: isAdmin,
+          isUpload: isAdmin,
+          isOverride: isAdmin,
+          isReprocess: isAdmin,
+        },
         role: {
           id: isKnownAdmin ? 'ADMIN' : auth.user.systemRole,
           name: (isKnownAdmin ? 'ADMIN' : auth.user.systemRole).replace(/_/g, ' '),
@@ -89,7 +95,6 @@ export function useAuth() {
         org: null,
         permissions: permissionsForModules(modules, isAdmin),
         modules,
-        level: keycloakPermissions?.level ?? (isAdmin ? 'L4' : 'L1'),
       }
     : null;
 

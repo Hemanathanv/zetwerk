@@ -69,7 +69,11 @@ DEFAULT_ROLE_PAYLOADS = {
             "ewms.levels": ["L2", "L3", "L4"],
             "ewms.dataScope": ["ALL"],
             "ewms.modules": ["dashboard", "shipments", "documents", "tasks", "accounting", "inventory", "reports", "admin"],
-            "ewms.activities": ["users.manage", "roles.view", "documents.manage", "shipments.manage"],
+            "ewms.activities": [
+                "users.manage", "roles.view", "documents.manage", "shipments.manage",
+                "documents.upload", "documents.view_extracted", "documents.edit_extracted",
+                "documents.generate_draft", "documents.approve_draft", "documents.download_export",
+            ],
             "ewms.managedBy": ["ewms-admin"],
         },
     },
@@ -160,7 +164,7 @@ DEFAULT_ROLE_PAYLOADS = {
             "ewms.color": ["#0ea5a0"],
             "ewms.levels": ["L2"],
             "ewms.dataScope": ["ALL"],
-            "ewms.modules": ["dashboard", "documents", "accounting"],
+            "ewms.modules": ["dashboard", "shipments", "documents", "accounting", "reports"],
             "ewms.activities": [
                 "shipments.view",
                 "documents.view_extracted", "documents.download_export",

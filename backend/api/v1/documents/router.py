@@ -2,19 +2,23 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from db import get_prisma
 from helpers.config import settings
 from helpers.dependencies import get_current_user
-from shipment_360.safecube import track_container
+from helpers.shipment_operational import ensure_operational_shipment_tables, sync_reviewed_bols_as_shipments
+from shipment_360.safecube import infer_shipment_type, track_container
 
 
 router = APIRouter(tags=["Documents"])
+SHIPMENT_VIEWS_SQL = Path(__file__).resolve().parents[3] / "shipment_360" / "views.sql"
+_SHIPMENT_VIEWS_READY = False
 
 
 PARALLEL_DOC_GATE_NUMBER: dict[str, int] = {
@@ -54,6 +58,60 @@ def _iso(value: Any) -> str | None:
     return str(value)
 
 
+def _num(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_dict(value: Any) -> dict[str, Any]:
+    parsed = _parse_json(value)
+    if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
+        return parsed[0]
+    if isinstance(parsed, dict):
+        return parsed
+    return {}
+
+
+def _as_list(value: Any) -> list[Any]:
+    parsed = _parse_json(value)
+    return parsed if isinstance(parsed, list) else []
+
+
+def _coordinates(value: Any) -> tuple[float | None, float | None]:
+    parsed = _parse_json(value)
+    if not isinstance(parsed, dict):
+        return None, None
+    candidate = parsed.get("coordinates") if isinstance(parsed.get("coordinates"), dict) else parsed
+    lat = _num(candidate.get("lat") or candidate.get("latitude"))
+    lng = _num(candidate.get("lng") or candidate.get("lon") or candidate.get("longitude"))
+    return lat, lng
+
+
+def _dict_get(data: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in data and data[key] not in (None, ""):
+            return data[key]
+    return None
+
+
+def _doc_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "documentType": row.get("document_type") or row.get("doc_type"),
+        "documentNumber": row.get("document_number"),
+        "ocrStatus": row.get("ocr_status") or ("completed" if row.get("approved_at") else str(row.get("status") or "").lower()),
+        "validationStatus": row.get("validation_status"),
+        "approvedAt": _iso(row.get("approved_at")),
+        "isGenerated": bool(row.get("is_generated")),
+        "fileName": row.get("file_name"),
+        "status": row.get("status"),
+    }
+
+
 async def _query_raw(prisma, sql: str, *params) -> list[dict[str, Any]]:
     query_raw = getattr(prisma, "query_raw", None)
     if query_raw is None:
@@ -62,11 +120,74 @@ async def _query_raw(prisma, sql: str, *params) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+async def _shipment_documents(prisma, shipment_id: str) -> list[dict[str, Any]]:
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT "id", "doc_type"::text AS doc_type, "status"::text AS status,
+               "file_name", "document_type", "document_number", "ocr_status",
+               "validation_status", "approved_at", "is_generated", "created_at"
+        FROM "public"."documents"
+        WHERE "shipment_id" = $1::uuid
+          AND COALESCE("is_deleted", false) = false
+        ORDER BY "approved_at" DESC NULLS LAST, "created_at" DESC
+        """,
+        shipment_id,
+    )
+    return [_doc_payload(row) for row in rows]
+
+
+async def _shipment_containers(prisma, shipment_id: str) -> list[dict[str, Any]]:
+    try:
+        rows = await _query_raw(
+            prisma,
+            """
+            SELECT bc."id"::text AS id, bc."number" AS container_number,
+                   bc."type" AS container_type, bc."gross_weight_kg",
+                   bc."net_weight_kg", bc."packages", bc."seal_number"
+            FROM "aiextraction"."bill_of_lading_containers" bc
+            JOIN "aiextraction"."bills_of_lading" bol ON bol."id" = bc."bill_of_lading_id"
+            JOIN "public"."documents" d ON d."id" = bol."document_id"
+            WHERE d."shipment_id" = $1::uuid
+              AND COALESCE(bc."number", '') <> ''
+            ORDER BY bc."item_index" NULLS LAST, bc."number" ASC
+            """,
+            shipment_id,
+        )
+    except Exception:
+        return []
+    return [
+        {
+            "id": row.get("id") or row.get("container_number"),
+            "containerNumber": row.get("container_number"),
+            "containerType": row.get("container_type"),
+            "containerSize": row.get("container_type"),
+            "grossWeightKg": _num(row.get("gross_weight_kg")),
+            "netWeightKg": _num(row.get("net_weight_kg")),
+            "packageCount": row.get("packages"),
+            "sealNumber": row.get("seal_number"),
+        }
+        for row in rows
+    ]
+
+
 async def _execute_raw(prisma, sql: str, *params) -> Any:
     execute_raw = getattr(prisma, "execute_raw", None)
     if execute_raw is None:
         raise RuntimeError("Prisma client has no execute_raw")
     return await execute_raw(sql, *params)
+
+
+async def _ensure_shipment_360_views(prisma) -> None:
+    global _SHIPMENT_VIEWS_READY
+    if _SHIPMENT_VIEWS_READY:
+        return
+    await _ensure_safecube_tables(prisma)
+    sql = SHIPMENT_VIEWS_SQL.read_text(encoding="utf-8")
+    statements = [statement.strip() for statement in sql.split(";") if statement.strip()]
+    for statement in statements:
+        await _execute_raw(prisma, statement)
+    _SHIPMENT_VIEWS_READY = True
 
 
 async def _ensure_gate_validation_tables(prisma) -> None:
@@ -115,7 +236,8 @@ async def _shipment_gate_rows(prisma, shipment_id: str) -> list[dict[str, Any]]:
     return await _query_raw(
         prisma,
         """
-        SELECT sg.*, gc."gate_number", gc."gate_name"
+        SELECT sg.*, gc."gate_number", gc."gate_name", gc."gate_label",
+               gc."geography", gc."gate_check_type", gc."is_identity_gate"
         FROM "public"."shipment_gates" sg
         JOIN "public"."gate_configs" gc ON gc."id" = sg."gate_config_id"
         WHERE sg."shipment_id" = $1::uuid
@@ -515,7 +637,8 @@ async def _store_tracking(prisma, request: TrackShipmentRequest, summary: dict[s
     shipment_id = str(uuid4())
     current_location = summary.get("currentLocation") or {}
     current_stage_name = current_location.get("description") or "SafeCube tracking"
-    status = current_location.get("status") or "ACTIVE"
+    metadata = summary.get("metadata") if isinstance(summary.get("metadata"), dict) else {}
+    status = metadata.get("shippingStatus") or current_location.get("status") or "ACTIVE"
 
     rows = await _query_raw(
         prisma,
@@ -578,7 +701,7 @@ async def _store_tracking(prisma, request: TrackShipmentRequest, summary: dict[s
               "id", "shipment_id", "container_number", "event_code", "status",
               "description", "location", "facility", "occurred_at", "is_actual", "raw_data"
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11::jsonb)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::timestamptz, $10, $11::jsonb)
             """,
             str(uuid4()),
             row["id"],
@@ -595,112 +718,496 @@ async def _store_tracking(prisma, request: TrackShipmentRequest, summary: dict[s
     return row
 
 
+async def _public_shipment_row(prisma, shipment_ref: str) -> dict[str, Any] | None:
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT "id", "shipment_number", "status", "blocked_reason",
+               "current_stage", "current_stage_name", "workflow_template_id",
+               "vessel_name", "port_of_loading", "port_of_discharge",
+               "exporter_name", "buyer_name", "bol_number", "mbl_number",
+               "booking_number", "load_type", "incoterms", "project_name",
+               "eta_port", "eta_delivery", "updated_at"
+        FROM "public"."shipments"
+        WHERE "id"::text = $1::text OR "shipment_number" = $1::text
+        LIMIT 1
+        """,
+        shipment_ref,
+    )
+    return rows[0] if rows else None
+
+
+def _public_shipment_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "shipmentNumber": row.get("shipment_number"),
+        "status": row.get("status"),
+        "blockedReason": row.get("blocked_reason"),
+        "currentStage": row.get("current_stage") or 1,
+        "currentStageName": row.get("current_stage_name"),
+        "templateId": str(row["workflow_template_id"]) if row.get("workflow_template_id") else None,
+        "vesselName": row.get("vessel_name"),
+        "portOfLoading": row.get("port_of_loading"),
+        "portOfDischarge": row.get("port_of_discharge"),
+        "exporterName": row.get("exporter_name"),
+        "buyerName": row.get("buyer_name"),
+        "blNumber": row.get("mbl_number") or row.get("booking_number"),
+        "bolNumber": row.get("mbl_number") or row.get("booking_number"),
+        "hblNumber": row.get("bol_number"),
+        "mblNumber": row.get("mbl_number"),
+        "bookingNumber": row.get("booking_number"),
+        "loadMode": row.get("load_type"),
+        "loadType": row.get("load_type"),
+        "incoterm": row.get("incoterms"),
+        "incoterms": row.get("incoterms"),
+        "projectName": row.get("project_name"),
+        "eta": _iso(row.get("eta_delivery") or row.get("eta_port")),
+        "etaPort": _iso(row.get("eta_port")),
+        "etaDelivery": _iso(row.get("eta_delivery")),
+        "updatedAt": _iso(row.get("updated_at")),
+        "documents": [],
+        "shipmentGates": [],
+        "containers": [],
+        "milestones": [],
+        "tickets": [],
+        "inventoryItems": [],
+        "_count": {"documents": 0},
+    }
+
+
+def _view_shipment_payload(row: dict[str, Any], *, include_containers: bool = False) -> dict[str, Any]:
+    documents = _as_list(row.get("documents"))
+    gates = _as_list(row.get("shipment_gates"))
+    approved_count = row.get("documents_approved")
+    total_count = row.get("documents_total")
+    payload = {
+        "id": str(row["id"]),
+        "shipmentNumber": row.get("shipment_number"),
+        "status": row.get("status"),
+        "blockedReason": row.get("blocked_reason"),
+        "currentStage": row.get("current_stage") or 1,
+        "currentStageName": row.get("current_stage_name"),
+        "templateId": str(row["workflow_template_id"]) if row.get("workflow_template_id") else None,
+        "vesselName": row.get("vessel_name"),
+        "portOfLoading": row.get("port_of_loading"),
+        "portOfDischarge": row.get("port_of_discharge"),
+        "exporterName": row.get("exporter_name"),
+        "buyerName": row.get("buyer_name"),
+        "blNumber": row.get("mbl_number") or row.get("booking_number"),
+        "bolNumber": row.get("mbl_number") or row.get("booking_number"),
+        "hblNumber": row.get("hbl_number"),
+        "mblNumber": row.get("mbl_number"),
+        "bookingNumber": row.get("booking_number"),
+        "loadMode": row.get("load_type"),
+        "loadType": row.get("load_type"),
+        "incoterm": row.get("incoterms"),
+        "incoterms": row.get("incoterms"),
+        "projectName": row.get("project_name"),
+        "eta": _iso(row.get("eta_delivery") or row.get("eta_port")),
+        "etaPort": _iso(row.get("eta_port")),
+        "etaDelivery": _iso(row.get("eta_delivery")),
+        "updatedAt": _iso(row.get("updated_at")),
+        "documents": documents,
+        "shipmentGates": gates,
+        "containers": _as_list(row.get("containers")) if include_containers else [],
+        "milestones": [],
+        "tickets": [],
+        "inventoryItems": [],
+        "safecubeLinked": bool(row.get("safecube_linked")),
+        "safecubeEtaAt": _iso(row.get("safecube_eta_at")),
+        "safecubeScheduleStatus": row.get("safecube_schedule_status") or row.get("safecube_shipping_status"),
+        "safecubeDelayDays": None,
+        "safecubeCurrentLocation": row.get("safecube_current_location"),
+        "safecubeAlertCount": row.get("safecube_alert_count") or 0,
+        "_count": {
+            "documents": int(total_count if total_count is not None else len(documents)),
+            "documentsApproved": int(approved_count if approved_count is not None else 0),
+        },
+    }
+    return payload
+
+
+async def _public_shipment_detail_payload(prisma, row: dict[str, Any]) -> dict[str, Any]:
+    shipment_id = str(row["id"])
+    documents = await _shipment_documents(prisma, shipment_id)
+    gates = await _shipment_gate_rows(prisma, shipment_id)
+    payload = _public_shipment_payload(row)
+    payload["documents"] = documents
+    payload["shipmentGates"] = gates
+    payload["containers"] = await _shipment_containers(prisma, shipment_id)
+    payload["_count"] = {"documents": len(documents)}
+    return payload
+
+
+async def _approved_bol_for_shipment(prisma, shipment: dict[str, Any]) -> dict[str, Any] | None:
+    shipment_id = str(shipment.get("id") or "")
+    shipment_number = str(shipment.get("shipment_number") or "")
+    base_select = """
+        SELECT bol.*, d.id::text AS document_id_ref
+        FROM aiextraction.bills_of_lading bol
+        JOIN public.documents d ON d.id = bol.document_id
+    """
+    order = """
+        ORDER BY bol.reviewed_at DESC NULLS LAST, bol.updated_at DESC NULLS LAST
+        LIMIT 1
+    """
+    try:
+        rows = await _query_raw(
+            prisma,
+            base_select
+            + """
+            WHERE d.status::text IN ('REVIEWED', 'ARCHIVED')
+              AND (
+                d.shipment_id::text = $1::text
+                OR bol.mbl_number = $2::text
+                OR bol.booking_reference_number = $2::text
+              )
+            """
+            + order,
+            shipment_id,
+            shipment_number,
+        )
+    except Exception:
+        rows = await _query_raw(
+            prisma,
+            base_select
+            + """
+            WHERE d.status::text IN ('REVIEWED', 'ARCHIVED')
+              AND (
+                bol.mbl_number = $1::text
+                OR bol.booking_reference_number = $1::text
+              )
+            """
+            + order,
+            shipment_number,
+        )
+    return rows[0] if rows else None
+
+
+def _bol_tracking_reference(bol: dict[str, Any] | None, shipment: dict[str, Any] | None = None) -> str | None:
+    if bol:
+        for key in ("mbl_number", "booking_reference_number"):
+            value = str(bol.get(key) or "").strip()
+            if value:
+                return value
+    if shipment:
+        for key in ("mbl_number", "booking_number", "shipment_number"):
+            value = str(shipment.get(key) or "").strip()
+            if value:
+                return value
+    return None
+
+
+def _tracking_type_for_reference(reference: str, bol: dict[str, Any] | None, shipment: dict[str, Any] | None = None) -> str:
+    if bol and reference == str(bol.get("booking_reference_number") or "").strip():
+        return "BK"
+    if shipment and reference == str(shipment.get("booking_number") or "").strip():
+        return "BK"
+    return infer_shipment_type(reference)
+
+
+async def _shipment_tracking_row(prisma, shipment: dict[str, Any], bol: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    candidates = [
+        _bol_tracking_reference(bol, shipment),
+        str(shipment.get("shipment_number") or "").strip(),
+    ]
+    if bol:
+        candidates.extend(
+            str(bol.get(key) or "").strip()
+            for key in ("mbl_number", "booking_reference_number")
+        )
+    refs = [ref for ref in dict.fromkeys(candidates) if ref]
+    if not refs:
+        return None
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT *
+        FROM "dashboard"."safecube_shipments"
+        WHERE "shipment_number" = ANY($1::text[])
+        ORDER BY "fetched_at" DESC
+        LIMIT 1
+        """,
+        refs,
+    )
+    return rows[0] if rows else None
+
+
+def _route_node(route: dict[str, Any], key: str) -> dict[str, Any]:
+    node = route.get(key) if isinstance(route, dict) else None
+    if not isinstance(node, dict):
+        return {"name": None, "locode": None, "lat": None, "lng": None, "at": None, "actual": None, "predictiveEta": None}
+    location = node.get("location") if isinstance(node.get("location"), dict) else node
+    actual_at = _dict_get(node, "at", "date", "actualAt", "actual_at")
+    predictive_eta = _dict_get(node, "predictiveEta", "predictive_eta", "eta", "etaAt")
+    lat, lng = _coordinates(location.get("coordinates") if isinstance(location, dict) else None)
+    if lat is None or lng is None:
+        lat, lng = _coordinates(location)
+    return {
+        "name": _dict_get(location, "name", "locationName", "city"),
+        "locode": _dict_get(location, "locode", "unlocode", "locationLocode"),
+        "lat": lat,
+        "lng": lng,
+        "at": _iso(actual_at),
+        "actual": node.get("actual") if "actual" in node else node.get("isActual"),
+        "predictiveEta": _iso(predictive_eta),
+    }
+
+
+def _safecube_event_payload(row: dict[str, Any], index: int) -> dict[str, Any]:
+    raw = _parse_json(row.get("raw_data")) or {}
+    location = _parse_json(row.get("location")) or {}
+    facility = _parse_json(row.get("facility")) or {}
+    loc_lat, loc_lng = _coordinates(location)
+    if loc_lat is None or loc_lng is None:
+        loc_lat, loc_lng = _coordinates(facility)
+    vessel = _first_dict((_parse_json(row.get("shipment_vessels")) or []) if row.get("shipment_vessels") else raw.get("vessels"))
+    return {
+        "id": str(row.get("id") or index),
+        "containerId": row.get("container_number"),
+        "sequenceNo": index + 1,
+        "eventAt": _iso(row.get("occurred_at")),
+        "description": row.get("description"),
+        "eventCode": row.get("event_code"),
+        "locationName": _dict_get(location, "name", "locationName"),
+        "locationLocode": _dict_get(location, "locode", "unlocode", "locationLocode"),
+        "locationLat": loc_lat,
+        "locationLng": loc_lng,
+        "facilityName": _dict_get(facility, "name", "facilityName"),
+        "isActual": row.get("is_actual"),
+        "transportType": raw.get("transportType") if isinstance(raw, dict) else None,
+        "vesselName": _dict_get(vessel, "name", "vesselName"),
+    }
+
+
+def _safecube_container_payload(container: dict[str, Any], index: int) -> dict[str, Any]:
+    number = _dict_get(container, "number", "containerNumber", "container_number") or f"container-{index + 1}"
+    return {
+        "id": str(_dict_get(container, "id", "containerId") or number),
+        "number": str(number),
+        "isoCode": _dict_get(container, "isoCode", "iso_code"),
+        "sizeType": _dict_get(container, "sizeType", "size", "type", "containerType"),
+        "status": _dict_get(container, "status", "shippingStatus"),
+    }
+
+
+def _safecube_route_points(summary: dict[str, Any]) -> list[dict[str, float]]:
+    raw = summary.get("raw") if isinstance(summary.get("raw"), dict) else summary
+    route_data = raw.get("routeData") if isinstance(raw, dict) else None
+    points: list[dict[str, float]] = []
+    if not isinstance(route_data, dict):
+        return points
+    for segment in route_data.get("routeSegments") or []:
+        if not isinstance(segment, dict):
+            continue
+        for point in segment.get("path") or []:
+            lat, lng = _coordinates(point)
+            if lat is not None and lng is not None:
+                points.append({"lat": lat, "lng": lng})
+    return points
+
+
+def _safecube_location_payload(location: dict[str, Any], index: int) -> dict[str, Any] | None:
+    lat, lng = _coordinates(location.get("coordinates") if isinstance(location, dict) else None)
+    if lat is None or lng is None:
+        lat, lng = _coordinates(location)
+    if lat is None or lng is None:
+        return None
+    return {
+        "id": str(_dict_get(location, "id", "locode", "unlocode") or f"location-{index + 1}"),
+        "name": _dict_get(location, "name", "locationName", "city"),
+        "locode": _dict_get(location, "locode", "unlocode", "locationLocode"),
+        "lat": lat,
+        "lng": lng,
+        "country": _dict_get(location, "country", "countryName"),
+    }
+
+
+def _safecube_ui_payload(row: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
+    summary = _parse_json(row.get("raw_data")) or {}
+    metadata = summary.get("metadata") if isinstance(summary.get("metadata"), dict) else {}
+    route = _parse_json(row.get("route")) or summary.get("route") or {}
+    ais = _parse_json(row.get("ais")) or summary.get("ais") or {}
+    locations = _as_list(row.get("locations") or summary.get("locations"))
+    vessels = _as_list(row.get("vessels") or summary.get("vessels"))
+    containers = _as_list(row.get("containers") or summary.get("containers"))
+    vessel = vessels[0] if vessels and isinstance(vessels[0], dict) else {}
+    live_lat, live_lng = _coordinates(row.get("live_coordinates") or summary.get("liveCoordinates"))
+    current_location = _parse_json(row.get("current_location")) or summary.get("currentLocation") or {}
+    current_location_payload = current_location.get("location") if isinstance(current_location.get("location"), dict) else current_location
+    current_lat, current_lng = _coordinates(current_location_payload)
+    if current_lat is None or current_lng is None:
+        current_lat, current_lng = _coordinates(row.get("live_coordinates") or summary.get("liveCoordinates"))
+
+    event_payloads = [_safecube_event_payload(event, index) for index, event in enumerate(reversed(events))]
+    route_nodes = {key: _route_node(route, key) for key in ("prepod", "pol", "pod", "postpod")}
+    eta_at = route_nodes["pod"].get("predictiveEta") or route_nodes["postpod"].get("predictiveEta")
+    location_payloads = [
+        payload
+        for index, location in enumerate(locations)
+        if isinstance(location, dict)
+        for payload in [_safecube_location_payload(location, index)]
+        if payload is not None
+    ]
+
+    return {
+        "id": str(row["id"]),
+        "vesselName": _dict_get(vessel, "name", "vesselName"),
+        "vesselImo": _num(_dict_get(vessel, "imo", "imoNumber", "vesselImo")),
+        "vesselCallSign": _dict_get(vessel, "callSign", "callsign", "vesselCallSign"),
+        "vesselFlag": _dict_get(vessel, "flag", "vesselFlag"),
+        "liveLat": live_lat,
+        "liveLng": live_lng,
+        "livePositionUpdatedAt": _iso(row.get("fetched_at")),
+        "aisStatus": _dict_get(ais if isinstance(ais, dict) else {}, "status", "navigationStatus"),
+        "currentLocationName": _dict_get(current_location_payload if isinstance(current_location_payload, dict) else {}, "name", "locationName") or current_location.get("description"),
+        "currentLocationAt": _iso(current_location.get("date")),
+        "currentLocationLat": current_lat,
+        "currentLocationLng": current_lng,
+        "currentLocationCountry": _dict_get(current_location_payload if isinstance(current_location_payload, dict) else {}, "country", "countryName"),
+        "currentEventDescription": current_location.get("description") or row.get("current_stage_name"),
+        "scheduleStatus": metadata.get("shippingStatus") or row.get("status"),
+        "delayDays": None,
+        "etaAt": eta_at,
+        "etaLabel": None,
+        "shippingStatus": metadata.get("shippingStatus") or row.get("status"),
+        "prepodName": route_nodes["prepod"]["name"],
+        "prepodLocode": route_nodes["prepod"]["locode"],
+        "prepodLat": route_nodes["prepod"]["lat"],
+        "prepodLng": route_nodes["prepod"]["lng"],
+        "prepodAt": route_nodes["prepod"]["at"],
+        "prepodActual": route_nodes["prepod"]["actual"],
+        "prepodPredictiveEta": route_nodes["prepod"]["predictiveEta"],
+        "polName": route_nodes["pol"]["name"],
+        "polLocode": route_nodes["pol"]["locode"],
+        "polLat": route_nodes["pol"]["lat"],
+        "polLng": route_nodes["pol"]["lng"],
+        "polAt": route_nodes["pol"]["at"],
+        "polActual": route_nodes["pol"]["actual"],
+        "polPredictiveEta": route_nodes["pol"]["predictiveEta"],
+        "podName": route_nodes["pod"]["name"],
+        "podLocode": route_nodes["pod"]["locode"],
+        "podLat": route_nodes["pod"]["lat"],
+        "podLng": route_nodes["pod"]["lng"],
+        "podAt": route_nodes["pod"]["at"],
+        "podActual": route_nodes["pod"]["actual"],
+        "podPredictiveEta": route_nodes["pod"]["predictiveEta"],
+        "postpodName": route_nodes["postpod"]["name"],
+        "postpodLocode": route_nodes["postpod"]["locode"],
+        "postpodLat": route_nodes["postpod"]["lat"],
+        "postpodLng": route_nodes["postpod"]["lng"],
+        "postpodAt": route_nodes["postpod"]["at"],
+        "postpodActual": route_nodes["postpod"]["actual"],
+        "postpodPredictiveEta": route_nodes["postpod"]["predictiveEta"],
+        "containers": [
+            _safecube_container_payload(container, index)
+            for index, container in enumerate(containers)
+            if isinstance(container, dict)
+        ],
+        "events": event_payloads,
+        "alerts": [],
+        "locations": location_payloads,
+        "routePoints": _safecube_route_points(summary),
+    }
+
+
+async def _tracking_events_for_sc_row(prisma, safecube_shipment_id: str) -> list[dict[str, Any]]:
+    return await _query_raw(
+        prisma,
+        """
+        SELECT ev.*, ss.vessels AS shipment_vessels
+        FROM "dashboard"."safecube_tracking_events" ev
+        JOIN "dashboard"."safecube_shipments" ss ON ss.id = ev.shipment_id
+        WHERE ev."shipment_id" = $1
+        ORDER BY ev."occurred_at" DESC NULLS LAST, ev."created_at" DESC
+        """,
+        safecube_shipment_id,
+    )
+
+
+async def _update_public_shipment_from_bol_and_tracking(prisma, shipment: dict[str, Any], bol: dict[str, Any] | None, sc_row: dict[str, Any] | None) -> None:
+    if not shipment or not bol:
+        return
+    vessels = _as_list(sc_row.get("vessels")) if sc_row else []
+    vessel = vessels[0] if vessels and isinstance(vessels[0], dict) else {}
+    current_location = _parse_json(sc_row.get("current_location")) if sc_row else {}
+    current_stage_name = (current_location or {}).get("description") if isinstance(current_location, dict) else None
+    try:
+        await _execute_raw(
+            prisma,
+            """
+            UPDATE "public"."shipments"
+            SET
+              "vessel_name" = COALESCE(NULLIF("vessel_name", ''), $2),
+              "port_of_loading" = COALESCE(NULLIF("port_of_loading", ''), $3),
+              "port_of_discharge" = COALESCE(NULLIF("port_of_discharge", ''), $4),
+              "current_stage_name" = COALESCE($5, "current_stage_name"),
+              "updated_at" = NOW()
+            WHERE "id"::text = $1::text
+            """,
+            str(shipment["id"]),
+            _dict_get(vessel, "name", "vesselName") or bol.get("vessel_name"),
+            bol.get("port_of_loading"),
+            bol.get("port_of_discharge"),
+            current_stage_name,
+        )
+    except Exception:
+        pass
+
+
 @router.get(settings.API_SLUG + "/shipments")
 @router.get("/api/shipments")
-async def list_shipments(user=Depends(get_current_user)):
+async def list_shipments(
+    user=Depends(get_current_user),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int | None = Query(None, ge=0),
+    search: str | None = Query(None),
+):
     prisma = await get_prisma()
-    # The operational UI expects the original EWMS shipment contract, not
-    # SafeCube's standalone tracking rows.
+    await ensure_operational_shipment_tables(prisma)
+    await _ensure_shipment_360_views(prisma)
+    resolved_offset = offset if offset is not None else (page - 1) * limit
+    query_text = str(search or "").strip()
     try:
+        total_rows = await _query_raw(
+            prisma,
+            """
+            SELECT count(*)::int AS total
+            FROM shipment_360.shipment_list_view
+            WHERE $1::text = ''
+               OR search_text ILIKE ('%' || $1::text || '%')
+            """,
+            query_text,
+        )
         shipment_rows = await _query_raw(
             prisma,
             """
-            SELECT "id", "shipment_number", "status", "blocked_reason",
-                   "current_stage", "current_stage_name", "workflow_template_id",
-                   "vessel_name", "port_of_loading", "port_of_discharge",
-                   "exporter_name", "buyer_name"
-            FROM "public"."shipments"
+            SELECT *
+            FROM shipment_360.shipment_list_view
+            WHERE $1::text = ''
+               OR search_text ILIKE ('%' || $1::text || '%')
             ORDER BY "created_at" DESC
-            LIMIT 200
+            LIMIT $2 OFFSET $3
             """,
+            query_text,
+            limit,
+            resolved_offset,
         )
-        shipment_ids = [str(row["id"]) for row in shipment_rows]
-        documents_by_shipment: dict[str, list[dict[str, Any]]] = {
-            shipment_id: [] for shipment_id in shipment_ids
+        total = int((total_rows[0] or {}).get("total") or 0) if total_rows else 0
+        data = [_view_shipment_payload(row) for row in shipment_rows]
+        return {
+            "ok": True,
+            "data": data,
+            "meta": {
+                "total": total,
+                "page": page if offset is None else (resolved_offset // limit) + 1,
+                "pageSize": limit,
+                "offset": resolved_offset,
+                "hasNext": resolved_offset + len(data) < total,
+                "hasPrev": resolved_offset > 0,
+            },
         }
-        gates_by_shipment: dict[str, list[dict[str, Any]]] = {
-            shipment_id: [] for shipment_id in shipment_ids
-        }
-
-        if shipment_ids:
-            try:
-                document_rows = await _query_raw(
-                    prisma,
-                    """
-                    SELECT "id", "shipment_id", "document_type", "document_number",
-                           "ocr_status", "validation_status", "approved_at", "is_generated"
-                    FROM "public"."documents"
-                    WHERE "shipment_id" = ANY($1::uuid[])
-                    ORDER BY "created_at" ASC
-                    """,
-                    shipment_ids,
-                )
-                for document in document_rows:
-                    shipment_id = str(document["shipment_id"])
-                    documents_by_shipment.setdefault(shipment_id, []).append({
-                        "id": str(document["id"]),
-                        "documentType": document.get("document_type"),
-                        "documentNumber": document.get("document_number"),
-                        "ocrStatus": document.get("ocr_status") or "",
-                        "validationStatus": document.get("validation_status") or "",
-                        "approvedAt": _iso(document.get("approved_at")),
-                        "isGenerated": bool(document.get("is_generated")),
-                    })
-            except Exception:
-                # OCR-only schemas do not carry the legacy shipment columns.
-                pass
-
-            try:
-                gate_rows = await _query_raw(
-                    prisma,
-                    """
-                    SELECT sg."shipment_id", sg."gate_config_id", sg."status",
-                           sg."passed_at", sg."blocked_reason",
-                           gc."gate_number", gc."gate_name"
-                    FROM "public"."shipment_gates" sg
-                    JOIN "public"."gate_configs" gc ON gc."id" = sg."gate_config_id"
-                    WHERE sg."shipment_id" = ANY($1::uuid[])
-                    ORDER BY gc."gate_number" ASC
-                    """,
-                    shipment_ids,
-                )
-                for gate in gate_rows:
-                    shipment_id = str(gate["shipment_id"])
-                    gates_by_shipment.setdefault(shipment_id, []).append({
-                        "gateConfigId": str(gate["gate_config_id"]),
-                        "status": str(gate.get("status") or "FUTURE"),
-                        "passedAt": _iso(gate.get("passed_at")),
-                        "blockedReason": gate.get("blocked_reason"),
-                        "gateConfig": {
-                            "gateNumber": gate.get("gate_number"),
-                            "gateName": gate.get("gate_name"),
-                        },
-                    })
-            except Exception:
-                pass
-
-        data = []
-        for row in shipment_rows:
-            shipment_id = str(row["id"])
-            documents = documents_by_shipment.get(shipment_id, [])
-            data.append({
-                "id": shipment_id,
-                "shipmentNumber": row.get("shipment_number"),
-                "status": row.get("status"),
-                "blockedReason": row.get("blocked_reason"),
-                "currentStage": row.get("current_stage") or 1,
-                "currentStageName": row.get("current_stage_name"),
-                "templateId": str(row["workflow_template_id"]) if row.get("workflow_template_id") else None,
-                "vesselName": row.get("vessel_name"),
-                "portOfLoading": row.get("port_of_loading"),
-                "portOfDischarge": row.get("port_of_discharge"),
-                "exporterName": row.get("exporter_name"),
-                "buyerName": row.get("buyer_name"),
-                "documents": documents,
-                "shipmentGates": gates_by_shipment.get(shipment_id, []),
-                "_count": {"documents": len(documents)},
-            })
-        return {"ok": True, "data": data, "meta": {"total": len(data)}}
     except Exception:
         await _ensure_safecube_tables(prisma)
         rows = await _query_raw(
@@ -718,7 +1225,24 @@ async def list_shipments(user=Depends(get_current_user)):
 @router.get("/api/shipments/{shipment_id}")
 async def get_shipment(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
-    await _ensure_safecube_tables(prisma)
+    await ensure_operational_shipment_tables(prisma)
+    await _ensure_shipment_360_views(prisma)
+    try:
+        rows = await _query_raw(
+            prisma,
+            """
+            SELECT *
+            FROM shipment_360.shipment_detail_view
+            WHERE id = $1::text OR shipment_number = $1::text
+            LIMIT 1
+            """,
+            shipment_id,
+        )
+        if rows:
+            return {"ok": True, "data": _view_shipment_payload(rows[0], include_containers=True)}
+    except Exception:
+        pass
+
     rows = await _query_raw(
         prisma,
         """
@@ -740,6 +1264,134 @@ async def get_shipment(shipment_id: str, user=Depends(get_current_user)):
         rows[0]["id"],
     )
     return {"data": _row_to_shipment(rows[0], events)}
+
+
+@router.get(settings.API_SLUG + "/shipments/{shipment_id}/documents")
+@router.get("/api/shipments/{shipment_id}/documents")
+async def list_shipment_documents(shipment_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    await ensure_operational_shipment_tables(prisma)
+    await _ensure_shipment_360_views(prisma)
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT documents
+        FROM shipment_360.shipment_detail_view
+        WHERE id = $1::text OR shipment_number = $1::text
+        LIMIT 1
+        """,
+        shipment_id,
+    )
+    if rows:
+        return {"ok": True, "data": _as_list(rows[0].get("documents"))}
+    shipment = await _public_shipment_row(prisma, shipment_id)
+    if not shipment:
+        raise HTTPException(status_code=404, detail="Shipment not found")
+    return {"ok": True, "data": await _shipment_documents(prisma, str(shipment["id"]))}
+
+
+@router.get(settings.API_SLUG + "/shipments/{shipment_id}/safecube")
+@router.get("/api/shipments/{shipment_id}/safecube")
+async def get_shipment_safecube(shipment_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    await ensure_operational_shipment_tables(prisma)
+    await _ensure_safecube_tables(prisma)
+    shipment = await _public_shipment_row(prisma, shipment_id)
+    if not shipment:
+        raise HTTPException(status_code=404, detail="Shipment not found")
+    bol = await _approved_bol_for_shipment(prisma, shipment)
+    row = await _shipment_tracking_row(prisma, shipment, bol)
+    if not row:
+        return {"ok": True, "data": None}
+    events = await _tracking_events_for_sc_row(prisma, str(row["id"]))
+    return {"ok": True, "data": _safecube_ui_payload(row, events)}
+
+
+@router.post(settings.API_SLUG + "/shipments/{shipment_id}/safecube/link")
+@router.post("/api/shipments/{shipment_id}/safecube/link")
+async def link_shipment_safecube(shipment_id: str, payload: dict[str, Any] | None = None, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    await ensure_operational_shipment_tables(prisma)
+    await _ensure_safecube_tables(prisma)
+    shipment = await _public_shipment_row(prisma, shipment_id)
+    if not shipment:
+        raise HTTPException(status_code=404, detail="Shipment not found")
+    bol = await _approved_bol_for_shipment(prisma, shipment)
+    tracking_reference = _bol_tracking_reference(bol, shipment)
+    if not bol or not tracking_reference:
+        return {"ok": False, "error": "No approved BOL with MBL/BOL reference found for this shipment"}
+
+    existing = await _shipment_tracking_row(prisma, shipment, bol)
+    if existing:
+        events = await _tracking_events_for_sc_row(prisma, str(existing["id"]))
+        return {"ok": True, "data": _safecube_ui_payload(existing, events)}
+
+    body = payload or {}
+    shipment_type = str(body.get("shipmentType") or _tracking_type_for_reference(tracking_reference, bol, shipment)).upper()
+    sealine = body.get("sealine")
+    try:
+        summary = track_container(
+            tracking_reference,
+            shipment_type=shipment_type,
+            sealine=str(sealine).strip().upper() if sealine else None,
+            include_summary=True,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"SafeCube tracking failed: {exc}") from exc
+
+    row = await _store_tracking(
+        prisma,
+        TrackShipmentRequest(
+            trackingReference=tracking_reference,
+            shipmentType=shipment_type,
+            sealine=str(sealine).strip().upper() if sealine else None,
+        ),
+        summary,
+    )
+    await _update_public_shipment_from_bol_and_tracking(prisma, shipment, bol, row)
+    events = await _tracking_events_for_sc_row(prisma, str(row["id"]))
+    return {"ok": True, "data": _safecube_ui_payload(row, events)}
+
+
+@router.post(settings.API_SLUG + "/shipments/{shipment_id}/safecube/sync")
+@router.post("/api/shipments/{shipment_id}/safecube/sync")
+async def sync_shipment_safecube(shipment_id: str, payload: dict[str, Any] | None = None, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    await ensure_operational_shipment_tables(prisma)
+    await _ensure_safecube_tables(prisma)
+    shipment = await _public_shipment_row(prisma, shipment_id)
+    if not shipment:
+        raise HTTPException(status_code=404, detail="Shipment not found")
+    bol = await _approved_bol_for_shipment(prisma, shipment)
+    existing = await _shipment_tracking_row(prisma, shipment, bol)
+    tracking_reference = str((existing or {}).get("shipment_number") or _bol_tracking_reference(bol, shipment) or "").strip()
+    if not tracking_reference:
+        return {"ok": False, "error": "No SafeCube reference found for this shipment"}
+    body = payload or {}
+    shipment_type = str(body.get("shipmentType") or (existing or {}).get("shipment_type") or _tracking_type_for_reference(tracking_reference, bol, shipment)).upper()
+    sealine = body.get("sealine") or (existing or {}).get("sealine")
+    try:
+        summary = track_container(
+            tracking_reference,
+            shipment_type=shipment_type,
+            sealine=str(sealine).strip().upper() if sealine else None,
+            include_summary=True,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"SafeCube tracking failed: {exc}") from exc
+
+    row = await _store_tracking(
+        prisma,
+        TrackShipmentRequest(
+            trackingReference=tracking_reference,
+            shipmentType=shipment_type,
+            sealine=str(sealine).strip().upper() if sealine else None,
+        ),
+        summary,
+    )
+    await _update_public_shipment_from_bol_and_tracking(prisma, shipment, bol, row)
+    events = await _tracking_events_for_sc_row(prisma, str(row["id"]))
+    return {"ok": True, "data": _safecube_ui_payload(row, events)}
 
 
 @router.post(settings.API_SLUG + "/shipments/track")
@@ -773,6 +1425,7 @@ async def track_shipment(payload: TrackShipmentRequest, user=Depends(get_current
 @router.get("/api/shipments/{shipment_id}/gates")
 async def list_shipment_gates(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
+    await ensure_operational_shipment_tables(prisma)
     try:
         rows = await _shipment_gate_rows(prisma, shipment_id)
     except Exception as exc:
