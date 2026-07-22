@@ -2,9 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, ArrowLeft, Check, Loader2, Package, Plus, Send, Truck } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { getAuthToken } from '@/lib/api';
+import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
 import { toast } from 'sonner';
-
-const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();

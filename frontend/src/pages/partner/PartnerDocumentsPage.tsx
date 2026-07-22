@@ -6,8 +6,7 @@ import {
 import { useConfig } from '@/contexts/ConfigContext';
 import { useShipments, useUploadableDocTypes } from '@/hooks/useOperationalData';
 import { getAuthToken } from '@/lib/api';
-
-const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
+import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();

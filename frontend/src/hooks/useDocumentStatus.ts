@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getAuthToken } from '@/lib/api';
-
-const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
+import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
 
 export type OcrStatus =
   | 'UPLOADED'

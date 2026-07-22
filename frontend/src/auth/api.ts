@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { API_BASE_URL, BACKEND_API_BASE } from '@/lib/apiBase';
 import type {
   AdminStorageListing,
   ApproveDocumentResponse,
@@ -17,7 +18,6 @@ import type {
 
 const SESSION_TOKEN_KEY = 'session_token_fallback';
 const REFRESH_TOKEN_KEY = 'refresh_token_fallback';
-const BACKEND_API_BASE = (import.meta.env.VITE_BACKEND_API_BASE || '').replace(/\/$/, '');
 const KEYCLOAK_URL = (import.meta.env.VITE_KEYCLOAK_URL || '').replace(/\/$/, '');
 const KEYCLOAK_REALM = import.meta.env.VITE_KEYCLOAK_REALM || '';
 const CLASSIFICATION_POLL_TIMEOUT_MS = 600000;
@@ -34,7 +34,7 @@ let refreshPromise: Promise<string | null> | null = null;
 
 // Create axios instance with default configuration
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
+  baseURL: API_BASE_URL,
   withCredentials: true, // Required for HTTP-only cookies
   headers: {
     'Content-Type': 'application/json',

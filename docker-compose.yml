@@ -71,8 +71,8 @@ services:
     env_file:
       - ./frontend/.env.local
     environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8120/api/v1}
-      VITE_BACKEND_API_BASE: ${VITE_BACKEND_API_BASE:-http://localhost:8120}
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://192.168.10.100:8120/api/v1}
+      VITE_BACKEND_API_BASE: ${VITE_BACKEND_API_BASE:-http://192.168.10.100:8120}
       VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:-http://192.168.10.100:8031}
       VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:-ewms-saas}
     depends_on:

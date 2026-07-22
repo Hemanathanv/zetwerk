@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { getAuthToken } from '@/lib/api';
+import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Loader2 } from 'lucide-react';
-
-const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
 
 interface Props {
   documentId: string;

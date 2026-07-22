@@ -15,6 +15,10 @@ build/
 *.pyo
 *.pyd
 *.*env
+.env*.local
+.env.development.local
+.env.production.local
+.env.test.local
 *.*zip
 *.*txt
 *.md
@@ -23,3 +27,6 @@ zetwerk-main/
 .codex/
 doc/
 *.xlsx
+keycloak/
+
+frontend/.env.local

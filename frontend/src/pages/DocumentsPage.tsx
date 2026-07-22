@@ -3,6 +3,7 @@ import { useLocation } from 'wouter';
 import { useConfig } from '@/contexts/ConfigContext';
 import type { ConfigTemplate, ConfigDocType } from '@/contexts/ConfigContext';
 import { getAuthToken } from '@/lib/api';
+import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
 import {
   DOCUMENT_GATE_DEFS,
   documentGateForDocType,
@@ -22,10 +23,6 @@ import {
   Clock,
 } from 'lucide-react';
 import { StatusPill, DocBadge, FilterChips } from '@/components/vs';
-
-const API_BASE = (
-  (import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? ''
-).replace(/\/$/, '');
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();
