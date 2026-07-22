@@ -1,9 +1,10 @@
 import { REFRESH_TOKEN_KEY, SESSION_TOKEN_KEY } from '@/auth/api';
+import { API_BASE_URL, resolveApiUrl } from '@/lib/apiBase';
 
 let authToken: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;
 
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
+export { API_BASE_URL } from '@/lib/apiBase';
 
 export function setAuthToken(token: string): void {
   authToken = token;
@@ -62,9 +63,7 @@ function clearExpiredSession() {
 }
 
 async function request<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
-  const url = path.startsWith('http') || path.startsWith('/api/')
-    ? path
-    : `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+  const url = resolveApiUrl(path);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> ?? {}),

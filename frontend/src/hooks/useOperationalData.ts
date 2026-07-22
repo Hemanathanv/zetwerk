@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation } from 'wouter';
 import { getAuthToken } from '@/lib/api';
+import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
 import { useConfig } from '@/contexts/ConfigContext';
 import { usePermissions } from '@/contexts/PermissionContext';
-
-const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();

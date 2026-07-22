@@ -5,6 +5,7 @@ import { usePermissions } from '@/contexts/PermissionContext';
 import { RequireActivity } from '@/components/PermissionGate';
 import { RoleBadge } from '@/components/RoleBadge';
 import { getAuthToken } from '@/lib/api';
+import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
 import {
   useTaskList,
   useTaskSummary,
@@ -68,8 +69,6 @@ const ESCALATION_REASONS = [
   'Blocked by external party',
   'Other',
 ] as const;
-
-const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();

@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { Folder, FileText, ChevronRight, Home, RefreshCw, AlertCircle, HardDrive } from 'lucide-react';
 import { getAuthToken } from '@/lib/api';
-
-const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
+import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
 
 interface S3Folder {
   name: string;

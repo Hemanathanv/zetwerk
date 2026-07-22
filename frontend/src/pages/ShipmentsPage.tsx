@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { StatusPill, FilterChips, ProgressBar, PageHeader } from '@/components/vs';
 import { ALERT_PILL, PHASE_LABELS, type StageVariant } from '@/data/mockShipments';
 import { getAuthToken } from '@/lib/api';
+import { BACKEND_API_BASE } from '@/lib/apiBase';
 import { ScheduleStatusBadge } from '@/components/SafeCubePanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -256,7 +257,7 @@ export function ShipmentsPage() {
         limit: String(PAGE_SIZE),
       });
       if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
-      const res   = await fetch(`/api/shipments?${params.toString()}`, {
+      const res   = await fetch(`${BACKEND_API_BASE}/api/shipments?${params.toString()}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const json = await res.json();

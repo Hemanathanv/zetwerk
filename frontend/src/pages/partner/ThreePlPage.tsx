@@ -7,10 +7,9 @@ import {
   CheckCircle2, ChevronRight, Lock, Clock, Sparkles, ExternalLink,
 } from 'lucide-react';
 import { getAuthToken } from '@/lib/api';
+import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
 import { useDocTypePermissions, usePermissions } from '@/contexts/PermissionContext';
 import { useAuth } from '@/contexts/AuthContext';
-
-const API_BASE = ((import.meta.env.VITE_BACKEND_API_BASE as string | undefined) ?? '').replace(/\/$/, '');
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();
