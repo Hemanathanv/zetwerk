@@ -62,6 +62,21 @@ def _shipment_number_from_bol(bol: dict[str, Any]) -> str | None:
     return f"ZTW-PENDING-{suffix}" if suffix else None
 
 
+def _bol_raw_data(bol: dict[str, Any]) -> dict[str, Any]:
+    raw_data = bol.get("raw_data")
+    return raw_data if isinstance(raw_data, dict) else {}
+
+
+def _bol_is_shipment_eligible(bol: dict[str, Any]) -> bool:
+    raw_data = _bol_raw_data(bol)
+    has_mapping = raw_data.get("containerMappingApproved") is True
+    has_reference = bool(
+        _clean(bol.get("mbl_number"))
+        or _clean(bol.get("booking_reference_number"))
+    )
+    return has_mapping and has_reference
+
+
 async def ensure_operational_shipment_tables(prisma: Any) -> None:
     global _OPERATIONAL_TABLES_READY
     if _OPERATIONAL_TABLES_READY:
@@ -222,6 +237,9 @@ async def create_or_update_shipment_from_bol_document(prisma: Any, document_id: 
         return None
 
     bol = rows[0]
+    if not _bol_is_shipment_eligible(bol):
+        return None
+
     shipment_number = _shipment_number_from_bol(bol)
     if not shipment_number:
         return None
@@ -326,7 +344,11 @@ async def create_or_update_shipment_from_bol_document(prisma: Any, document_id: 
           "document_type" = COALESCE("document_type", "doc_type"::text),
           "document_number" = COALESCE($3, "document_number"),
           "ocr_status" = 'completed',
-          "validation_status" = 'approved',
+          "validation_status" = CASE
+            WHEN UPPER(COALESCE("validation_status", '')) IN ('PASSED', 'WARNING', 'WARNED', 'BLOCKED', 'FAILED', 'WAITING')
+              THEN "validation_status"
+            ELSE 'WAITING'
+          END,
           "approved_at" = COALESCE("approved_at", NOW()),
           "updated_at" = NOW()
         WHERE "id" = $1

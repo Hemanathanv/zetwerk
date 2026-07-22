@@ -4,6 +4,10 @@ import { useConfig } from '@/contexts/ConfigContext';
 import type { ConfigTemplate, ConfigDocType } from '@/contexts/ConfigContext';
 import { getAuthToken } from '@/lib/api';
 import {
+  DOCUMENT_GATE_DEFS,
+  documentGateForDocType,
+} from '@/config/documentGateConfig';
+import {
   Upload,
   Loader2,
   CheckCircle2,
@@ -38,6 +42,7 @@ interface DocEntry {
   code: string;
   label: string;
   status: DocStatus;
+  count?: number;
   docNumber?: string;
   ruleCode?: string;
   docId?: string;
@@ -95,33 +100,15 @@ const CARD_BG = 'hsl(var(--card))';
 
 // ─── Gate view — constants ───────────────────────────────────────────────────
 
-const GATE_DEFS = [
-  {
-    label: 'Shipment Initiation',
-    required: [{ code: 'SI', label: 'Sales Invoice' }, { code: 'PL', label: 'Packing List' }, { code: 'SB', label: 'Shipping Bill' }],
-    parallel: [{ code: 'CH', label: 'CHA Bill' }],
-  },
-  {
-    label: 'India Port Exit',
-    required: [{ code: 'BL', label: 'Bill of Lading' }, { code: 'DBE', label: 'Draft BOE' }],
-    parallel: [{ code: 'FF', label: 'Freight Forwarder Bill' }],
-  },
-  {
-    label: 'US Port Entry',
-    required: [{ code: 'IS', label: 'ISF Filing' }, { code: 'BE', label: 'CBP FORM-7501' }, { code: 'CR', label: 'Cargo Release Order' }, { code: 'CU', label: 'Customs Release Order' }],
-    parallel: [{ code: 'BB', label: 'US Custom Broker Bill' }, { code: 'OF', label: 'Ocean Freight Invoice' }, { code: 'DD', label: 'D&D Charge' }],
-  },
-  {
-    label: '3PL Warehouse Entry',
-    required: [{ code: 'DO', label: 'Delivery Order' }, { code: 'GR', label: 'GRN Inbound' }],
-    parallel: [{ code: 'PW', label: 'Port to Warehouse Bill' }],
-  },
-  {
-    label: 'Customer Delivery',
-    required: [{ code: 'OG', label: 'Outward GRN' }, { code: 'UP', label: 'US Packing List' }, { code: 'UI', label: 'US Sales Invoice' }, { code: 'PD', label: 'Proof of Delivery' }],
-    parallel: [{ code: 'WC', label: 'Warehouse to Customer Bill' }],
-  },
-];
+const GATE_DEFS = DOCUMENT_GATE_DEFS.map(gate => ({
+  label: gate.label,
+  required: gate.docs
+    .filter(doc => doc.role !== 'PARALLEL')
+    .map(doc => ({ code: doc.code, label: doc.label })),
+  parallel: gate.docs
+    .filter(doc => doc.role === 'PARALLEL')
+    .map(doc => ({ code: doc.code, label: doc.label })),
+}));
 
 // ─── Gate view — API mapping ─────────────────────────────────────────────────
 
@@ -174,6 +161,7 @@ interface ApprovedOcrDocument {
   fileName: string;
   approvedAt?: string | null;
   extractedAt?: string | null;
+  validationStatus?: string | null;
   extractedData?: Record<string, unknown>;
   gateNumber?: number | null;
   gateCode?: string | null;
@@ -299,7 +287,7 @@ function approvedDocumentsToShipments(documents: ApprovedOcrDocument[]): ApiShip
       // legitimately refer to another document in the same shipment.
       documentNumber: document.fileName,
       ocrStatus: 'COMPLETED',
-      validationStatus: 'APPROVED',
+      validationStatus: document.validationStatus ?? 'WAITING',
       approvedAt: document.approvedAt ?? document.extractedAt ?? new Date(0).toISOString(),
       isGenerated: Boolean(document.isGenerated),
       gateNumber: document.gateNumber ?? null,
@@ -326,12 +314,79 @@ function approvedDocumentsToShipments(documents: ApprovedOcrDocument[]): ApiShip
   });
 }
 
+function validationDone(status?: string | null): boolean {
+  const normalized = String(status ?? '').toUpperCase();
+  return normalized === 'PASSED';
+}
+
+function validationFailed(status?: string | null): boolean {
+  const normalized = String(status ?? '').toUpperCase();
+  return normalized === 'FAILED' || normalized === 'BLOCKED' || normalized === 'FAIL';
+}
+
+function validationPending(status?: string | null): boolean {
+  const normalized = String(status ?? '').toUpperCase();
+  return !normalized || normalized === 'WAITING' || normalized === 'WARNING' || normalized === 'WARNED' || normalized === 'PENDING';
+}
+
 function apiDocStatus(d: ApiDoc): DocStatus {
-  if (d.approvedAt && d.isGenerated) return 'gen-closed';
-  if (d.approvedAt) return 'closed';
-  if (d.ocrStatus === 'failed' || d.validationStatus === 'failed') return 'failed-block';
-  if (d.ocrStatus === 'extracted') return 'gen-review';
+  const ocrStatus = String(d.ocrStatus ?? '').toLowerCase();
+  if (ocrStatus === 'failed' || validationFailed(d.validationStatus)) return 'failed-block';
+  if (d.approvedAt && validationDone(d.validationStatus)) return d.isGenerated ? 'gen-closed' : 'closed';
+  if (d.approvedAt && validationPending(d.validationStatus)) return 'failed-warn';
+  if (d.approvedAt) return 'failed-warn';
+  if (ocrStatus === 'extracted') return 'gen-review';
   return 'processing';
+}
+
+const DOC_STATUS_PRIORITY: Record<DocStatus, number> = {
+  'failed-block': 7,
+  'failed-warn': 6,
+  processing: 5,
+  'gen-review': 4,
+  'gen-closed': 3,
+  closed: 3,
+  expected: 1,
+  na: 0,
+};
+
+function strongestDocStatus(entries: DocEntry[]): DocStatus {
+  return entries.reduce(
+    (strongest, entry) =>
+      DOC_STATUS_PRIORITY[entry.status] > DOC_STATUS_PRIORITY[strongest]
+        ? entry.status
+        : strongest,
+    entries[0]?.status ?? 'na',
+  );
+}
+
+function collapseDuplicateDocs(entries: DocEntry[]): DocEntry[] {
+  const grouped = new Map<string, DocEntry[]>();
+  const order: string[] = [];
+
+  for (const entry of entries) {
+    const key = `${entry.code}|${entry.isParallel ? 'parallel' : 'main'}|${entry.genType ?? ''}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+      order.push(key);
+    }
+    grouped.get(key)!.push(entry);
+  }
+
+  return order.map(key => {
+    const group = grouped.get(key)!;
+    if (group.length === 1) return group[0];
+
+    const first = group[0];
+    return {
+      ...first,
+      status: strongestDocStatus(group),
+      count: group.length,
+      label: `${first.label} (${group.length})`,
+      docNumber: first.docNumber ?? `${group.length} documents`,
+      ruleCode: group.find(item => item.ruleCode)?.ruleCode,
+    };
+  });
 }
 
 // ─── Template-driven gate structure ──────────────────────────────────────────
@@ -388,17 +443,26 @@ function buildTemplateDef(template: ConfigTemplate, docTypes: ConfigDocType[]): 
 // Fallback: string-pattern gate lookup (used when no template is found)
 function docTypeToGate(dt: string): { gate: number; code: string; label: string; isParallel?: boolean } | null {
   const t = dt.toUpperCase();
+  const canonical = documentGateForDocType(t);
+  if (canonical) {
+    return {
+      gate: canonical.gateNumber,
+      code: canonical.doc.code,
+      label: canonical.doc.label,
+      isParallel: canonical.doc.role === 'PARALLEL',
+    };
+  }
   if (t === 'US_PACKING_LIST' || t.includes('US_PACKING')) return { gate: 5, code: 'UP', label: 'US Packing List' };
   if (t === 'US_SALES_INVOICE' || t.includes('US_SALES')) return { gate: 5, code: 'UI', label: 'US Sales Invoice' };
   if (t === 'SI' || t.includes('SALES_INVOICE')) return { gate: 1, code: 'SI', label: 'Sales Invoice' };
   if ((t === 'PL' || t.includes('PACKING_LIST') || t === 'PACKING-LIST') && !t.includes('OUTWARD')) return { gate: 1, code: 'PL', label: 'Packing List' };
   if (t === 'SB' || t.includes('SHIPPING_BILL')) return { gate: 1, code: 'SB', label: 'Shipping Bill' };
   if (t === 'BOL' || t === 'BL' || t.includes('BILL_OF_LADING')) return { gate: 2, code: 'BL', label: 'Bill of Lading' };
-  if (t.includes('DRAFT') || t === 'DRAFT-BOE' || (t.includes('BOE') && t.includes('DRAFT'))) return { gate: 2, code: 'DBE', label: 'Draft BOE' };
+  if (t.includes('DRAFT') || t === 'DRAFT-BOE' || (t.includes('BOE') && t.includes('DRAFT'))) return { gate: 2, code: 'CBP', label: 'CBP FORM 7501' };
   if (t === 'CHA_BILL' || t === 'CHA') return { gate: 1, code: 'CH', label: 'CHA Bill', isParallel: true };
   if (t === 'FREIGHT_FORWARDER_BILL' || t.includes('FREIGHT_FORWARDER')) return { gate: 2, code: 'FF', label: 'Freight Forwarder Bill', isParallel: true };
   if (t === 'ISF' || t.includes('IMPORTER_SECURITY')) return { gate: 3, code: 'IS', label: 'ISF Filing' };
-  if ((t === 'ENTRY_SUMMARY' || t === 'BOE' || t.includes('BILL_OF_ENTRY') || t.includes('CBP_FORM_7501')) && !t.includes('DRAFT')) return { gate: 3, code: 'BE', label: 'CBP FORM-7501' };
+  if ((t === 'ENTRY_SUMMARY' || t === 'BOE' || t.includes('BILL_OF_ENTRY') || t.includes('CBP_FORM_7501')) && !t.includes('DRAFT')) return { gate: 3, code: 'CBP', label: 'CBP FORM 7501' };
   if (t === 'CRO' || t.includes('CARGO_RELEASE') || t.includes('US_CARGO')) return { gate: 3, code: 'CR', label: 'Cargo Release Order' };
   if (t.includes('CUSTOMS_RELEASE') || t.includes('US_CUSTOMS')) return { gate: 3, code: 'CU', label: 'Customs Release Order' };
   if (t === 'OCEAN_FREIGHT' || t.includes('OCEAN_FREIGHT')) return { gate: 3, code: 'OF', label: 'Ocean Freight Invoice', isParallel: true };
@@ -454,6 +518,11 @@ function shipmentToLane(
       genType: d.isGenerated ? d.documentType : undefined,
       isParallel: !!d.isParallel || !!g.isParallel,
     };
+    if (entry.status === 'failed-block') {
+      entry = { ...entry, ruleCode: 'Cross validation blocked', docNumber: undefined };
+    } else if (entry.status === 'failed-warn') {
+      entry = { ...entry, ruleCode: 'Cross validation pending', docNumber: undefined };
+    }
 
     if (d.isGenerated) {
       const t = d.documentType.toUpperCase();
@@ -472,7 +541,7 @@ function shipmentToLane(
   const activeDefs = GATE_DEFS;
   const gates: GateCol[] = activeDefs.map((def, i) => {
     const gateNum   = i + 1;
-    const realDocs  = gateDocsMap.get(gateNum) ?? [];
+    const realDocs  = collapseDuplicateDocs(gateDocsMap.get(gateNum) ?? []);
     const seenCodes = new Set(realDocs.map(d => d.code));
     const merged: DocEntry[] = [
       ...realDocs,
@@ -628,7 +697,7 @@ function DocStatusIcon({ status, isParallel }: { status: DocStatus; isParallel?:
     case 'failed-block':
       return <AlertCircle size={12} style={{ color: RED, flexShrink: 0 }} />;
     case 'failed-warn':
-      return <AlertTriangle size={12} style={{ color: warnColor, flexShrink: 0 }} />;
+      return <Clock size={12} style={{ color: warnColor, flexShrink: 0 }} />;
     case 'expected':
       return <Circle size={11} style={{ color: MUTED, flexShrink: 0, opacity: 0.4 }} />;
     case 'na':
@@ -642,7 +711,7 @@ function docSubText(doc: DocEntry, isParallel?: boolean): { text: string; color:
     case 'gen-closed':  return { text: doc.docNumber ?? 'Draft approved', color: GOLD };
     case 'gen-review':  return { text: doc.docNumber ?? 'Draft — review', color: GOLD };
     case 'processing':  return { text: doc.docNumber ?? 'Processing...', color: INFO };
-    case 'failed-block': return { text: doc.ruleCode ?? 'Failed', color: RED, mono: true };
+    case 'failed-block': return { text: doc.ruleCode ?? 'Cross validation blocked', color: RED };
     case 'failed-warn': return { text: doc.ruleCode ?? doc.docNumber ?? 'Warning', color: isParallel ? AMBER : RED, mono: !!doc.ruleCode };
     case 'expected':    return { text: doc.docNumber ?? 'Expected', color: MUTED, italic: true };
     case 'na':          return { text: '—', color: MUTED };
@@ -659,7 +728,7 @@ function DocItem({ doc, isParallel, onNavigate }: {
   const path = doc.status === 'closed' && doc.docId
     ? `/documents/${doc.docId}`
     : (doc.status === 'gen-closed' || doc.status === 'gen-review') && doc.genType
-      ? `/documents/generate/${doc.genType}`
+      ? (doc.genType === 'outward-pl' || doc.genType === 'us-packing-list' ? '/documents/generate/outward-pl' : `/documents/generate/${doc.genType}`)
       : doc.status === 'expected' || doc.status === 'failed-warn' || doc.status === 'failed-block' || doc.status === 'processing'
         ? '/documents/upload'
         : undefined;
@@ -761,7 +830,7 @@ function GateColPanel({ gate, isParallel, onNavigate }: {
           ))
         )}
         {hasBlock && (
-          <div style={{ marginTop: 4, fontSize: 14, fontWeight: 600, color: RED }}>BLOCKED</div>
+          <div style={{ marginTop: 4, fontSize: 14, fontWeight: 600, color: RED }}>Cross validation blocked</div>
         )}
       </div>
     </div>
@@ -1166,6 +1235,16 @@ export function DocumentsPage() {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    const handleModuleSearch = (event: Event) => {
+      const detail = (event as CustomEvent<{ scope: string; value: string }>).detail;
+      if (detail.scope !== 'documents' && detail.scope !== 'all') return;
+      setGateSearch(detail.value);
+    };
+    window.addEventListener('ewms-module-search', handleModuleSearch);
+    return () => window.removeEventListener('ewms-module-search', handleModuleSearch);
+  }, []);
+
   function toggleLane(id: string) {
     setOpenLanes(prev => {
       const next = new Set(prev);
@@ -1191,6 +1270,11 @@ export function DocumentsPage() {
       ? result.filter(l => l.shipmentId.toLowerCase().includes(q) || l.vessel.toLowerCase().includes(q) || l.meta.toLowerCase().includes(q))
       : result;
   }, [lanes, gateFilter, gateSearch]);
+
+  const gateSearchOptions = useMemo(
+    () => gateSearch.trim() ? filteredLanes.slice(0, 8) : [],
+    [filteredLanes, gateSearch],
+  );
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER
@@ -1271,19 +1355,44 @@ export function DocumentsPage() {
               display: 'flex', alignItems: 'center', gap: 8,
               border: `1px solid ${BORDER}`, borderRadius: 8,
               padding: '6px 12px', backgroundColor: CARD_BG,
-              flex: 1, maxWidth: 320,
+              flex: 1, maxWidth: 320, position: 'relative', zIndex: 5,
             }}>
               <Search size={13} style={{ color: MUTED, flexShrink: 0 }} />
               <input
                 value={gateSearch}
                 onChange={e => setGateSearch(e.target.value)}
-                placeholder="Search by shipment, BOL, vessel..."
+                placeholder="Search shipment gates..."
                 style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, color: FG, backgroundColor: 'transparent' }}
               />
               {gateSearch && (
                 <button onClick={() => setGateSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
                   <span style={{ fontSize: 14.5, color: MUTED }}>✕</span>
                 </button>
+              )}
+              {gateSearchOptions.length > 0 && (
+                <div style={{
+                  position: 'absolute', left: 0, right: 0, top: 'calc(100% + 6px)',
+                  backgroundColor: CARD_BG, border: `1px solid ${BORDER}`, borderRadius: 8,
+                  boxShadow: '0 10px 28px hsla(0,0%,0%,0.16)', overflow: 'hidden',
+                }}>
+                  {gateSearchOptions.map(lane => (
+                    <button
+                      key={lane.id}
+                      onMouseDown={event => event.preventDefault()}
+                      onClick={() => {
+                        setGateSearch(lane.shipmentId);
+                        setOpenLanes(prev => new Set(prev).add(lane.id));
+                        setFocusedLaneId(lane.id);
+                      }}
+                      style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '9px 11px', textAlign: 'left' }}
+                    >
+                      <div className="vs-mono" style={{ fontSize: 13, fontWeight: 700, color: FG }}>{lane.shipmentId}</div>
+                      <div style={{ fontSize: 12.5, color: MUTED, marginTop: 2 }}>
+                        {lane.vessel} · Gate {Math.max(1, lane.gateStatuses.findIndex(status => status === 'active' || status === 'blocked') + 1)}
+                      </div>
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           </div>

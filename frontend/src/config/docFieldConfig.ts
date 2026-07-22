@@ -670,7 +670,7 @@ const OCEAN_FREIGHT: DocTypeConfig = {
 
 const ENTRY_SUMMARY: DocTypeConfig = {
   docType: 'ENTRY_SUMMARY',
-  displayName: 'CBP FORM-7501',
+  displayName: 'CBP FORM 7501',
   shortCode: 'BE',
   geography: 'US',
   crossValidationRules: ['V-BOE-01', 'V-BOE-02', 'V-BOE-03', 'V-BOE-04', 'V-BOE-05', 'V-BOE-06', 'V-BOE-07', 'V-BOE-08'],

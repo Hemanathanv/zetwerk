@@ -55,6 +55,19 @@ type WaitingDoc = {
 
 type GeneratedDocType = 'PACKING_LIST' | 'US_PACKING_LIST' | 'ENTRY_SUMMARY';
 
+type EscalationConfig = {
+  id: string;
+  activityType: string;
+  activityName?: string;
+  scope?: string;
+  baseDoc?: string;
+  baseSlaHours: number | string;
+  reminderPct: number;
+  warningPct: number;
+  escalationPct: number;
+  blockerPct: number;
+};
+
 type GeneratedDraftValidation = ValidationSummary & {
   status?: 'PASSED' | 'WARNING' | 'BLOCKED' | 'WAITING' | string | null;
   okToProgress?: boolean;
@@ -432,6 +445,7 @@ type QueueCard = {
   headerColor: string;
   docCode: string;
   docType: string;
+  documentTypeCode?: string;
   isGenerated?: boolean;
   issuer: string;
   docNumber: string;
@@ -502,17 +516,19 @@ function formatDocTypeLabel(value?: string | null) {
   return text.replace(/\b\w/g, char => char.toUpperCase());
 }
 
-function QueueCardEl({ card, onApproveClick, onStopClick, onRetryClick, onCardClick, slaHours }: {
+function QueueCardEl({ card, onApproveClick, onStopClick, onRetryClick, onCardClick, slaConfig }: {
   card: QueueCard;
   onApproveClick?: () => void;
   onStopClick?: () => void;
   onRetryClick?: () => void;
   onCardClick?: () => void;
-  slaHours?: number | null;
+  slaConfig?: EscalationConfig | null;
 }) {
   const [, navigate] = useLocation();
   const [hovered, setHovered] = useState(false);
   const now = useNow();
+  const slaInfo = slaBadgeInfo(card, slaConfig, now);
+  const slaHours: number | null = null;
 
   return (
     <div
@@ -578,7 +594,7 @@ function QueueCardEl({ card, onApproveClick, onStopClick, onRetryClick, onCardCl
             )}
             <div style={{ fontSize: 14, color: MUTED, marginTop: 4 }}>{card.timestamp}</div>
             {/* SLA urgency badge — shown when approval is overdue */}
-            {slaHours != null && needsReviewApproval(card) && card.createdAt && (() => {
+            {false && slaHours != null && needsReviewApproval(card) && card.createdAt && (() => {
               const elapsed = (now - new Date(card.createdAt).getTime()) / 3600000;
               if (elapsed <= slaHours) {
                 // Within SLA — show warning chip only when < 25% of window remains
@@ -619,6 +635,18 @@ function QueueCardEl({ card, onApproveClick, onStopClick, onRetryClick, onCardCl
                 </span>
               );
             })()}
+            {slaInfo && (
+              <span style={{
+                display: 'inline-block', fontSize: 14, fontWeight: 700,
+                padding: '1px 6px', borderRadius: 999, marginTop: 3,
+                backgroundColor: slaInfo.bg,
+                color: slaInfo.color,
+                border: `1px solid ${slaInfo.border}`,
+                whiteSpace: 'nowrap',
+              }}>
+                {slaInfo.label}
+              </span>
+            )}
           </div>
         </div>
 
@@ -824,13 +852,13 @@ function MiniPipeline({ dots, gold }: { dots: DotState[]; gold?: boolean }) {
   );
 }
 
-function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClick, slaHours, style }: {
+function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClick, slaConfig, style }: {
   card: QueueCard;
   onApproveClick?: () => void;
   onStopClick?: () => void;
   onRetryClick?: () => void;
   onRowClick?: () => void;
-  slaHours?: number | null;
+  slaConfig?: EscalationConfig | null;
   style?: React.CSSProperties;
 }) {
   const [, navigate] = useLocation();
@@ -838,6 +866,8 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
   const now = useNow();
   const confPct = Math.round(card.avgConfidence * 100);
   const confColor = card.avgConfidence >= 0.95 ? GREEN : card.avgConfidence >= 0.85 ? AMBER : RED;
+  const slaInfo = slaBadgeInfo(card, slaConfig, now);
+  const slaHours: number | null = null;
   const overdueInfo = (() => {
     if (slaHours == null || !needsReviewApproval(card) || !card.createdAt) return null;
     const elapsed = (now - new Date(card.createdAt).getTime()) / 3600000;
@@ -876,7 +906,7 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
         padding: '10px 20px', minHeight: 60,
         backgroundColor: hovered ? 'hsl(var(--muted) / 0.4)' : 'transparent',
         borderBottom: `1px solid ${BORDER}`,
-        borderLeft: overdueLevel === 'breached' ? `3px solid ${RED}` : overdueLevel === 'overdue' ? `3px solid ${AMBER}` : '3px solid transparent',
+        borderLeft: slaInfo?.level === 'blocker' || slaInfo?.level === 'escalation' ? `3px solid ${RED}` : slaInfo?.level === 'warning' ? `3px solid ${AMBER}` : '3px solid transparent',
         transition: 'background-color 0.1s',
         cursor: onRowClick ? 'pointer' : 'default',
         boxSizing: 'border-box',
@@ -1003,6 +1033,18 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
             {remainingInfo.timeStr} remaining
           </span>
         )}
+        {slaInfo && (
+          <span style={{
+            fontSize: 14.5, fontWeight: 700,
+            padding: '1px 5px', borderRadius: 999,
+            backgroundColor: slaInfo.bg,
+            color: slaInfo.color,
+            border: `1px solid ${slaInfo.border}`,
+            whiteSpace: 'nowrap',
+          }}>
+            {slaInfo.label}
+          </span>
+        )}
       </div>
 
       {/* Action button */}
@@ -1088,6 +1130,93 @@ const WAITING_FOR_BOL_CHIP_INDEX = 7;
 
 function needsReviewApproval(card: Pick<QueueCard, 'statusCategory'>) {
   return card.statusCategory === 'needs-approval' || card.statusCategory === 'needs-reapproval';
+}
+
+function splitEscalationScope(value?: string): string[] {
+  return String(value ?? '')
+    .split(',')
+    .map(v => v.trim())
+    .filter(Boolean)
+    .filter(v => !/^doc names$/i.test(v) && !/^\d+\s+docs?$/i.test(v))
+    .filter(v => !['document', 'documents', 'generated documents', 'validation'].includes(v.toLowerCase()));
+}
+
+function normalizeDocLabel(value?: string): string {
+  return String(value ?? '')
+    .replace(/[_-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function escalationActivityForCard(card: QueueCard): string | null {
+  if (card.statusCategory === 'processing' && !card.isGenerated) return 'Upload Document';
+  if (card.isGenerated && card.statusCategory === 'draft-review') return 'Fill Manual Fields';
+  if (card.status === 'Validation blocked') return 'Resolve Validation Failure';
+  if (card.containerMappingAction) return 'Map Container to SKU';
+  return null;
+}
+
+function configMatchesCardScope(config: EscalationConfig, card: QueueCard): boolean {
+  const scopeItems = splitEscalationScope(config.scope);
+  if (scopeItems.length === 0) return true;
+  const docCode = normalizeDocLabel(card.documentTypeCode);
+  const docLabel = normalizeDocLabel(card.docType);
+  return scopeItems.some(item => {
+    const normalized = normalizeDocLabel(item);
+    return normalized === docCode || normalized === docLabel;
+  });
+}
+
+function escalationConfigForCard(card: QueueCard, configs: EscalationConfig[]): EscalationConfig | null {
+  const activity = escalationActivityForCard(card);
+  if (!activity) return null;
+  return configs.find(config =>
+    (config.activityName ?? config.activityType) === activity && configMatchesCardScope(config, card)
+  ) ?? configs.find(config => (config.activityName ?? config.activityType) === activity) ?? null;
+}
+
+function formatSlaTime(hours: number): string {
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    const hrs = Math.floor(hours % 24);
+    return hrs > 0 ? `${days}d ${hrs}h` : `${days}d`;
+  }
+  if (hours >= 1) return `${Math.max(1, Math.floor(hours))}h`;
+  return `${Math.max(1, Math.round(hours * 60))}m`;
+}
+
+function slaBadgeInfo(card: QueueCard, config: EscalationConfig | null | undefined, now: number) {
+  if (!config || !card.createdAt) return null;
+  const base = Number(config.baseSlaHours);
+  if (!Number.isFinite(base) || base <= 0) return null;
+  const elapsed = (now - new Date(card.createdAt).getTime()) / 3600000;
+  const levels = [
+    { key: 'blocker', label: 'Blocker', pct: config.blockerPct, color: RED, bg: 'hsla(0,84%,60%,0.12)', border: 'hsla(0,84%,60%,0.25)' },
+    { key: 'escalation', label: 'Escalation', pct: config.escalationPct, color: RED, bg: 'hsla(0,84%,60%,0.10)', border: 'hsla(0,84%,60%,0.22)' },
+    { key: 'warning', label: 'Warning', pct: config.warningPct, color: AMBER, bg: 'hsla(38,92%,50%,0.12)', border: 'hsla(38,92%,50%,0.25)' },
+    { key: 'reminder', label: 'Reminder', pct: config.reminderPct, color: BLUE, bg: 'hsla(221,83%,53%,0.10)', border: 'hsla(221,83%,53%,0.22)' },
+  ];
+  const crossed = levels.find(level => elapsed >= (base * level.pct) / 100);
+  if (crossed) {
+    const crossedAt = (base * crossed.pct) / 100;
+    return {
+      level: crossed.key,
+      label: `${formatSlaTime(Math.max(0, elapsed - crossedAt))} ${crossed.label}`,
+      color: crossed.color,
+      bg: crossed.bg,
+      border: crossed.border,
+    };
+  }
+  const next = [...levels].reverse().find(level => elapsed < (base * level.pct) / 100);
+  if (!next) return null;
+  return {
+    level: 'upcoming',
+    label: `${formatSlaTime((base * next.pct) / 100 - elapsed)} to ${next.label.toLowerCase()}`,
+    color: AMBER,
+    bg: 'hsla(43,96%,56%,0.13)',
+    border: 'hsla(43,96%,56%,0.35)',
+  };
 }
 
 function validationDetailsPath(card: QueueCard) {
@@ -1315,14 +1444,14 @@ function VirtualList({
   onStopClick,
   onRetryClick,
   onRowClick,
-  slaHours,
+  escalationConfigs,
 }: {
   cards: QueueCard[];
   onApproveClick: (card: QueueCard) => (() => void) | undefined;
   onStopClick: (card: QueueCard) => (() => void) | undefined;
   onRetryClick: (card: QueueCard) => (() => void) | undefined;
   onRowClick: (card: QueueCard) => void;
-  slaHours?: number | null;
+  escalationConfigs: EscalationConfig[];
 }) {
   const ROW_H = 60;
   const scrollEl = useRef<HTMLDivElement>(null);
@@ -1351,7 +1480,7 @@ function VirtualList({
               onStopClick={onStopClick(card)}
               onRetryClick={onRetryClick(card)}
               onRowClick={() => onRowClick(card)}
-              slaHours={slaHours}
+              slaConfig={escalationConfigForCard(card, escalationConfigs)}
               style={{
                 position: 'absolute',
                 top: vItem.start,
@@ -1384,7 +1513,7 @@ function apiDocToQueueCard(d: any): QueueCard {
   else if (dt === 'BILL_OF_LADING' || dt === 'BOL' || dt === 'BL') { docCode = 'BL'; docTypeLabel = 'Bill of Lading'; color = BLUE; }
   else if (dt === 'SHIPPING_BILL' || dt === 'SB') { docCode = 'SB'; docTypeLabel = 'Shipping Bill'; color = BLUE; }
   else if (dt === 'ISF' || dt.includes('IMPORTER_SECURITY')) { docCode = 'IS'; docTypeLabel = 'ISF'; color = INFO; }
-  else if ((dt === 'BOE' || dt.includes('BILL_OF_ENTRY')) && !dt.includes('DRAFT')) { docCode = 'BE'; docTypeLabel = 'CBP FORM-7501'; color = INFO; }
+  else if ((dt === 'BOE' || dt.includes('BILL_OF_ENTRY')) && !dt.includes('DRAFT')) { docCode = 'CBP'; docTypeLabel = 'CBP FORM 7501'; color = INFO; }
   else if (dt === 'FREIGHT_FORWARDER_BILL' || dt.includes('FREIGHT_FORWARDER')) {
     docCode = 'FF'; docTypeLabel = 'Freight Forwarder Bill'; color = BLUE;
   }
@@ -1462,6 +1591,7 @@ function apiDocToQueueCard(d: any): QueueCard {
     docId: d.id,
     headerColor: resolvedColor,
     docCode, docType: docTypeLabel,
+    documentTypeCode: dt,
     issuer: d.issuerName ?? d.bucket ?? d.uploadedBy?.fullName ?? 'Uploaded',
     docNumber: d.documentNumber ?? d.fileName ?? '—',
     status, statusVariant: !isApproved ? 'info' : validationStatus === 'PASSED' ? 'success' : validationStatus === 'BLOCKED' ? 'danger' : validationStatus === 'WARNING' ? 'warning' : 'pending',
@@ -1479,8 +1609,8 @@ function apiDocToQueueCard(d: any): QueueCard {
 const GEN_DOC_LABELS: Record<string, [string, string]> = {
   PACKING_LIST:          ['PL', 'Packing List'],
   PACKING_LIST_GEN:      ['PL', 'Packing List'],
-  ENTRY_SUMMARY:         ['BE', 'Bill of Entry Draft'],
-  ENTRY_SUMMARY_DRAFT:   ['ES', 'Entry Summary Draft'],
+  ENTRY_SUMMARY:         ['CBP', 'CBP FORM 7501'],
+  ENTRY_SUMMARY_DRAFT:   ['CBP', 'CBP FORM 7501'],
   US_PACKING_LIST_GEN:   ['UP', 'US Packing List'],
   US_PACKING_LIST:       ['UP', 'US Packing List'],
 };
@@ -1489,7 +1619,7 @@ const GEN_SOURCE_NAMES: Record<string, string> = {
   PACKING_LIST:          'Packing List',
   BILL_OF_LADING:        'Bill of Lading',
   SHIPPING_BILL:         'Shipping Bill',
-  ENTRY_SUMMARY:         'Entry Summary',
+  ENTRY_SUMMARY:         'CBP FORM 7501',
   OCEAN_FREIGHT:         'Ocean Freight',
 };
 
@@ -1596,6 +1726,7 @@ function apiGeneratedDocToQueueCard(d: any): QueueCard {
     docId: d.id,
     headerColor,
     docCode, docType: docTypeLabel,
+    documentTypeCode: dt,
     isGenerated: true,
     issuer: 'System',
     docNumber: d.documentNumber ?? dt.replace('_GEN', '').replace('_DRAFT', ''),
@@ -1615,7 +1746,6 @@ function apiGeneratedDocToQueueCard(d: any): QueueCard {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 function generatedDocTypeToRoute(type: GeneratedDocType): string {
-  if (type === 'US_PACKING_LIST') return 'us-packing-list';
   if (type === 'ENTRY_SUMMARY') return 'entry-summary';
   return 'packing-list';
 }
@@ -1680,6 +1810,9 @@ function apiDraftToQueueCard(d: DraftPayload, validation?: GeneratedDraftValidat
   ) : (
     <span style={{ fontSize: 14.5, color: MUTED }}>Draft ready for review</span>
   );
+  const generatedDraftHref = d.generatedDocType === 'US_PACKING_LIST'
+    ? '/documents/generate/outward-pl'
+    : `/documents/generate/${generatedDocTypeToRoute(d.generatedDocType)}`;
 
   return {
     id: `gen-${d.draftId}`,
@@ -1687,6 +1820,7 @@ function apiDraftToQueueCard(d: DraftPayload, validation?: GeneratedDraftValidat
     headerColor,
     docCode,
     docType: docTypeLabel,
+    documentTypeCode: dt,
     isGenerated: true,
     issuer: 'System',
     docNumber: d.displayName ?? docTypeLabel,
@@ -1698,9 +1832,9 @@ function apiDraftToQueueCard(d: DraftPayload, validation?: GeneratedDraftValidat
     goldDots: statusCategory === 'draft-review',
     detail,
     action: statusCategory === 'draft-review'
-      ? { label: `Review ${docTypeLabel} draft →`, teal: true, href: `/documents/generate/${generatedDocTypeToRoute(d.generatedDocType)}` }
+      ? { label: `Review ${docTypeLabel} draft →`, teal: true, href: generatedDraftHref }
       : isApproved
-        ? { label: 'View details â†’', href: `/documents/generate/${generatedDocTypeToRoute(d.generatedDocType)}` }
+        ? { label: 'View details â†’', href: generatedDraftHref }
         : undefined,
     context: sourceName ? `Generated from ${sourceName}` : 'Generated draft',
     timestamp: timeAgo(d.createdAt ?? d.updatedAt ?? new Date().toISOString()),
@@ -1813,7 +1947,9 @@ export function UploadProcessPage() {
   const [shipmentVal,   setShipmentVal]   = useState('');
   const [shipmentOpts,  setShipmentOpts]  = useState<{ id: string; label: string }[]>([]);
   const [activeChip,    setActiveChip]    = useState(0);
+  const [queueSearch,   setQueueSearch]   = useState('');
   const [liveDocs,          setLiveDocs]          = useState<QueueCard[]>([]);
+  const [escalationConfigs, setEscalationConfigs] = useState<EscalationConfig[]>([]);
   const [queuePagination,   setQueuePagination]   = useState<DocumentListPagination | null>(null);
   const [queuePage,         setQueuePage]         = useState(1);
   const [queueLoading,      setQueueLoading]      = useState(true);
@@ -1830,6 +1966,17 @@ export function UploadProcessPage() {
   const liveDocsFetchInFlightRef = useRef(false);
   const now = useNow();
   const routedDetail = useMemo(() => parseValidationDetailsRoute(location), [location]);
+
+  useEffect(() => {
+    const handleModuleSearch = (event: Event) => {
+      const detail = (event as CustomEvent<{ scope: string; value: string }>).detail;
+      if (detail.scope !== 'upload-process' && detail.scope !== 'all') return;
+      setQueueSearch(detail.value);
+      if (detail.value) setPageTab('queue');
+    };
+    window.addEventListener('ewms-module-search', handleModuleSearch);
+    return () => window.removeEventListener('ewms-module-search', handleModuleSearch);
+  }, []);
 
   // Derive distinct corridors from config templates for the upload corridor selector
   const corridors = useMemo(() => {
@@ -2015,8 +2162,18 @@ export function UploadProcessPage() {
       .catch(() => {});
   }, []);
 
-  // Fetch escalation config to drive SLA urgency badges on queue cards
-  const slaDocReviewHours: number | null = null;
+  // Fetch escalation config to drive SLA urgency badges on queue cards.
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<any>('/api/admin/escalation')
+      .then(res => {
+        if (!cancelled && res?.ok) setEscalationConfigs(Array.isArray(res.data) ? res.data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setEscalationConfigs([]);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // Check OCR service health when the page opens.
   const [ocrHealth, setOcrHealth] = useState<'unknown' | 'connected' | 'degraded' | 'offline'>('unknown');
@@ -2279,11 +2436,23 @@ export function UploadProcessPage() {
   const reviewActionCount = statsCount.needsApproval + statsCount.needsReapproval;
 
   const CHIP_CATEGORIES: (StatusCategory | null)[] = [null, 'needs-approval', 'needs-reapproval', 'processing', 'cross-validating', 'draft-review', 'done'];
+  const searchedCards = queueSearch.trim()
+    ? visibleCards.filter((c) => {
+        const q = queueSearch.toLowerCase();
+        return c.docNumber.toLowerCase().includes(q)
+          || c.docType.toLowerCase().includes(q)
+          || c.issuer.toLowerCase().includes(q)
+          || c.status.toLowerCase().includes(q);
+      })
+    : visibleCards;
+
   const filteredCards = activeChip === 0
-    ? visibleCards.slice(0, QUEUE_PAGE_SIZE)
+    ? searchedCards.slice(0, QUEUE_PAGE_SIZE)
     : activeChip === WAITING_FOR_BOL_CHIP_INDEX
       ? []
-      : visibleCards.filter((c) => c.statusCategory === CHIP_CATEGORIES[activeChip]);
+      : searchedCards.filter((c) => c.statusCategory === CHIP_CATEGORIES[activeChip]);
+
+  const queueSearchOptions = queueSearch.trim() ? filteredCards.slice(0, 8) : [];
 
   // Auto-switch: >20 items → row, ≤20 → respect user's viewMode choice
   const effectiveView: 'card' | 'row' = filteredCards.length > 20 ? 'row' : viewMode;
@@ -2743,7 +2912,45 @@ export function UploadProcessPage() {
                 </span>
               )}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 7, padding: '5px 10px',
+                border: `1px solid ${BORDER}`, borderRadius: 7, backgroundColor: 'hsl(var(--card))',
+                minWidth: 260, position: 'relative', zIndex: 5,
+              }}>
+                <Search size={13} style={{ color: MUTED, flexShrink: 0 }} />
+                <input
+                  value={queueSearch}
+                  onChange={event => setQueueSearch(event.target.value)}
+                  placeholder="Search documents..."
+                  style={{ border: 'none', outline: 'none', background: 'transparent', color: FG, fontSize: 14, flex: 1, minWidth: 0 }}
+                />
+                {queueSearch && (
+                  <button onClick={() => setQueueSearch('')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: MUTED, padding: 0 }}>×</button>
+                )}
+                {queueSearchOptions.length > 0 && (
+                  <div style={{
+                    position: 'absolute', left: 0, right: 0, top: 'calc(100% + 6px)',
+                    backgroundColor: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8,
+                    boxShadow: '0 10px 28px hsla(0,0%,0%,0.16)', overflow: 'hidden',
+                  }}>
+                    {queueSearchOptions.map(card => (
+                      <button
+                        key={card.id}
+                        onMouseDown={event => event.preventDefault()}
+                        onClick={() => {
+                          setQueueSearch(card.docNumber);
+                          handleRowClick(card);
+                        }}
+                        style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '9px 11px', textAlign: 'left' }}
+                      >
+                        <div style={{ fontSize: 13, fontWeight: 700, color: FG }}>{card.docType}</div>
+                        <div className="vs-mono" style={{ fontSize: 12.5, color: MUTED, marginTop: 2 }}>{card.docNumber} · {card.status}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <FilterChips
                 chips={[
                   { label: 'All',              count: statsCount.total },
@@ -2850,7 +3057,7 @@ export function UploadProcessPage() {
                             ? () => retryExtraction(card)
                             : undefined}
                           onRowClick={() => handleRowClick(card)}
-                          slaHours={slaDocReviewHours}
+                          slaConfig={escalationConfigForCard(card, escalationConfigs)}
                         />
                       ))}
                     </div>
@@ -2868,7 +3075,7 @@ export function UploadProcessPage() {
                   onStopClick={card.statusCategory === 'processing' ? () => stopExtraction(card) : undefined}
                   onRetryClick={card.status === 'Extraction stopped' ? () => retryExtraction(card) : undefined}
                   onCardClick={() => handleRowClick(card)}
-                  slaHours={slaDocReviewHours}
+                  slaConfig={escalationConfigForCard(card, escalationConfigs)}
                 />
               ))}
             </div>
@@ -2886,7 +3093,7 @@ export function UploadProcessPage() {
                 onStopClick={(card) => card.statusCategory === 'processing' ? () => stopExtraction(card) : undefined}
                 onRetryClick={(card) => card.status === 'Extraction stopped' ? () => retryExtraction(card) : undefined}
                 onRowClick={handleRowClick}
-                slaHours={slaDocReviewHours}
+                escalationConfigs={escalationConfigs}
               />
             </div>
           )}

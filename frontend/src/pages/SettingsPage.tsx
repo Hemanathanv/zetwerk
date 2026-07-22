@@ -11,7 +11,7 @@ const integrations = [
   { name: 'MSD',               status: 'Connected', desc: 'GRN creation and inventory updates',           color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
   { name: 'Bolloré Logistics', status: 'Connected', desc: 'Freight forwarder document exchange',          color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
   { name: 'Rajan Logistics',   status: 'Connected', desc: 'CHA agent document uploads',                  color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/20' },
-  { name: 'US Customs Portal', status: 'Pending',   desc: 'CBP FORM-7501 and customs release integration', color: 'text-amber-600 dark:text-amber-400',     bg: 'bg-amber-50 dark:bg-amber-900/20' },
+  { name: 'US Customs Portal', status: 'Pending',   desc: 'CBP FORM 7501 and customs release integration', color: 'text-amber-600 dark:text-amber-400',     bg: 'bg-amber-50 dark:bg-amber-900/20' },
 ];
 
 function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {

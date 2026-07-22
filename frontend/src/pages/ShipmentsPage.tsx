@@ -277,6 +277,17 @@ export function ShipmentsPage() {
     return () => window.clearTimeout(handle);
   }, [search]);
 
+  useEffect(() => {
+    const handleModuleSearch = (event: Event) => {
+      const detail = (event as CustomEvent<{ scope: string; value: string }>).detail;
+      if (detail.scope !== 'shipments' && detail.scope !== 'all') return;
+      setPage(1);
+      setSearch(detail.value);
+    };
+    window.addEventListener('ewms-module-search', handleModuleSearch);
+    return () => window.removeEventListener('ewms-module-search', handleModuleSearch);
+  }, []);
+
   useEffect(() => { fetchShipments(); }, [page, debouncedSearch]);
 
   // ── Derived filter counts ──────────────────────────────────────────────────
@@ -338,6 +349,11 @@ export function ShipmentsPage() {
       return sortDir === 'asc' ? cmp : -cmp;
     });
   }, [rows, activeChip, projectFilter, phaseFilter, search, sortKey, sortDir]);
+
+  const shipmentSearchOptions = useMemo(
+    () => search.trim() ? filtered.slice(0, 8) : [],
+    [filtered, search],
+  );
 
   // ── Subtitle ───────────────────────────────────────────────────────────────
   const subtitle = (() => {
@@ -407,15 +423,34 @@ export function ShipmentsPage() {
         >
           {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
-        <div className="relative ml-auto" style={{ maxWidth: 320, flex: '1 1 200px' }}>
+        <div className="relative ml-auto" style={{ maxWidth: 320, flex: '1 1 200px', zIndex: 5 }}>
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" style={{ width: 15, height: 15 }} />
           <Input
             value={search}
             onChange={e => { setPage(1); setSearch(e.target.value); }}
-            placeholder="Search by ID, MBL, vessel, buyer..."
+            placeholder="Search shipments..."
             className="pl-9 focus-visible:ring-1"
             style={{ fontSize: 14.5 }}
           />
+          {shipmentSearchOptions.length > 0 && (
+            <div style={{
+              position: 'absolute', left: 0, right: 0, top: 'calc(100% + 6px)',
+              background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))',
+              borderRadius: 8, boxShadow: '0 10px 28px hsla(0,0%,0%,0.16)', overflow: 'hidden',
+            }}>
+              {shipmentSearchOptions.map(s => (
+                <button
+                  key={s.realId}
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => navigate(`/shipments/${s.realId}`)}
+                  style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '9px 11px', textAlign: 'left', display: 'block' }}
+                >
+                  <div className="vs-mono" style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--foreground))' }}>{s.id}</div>
+                  <div style={{ fontSize: 12.5, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>{s.vessel} · {s.mbl || 'No MBL'}</div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

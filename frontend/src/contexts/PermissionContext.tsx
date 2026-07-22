@@ -13,6 +13,8 @@ export interface RbacPermissions {
   modules: string[];
   gates: GateAccess[];
   docTypes: Record<string, string[]>;
+  documentScope?: string[];
+  activityDocTypes?: Record<string, string[]>;
   ticketCategories: string[];
   activities: string[];
   dataScope: string;
@@ -29,6 +31,8 @@ const defaultState: PermissionContextType = {
   modules: [],
   gates: [],
   docTypes: {},
+  documentScope: [],
+  activityDocTypes: {},
   ticketCategories: [],
   activities: [],
   dataScope: 'TAGGED',
@@ -149,24 +153,27 @@ export function useHasActivity(activityCode: string): boolean {
 
 export function useCanUploadDocType(docType: string): boolean {
   const { docTypes } = usePermissions();
-  return docTypes.upload?.includes(docType) ?? false;
+  const allowed = docTypes.upload ?? [];
+  return allowed.includes('*') || allowed.includes(docType);
 }
 
 export function useCanApproveExtraction(docType: string): boolean {
   const { docTypes } = usePermissions();
-  return docTypes.approve_extraction?.includes(docType) ?? false;
+  const allowed = docTypes.approve_extraction ?? [];
+  return allowed.includes('*') || allowed.includes(docType);
 }
 
 export function useCanReviewGeneration(docType: string): boolean {
   const { docTypes } = usePermissions();
-  return docTypes.review_generation?.includes(docType) ?? false;
+  const allowed = docTypes.review_generation ?? [];
+  return allowed.includes('*') || allowed.includes(docType);
 }
 
 export function useCanViewDocType(docType: string): boolean {
   const { docTypes } = usePermissions();
   const viewList = docTypes.view;
   if (!viewList || viewList.length === 0) return true;
-  return viewList.includes(docType);
+  return viewList.includes('*') || viewList.includes(docType);
 }
 
 export type DocTypeAction = 'upload' | 'approve_extraction' | 'review_generation' | 'view';
@@ -178,9 +185,10 @@ export function useDocTypePermissions(): { canDo: (docType: string, action: DocT
     if (action === 'view') {
       const viewList = docTypes.view;
       if (!viewList || viewList.length === 0) return true;
-      return viewList.includes(docType);
+      return viewList.includes('*') || viewList.includes(docType);
     }
-    return docTypes[action]?.includes(docType) ?? false;
+    const allowed = docTypes[action] ?? [];
+    return allowed.includes('*') || allowed.includes(docType);
   }, [docTypes]);
 
   return useMemo(() => ({ canDo }), [canDo]);

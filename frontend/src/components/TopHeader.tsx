@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Search, Sun, Moon, LogOut, Upload, ChevronRight, Bell } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionContext';
 
 const SEGMENT_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -41,6 +42,9 @@ const SEGMENT_LABELS: Record<string, string> = {
   audit: 'Audit Log',
   warehouses: 'Warehouses',
   products: 'Products',
+  'outward-pl': 'Outward GRN',
+  'us-packing-list': 'Outward GRN',
+  boe: 'Draft CBP FORM 7501',
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -87,10 +91,41 @@ function Breadcrumbs() {
 }
 
 export function TopHeader() {
-  const [searchValue, setSearchValue] = useState('');
   const { theme, setTheme } = useTheme();
   const { user, logout } = useAuth();
-  const [, navigate] = useLocation();
+  const { modules, activities } = usePermissions();
+  const [location, navigate] = useLocation();
+  const [searchValue, setSearchValue] = useState('');
+  const canUploadDocuments = modules.includes('documents') && activities.includes('documents.upload');
+
+  const moduleSearch = useMemo(() => {
+    if (location.startsWith('/documents/upload')) {
+      return { scope: 'upload-process', placeholder: 'Search documents...' };
+    }
+    if (location.startsWith('/documents/generate') || location.startsWith('/documents/boe')) {
+      return { scope: 'doc-generation', placeholder: 'Search generated documents...' };
+    }
+    if (location === '/documents') {
+      return { scope: 'documents', placeholder: 'Search shipment gates...' };
+    }
+    if (location.startsWith('/shipments')) {
+      return { scope: 'shipments', placeholder: 'Search shipments...' };
+    }
+    return null;
+  }, [location]);
+
+  useEffect(() => {
+    setSearchValue('');
+    window.dispatchEvent(new CustomEvent('ewms-module-search', { detail: { scope: 'all', value: '' } }));
+  }, [location]);
+
+  function handleModuleSearch(value: string) {
+    setSearchValue(value);
+    if (!moduleSearch) return;
+    window.dispatchEvent(new CustomEvent('ewms-module-search', {
+      detail: { scope: moduleSearch.scope, value },
+    }));
+  }
 
   function handleLogout() {
     logout();
@@ -104,33 +139,38 @@ export function TopHeader() {
       data-testid="top-header"
     >
       <div className="flex items-center gap-3 px-4 py-3">
-        {/* Search */}
         <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-          <input
-            type="search"
-            placeholder="Search Shipment ID, BOL, Booking No, Invoice..."
-            value={searchValue}
-            onChange={(e) => setSearchValue(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-[14.5px] rounded-md border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
-            style={{ borderColor: 'hsl(var(--border))' }}
-            data-testid="input-search"
-          />
+          {moduleSearch && (
+            <>
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+              <input
+                type="search"
+                placeholder={moduleSearch.placeholder}
+                value={searchValue}
+                onChange={(e) => handleModuleSearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 text-[14.5px] rounded-md border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+                style={{ borderColor: 'hsl(var(--border))' }}
+                data-testid="input-module-search"
+              />
+            </>
+          )}
         </div>
 
         {/* Right cluster */}
         <div className="flex items-center gap-2">
 
           {/* Upload button */}
-          <Button
-            size="sm"
-            className="gap-1.5 h-9 text-[13px] font-semibold px-3"
-            onClick={() => navigate('/documents/upload')}
-            data-testid="global-upload-button"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Upload</span>
-          </Button>
+          {canUploadDocuments && (
+            <Button
+              size="sm"
+              className="gap-1.5 h-9 text-[13px] font-semibold px-3"
+              onClick={() => navigate('/documents/upload')}
+              data-testid="global-upload-button"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Upload</span>
+            </Button>
+          )}
 
           <Button
             variant="ghost"

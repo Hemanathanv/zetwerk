@@ -23,7 +23,7 @@ const PARTICLES = Array.from({ length: 35 }, (_, i) => ({
   delay: `-${((i * 0.37) % 3).toFixed(2)}s`,
 }));
 
-const CODES = ['SI', 'BOL', 'PL', 'GRN', 'CHA', 'POD', 'FF', 'CBP FORM-7501'];
+const CODES = ['SI', 'BOL', 'PL', 'GRN', 'CHA', 'POD', 'FF', 'CBP FORM 7501'];
 
 function ShipSVG({ w, h }: { w: number; h: number }) {
   return (
@@ -559,7 +559,7 @@ export function LoginPage() {
               <div className="el-pillar">
                 <div className="el-pillar-icon">◇</div>
                 <div className="el-pillar-label">Document control</div>
-                <div className="el-pillar-desc">Commercial invoices, packing lists, and CBP FORM-7501-ready packs checked to policy</div>
+                <div className="el-pillar-desc">Commercial invoices, packing lists, and CBP FORM 7501-ready packs checked to policy</div>
               </div>
               <div className="el-pillar">
                 <div className="el-pillar-icon">◎</div>

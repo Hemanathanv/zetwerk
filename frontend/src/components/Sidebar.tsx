@@ -23,6 +23,7 @@ type NavItem = {
   label: string;
   href: string;
   module: string;
+  requiredAnyActivities?: string[];
   badge?: number;
   badgeKey?: string;
   children?: ChildNavItem[];
@@ -32,38 +33,38 @@ const NAV_GROUPS: { items: NavItem[] }[] = [
   {
     items: [
       { icon: LayoutDashboard, label: 'Dashboard',         href: '/dashboard',                          module: 'dashboard'   },
-      { icon: Ship,            label: 'Shipments',         href: '/shipments',                          module: 'shipments'   },
-      { icon: FolderOpen,      label: 'Projects',          href: '/projects',                           module: 'shipments'   },
-      { icon: ClipboardList,   label: 'My Tasks',          href: '/tasks',                              module: 'tasks',      badgeKey: 'tasks' },
-      { icon: FileText,        label: 'Documents',         href: '/documents',                          module: 'documents'   },
-      { icon: ScanText,        label: 'Upload & Process',  href: '/documents/upload',                   module: 'documents'   },
-      { icon: Wand2,           label: 'Doc Generate',      href: '/documents/generate',                 module: 'documents'   },
-      { icon: Boxes,      label: 'Inventory',      href: '/inventory/containers', module: 'inventory' },
-      { icon: Warehouse,  label: 'Warehouse',      href: '/inventory/warehouse',  module: 'warehouse' },
-      { icon: DollarSign, label: 'D&D Management', href: '/inventory/dnd',        module: 'dnd' },
+      { icon: Ship,            label: 'Shipments',         href: '/shipments',                          module: 'shipments',  requiredAnyActivities: ['shipments.view', 'SHP-001'] },
+      { icon: FolderOpen,      label: 'Projects',          href: '/projects',                           module: 'shipments',  requiredAnyActivities: ['shipments.view', 'SHP-001'] },
+      { icon: ClipboardList,   label: 'My Tasks',          href: '/tasks',                              module: 'tasks',      requiredAnyActivities: ['tasks.view', 'TSK-001'], badgeKey: 'tasks' },
+      { icon: FileText,        label: 'Documents',         href: '/documents',                          module: 'documents',  requiredAnyActivities: ['documents.view', 'documents.view_extracted'] },
+      { icon: ScanText,        label: 'Upload & Process',  href: '/documents/upload',                   module: 'documents',  requiredAnyActivities: ['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr'] },
+      { icon: Wand2,           label: 'Doc Generate',      href: '/documents/generate',                 module: 'documents',  requiredAnyActivities: ['documents.generate_draft', 'DOC-003'] },
+      { icon: Boxes,      label: 'Inventory',      href: '/inventory/containers', module: 'inventory', requiredAnyActivities: ['inventory.view_container', 'inventory.view_timeline', 'GATE-001'] },
+      { icon: Warehouse,  label: 'Warehouse',      href: '/inventory/warehouse',  module: 'warehouse', requiredAnyActivities: ['inventory.view_container'] },
+      { icon: DollarSign, label: 'D&D Management', href: '/inventory/dnd',        module: 'dnd',       requiredAnyActivities: ['inventory.acknowledge_dnd', 'inventory.update_milestone'] },
     ],
   },
   {
     items: [
-      { icon: Receipt,        label: 'Accounting', href: '/accounting',  module: 'accounting' },
-      { icon: BarChart3,      label: 'Finance',    href: '/finance',     module: 'accounting' },
-      { icon: BarChart3,      label: 'Reports',    href: '/reports',     module: 'reports'    },
-      { icon: ClipboardList,  label: 'DSR Report', href: '/reports/dsr', module: 'reports'    },
+      { icon: Receipt,        label: 'Accounting', href: '/accounting',  module: 'accounting', requiredAnyActivities: ['accounting.view_queue', 'ACC-001'] },
+      { icon: BarChart3,      label: 'Finance',    href: '/finance',     module: 'accounting', requiredAnyActivities: ['accounting.view_ap_aging', 'accounting.view_queue'] },
+      { icon: BarChart3,      label: 'Reports',    href: '/reports',     module: 'reports',    requiredAnyActivities: ['reports.view_dashboard'] },
+      { icon: ClipboardList,  label: 'DSR Report', href: '/reports/dsr', module: 'reports',    requiredAnyActivities: ['reports.generate_dsr'] },
     ],
   },
   {
     items: [
-      { icon: Settings,  label: 'Settings',   href: '/settings',    module: 'admin' },
-      { icon: Database,  label: 'Schema Ref', href: '/schema',      module: 'admin' },
+      { icon: Settings,  label: 'Settings',   href: '/settings',    module: 'admin', requiredAnyActivities: ['admin.manage', 'users.manage', 'roles.view'] },
+      { icon: Database,  label: 'Schema Ref', href: '/schema',      module: 'admin', requiredAnyActivities: ['admin.configure_doctypes', 'roles.view'] },
     ],
   },
   {
     items: [
-      { icon: Upload,     label: 'Upload Documents', href: '/partner',                        module: 'partner' },
-      { icon: FileText,   label: 'My Documents',     href: '/partner/documents',              module: 'partner' },
-      { icon: Warehouse,  label: 'Warehouse / QC',   href: '/partner/warehouse',              module: 'partner' },
-      { icon: Package,    label: 'Stock Position',   href: '/partner/warehouse/stock',        module: 'partner' },
-      { icon: Send,       label: 'Outward Dispatch', href: '/partner/warehouse/outward',      module: 'partner' },
+      { icon: Upload,     label: 'Upload Documents', href: '/partner',                        module: 'partner', requiredAnyActivities: ['documents.upload'] },
+      { icon: FileText,   label: 'My Documents',     href: '/partner/documents',              module: 'partner', requiredAnyActivities: ['documents.view_extracted', 'documents.view'] },
+      { icon: Warehouse,  label: 'Warehouse / QC',   href: '/partner/warehouse',              module: 'partner', requiredAnyActivities: ['inventory.view_container', 'inventory.view_timeline'] },
+      { icon: Package,    label: 'Stock Position',   href: '/partner/warehouse/stock',        module: 'partner', requiredAnyActivities: ['inventory.view_container'] },
+      { icon: Send,       label: 'Outward Dispatch', href: '/documents/generate/outward-pl',  module: 'documents', requiredAnyActivities: ['inventory.update_milestone'] },
     ],
   },
   {
@@ -177,7 +178,7 @@ export function Sidebar() {
   const [, navigate] = useWouterLocation();
   const { isOpen, toggle } = useSidebar();
   const { user, logout } = useAuth();
-  const { modules: permittedModules, loaded } = usePermissions();
+  const { modules: permittedModules, activities, loaded } = usePermissions();
   const badges = useNavBadges();
 
   const initials = user?.fullName
@@ -194,7 +195,11 @@ export function Sidebar() {
   const isSuperAdmin = (user as any)?.role?.systemCode === 'super_admin';
 
   const visibleGroups = NAV_GROUPS.map((group) => ({
-    items: group.items.filter((item) => permittedModules.includes(item.module)),
+    items: group.items.filter((item) => {
+      if (!permittedModules.includes(item.module)) return false;
+      if (!item.requiredAnyActivities?.length) return true;
+      return item.requiredAnyActivities.some(activity => activities.includes(activity));
+    }),
   })).filter((g) => g.items.length > 0);
 
   // Inject Platform Admin item before Settings for super_admin only

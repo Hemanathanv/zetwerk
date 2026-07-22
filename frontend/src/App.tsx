@@ -42,7 +42,7 @@ import CustomerTrackingPage from '@/pages/portal/CustomerTrackingPage';
 import { DocumentGeneratePage } from '@/pages/DocumentGeneratePage';
 import { PackingListGeneratePage } from '@/pages/PackingListGeneratePage';
 import { BoeGeneratePage } from '@/pages/BoeGeneratePage';
-import { RequireActivity } from '@/components/PermissionGate';
+import { RequireActivity, RequireAnyActivity } from '@/components/PermissionGate';
 import { CreateShipmentPage } from '@/pages/CreateShipmentPage';
 import { SchemaReferencePage } from '@/pages/SchemaReferencePage';
 import { UploadProcessPage } from '@/pages/UploadProcessPage';
@@ -105,47 +105,65 @@ function AppLayout() {
             </Route>
             <Route path="/shipments/new">
               <RequireModule module="shipments" fallback={<Redirect to="/dashboard" />}>
-                <CreateShipmentPage />
+                <RequireAnyActivity codes={['shipments.create', 'SHP-002']} fallback={<Redirect to="/unauthorized" />}>
+                  <CreateShipmentPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/shipments/:id/documents">
               <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
-                <ShipmentDocumentsPage />
+                <RequireAnyActivity codes={['documents.view', 'documents.view_extracted']} fallback={<Redirect to="/unauthorized" />}>
+                  <ShipmentDocumentsPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/shipments/:id">
               <RequireModule module="shipments" fallback={<Redirect to="/dashboard" />}>
-                <ShipmentDetailPage />
+                <RequireAnyActivity codes={['shipments.view', 'SHP-001']} fallback={<Redirect to="/unauthorized" />}>
+                  <ShipmentDetailPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/shipments">
               <RequireModule module="shipments" fallback={<Redirect to="/dashboard" />}>
-                <ShipmentsPage />
+                <RequireAnyActivity codes={['shipments.view', 'SHP-001']} fallback={<Redirect to="/unauthorized" />}>
+                  <ShipmentsPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/tracking">
               <RequireModule module="shipments" fallback={<Redirect to="/dashboard" />}>
-                <ShipmentDetailPage />
+                <RequireAnyActivity codes={['shipments.view', 'SHP-001']} fallback={<Redirect to="/unauthorized" />}>
+                  <ShipmentDetailPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/inventory/containers/:id">
               <RequireModule module="inventory" fallback={<Redirect to="/dashboard" />}>
-                <ContainerDetailPage />
+                <RequireAnyActivity codes={['inventory.view_container', 'inventory.view_timeline', 'GATE-001']} fallback={<Redirect to="/unauthorized" />}>
+                  <ContainerDetailPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/inventory/containers">
               <RequireModule module="inventory" fallback={<Redirect to="/dashboard" />}>
-                <ContainerDashboardPage />
+                <RequireAnyActivity codes={['inventory.view_container', 'inventory.view_timeline', 'GATE-001']} fallback={<Redirect to="/unauthorized" />}>
+                  <ContainerDashboardPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/inventory/warehouse">
               <RequireModule module="warehouse" fallback={<Redirect to="/dashboard" />}>
-                <WarehouseInventoryPage />
+                <RequireAnyActivity codes={['inventory.view_container', 'inventory.warehouse_inventory_stock_position', 'inventory.view_warehouse']} fallback={<Redirect to="/unauthorized" />}>
+                  <WarehouseInventoryPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/inventory/dnd">
               <RequireModule module="dnd" fallback={<Redirect to="/dashboard" />}>
-                <DndManagementPage />
+                <RequireAnyActivity codes={['inventory.acknowledge_dnd', 'inventory.update_milestone']} fallback={<Redirect to="/unauthorized" />}>
+                  <DndManagementPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/inventory">
@@ -153,12 +171,16 @@ function AppLayout() {
             </Route>
             <Route path="/projects/:id">
               <RequireModule module="shipments" fallback={<Redirect to="/dashboard" />}>
-                <ProjectDetailPage />
+                <RequireAnyActivity codes={['shipments.view', 'SHP-001']} fallback={<Redirect to="/unauthorized" />}>
+                  <ProjectDetailPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/projects">
               <RequireModule module="shipments" fallback={<Redirect to="/dashboard" />}>
-                <ProjectListPage />
+                <RequireAnyActivity codes={['shipments.view', 'SHP-001']} fallback={<Redirect to="/unauthorized" />}>
+                  <ProjectListPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/generate/packing-list">
@@ -175,91 +197,137 @@ function AppLayout() {
                 </RequireActivity>
               </RequireModule>
             </Route>
+            <Route path="/documents/generate/outward-pl">
+              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+                <RequireAnyActivity codes={['documents.generate_draft', 'DOC-003', 'inventory.create_outward_grn_new_dispatch']} fallback={<Redirect to="/unauthorized" />}>
+                  <OutwardDispatchPage />
+                </RequireAnyActivity>
+              </RequireModule>
+            </Route>
+            <Route path="/documents/generate/us-packing-list">
+              <Redirect to="/documents/generate/outward-pl" />
+            </Route>
             <Route path="/documents/generate/:type">
               <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
-                <DocumentGeneratePage />
+                <RequireAnyActivity codes={['documents.generate_draft', 'DOC-003']} fallback={<Redirect to="/unauthorized" />}>
+                  <DocumentGeneratePage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/generate">
               <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
-                <DocumentGeneratePage />
+                <RequireAnyActivity codes={['documents.generate_draft', 'DOC-003']} fallback={<Redirect to="/unauthorized" />}>
+                  <DocumentGeneratePage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/upload/:id/approve">
               <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
-                <DocumentDetailPage />
+                <RequireAnyActivity codes={['documents.edit_extracted', 'documents.approve_draft']} fallback={<Redirect to="/unauthorized" />}>
+                  <DocumentDetailPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/upload/generated/:id/details">
               <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
-                <UploadProcessPage />
+                <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
+                  <UploadProcessPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/upload/:id/details">
               <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
-                <UploadProcessPage />
+                <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
+                  <UploadProcessPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/upload/:id">
               <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
-                <DocumentDetailPage />
+                <RequireAnyActivity codes={['documents.view', 'documents.view_extracted']} fallback={<Redirect to="/unauthorized" />}>
+                  <DocumentDetailPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/upload">
               <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
-                <UploadProcessPage />
+                <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
+                  <UploadProcessPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/:id">
               <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
-                <DocumentDetailPage />
+                <RequireAnyActivity codes={['documents.view', 'documents.view_extracted']} fallback={<Redirect to="/unauthorized" />}>
+                  <DocumentDetailPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents">
               <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
-                <DocumentsPage />
+                <RequireAnyActivity codes={['documents.view', 'documents.view_extracted']} fallback={<Redirect to="/unauthorized" />}>
+                  <DocumentsPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/tasks">
               <RequireModule module="tasks" fallback={<Redirect to="/dashboard" />}>
-                <TasksPage />
+                <RequireAnyActivity codes={['tasks.view', 'TSK-001']} fallback={<Redirect to="/unauthorized" />}>
+                  <TasksPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/accounting">
               <RequireModule module="accounting" fallback={<Redirect to="/dashboard" />}>
-                <FinanceTicketQueuePage />
+                <RequireAnyActivity codes={['accounting.view_queue', 'ACC-001']} fallback={<Redirect to="/unauthorized" />}>
+                  <FinanceTicketQueuePage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/finance">
               <RequireModule module="accounting" fallback={<Redirect to="/dashboard" />}>
-                <FinanceDashboardPage />
+                <RequireAnyActivity codes={['accounting.view_ap_aging', 'accounting.view_queue']} fallback={<Redirect to="/unauthorized" />}>
+                  <FinanceDashboardPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/reports/dsr">
               <RequireModule module="reports" fallback={<Redirect to="/dashboard" />}>
-                <DsrReportPage />
+                <RequireAnyActivity codes={['reports.generate_dsr']} fallback={<Redirect to="/unauthorized" />}>
+                  <DsrReportPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/partner/documents">
-              <PartnerDocumentsPage />
+              <RequireModule module="partner" fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={['documents.view', 'documents.view_extracted']} fallback={<Redirect to="/unauthorized" />}>
+                  <PartnerDocumentsPage />
+                </RequireAnyActivity>
+              </RequireModule>
             </Route>
             <Route path="/partner/warehouse/stock">
               <RequireModule module="partner" fallback={<Redirect to="/unauthorized" />}>
-                <StockPositionPage />
+                <RequireAnyActivity codes={['inventory.view_container']} fallback={<Redirect to="/unauthorized" />}>
+                  <StockPositionPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/partner/warehouse/outward">
-              <RequireModule module="partner" fallback={<Redirect to="/unauthorized" />}>
-                <OutwardDispatchPage />
-              </RequireModule>
+              <Redirect to="/documents/generate/outward-pl" />
             </Route>
             <Route path="/partner/warehouse">
               <RequireModule module="partner" fallback={<Redirect to="/unauthorized" />}>
-                <ThreePlPage />
+                <RequireAnyActivity codes={['inventory.view_container', 'inventory.view_timeline']} fallback={<Redirect to="/unauthorized" />}>
+                  <ThreePlPage />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/partner">
-              <PartnerUploadPage />
+              <RequireModule module="partner" fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={['documents.upload']} fallback={<Redirect to="/unauthorized" />}>
+                  <PartnerUploadPage />
+                </RequireAnyActivity>
+              </RequireModule>
             </Route>
             <Route path="/portal/tracking/:id">
               <CustomerTrackingPage />

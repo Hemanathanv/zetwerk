@@ -27,7 +27,8 @@ export function RequireDocUpload({
 }) {
   const { docTypes, loaded } = usePermissions();
   if (!loaded) return null;
-  if (!docTypes.upload?.includes(docType)) return <>{fallback}</>;
+  const allowed = docTypes.upload ?? [];
+  if (!allowed.includes('*') && !allowed.includes(docType)) return <>{fallback}</>;
   return <>{children}</>;
 }
 
@@ -42,7 +43,8 @@ export function RequireDocApproval({
 }) {
   const { docTypes, loaded } = usePermissions();
   if (!loaded) return null;
-  if (!docTypes.approve_extraction?.includes(docType)) return <>{fallback}</>;
+  const allowed = docTypes.approve_extraction ?? [];
+  if (!allowed.includes('*') && !allowed.includes(docType)) return <>{fallback}</>;
   return <>{children}</>;
 }
 

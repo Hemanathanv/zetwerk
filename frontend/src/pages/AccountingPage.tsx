@@ -50,7 +50,7 @@ const TICKETS: TicketData[] = [
   },
   {
     id: 'AE-06-8818', fdNum: '44818',
-    type: 'US DUTY', title: 'CBP FORM-7501 duty booking · Folgueras Customs', priority: 'URGENT',
+    type: 'US DUTY', title: 'CBP FORM 7501 duty booking · Folgueras Customs', priority: 'URGENT',
     reference: 'Entry E4W-00368291 · Shipment J44CES25090015 · BOL SMAA00214450',
     vendorLabel: 'Vendor', vendorName: 'Folgueras Customs', vendorSub: 'US broker',
     amountValue: '$20,194', amountSub: 'Duty + MPF + HMF',
@@ -67,7 +67,7 @@ const TICKETS: TicketData[] = [
       { type: 'Dr', account: 'Harbor Maintenance Fee (HMF)',                    amount: '50.02' },
       { type: 'Cr', account: 'Accounts Payable — Folgueras Customs',           amount: '20,194.11' },
     ],
-    actions: ['View CBP FORM-7501', 'Edit entry', 'Post to ERP ↗'],
+    actions: ['View CBP FORM 7501', 'Edit entry', 'Post to ERP ↗'],
   },
   {
     id: 'AE-03-8819', fdNum: '44819',

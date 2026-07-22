@@ -102,14 +102,14 @@ PACKING_LIST_GEN: DocGenSchema = {
 
 OUTWARD_PL_GEN: DocGenSchema = {
     "generatedDocType": "US_PACKING_LIST",
-    "displayName": "Outward Packing List",
-    "triggerCondition": "Packing List CLOSED + BOL APPROVED (both must exist)",
+    "displayName": "Outward GRN",
+    "triggerCondition": "Packing List stock available; BOL details used when available",
     "sourceDocs": ["PACKING_LIST", "BILL_OF_LADING"],
-    "humanAction": "Confirm container-wise packing allocation",
-    "totalFields": 34,
+    "humanAction": "Select/confirm dispatched stock lines and enter destination, vehicle, and driver details",
+    "totalFields": 39,
     "autoPopulated": 22,
     "calculated": 4,
-    "manualInput": 8,
+    "manualInput": 13,
     "sections": [
         {
             "sectionLabel": "Document Header",
@@ -128,6 +128,16 @@ OUTWARD_PL_GEN: DocGenSchema = {
                 {"targetField": "shipperName", "targetLabel": "Shipper", "sourceDoc": "BILL_OF_LADING", "sourceField": "shipperName", "sourceLabel": "BOL Shipper", "mappingType": "direct"},
                 {"targetField": "shipToName", "targetLabel": "Ship To", "sourceDoc": "BILL_OF_LADING", "sourceField": "consigneeName", "sourceLabel": "BOL Consignee", "mappingType": "direct"},
                 {"targetField": "consigneeName", "targetLabel": "Consignee (3PL)", "sourceDoc": "MANUAL", "sourceField": "", "sourceLabel": "3PL warehouse name", "mappingType": "manual"},
+            ],
+        },
+        {
+            "sectionLabel": "Dispatch Details",
+            "mappings": [
+                {"targetField": "destinationName", "targetLabel": "Destination Name", "sourceDoc": "MANUAL", "sourceField": "", "sourceLabel": "Customer / delivery destination", "mappingType": "manual", "validation": "NOT NULL", "validationSeverity": "critical"},
+                {"targetField": "destinationAddress", "targetLabel": "Destination Address", "sourceDoc": "MANUAL", "sourceField": "", "sourceLabel": "Delivery address", "mappingType": "manual"},
+                {"targetField": "truckNumber", "targetLabel": "Truck / Vehicle No.", "sourceDoc": "MANUAL", "sourceField": "", "sourceLabel": "Vehicle number", "mappingType": "manual"},
+                {"targetField": "driverName", "targetLabel": "Driver Name", "sourceDoc": "MANUAL", "sourceField": "", "sourceLabel": "Driver name", "mappingType": "manual"},
+                {"targetField": "dispatchNotes", "targetLabel": "Dispatch Notes", "sourceDoc": "MANUAL", "sourceField": "", "sourceLabel": "Notes", "mappingType": "manual"},
             ],
         },
         {
@@ -152,7 +162,7 @@ OUTWARD_PL_GEN: DocGenSchema = {
 
 DRAFT_BOE_GEN: DocGenSchema = {
     "generatedDocType": "ENTRY_SUMMARY",
-    "displayName": "Draft BOE",
+    "displayName": "Draft CBP FORM 7501",
     "triggerCondition": "Bill of Lading and Sales Invoice extracted",
     "sourceDocs": ["BILL_OF_LADING", "SALES_INVOICE"],
     "humanAction": "Complete broker and filing fields, assign HTS rates, and review calculated duties and fees",

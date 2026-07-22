@@ -24,7 +24,7 @@ export const DOC_TYPE_OPTIONS: Array<{ value: DocType; label: string }> = [
   { value: "SALES_INVOICE", label: "Sales Invoice" },
   { value: "BILL_OF_LADING", label: "Bill Of Lading" },
   { value: "PACKING_LIST", label: "Packing List" },
-  { value: "ENTRY_SUMMARY", label: "CBP FORM-7501" },
+  { value: "ENTRY_SUMMARY", label: "CBP FORM 7501" },
   { value: "OCEAN_FREIGHT", label: "Ocean Freight" },
   { value: "FREIGHT_FORWARDER_BILL", label: "Freight Forwarder Bill" },
   { value: "CUSTOMER_BROKER_BILL", label: "Customs Broker Bill" },

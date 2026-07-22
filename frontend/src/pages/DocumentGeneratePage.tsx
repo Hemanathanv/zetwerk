@@ -120,6 +120,13 @@ function isRequiredManualMapping(schema: DocGenSchema, mapping: FieldMapping): b
   return isManual && (schema.docType !== 'draft-boe' || !DRAFT_BOE_OPTIONAL_FIELDS.has(mapping.targetField));
 }
 
+function docGenerationDisplayName(docType: string, fallback?: string): string {
+  if (docType === 'ENTRY_SUMMARY' || docType === 'draft-boe' || docType === 'entry-summary') {
+    return 'Draft CBP FORM 7501';
+  }
+  return fallback ?? DOC_GEN_SCHEMAS[docType]?.displayName ?? docType;
+}
+
 // ─── StatusBadge ──────────────────────────────────────────────────────────────
 
 function StatusBadge({ status, prereqs }: { status: GenQueueItem['status']; prereqs: Prerequisite[] }) {
@@ -177,6 +184,11 @@ function QueueTable({
     return items;
   }, [items, filter]);
 
+  const searchOptions = useMemo(
+    () => search.trim() ? filteredByTab.slice(0, 8) : [],
+    [filteredByTab, search],
+  );
+
   const counts = {
     all:         items.length,
     needsReview: items.filter(i => i.status !== 'generated').length,
@@ -206,15 +218,37 @@ function QueueTable({
         <div style={{
           display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px',
           borderRadius: 7, border: `1px solid ${BORDER}`,
-          background: 'hsl(var(--background))', flex: 1, maxWidth: 340,
+          background: 'hsl(var(--background))', flex: 1, maxWidth: 340, position: 'relative', zIndex: 5,
         }}>
           <Search size={12} style={{ color: MUTED, flexShrink: 0 }} />
           <input
             value={search}
             onChange={e => onSearch(e.target.value)}
-            placeholder="Search by invoice, doc type or shipment…"
+            placeholder="Search generated documents..."
             style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, color: FG, flex: 1, minWidth: 0 }}
           />
+          {searchOptions.length > 0 && (
+            <div style={{
+              position: 'absolute', left: 0, right: 0, top: 'calc(100% + 6px)',
+              background: 'hsl(var(--card))', border: `1px solid ${BORDER}`,
+              borderRadius: 8, boxShadow: '0 10px 28px hsla(0,0%,0%,0.16)', overflow: 'hidden',
+            }}>
+              {searchOptions.map(item => (
+                <button
+                  key={item.id}
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => {
+                    onSearch(item.invoiceNo || item.shipmentRef || docGenerationDisplayName(item.docType) || item.docType);
+                    onReview(item);
+                  }}
+                  style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '9px 11px', textAlign: 'left' }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 700, color: FG }}>{docGenerationDisplayName(item.docType)}</div>
+                  <div style={{ ...MONO, fontSize: 12.5, color: MUTED, marginTop: 2 }}>{item.invoiceNo} · {item.shipmentRef || 'No shipment'}</div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
           {FILTERS.map(t => (
@@ -1356,7 +1390,7 @@ function DocReviewModal({
           <div style={{ minWidth: 0, flexShrink: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <h2 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.02em', color: FG, margin: 0, whiteSpace: 'nowrap' }}>
-                {isBlocked ? 'Waiting:' : isApproved ? 'Approved:' : 'Draft:'}{' '}{schema.displayName}
+                {isBlocked ? 'Waiting:' : isApproved ? 'Approved:' : 'Draft:'}{' '}{docGenerationDisplayName(schema.docType, schema.displayName)}
               </h2>
               {isApproved && (
                 <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'hsla(152,69%,31%,0.12)', color: GREEN, flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
@@ -1554,6 +1588,82 @@ function stringifyDraftValue(value: unknown): string {
 }
 
 function draftToSchema(baseSchema: DocGenSchema, draft: DraftPayload): DocGenSchema {
+  const isWarehouseOutwardDraft =
+    draft.generatedDocType === 'US_PACKING_LIST' &&
+    (draft.sourceDocs.includes('WAREHOUSE_STOCK') || Boolean(draft.sourceDocumentIds.WAREHOUSE_STOCK));
+
+  if (isWarehouseOutwardDraft) {
+    const fields: Record<string, string> = {};
+    const sections: GenSection[] = draft.sections.map(section => ({
+      sectionLabel: section.sectionLabel,
+      renderAs: 'fields',
+      mappings: section.fields.map(field => {
+        fields[field.targetField] = stringifyDraftValue(field.value);
+        const filledManual = field.mappingType === 'manual' && stringifyDraftValue(field.value).trim();
+        return {
+          targetField: field.targetField,
+          targetLabel: field.targetLabel,
+          sourceDoc: filledManual ? 'WAREHOUSE_DISPATCH' : field.sourceDoc,
+          sourceField: field.sourceField ?? '',
+          sourceLabel: filledManual ? 'New Outward Dispatch' : (field.sourceLabel ?? field.sourceDoc),
+          mappingType: filledManual ? 'direct' : field.mappingType,
+          validation: field.validation ?? undefined,
+          validationSeverity: field.validationSeverity ?? undefined,
+          mono: field.mono,
+        };
+      }),
+    }));
+
+    const lineMappings: FieldMapping[] = [
+      { targetField: 'productCode', targetLabel: 'Product Code', sourceDoc: 'WAREHOUSE_STOCK', sourceField: 'productCode', sourceLabel: 'Approved Packing List Stock', mappingType: 'direct', mono: true, isLineItem: true },
+      { targetField: 'productDesc', targetLabel: 'Description', sourceDoc: 'WAREHOUSE_STOCK', sourceField: 'productDesc', sourceLabel: 'Approved Packing List Stock', mappingType: 'direct', isLineItem: true },
+      { targetField: 'hsnCode', targetLabel: 'HS Code', sourceDoc: 'WAREHOUSE_STOCK', sourceField: 'hsnCode', sourceLabel: 'Approved Packing List Stock', mappingType: 'direct', mono: true, isLineItem: true },
+      { targetField: 'totalQtyInPcs', targetLabel: 'Dispatched Qty', sourceDoc: 'WAREHOUSE_DISPATCH', sourceField: 'quantityDispatched', sourceLabel: 'New Outward Dispatch', mappingType: 'direct', mono: true, isLineItem: true },
+      { targetField: 'netWeightKgs', targetLabel: 'Net Wt (kg)', sourceDoc: 'WAREHOUSE_STOCK', sourceField: 'netWeightKgs', sourceLabel: 'Approved Packing List Stock', mappingType: 'direct', mono: true, isLineItem: true },
+      { targetField: 'notes', targetLabel: 'Notes', sourceDoc: 'WAREHOUSE_DISPATCH', sourceField: 'notes', sourceLabel: 'New Outward Dispatch', mappingType: 'direct', isLineItem: true },
+    ];
+
+    sections.push({
+      sectionLabel: 'Line Items',
+      renderAs: 'table',
+      mappings: lineMappings,
+    });
+
+    const lineItems = draft.lineItems.map(row => Object.fromEntries(
+      lineMappings.map(mapping => [mapping.targetField, stringifyDraftValue(row[mapping.targetField])]),
+    ));
+    fields.grnDate = fields.documentDate || fields.grnDate || '';
+    fields.bolRef = fields.dispatchNumber || fields.bolRef || '';
+    fields.plRef = fields.plRef || 'Approved Packing List Stock';
+    fields.totalBundles = fields.totalBundles || '';
+    fields.totalNetWeightLbs = fields.totalNetWeightLbs || fields.totalNetWeightKgs || '';
+    fields.totalGrossWeightLbs = fields.totalGrossWeightLbs || '';
+    const fieldCount = Object.keys(fields).length;
+    const lineCount = lineItems.length * lineMappings.length;
+
+    return {
+      ...baseSchema,
+      displayName: 'Outward GRN',
+      triggerCondition: 'Warehouse outward dispatch created from approved Packing List stock',
+      sourceDocs: [
+        { docType: 'WAREHOUSE_STOCK', label: 'Approved Packing List Stock' },
+        { docType: 'WAREHOUSE_DISPATCH', label: 'New Outward Dispatch' },
+      ],
+      humanAction: 'Review the outward dispatch and approve the GRN',
+      fieldCounts: {
+        auto: fieldCount + lineCount,
+        calculated: 0,
+        manual: 0,
+        total: fieldCount + lineCount,
+      },
+      sections,
+      mockData: {
+        fields,
+        tables: { 'Line Items': lineItems },
+      },
+    };
+  }
+
   if (draft.generatedDocType === 'ENTRY_SUMMARY') {
     const sourceDocs = [
       { docType: 'BILL_OF_LADING', label: 'Bill of Lading' },
@@ -1594,7 +1704,7 @@ function draftToSchema(baseSchema: DocGenSchema, draft: DraftPayload): DocGenSch
     );
     return {
       ...baseSchema,
-      displayName: 'Draft BOE',
+      displayName: 'Draft CBP FORM 7501',
       triggerCondition: 'Bill of Lading and Sales Invoice extracted',
       sourceDocs,
       humanAction: 'Complete broker and filing fields, assign tariff rates, and review calculated duties and fees',
@@ -1655,20 +1765,25 @@ function draftToQueueItem(draft: DraftPayload, schema: DocGenSchema): GenQueueIt
   const fieldMap = Object.fromEntries(
     draft.sections.flatMap((section) => section.fields.map((field) => [field.targetField, field.value])),
   ) as Record<string, string | null>;
+  const isWarehouseOutwardDraft =
+    draft.generatedDocType === 'US_PACKING_LIST' &&
+    (draft.sourceDocs.includes('WAREHOUSE_STOCK') || Boolean(draft.sourceDocumentIds.WAREHOUSE_STOCK));
 
   return {
     id: draft.draftId,
-    shipmentRef: fieldMap.exporterRef || fieldMap.zetwerkRef || '',
-    invoiceNo: fieldMap.invoiceNo || 'Sales Invoice',
+    shipmentRef: isWarehouseOutwardDraft ? '' : (fieldMap.exporterRef || fieldMap.zetwerkRef || ''),
+    invoiceNo: isWarehouseOutwardDraft
+      ? (fieldMap.dispatchNumber || 'Outward GRN')
+      : (fieldMap.invoiceNo || 'Sales Invoice'),
     docType: schema.docType,
     status: draft.status === 'GENERATED' ? 'generated' : 'draft',
     createdAt: draft.createdAt || draft.updatedAt || new Date().toISOString(),
     prerequisites: [
       {
-        key: 'sales-invoice-approved',
-        label: 'Sales Invoice extraction available',
-        met: Boolean(draft.sourceDocumentIds.SALES_INVOICE),
-        actionHint: 'Approve a Sales Invoice extraction in Upload & Process',
+        key: isWarehouseOutwardDraft ? 'warehouse-dispatch-created' : 'sales-invoice-approved',
+        label: isWarehouseOutwardDraft ? 'Warehouse outward dispatch created' : 'Sales Invoice extraction available',
+        met: isWarehouseOutwardDraft ? true : Boolean(draft.sourceDocumentIds.SALES_INVOICE),
+        actionHint: isWarehouseOutwardDraft ? 'Create an outward dispatch from Warehouse stock' : 'Approve a Sales Invoice extraction in Upload & Process',
       },
     ],
   };
@@ -1694,12 +1809,24 @@ export function DocumentGeneratePage() {
   const [location, navigate] = useLocation();
   const routeType = params.type
     ?? (location.endsWith('/boe') ? 'draft-boe' : location.endsWith('/packing-list') ? 'packing-list' : undefined);
+  const isOutwardDocGenerationRoute =
+    routeType === 'outward-pl' || routeType === 'us-packing-list' || routeType === 'US_PACKING_LIST';
   const [search,         setSearch]         = useState('');
   const [queueFilter,    setQueueFilter]     = useState<QueueFilter>('all');
   const [reviewingItem,  setReviewingItem]   = useState<GenQueueItem | null>(null);
   const [approving,      setApproving]       = useState(false);
   const [manualValues,   setManualValues]    = useState<Record<string, string>>({});
   const [showPreview,    setShowPreview]     = useState(false);
+
+  useEffect(() => {
+    const handleModuleSearch = (event: Event) => {
+      const detail = (event as CustomEvent<{ scope: string; value: string }>).detail;
+      if (detail.scope !== 'doc-generation' && detail.scope !== 'all') return;
+      setSearch(detail.value);
+    };
+    window.addEventListener('ewms-module-search', handleModuleSearch);
+    return () => window.removeEventListener('ewms-module-search', handleModuleSearch);
+  }, []);
 
   const [sourcePanelOpen, setSourcePanelOpen] = useState<boolean>(() => {
     try { return localStorage.getItem('docgen-source-panel-open') === 'true'; } catch { return false; }
@@ -1757,6 +1884,13 @@ export function DocumentGeneratePage() {
   const [fetchErr, setFetchErr] = useState<string | null>(null);
 
   const fetchQueue = useCallback(async () => {
+    if (isOutwardDocGenerationRoute) {
+      setRawQueue([]);
+      setDraftSchemas({});
+      setDraftPackageTypes({});
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setFetchErr(null);
@@ -1797,9 +1931,15 @@ export function DocumentGeneratePage() {
     } finally {
       setLoading(false);
     }
-  }, [routeType]);
+  }, [isOutwardDocGenerationRoute, routeType]);
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
+
+  useEffect(() => {
+    if (isOutwardDocGenerationRoute) {
+      navigate('/inventory/warehouse');
+    }
+  }, [isOutwardDocGenerationRoute, navigate]);
 
   // Build queue with recomputed prerequisites based on live server data
   const queue = useMemo(() => rawQueue.map(i => {
@@ -1820,7 +1960,7 @@ export function DocumentGeneratePage() {
     return queue.filter(i =>
       i.invoiceNo.toLowerCase().includes(q) ||
       (i.shipmentRef ?? '').toLowerCase().includes(q) ||
-      (DOC_GEN_SCHEMAS[i.docType]?.displayName ?? i.docType).toLowerCase().includes(q)
+      docGenerationDisplayName(i.docType).toLowerCase().includes(q)
     );
   }, [queue, search]);
 
@@ -2051,8 +2191,8 @@ export function DocumentGeneratePage() {
         }}>
           {[
             { type: 'packing-list', label: 'Packing List' },
-            { type: 'outward-pl', label: 'Outward Packing List' },
-            { type: 'draft-boe', label: 'Draft BOE' },
+            { type: 'outward-pl', label: 'Outward GRN' },
+            { type: 'draft-boe', label: 'Draft CBP FORM 7501' },
           ].map(option => {
             const activeType = generatedDocTypeToSchemaKey(routeTypeToGeneratedDocType(routeType));
             const active = activeType === option.type;

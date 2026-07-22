@@ -416,12 +416,19 @@ def _build_line_items(generated_doc_type: str, row: dict[str, Any]) -> list[dict
         return [
             {
                 "lineNo": index + 1,
-                "partNumber": item.get("productCode"),
-                "description": item.get("productDescription"),
-                "quantity": item.get("totalQtyInPcs"),
-                "bundles": item.get("noOfBundles"),
-                "grossWeight": item.get("grossWeightKgs"),
-                "netWeight": item.get("netWeightKgs"),
+                "hsnCode": _item_value(item, "hsnCode", "hsn_code", "hsCode", "hs_code"),
+                "productCode": _item_value(item, "productCode", "product_code", "itemCode", "item_code", "partNumber"),
+                "productDesc": _item_value(item, "productDesc", "productDescription", "product_description", "description", "itemDescription"),
+                "totalQtyInPcs": _item_value(item, "totalQtyInPcs", "total_qty_in_pcs", "quantity", "quantityTotal", "qty"),
+                "noOfBundles": _item_value(item, "noOfBundles", "no_of_bundles", "bundles", "bundleCount", "packageCount"),
+                "grossWeightKgs": _item_value(item, "grossWeightKgs", "gross_weight_kgs", "grossWeightKg", "grossWeight", "gross_weight"),
+                "netWeightKgs": _item_value(item, "netWeightKgs", "net_weight_kgs", "netWeightKg", "netWeight", "net_weight"),
+                "partNumber": _item_value(item, "productCode", "product_code", "itemCode", "item_code", "partNumber"),
+                "description": _item_value(item, "productDesc", "productDescription", "product_description", "description", "itemDescription"),
+                "quantity": _item_value(item, "totalQtyInPcs", "total_qty_in_pcs", "quantity", "quantityTotal", "qty"),
+                "bundles": _item_value(item, "noOfBundles", "no_of_bundles", "bundles", "bundleCount", "packageCount"),
+                "grossWeight": _item_value(item, "grossWeightKgs", "gross_weight_kgs", "grossWeightKg", "grossWeight", "gross_weight"),
+                "netWeight": _item_value(item, "netWeightKgs", "net_weight_kgs", "netWeightKg", "netWeight", "net_weight"),
                 "marksAndNumbers": None,
             }
             for index, item in enumerate(source_items)
@@ -594,6 +601,46 @@ async def _select_source_row(
                 "PACKING_LIST": str(rows[0]["packing_list_document_id"]),
                 "BILL_OF_LADING": str(rows[0]["bol_document_id"]),
             }
+            return rows[0]
+
+        fallback_where = "" if shared_sources else "AND dr.created_by::text = $1::text"
+        fallback_params: tuple[str, ...] = () if shared_sources else (user_id,)
+        rows = await _query_raw(
+            prisma,
+            f"""
+            SELECT
+              dr.id::text AS packing_list_document_id,
+              NULL::text AS bol_document_id,
+              dr.id::text AS packing_list_id,
+              NULL::text AS bill_of_lading_id,
+              NULL::text AS invoice_no,
+              NULL::text AS buyer_po_no,
+              NULL::text AS zetwerk_ref,
+              NULL::text AS country_of_origin,
+              NULL::text AS pickup_address,
+              NULL::text AS total_qty,
+              NULL::text AS total_bundles,
+              NULL::text AS total_gross_weight_kgs,
+              NULL::text AS bol_number,
+              NULL::text AS project_name,
+              NULL::text AS carrier_company_name,
+              NULL::text AS shipper_name,
+              NULL::text AS consignee_name,
+              NULL::text AS consignee_address,
+              COALESCE(dr.rendered_payload->'lineItems', '[]'::jsonb) AS line_items,
+              '[]'::jsonb AS containers
+            FROM docgen.drafts dr
+            WHERE dr.generated_doc_type = 'PACKING_LIST'
+              AND dr.status = 'GENERATED'
+              {fallback_where}
+              AND jsonb_array_length(COALESCE(dr.rendered_payload->'lineItems', '[]'::jsonb)) > 0
+            ORDER BY dr.updated_at DESC
+            LIMIT 1
+            """,
+            *fallback_params,
+        )
+        if rows:
+            rows[0]["_source_document_ids"] = {"PACKING_LIST": str(rows[0]["packing_list_document_id"])}
             return rows[0]
 
     if generated_doc_type == "ENTRY_SUMMARY":
@@ -820,8 +867,8 @@ async def ensure_packing_list_draft_for_sales_invoice(
     try:
         await _persist_draft(prisma, payload, user_id)
     except Exception:
-        # Concurrent API startup/backfill processes may race. The deterministic
-        # primary key guarantees that only one draft can win.
+        # Concurrent requests may race. The deterministic primary key guarantees
+        # that only one draft can win.
         created = await _query_raw(
             prisma,
             """
@@ -837,51 +884,6 @@ async def ensure_packing_list_draft_for_sales_invoice(
         if not created:
             raise
     return payload.draftId
-
-
-async def backfill_missing_packing_list_drafts(prisma) -> dict[str, int]:
-    """Generate missing PL drafts for existing extracted/reviewed Sales Invoices."""
-    await ensure_doc_generation_views(prisma)
-    rows = await _query_raw(
-        prisma,
-        """
-        SELECT d.id, d.uploaded_by
-        FROM public.documents d
-        JOIN aiextraction.sales_invoice_extractions si
-          ON si.document_id = d.id
-        WHERE d.doc_type = 'SALES_INVOICE'::public."DocType"
-          AND d.status IN (
-            'EXTRACTED'::public."DocumentStatus",
-            'REVIEWED'::public."DocumentStatus"
-          )
-          AND d.is_deleted = FALSE
-          AND NOT EXISTS (
-            SELECT 1
-            FROM docgen.drafts draft
-            WHERE draft.generated_doc_type = 'PACKING_LIST'
-              AND draft.source_document_ids ->> 'SALES_INVOICE' = d.id::text
-          )
-        ORDER BY d.created_at ASC
-        """,
-    )
-    created = 0
-    failed = 0
-    for row in rows:
-        try:
-            await ensure_packing_list_draft_for_sales_invoice(
-                prisma=prisma,
-                sales_invoice_document_id=str(row["id"]),
-                user_id=str(row["uploaded_by"]),
-            )
-            created += 1
-        except Exception as exc:
-            failed += 1
-            print(
-                f"[docgen][backfill] failed salesInvoiceId={row.get('id')} error={exc}",
-                flush=True,
-            )
-    return {"eligible": len(rows), "created": created, "failed": failed}
-
 
 async def reorder_existing_packing_list_drafts(prisma) -> dict[str, int]:
     """Align every existing PL draft to its Sales Invoice's printed row order."""

@@ -22,11 +22,14 @@ import { useConfig } from '@/contexts/ConfigContext';
 interface Role {
   id: string; name: string; description?: string; roleCategory: string;
   isSystemDefault: boolean; color: string; allowedLevels: string[];
-  defaultDataScope: string; defaultModules: string[];
+  defaultDataScope: string; defaultModules: string[]; documentScope?: string[];
+  docTypeScopes?: Record<string, string[]>;
   _count?: { users: number; roleActivities: number };
 }
 interface Activity {
   id: string; activityCode: string; name: string; category: string;
+  displayCode?: string; displayGroup?: string;
+  moduleCode?: string; subModule?: string; status?: string; scope?: string;
   minLevel: string; scopeType?: string;
 }
 interface DocType {
@@ -39,25 +42,31 @@ interface SysModule {
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LEVELS = ['L1', 'L2', 'L3', 'L4'];
 
+const ACTIVITY_GROUP_ORDER = [
+  'document',
+  'generation',
+  'validation',
+  'container_mapping',
+  'shipment',
+  'inventory',
+  'admin',
+];
+
+const ACTIVITY_GROUP_LABELS: Record<string, string> = {
+  document: 'Document Activities',
+  generation: 'Generation Activities',
+  validation: 'Validation Activities',
+  container_mapping: 'Container Mapping Activities',
+  shipment: 'Shipment Activities',
+  inventory: 'Inventory Activities',
+  admin: 'Admin Activities',
+};
+
 const SWATCHES = [
   '#64748B', '#6B7280', '#0EA5A0', '#06B6D4', '#3B82F6',
   '#6366F1', '#A855F7', '#EC4899', '#F43F5E', '#F59E0B',
   '#F97316', '#22C55E',
 ];
-
-const CAT_DISPLAY: Record<string, string> = {
-  document: 'Document Activities', generation: 'Generation Activities',
-  gate: 'Gate Activities', accounting: 'Accounting Activities',
-  shipment: 'Shipment Activities', task: 'Task Activities',
-  admin: 'Admin Activities', validation: 'Validation Activities',
-};
-const CAT_ORDER = ['document', 'generation', 'validation', 'gate', 'shipment', 'accounting', 'task', 'admin'];
-
-const MOD_CAT_MAP: Record<string, string[]> = {
-  documents: ['document', 'generation'], shipments: ['shipment', 'gate'],
-  tasks: ['task'], accounting: ['accounting'], admin: ['admin'],
-  inventory: [], reports: [], dashboard: [], portal: [],
-};
 
 const ROLE_CAT_OPTIONS = [
   { value: 'INTERNAL_OPS',       label: 'Internal Ops',       color: '#3B82F6' },
@@ -105,11 +114,34 @@ function lvlRange(levels: string[]) {
   return `${s[0]}–${s[s.length - 1]}`;
 }
 
-function isCatEnabled(category: string, enabledModules: string[]) {
-  for (const [mod, cats] of Object.entries(MOD_CAT_MAP)) {
-    if (cats.includes(category)) return enabledModules.includes(mod);
-  }
-  return true;
+function activityModule(activity: Activity) {
+  return activity.moduleCode ?? activity.category;
+}
+
+function activityGroup(activity: Activity) {
+  return activity.category || activity.moduleCode || 'other';
+}
+
+function groupLabel(groupCode: string, activities: Activity[]) {
+  return activities.find((a) => a.displayGroup)?.displayGroup ?? ACTIVITY_GROUP_LABELS[groupCode] ?? groupCode;
+}
+
+function isModuleEnabled(moduleCode: string, enabledModules: string[]) {
+  return enabledModules.includes(moduleCode);
+}
+
+function docScopeSummary(scope: string[] | undefined, docTypes: DocType[]) {
+  const selected = scope ?? [];
+  if (!selected.length) return 'No documents';
+  if (selected.length === docTypes.length) return 'All documents';
+  const labels = selected.map((code) => docTypes.find((dt) => dt.typeCode === code)?.displayName ?? code);
+  return labels.length > 2 ? `${labels.slice(0, 2).join(', ')} +${labels.length - 2}` : labels.join(', ');
+}
+
+function activityScopeSummary(activity: Activity, selected: string[] | undefined, docTypes: DocType[]) {
+  if (activity.scopeType !== 'docType') return activity.scope || '-';
+  if (!selected?.length) return activity.scope || 'Doc names';
+  return docScopeSummary(selected, docTypes);
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -168,6 +200,7 @@ function ScopePanel({ title, children }: { title: string; children: React.ReactN
 // ─── Role Editor ──────────────────────────────────────────────────────────────
 interface EditorProps {
   roleId: string;
+  roles: Role[];
   activities: Activity[];
   docTypes: DocType[];
   sysModules: SysModule[];
@@ -176,7 +209,7 @@ interface EditorProps {
   onSaved: () => void;
 }
 
-function RoleEditor({ roleId, activities, docTypes, sysModules, teams, onBack, onSaved }: EditorProps) {
+function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, onBack, onSaved }: EditorProps) {
   const { toast } = useToast();
   const isNew = roleId === 'new';
 
@@ -190,6 +223,7 @@ function RoleEditor({ roleId, activities, docTypes, sysModules, teams, onBack, o
   const [selectedActs, setSelectedActs]       = useState<Set<string>>(new Set());
   const [expandedGroups, setExpandedGroups]   = useState<Set<string>>(new Set(['document', 'generation']));
   const [openScope, setOpenScope]             = useState<string | null>(null);
+  const [scopeDialogActivity, setScopeDialogActivity] = useState<Activity | null>(null);
   const [docTypeScopes, setDocTypeScopes]     = useState<Record<string, string[]>>({});
   const [ticketScopes, setTicketScopes]       = useState<Record<string, string[]>>({});
   const [gateScopes, setGateScopes]           = useState<Record<string, { accessLevel: string; canEscalate: boolean; canOverride: boolean }>>({});
@@ -199,6 +233,7 @@ function RoleEditor({ roleId, activities, docTypes, sysModules, teams, onBack, o
   const [saving, setSaving]                   = useState(false);
   const [editorLoading, setEditorLoading]     = useState(!isNew);
   const [liveTeams, setLiveTeams]             = useState<{ id: string; name: string }[]>(teams);
+  const [assignedLevelsByActivity, setAssignedLevelsByActivity] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
     if (dataScope !== 'TEAM') return;
@@ -230,6 +265,9 @@ function RoleEditor({ roleId, activities, docTypes, sysModules, teams, onBack, o
         if (!ds[p.action].includes(p.docType)) ds[p.action].push(p.docType);
       });
       setDocTypeScopes(ds);
+      if (data.docTypeScopes && typeof data.docTypeScopes === 'object') {
+        setDocTypeScopes(data.docTypeScopes);
+      }
       const ts: Record<string, string[]> = {};
       (data.ticketPerms ?? []).forEach((p: any) => {
         if (!ts['accounting']) ts['accounting'] = [];
@@ -245,11 +283,55 @@ function RoleEditor({ roleId, activities, docTypes, sysModules, teams, onBack, o
     });
   }, [roleId, isNew]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const roleIds = roles
+      .map((role) => role.id)
+      .filter((id) => id && (isNew || id !== roleId));
+    if (!roleIds.length) {
+      setAssignedLevelsByActivity({});
+      return;
+    }
+
+    Promise.all(
+      roleIds.map((id) => apiGet<any>(`/api/admin/roles/${id}`).catch(() => null))
+    ).then((responses) => {
+      if (cancelled) return;
+      const next: Record<string, Set<string>> = {};
+      responses.forEach((res) => {
+        const data = res?.data;
+        if (!data) return;
+        const levels = (data.allowedLevels ?? []).filter((level: string) => LEVELS.includes(level));
+        (data.roleActivities ?? []).forEach((ra: any) => {
+          const code = ra.activity?.activityCode;
+          if (!code) return;
+          if (!next[code]) next[code] = new Set();
+          levels.forEach((level: string) => next[code].add(level));
+        });
+      });
+      setAssignedLevelsByActivity(
+        Object.fromEntries(Object.entries(next).map(([code, levels]) => [code, [...levels].sort((a, b) => LEVELS.indexOf(a) - LEVELS.indexOf(b))]))
+      );
+    });
+
+    return () => { cancelled = true; };
+  }, [roles, roleId, isNew]);
+
   const grouped = useMemo(() => {
     const m: Record<string, Activity[]> = {};
-    activities.forEach((a) => { if (!m[a.category]) m[a.category] = []; m[a.category].push(a); });
+    activities.forEach((a) => {
+      const key = activityGroup(a);
+      if (!m[key]) m[key] = [];
+      m[key].push(a);
+    });
     return m;
   }, [activities]);
+
+  const groupOrder = useMemo(() => {
+    const known = ACTIVITY_GROUP_ORDER.filter((code) => grouped[code]);
+    const extra = Object.keys(grouped).filter((code) => !known.includes(code)).sort();
+    return [...known, ...extra];
+  }, [grouped]);
 
   const selectedCount = useMemo(() => {
     let n = 0; activities.forEach((a) => { if (selectedActs.has(a.activityCode)) n++; }); return n;
@@ -269,11 +351,25 @@ function RoleEditor({ roleId, activities, docTypes, sysModules, teams, onBack, o
   function toggleLevel(l: string) {
     setAllowedLevels((p) => p.includes(l) ? p.filter((x) => x !== l) : [...p, l]);
   }
+  function activityLevels(act: Activity) {
+    const levels = new Set(assignedLevelsByActivity[act.activityCode] ?? []);
+    if (selectedActs.has(act.activityCode)) {
+      allowedLevels.forEach((level) => levels.add(level));
+    }
+    if (!levels.size && act.minLevel) levels.add(act.minLevel);
+    return [...levels].filter((level) => LEVELS.includes(level)).sort((a, b) => LEVELS.indexOf(a) - LEVELS.indexOf(b));
+  }
   function toggleDocType(key: string, typeCode: string) {
     setDocTypeScopes((p) => {
       const arr = p[key] ?? [];
       return { ...p, [key]: arr.includes(typeCode) ? arr.filter((t) => t !== typeCode) : [...arr, typeCode] };
     });
+  }
+  function selectActivityDocTypes(key: string, types: DocType[]) {
+    setDocTypeScopes((p) => ({ ...p, [key]: [...new Set([...(p[key] ?? []), ...types.map((dt) => dt.typeCode)])] }));
+  }
+  function clearActivityDocTypes(key: string) {
+    setDocTypeScopes((p) => ({ ...p, [key]: [] }));
   }
   function toggleTicketCat(key: string, catId: string) {
     setTicketScopes((p) => {
@@ -286,11 +382,20 @@ function RoleEditor({ roleId, activities, docTypes, sysModules, teams, onBack, o
     if (!roleName.trim()) { toast({ title: 'Role name is required', variant: 'destructive' }); return; }
     if (!allowedLevels.length) { toast({ title: 'Select at least one level', variant: 'destructive' }); return; }
     if (!enabledModules.length) { toast({ title: 'Enable at least one module', variant: 'destructive' }); return; }
+    const selectedDocScoped = activities.filter((act) => selectedActs.has(act.activityCode) && act.scopeType === 'docType');
+    const missingDocScope = selectedDocScoped.find((act) => !(docTypeScopes[act.activityCode] ?? []).length);
+    if (missingDocScope) {
+      toast({ title: `Select documents for ${missingDocScope.name}`, variant: 'destructive' });
+      return;
+    }
+    const derivedDocumentScope = [...new Set(Object.values(docTypeScopes).flat())].sort();
     setSaving(true);
     try {
       const payload = {
         name: roleName.trim(), description: description || null, roleCategory: category,
         color, allowedLevels, defaultDataScope: dataScope, defaultModules: enabledModules,
+        documentScope: derivedDocumentScope,
+        docTypeScopes,
         activityCodes: Array.from(selectedActs),
       };
       const res = isNew
@@ -520,78 +625,154 @@ function RoleEditor({ roleId, activities, docTypes, sysModules, teams, onBack, o
           {/* Tier 2: Activity groups */}
           <AdminFormSection title="Activity Permissions" defaultOpen isLast>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {CAT_ORDER.filter((cat) => grouped[cat]).map((cat) => {
-                const catActs = grouped[cat] ?? [];
-                const selCount = catActs.filter((a) => selectedActs.has(a.activityCode)).length;
-                const isExpanded = expandedGroups.has(cat);
-                const catEnabled = isCatEnabled(cat, enabledModules);
-                const allSel = catActs.length > 0 && catActs.every((a) => selectedActs.has(a.activityCode));
+              {groupOrder.map((groupCode) => {
+                const groupActs = grouped[groupCode] ?? [];
+                const enabledActs = groupActs.filter((act) => isModuleEnabled(activityModule(act), enabledModules));
+                const selCount = groupActs.filter((a) => selectedActs.has(a.activityCode)).length;
+                const isExpanded = expandedGroups.has(groupCode);
+                const groupEnabled = enabledActs.length > 0;
+                const allSel = enabledActs.length > 0 && enabledActs.every((a) => selectedActs.has(a.activityCode));
                 const someSel = selCount > 0 && !allSel;
 
                 return (
-                  <div key={cat} style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, overflow: 'hidden', opacity: catEnabled ? 1 : 0.45 }}>
+                  <div key={groupCode} style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, overflow: 'hidden', opacity: groupEnabled ? 1 : 0.45 }}>
                     {/* Group header */}
                     <div
                       onClick={() => {
-                        if (!catEnabled) return;
-                        setExpandedGroups((p) => { const n = new Set(p); n.has(cat) ? n.delete(cat) : n.add(cat); return n; });
+                        if (!groupEnabled) return;
+                        setExpandedGroups((p) => { const n = new Set(p); n.has(groupCode) ? n.delete(groupCode) : n.add(groupCode); return n; });
                       }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: catEnabled ? 'pointer' : 'default', background: 'hsl(var(--muted) / 0.3)', userSelect: 'none' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: groupEnabled ? 'pointer' : 'default', background: 'hsl(var(--muted) / 0.3)', userSelect: 'none' }}
                     >
                       {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                       <input type="checkbox" checked={allSel}
                         ref={(el) => { if (el) el.indeterminate = someSel; }}
-                        disabled={!catEnabled}
-                        onChange={(e) => { e.stopPropagation(); toggleGroupAll(cat, catActs); }}
+                        disabled={!groupEnabled}
+                        onChange={(e) => { e.stopPropagation(); toggleGroupAll(groupCode, enabledActs); }}
                         onClick={(e) => e.stopPropagation()}
                         style={{ accentColor: 'hsl(173 58% 39%)', flexShrink: 0 }}
                       />
-                      <span style={{ fontSize: 14.5, fontWeight: 600, flex: 1 }}>{CAT_DISPLAY[cat] ?? cat}</span>
+                      <span style={{ fontSize: 14.5, fontWeight: 600, flex: 1 }}>{groupLabel(groupCode, groupActs)}</span>
                       <span style={{
                         fontSize: 14.5, fontFamily: '"JetBrains Mono", monospace', padding: '2px 8px', borderRadius: 10,
                         background: selCount > 0 ? 'hsl(173 58% 39% / 0.12)' : 'hsl(var(--muted))',
                         color: selCount > 0 ? 'hsl(173 58% 39%)' : 'hsl(var(--muted-foreground))',
                       }}>
-                        {selCount}/{catActs.length}
+                        {selCount}/{groupActs.length}
                       </span>
                     </div>
 
                     {/* Activity rows */}
-                    {isExpanded && catActs.map((act) => {
+                    {isExpanded && (
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '20px minmax(68px, 86px) minmax(220px, 1fr) minmax(140px, 190px) minmax(78px, max-content)',
+                        alignItems: 'center',
+                        gap: 12,
+                        padding: '7px 14px',
+                        borderTop: '1px solid hsl(var(--border))',
+                        background: 'hsl(var(--muted) / 0.18)',
+                        color: 'hsl(var(--muted-foreground))',
+                        fontSize: 12.5,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                      }}>
+                        <span />
+                        <span>Code</span>
+                        <span>Activity</span>
+                        <span>Scope</span>
+                        <span style={{ textAlign: 'right' }}>Level</span>
+                      </div>
+                    )}
+                    {isExpanded && groupActs.map((act) => {
                       const isSel = selectedActs.has(act.activityCode);
-                      const ScopeIcon = act.scopeType ? SCOPE_ICON[act.scopeType] : null;
+                      const rowEnabled = isModuleEnabled(activityModule(act), enabledModules);
+                      const levels = activityLevels(act);
+                      const scopedDocs = docTypeScopes[act.activityCode] ?? [];
                       const isScopeOpen = openScope === act.activityCode;
 
                       return (
                         <div key={act.id}>
                           <div style={{
-                            display: 'flex', alignItems: 'center', gap: 10,
+                            display: 'grid',
+                            gridTemplateColumns: '20px minmax(68px, 86px) minmax(220px, 1fr) minmax(140px, 190px) minmax(78px, max-content)',
+                            alignItems: 'center',
+                            gap: 12,
                             padding: '7px 14px', borderTop: '1px solid hsl(var(--border))',
                             background: isSel ? 'hsl(173 58% 39% / 0.04)' : undefined,
                           }}>
-                            <input type="checkbox" checked={isSel} disabled={!catEnabled}
+                            <input type="checkbox" checked={isSel} disabled={!rowEnabled}
                               onChange={() => toggleActivity(act.activityCode)}
                               style={{ accentColor: 'hsl(173 58% 39%)', flexShrink: 0 }} />
-                            <span style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 14.5, color: 'hsl(var(--muted-foreground))', width: 64, flexShrink: 0 }}>
-                              {act.activityCode}
+                            <span style={{
+                              fontFamily: '"JetBrains Mono", monospace',
+                              fontSize: 13.5,
+                              color: 'hsl(var(--muted-foreground))',
+                              whiteSpace: 'nowrap',
+                              lineHeight: 1.25,
+                              minWidth: 0,
+                            }}>
+                              {act.displayCode ?? act.activityCode}
                             </span>
-                            <span style={{ fontSize: 14.5, flex: 1 }}>{act.name}</span>
-                            <span style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 14, background: 'hsl(var(--muted))', padding: '1px 6px', borderRadius: 3, flexShrink: 0 }}>
-                              {act.minLevel}
+                            <span style={{ fontSize: 14.5, minWidth: 0, lineHeight: 1.3 }}>
+                              <span>{act.name}</span>
+                              {act.status && (
+                                <span style={{ color: 'hsl(var(--muted-foreground))', fontSize: 12.5, marginLeft: 8 }}>
+                                  {act.status}
+                                </span>
+                              )}
                             </span>
-                            {ScopeIcon && isSel && (
-                              <button
-                                onClick={() => setOpenScope(isScopeOpen ? null : act.activityCode)}
-                                style={{
-                                  display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', fontSize: 14.5,
-                                  borderRadius: 4, border: '1px solid hsl(var(--border))', cursor: 'pointer',
-                                  background: isScopeOpen ? 'hsl(173 58% 39% / 0.1)' : 'hsl(var(--background))',
-                                  color: isScopeOpen ? 'hsl(173 58% 39%)' : 'hsl(var(--muted-foreground))',
+                            <span style={{ minWidth: 0 }}>
+                              {act.scopeType === 'docType' ? (
+                                <button
+                                  type="button"
+                                  disabled={!rowEnabled}
+                                  onClick={() => {
+                                    if (!selectedActs.has(act.activityCode)) toggleActivity(act.activityCode);
+                                    setScopeDialogActivity(act);
+                                  }}
+                                  title={activityScopeSummary(act, scopedDocs, docTypes)}
+                                  style={{
+                                    maxWidth: '100%',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 5,
+                                    padding: '3px 8px',
+                                    borderRadius: 5,
+                                    border: '1px solid hsl(var(--border))',
+                                    background: scopedDocs.length ? 'hsl(173 58% 39% / 0.08)' : 'hsl(var(--background))',
+                                    color: scopedDocs.length ? 'hsl(173 58% 30%)' : 'hsl(var(--muted-foreground))',
+                                    cursor: rowEnabled ? 'pointer' : 'not-allowed',
+                                    fontSize: 13.5,
+                                    overflow: 'hidden',
+                                  }}
+                                >
+                                  <FileText size={12} style={{ flexShrink: 0 }} />
+                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {activityScopeSummary(act, scopedDocs, docTypes)}
+                                  </span>
+                                </button>
+                              ) : (
+                                <span style={{ color: 'hsl(var(--muted-foreground))', fontSize: 13.5 }}>
+                                  {activityScopeSummary(act, undefined, docTypes)}
+                                </span>
+                              )}
+                            </span>
+                            <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 4, flexWrap: 'wrap' }}>
+                              {levels.map((level) => (
+                                <span key={level} style={{
+                                  fontFamily: '"JetBrains Mono", monospace',
+                                  fontSize: 12.5,
+                                  background: 'hsl(var(--muted))',
+                                  padding: '2px 6px',
+                                  borderRadius: 4,
+                                  lineHeight: 1.2,
                                 }}>
-                                <ScopeIcon size={11} />
-                                {isScopeOpen ? 'Close' : 'Scope'}
-                              </button>
-                            )}
+                                  {level}
+                                </span>
+                              ))}
+                            </span>
                           </div>
 
                           {/* Tier 3: docType scope */}
@@ -705,6 +886,99 @@ function RoleEditor({ roleId, activities, docTypes, sysModules, teams, onBack, o
           </AdminFormSection>
         </div>
       </div>
+      {scopeDialogActivity && (
+        <div
+          onClick={() => setScopeDialogActivity(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 80,
+            background: 'rgba(15, 23, 42, 0.38)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(720px, 100%)',
+              maxHeight: '82vh',
+              overflow: 'auto',
+              background: 'hsl(var(--card))',
+              border: '1px solid hsl(var(--border))',
+              borderRadius: 8,
+              boxShadow: '0 22px 60px rgba(15, 23, 42, 0.25)',
+            }}
+          >
+            <div style={{ padding: '16px 18px', borderBottom: '1px solid hsl(var(--border))', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>Scope</div>
+                <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {scopeDialogActivity.displayCode ?? scopeDialogActivity.activityCode} · {scopeDialogActivity.name}
+                </div>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => clearActivityDocTypes(scopeDialogActivity.activityCode)}>Clear</Button>
+              <Button size="sm" onClick={() => setScopeDialogActivity(null)}>Done</Button>
+            </div>
+            <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {['INDIA', 'US', 'GLOBAL'].map((geo) => {
+                const geoTypes = docTypes.filter((dt) => dt.geography === geo);
+                if (!geoTypes.length) return null;
+                const activityCode = scopeDialogActivity.activityCode;
+                return (
+                  <div key={geo} style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, padding: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--muted-foreground))' }}>{geo}</span>
+                      <button
+                        type="button"
+                        onClick={() => selectActivityDocTypes(activityCode, geoTypes)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(173 58% 39%)', fontSize: 14, padding: 0 }}
+                      >
+                        Select all
+                      </button>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 7 }}>
+                      {geoTypes.map((dt) => {
+                        const checked = (docTypeScopes[activityCode] ?? []).includes(dt.typeCode);
+                        return (
+                          <label
+                            key={dt.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 7,
+                              minWidth: 0,
+                              fontSize: 14.5,
+                              cursor: 'pointer',
+                              padding: '7px 9px',
+                              borderRadius: 6,
+                              border: `1px solid ${checked ? 'hsl(173 58% 39%)' : 'hsl(var(--border))'}`,
+                              background: checked ? 'hsl(173 58% 39% / 0.08)' : 'hsl(var(--background))',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleDocType(activityCode, dt.typeCode)}
+                              style={{ accentColor: 'hsl(173 58% 39%)', flexShrink: 0 }}
+                            />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dt.displayName}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+              <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>
+                {(docTypeScopes[scopeDialogActivity.activityCode] ?? []).length} of {docTypes.length} documents selected
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -769,6 +1043,14 @@ export function AdminRolesPage() {
       render: (r) => <span style={catBadgeStyle(r.roleCategory)}>{catLabel(r.roleCategory)}</span>,
     },
     {
+      key: 'scope', label: 'Scope', width: '220px',
+      render: (r) => (
+        <span title={docScopeSummary(r.documentScope, docTypes)} style={{ display: 'block', fontSize: 14, color: 'hsl(var(--muted-foreground))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {docScopeSummary(r.documentScope, docTypes)}
+        </span>
+      ),
+    },
+    {
       key: 'allowedLevels', label: 'Levels', width: '80px',
       render: (r) => <span style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 14 }}>{lvlRange(r.allowedLevels)}</span>,
     },
@@ -802,6 +1084,8 @@ export function AdminRolesPage() {
                 roleCategory: src.roleCategory, color: src.color,
                 allowedLevels: src.allowedLevels, defaultDataScope: src.defaultDataScope,
                 defaultModules: src.defaultModules,
+                documentScope: src.documentScope ?? [],
+                docTypeScopes: src.docTypeScopes ?? {},
                 activityCodes: (src.roleActivities ?? []).map((ra: any) => ra.activity?.activityCode).filter(Boolean),
               });
               if (res.ok) { toast({ title: `Cloned as "${src.name} (copy)"` }); refreshRoles(); }
@@ -823,6 +1107,7 @@ export function AdminRolesPage() {
     return (
       <RoleEditor
         roleId={editingRoleId}
+        roles={roles}
         activities={activities}
         docTypes={docTypes}
         sysModules={sysModules}

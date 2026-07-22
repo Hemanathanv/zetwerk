@@ -204,6 +204,8 @@ type KeycloakPermissions = {
   modules: string[];
   gates: unknown[];
   docTypes: Record<string, string[]>;
+  documentScope?: string[];
+  activityDocTypes?: Record<string, string[]>;
   ticketCategories: string[];
   activities: string[];
   dataScope: string;

@@ -4,7 +4,7 @@
  * Defines the field-by-field mapping for each of the 3 generated document types:
  *   1. Packing List        ← Sales Invoice (from your xlsx mapping matrix)
  *   2. Outward Packing List ← Packing List + BOL container allocation
- *   3. Draft BOE           ← BOL + Sales Invoice + Entry data
+ *   3. CBP FORM 7501       ← BOL + Sales Invoice + Entry data
  *
  * Each rule defines: which field on the generated doc, where it comes from,
  * what transformation (if any), and whether it needs human input.
@@ -242,14 +242,14 @@ const OUTWARD_PL_GEN: DocGenSchema = {
 };
 
 // ---------------------------------------------------------------
-// 3. DRAFT BOE ← BOL + Sales Invoice + HTS/Duty data
+// 3. CBP FORM 7501 ← BOL + Sales Invoice + HTS/Duty data
 //    Trigger: BOL APPROVED
 //    New schema — built from BRD + Prisma EntrySummaryExtraction
 // ---------------------------------------------------------------
 
 const DRAFT_BOE_GEN: DocGenSchema = {
   generatedDocType: 'ENTRY_SUMMARY',
-  displayName: 'Draft BOE',
+  displayName: 'CBP FORM 7501',
   triggerCondition: 'BOL APPROVED (extraction confirmed by human)',
   sourceDocs: ['BILL_OF_LADING', 'SALES_INVOICE'],
   humanAction: 'Add HTS codes, review duty calculations, send to US broker for filing',

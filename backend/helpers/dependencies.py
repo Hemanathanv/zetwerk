@@ -4,9 +4,10 @@ from functools import wraps
 from types import SimpleNamespace
 from fastapi import Request, HTTPException, Depends, Cookie, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from keycloak import KeycloakOpenID
+from keycloak import KeycloakAdmin, KeycloakOpenID
 from db import get_prisma
 from helpers.config import settings
+from helpers.rbac_data_access import normalize_role_name
 
 bearer_scheme = HTTPBearer(auto_error=False)
 keycloak_openid = KeycloakOpenID(
@@ -157,7 +158,7 @@ async def _get_session_user(token: str):
 
 
 def _role_from_keycloak_roles(roles: list[str]) -> str:
-    normalized = {str(role).upper().replace("-", "_") for role in roles}
+    normalized = {normalize_role_name(role) for role in roles}
     if "SUPER_ADMIN" in normalized:
         return "SUPER_ADMIN"
     if "ADMIN" in normalized:
@@ -166,7 +167,7 @@ def _role_from_keycloak_roles(roles: list[str]) -> str:
 
 
 def _primary_keycloak_role(roles: list[str]) -> str:
-    normalized = {str(role).upper().replace("-", "_"): str(role) for role in roles}
+    normalized = {normalize_role_name(role): str(role) for role in roles}
     for role in (
         "SUPER_ADMIN",
         "ADMIN",
@@ -178,6 +179,15 @@ def _primary_keycloak_role(roles: list[str]) -> str:
     ):
         if role in normalized:
             return role
+    for role in roles:
+        normalized_role = normalize_role_name(role)
+        if (
+            role
+            and not str(role).startswith("default-roles-")
+            and str(role) not in {"offline_access", "uma_authorization"}
+            and normalized_role not in {"USER", "ADMIN", "SUPER_ADMIN"}
+        ):
+            return str(role)
     return "USER"
 
 
@@ -187,6 +197,26 @@ def _extract_keycloak_roles(token_info: dict) -> list[str]:
     for client_access in resource_access.values():
         roles.extend(client_access.get("roles", []) or [])
     return sorted({str(role) for role in roles})
+
+
+def _keycloak_admin_client() -> KeycloakAdmin:
+    return KeycloakAdmin(
+        server_url=settings.KEYCLOAK_URL,
+        username=settings.KEYCLOAK_ADMIN_USERNAME,
+        password=settings.KEYCLOAK_ADMIN_PASSWORD,
+        realm_name=settings.KEYCLOAK_REALM,
+        user_realm_name="master",
+        client_id="admin-cli",
+        verify=True,
+    )
+
+
+def _role_attributes(role_name: str) -> dict:
+    try:
+        role = _keycloak_admin_client().get_realm_role(role_name)
+        return role.get("attributes") or {}
+    except Exception:
+        return {}
 
 
 async def _get_keycloak_local_user(token: str):
@@ -218,6 +248,7 @@ async def _get_keycloak_local_user(token: str):
     )
     role = "ADMIN" if email in KEYCLOAK_ADMIN_EMAILS else _role_from_keycloak_roles(roles)
     primary_role = _primary_keycloak_role(roles)
+    role_attrs = _role_attributes(primary_role)
     try:
         prisma = await get_prisma()
     except Exception:
@@ -228,6 +259,7 @@ async def _get_keycloak_local_user(token: str):
             role=role,
             keycloakRoles=roles,
             keycloakPrimaryRole=primary_role,
+            keycloakRoleAttributes=role_attrs,
             isActive=True,
         )
 
@@ -247,6 +279,7 @@ async def _get_keycloak_local_user(token: str):
                 role=updated.role,
                 keycloakRoles=roles,
                 keycloakPrimaryRole=primary_role,
+                keycloakRoleAttributes=role_attrs,
                 isActive=updated.isActive,
             )
         except Exception:
@@ -257,6 +290,7 @@ async def _get_keycloak_local_user(token: str):
                 role=existing.role,
                 keycloakRoles=roles,
                 keycloakPrimaryRole=primary_role,
+                keycloakRoleAttributes=role_attrs,
                 isActive=existing.isActive,
             )
 
@@ -276,6 +310,7 @@ async def _get_keycloak_local_user(token: str):
         role=created.role,
         keycloakRoles=roles,
         keycloakPrimaryRole=primary_role,
+        keycloakRoleAttributes=role_attrs,
         isActive=created.isActive,
     )
 
