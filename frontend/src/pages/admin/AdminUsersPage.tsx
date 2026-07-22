@@ -23,6 +23,7 @@ import { useConfig } from '@/contexts/ConfigContext';
 interface User {
   id: string; orgId: string; roleId: string; email: string; fullName: string;
   userType: string; status: string; phone?: string; level: string; teamId?: string;
+  documentScope?: string[]; docTypeScopes?: Record<string, string[]>;
   dataScope: string; geographyOrigin?: string; geographyDestination?: string;
   approvalLimitInr?: number; approvalLimitUsd?: number; createdAt: string;
   role?: { id: string; name: string; roleCategory: string };
@@ -30,6 +31,7 @@ interface User {
 interface Role {
   id: string; name: string; roleCategory: string; color: string;
   allowedLevels: string[]; defaultDataScope: string; defaultModules: string[];
+  documentScope?: string[]; docTypeScopes?: Record<string, string[]>;
 }
 interface Org { id: string; name: string; type?: string; }
 interface Team { id: string; name: string; orgId: string; }
@@ -76,10 +78,36 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 function canUseAllScope(level: string) { return LEVEL_NUM[level] >= 3; }
+function docScopeSummary(scope: string[] | undefined, docTypes: { typeCode: string; displayName: string }[]) {
+  const selected = scope ?? [];
+  if (!selected.length) return 'No documents';
+  if (selected.length === docTypes.length) return 'All documents';
+  const labels = selected.map((code) => docTypes.find((dt) => dt.typeCode === code)?.displayName ?? code);
+  return labels.length > 2 ? `${labels.slice(0, 2).join(', ')} +${labels.length - 2}` : labels.join(', ');
+}
+function docScopeButtonLabel(scope: string[] | undefined, docTypes: { typeCode: string; displayName: string }[]) {
+  const selected = scope ?? [];
+  if (!selected.length) return 'No documents';
+  if (selected.length === docTypes.length) return 'All documents';
+  return `${selected.length} documents`;
+}
+function isInternalUser(user: User, org?: Org) {
+  const userType = String(user.userType ?? '').trim().toLowerCase();
+  const roleCategory = String(user.role?.roleCategory ?? '').trim().toLowerCase();
+  const orgType = String(org?.type ?? '').trim().toLowerCase();
+  const orgId = String(user.orgId ?? '').trim();
+
+  if (!orgType || orgType === 'internal' || orgId === 'default-org') return true;
+  if (userType === 'external' || userType === 'partner') return false;
+  if (roleCategory === 'org_external' || roleCategory === 'external') return false;
+  if (orgType === 'external' || orgType === 'partner') return false;
+  return true;
+}
 
 // ─── Small sub-components ────────────────────────────────────────────────────
-function StatCard({ label, value, sub, color }: {
+function StatCard({ label, value, sub, color, loading = false }: {
   label: string; value: React.ReactNode; sub?: string; color?: string;
+  loading?: boolean;
 }) {
   return (
     <div style={{
@@ -90,11 +118,20 @@ function StatCard({ label, value, sub, color }: {
         textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
         {label}
       </div>
+      {loading ? (
+        <div className="animate-pulse">
+          <div className="h-6 w-10 bg-muted rounded mb-3" />
+          <div className="h-3 w-28 bg-muted rounded" />
+        </div>
+      ) : (
+        <>
       <div style={{ fontSize: 22, fontWeight: 700, color: color ?? 'hsl(var(--foreground))',
         lineHeight: 1, marginBottom: 4 }}>
         {value}
       </div>
       {sub && <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', lineHeight: 1.4 }}>{sub}</div>}
+        </>
+      )}
     </div>
   );
 }
@@ -176,15 +213,18 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
   const { toast } = useToast();
 
   // ── Shared config (roles, orgs, teams) ──────────────────────────────────────
-  const { roles, organisations: configOrgs, teams: configTeams, refreshRoles } = useConfig();
+  const { roles, organisations: configOrgs, teams: configTeams, docTypes, loading: configLoading, refreshRoles } = useConfig();
   const orgs = configOrgs as Org[];
   const teams = configTeams as Team[];
 
   // ── Data ────────────────────────────────────────────────────────────────────
   const [users, setUsers] = useState<User[]>([]);
   const [delegations, setDelegations] = useState<Delegation[]>([]);
+  const [scopeUser, setScopeUser] = useState<User | null>(null);
+  const [scopeRole, setScopeRole] = useState<Role | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const pageLoading = loading || configLoading;
 
   async function fetchAll() {
     setLoading(true);
@@ -269,8 +309,8 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
     const levels: Record<string, number> = { L1: 0, L2: 0, L3: 0, L4: 0 };
     active.forEach((u) => { if (u.level && levels[u.level] !== undefined) levels[u.level]++; });
 
-    const internalUsers = active.filter((u) => u.userType === 'internal');
-    const partnerUsers  = active.filter((u) => u.userType !== 'internal');
+    const internalUsers = active.filter((u) => isInternalUser(u, orgMap[u.orgId]));
+    const partnerUsers  = active.filter((u) => !isInternalUser(u, orgMap[u.orgId]));
 
     // Derive subtitle: unique role names, first word only, max 3 shown
     function roleSubtitle(list: User[]): string {
@@ -296,7 +336,7 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
       partnersSub:  roleSubtitle(partnerUsers)  || 'External users',
       activeDels: delegations.filter((d) => d.isActive).length,
     };
-  }, [users, delegations, delMap]);
+  }, [users, delegations, delMap, orgMap]);
 
   // ── Modal state ───────────────────────────────────────────────────────────────
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
@@ -522,12 +562,40 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
       },
     },
     {
-      key: 'dataScope', label: 'Scope', width: '80px',
-      render: (u) => (
-        <span style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
-          {u.dataScope === 'ALL' ? 'All' : u.dataScope === 'TEAM' ? 'Team' : 'Tagged'}
-        </span>
-      ),
+      key: 'documentScope', label: 'Scope', width: '220px',
+      render: (u) => {
+        const role = roleMap[u.roleId];
+        const scope = u.documentScope?.length ? u.documentScope : role?.documentScope;
+        const label = docScopeButtonLabel(scope, docTypes);
+        const dataScope = u.dataScope === 'ALL' ? 'All data' : u.dataScope === 'TEAM' ? 'Team data' : 'Tagged data';
+        return (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setScopeUser(u);
+            }}
+            title={dataScope}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              maxWidth: 160,
+              padding: '4px 9px',
+              borderRadius: 6,
+              border: '1px solid hsl(var(--border))',
+              background: 'hsl(var(--background))',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              fontSize: 14.5,
+              color: 'hsl(173 58% 32%)',
+            }}
+          >
+            {label}
+          </button>
+        );
+      },
     },
     {
       key: 'status', label: 'Status', width: '80px',
@@ -602,10 +670,12 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
         <StatCard
           label="Total Users"
           value={stats.total}
+          loading={pageLoading}
           sub={`${stats.active} active · ${stats.inactive} inactive`}
         />
         <StatCard
           label="By Level"
+          loading={pageLoading}
           value={
             <div style={{ display: 'flex', gap: 6, fontSize: 14.5 }}>
               {LEVELS.map((l) => (
@@ -616,9 +686,9 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
             </div>
           }
         />
-        <StatCard label="Internal" value={stats.internal} sub={stats.internalSub} color="hsl(221 83% 53%)" />
-        <StatCard label="Partners" value={stats.partners} sub={stats.partnersSub} color="hsl(262 83% 58%)" />
-        <StatCard label="Delegations" value={stats.activeDels} sub="active right now" color="hsl(38 92% 50%)" />
+        <StatCard label="Internal" value={stats.internal} sub={stats.internalSub} color="hsl(221 83% 53%)" loading={pageLoading} />
+        <StatCard label="Partners" value={stats.partners} sub={stats.partnersSub} color="hsl(262 83% 58%)" loading={pageLoading} />
+        <StatCard label="Delegations" value={stats.activeDels} sub="active right now" color="hsl(38 92% 50%)" loading={pageLoading} />
       </div>
 
       {/* Filter row */}
@@ -676,13 +746,144 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
         columns={columns}
         data={filteredUsers}
         keyField="id"
-        loading={loading}
+        loading={pageLoading}
         onRowClick={openEdit}
         emptyMessage="No users match your filters"
         pagination={filteredUsers.length > 20 ? { page: 1, pageSize: 20, total: filteredUsers.length, onPageChange: () => {} } : undefined}
       />
 
+      {scopeUser && (() => {
+        const role = roleMap[scopeUser.roleId];
+        const scope = scopeUser.documentScope?.length ? scopeUser.documentScope : role?.documentScope ?? [];
+        const dataScope = scopeUser.dataScope === 'ALL' ? 'All data' : scopeUser.dataScope === 'TEAM' ? 'Team data' : 'Tagged data';
+        return (
+          <div
+            onClick={() => setScopeUser(null)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 90,
+              background: 'rgba(15, 23, 42, 0.38)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 24,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: 'min(680px, 100%)',
+                maxHeight: '82vh',
+                overflow: 'auto',
+                background: 'hsl(var(--card))',
+                border: '1px solid hsl(var(--border))',
+                borderRadius: 8,
+                boxShadow: '0 22px 60px rgba(15, 23, 42, 0.25)',
+              }}
+            >
+              <div style={{ padding: '16px 18px', borderBottom: '1px solid hsl(var(--border))', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>Scope</div>
+                  <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {scopeUser.fullName} · {role?.name ?? scopeUser.roleId} · {dataScope}
+                  </div>
+                </div>
+                <Button size="sm" onClick={() => setScopeUser(null)}>Done</Button>
+              </div>
+              <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {!scope.length ? (
+                  <div style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, padding: 14, fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
+                    No documents selected
+                  </div>
+                ) : (
+                  ['INDIA', 'US', 'GLOBAL'].map((geo) => {
+                    const geoTypes = docTypes.filter((dt) => dt.geography === geo && scope.includes(dt.typeCode));
+                    if (!geoTypes.length) return null;
+                    return (
+                      <div key={geo} style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, padding: 12 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--muted-foreground))', marginBottom: 8 }}>{geo}</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 7 }}>
+                          {geoTypes.map((dt) => (
+                            <div key={dt.id} style={{ padding: '7px 9px', borderRadius: 6, background: 'hsl(var(--muted) / 0.35)', fontSize: 14.5 }}>
+                              {dt.displayName}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Create / Edit Modal ─────────────────────────────────────────────── */}
+      {scopeRole && (
+        <div
+          onClick={() => setScopeRole(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100,
+            background: 'rgba(15, 23, 42, 0.38)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(680px, 100%)',
+              maxHeight: '82vh',
+              overflow: 'auto',
+              background: 'hsl(var(--card))',
+              border: '1px solid hsl(var(--border))',
+              borderRadius: 8,
+              boxShadow: '0 22px 60px rgba(15, 23, 42, 0.25)',
+            }}
+          >
+            <div style={{ padding: '16px 18px', borderBottom: '1px solid hsl(var(--border))', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>Scope</div>
+                <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {scopeRole.name}
+                </div>
+              </div>
+              <Button size="sm" onClick={() => setScopeRole(null)}>Done</Button>
+            </div>
+            <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {!(scopeRole.documentScope ?? []).length ? (
+                <div style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, padding: 14, fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
+                  No documents selected
+                </div>
+              ) : (
+                ['INDIA', 'US', 'GLOBAL'].map((geo) => {
+                  const geoTypes = docTypes.filter((dt) => dt.geography === geo && (scopeRole.documentScope ?? []).includes(dt.typeCode));
+                  if (!geoTypes.length) return null;
+                  return (
+                    <div key={geo} style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, padding: 12 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--muted-foreground))', marginBottom: 8 }}>{geo}</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 7 }}>
+                        {geoTypes.map((dt) => (
+                          <div key={dt.id} style={{ padding: '7px 9px', borderRadius: 6, background: 'hsl(var(--muted) / 0.35)', fontSize: 14.5 }}>
+                            {dt.displayName}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <AdminModal
         open={modalMode !== null}
         onClose={() => setModalMode(null)}
@@ -757,6 +958,15 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
                   ))}
                 </SelectContent>
               </Select>
+              {selectedRole && (
+                <button
+                  type="button"
+                  onClick={() => setScopeRole(selectedRole)}
+                  style={{ ...iconBtn, width: 'fit-content', gap: 6, padding: '5px 10px', fontSize: 14 }}
+                >
+                  Scope: {docScopeButtonLabel(selectedRole.documentScope, docTypes)}
+                </button>
+              )}
             </FieldRow>
             <FieldRow label="Hierarchy Level" required>
               <Select value={form.level}

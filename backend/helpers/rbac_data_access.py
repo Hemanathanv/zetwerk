@@ -30,6 +30,7 @@ ROLE_DOCUMENT_TYPES: Final[dict[str, set[str]]] = {
         "US_PACKING_LIST",
     },
     "FINANCE_AP_INDIA": {
+        "BILL_OF_LADING",
         "SALES_INVOICE",
         "OCEAN_FREIGHT",
         "FREIGHT_FORWARDER_BILL",
@@ -97,22 +98,88 @@ def user_id(user: Any) -> str:
     return str(getattr(user, "id", "") or "")
 
 
+ROLE_ALIASES: Final[dict[str, str]] = {
+    "SUPER_ADMIN": "SUPER_ADMIN",
+    "SUPER_ADMINISTRATOR": "SUPER_ADMIN",
+    "SUPER ADMIN": "SUPER_ADMIN",
+    "ORG_ADMIN": "ADMIN",
+    "ORG ADMIN": "ADMIN",
+    "ADMIN": "ADMIN",
+    "OPS_MANAGER": "OPS_MANAGER",
+    "OPS MANAGER": "OPS_MANAGER",
+    "INDIA_LOGISTICS": "INDIA_LOGISTICS",
+    "INDIA LOGISTICS": "INDIA_LOGISTICS",
+    "US_LOGISTICS": "US_LOGISTICS",
+    "US LOGISTICS": "US_LOGISTICS",
+    "FINANCE_AP_INDIA": "FINANCE_AP_INDIA",
+    "FINANCE AP INDIA": "FINANCE_AP_INDIA",
+    "THREE_PL_PARTNER": "THREE_PL_PARTNER",
+    "3PL_PARTNER": "THREE_PL_PARTNER",
+    "3PL PARTNER": "THREE_PL_PARTNER",
+}
+
+
+def normalize_role_name(role_name: Any) -> str:
+    role_value = getattr(role_name, "value", None) or str(role_name or "")
+    normalized = role_value.strip().upper().replace("-", "_")
+    underscored = normalized.replace(" ", "_")
+    return ROLE_ALIASES.get(underscored, ROLE_ALIASES.get(normalized, underscored))
+
+
 def access_role(user: Any) -> str:
     role = getattr(user, "keycloakPrimaryRole", None) or getattr(user, "role", None)
-    role_value = getattr(role, "value", None) or str(role or "")
-    return role_value.upper().replace("-", "_")
+    return normalize_role_name(role)
+
+
+def _attr_values(attributes: dict | None, key: str) -> list[str]:
+    raw = (attributes or {}).get(key)
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(item) for item in raw if str(item)]
+    return [str(raw)] if str(raw) else []
+
+
+def _normalize_document_scope(values: list[str]) -> set[str]:
+    scope: set[str] = set()
+    for value in values:
+        for item in str(value).replace(";", ",").split(","):
+            doc_type = item.strip().upper().replace("-", "_").replace(" ", "_")
+            if doc_type and doc_type != "*":
+                scope.add(doc_type)
+    return scope
+
+
+def role_document_scope_from_attrs(attributes: dict | None) -> set[str] | None:
+    if not attributes or "ewms.documentScope" not in attributes:
+        return None
+    return _normalize_document_scope(_attr_values(attributes, "ewms.documentScope"))
 
 
 def can_access_all_documents(user: Any) -> bool:
-    return access_role(user) in ALL_DOCUMENT_ACCESS_ROLES
+    attrs = getattr(user, "keycloakRoleAttributes", None)
+    explicit_scope = role_document_scope_from_attrs(attrs)
+    return explicit_scope is None and access_role(user) in ALL_DOCUMENT_ACCESS_ROLES
 
 
 def document_type_scope(user: Any) -> set[str] | None:
+    attrs = getattr(user, "keycloakRoleAttributes", None)
+    explicit_scope = role_document_scope_from_attrs(attrs)
+    if explicit_scope is not None:
+        return explicit_scope
     return ROLE_DOCUMENT_TYPES.get(access_role(user))
 
 
-def doc_type_permissions_for_role(role_name: str) -> dict[str, list[str]]:
-    actions = ROLE_DOC_TYPE_ACTIONS.get(role_name.upper().replace("-", "_"), {})
+def doc_type_permissions_for_role(role_name: str, attributes: dict | None = None) -> dict[str, list[str]]:
+    explicit_scope = role_document_scope_from_attrs(attributes)
+    if explicit_scope is not None:
+        return {
+            "upload": sorted(explicit_scope),
+            "approve_extraction": sorted(explicit_scope),
+            "review_generation": sorted(explicit_scope),
+            "view": sorted(explicit_scope),
+        }
+    actions = ROLE_DOC_TYPE_ACTIONS.get(normalize_role_name(role_name), {})
     return {
         action: sorted(values)
         for action, values in actions.items()
@@ -145,6 +212,17 @@ def document_sql_where(alias: str, user: Any, *, first_param: int = 1) -> tuple[
             first_param + 1,
         )
 
+    return (
+        f'{quoted_alias}."uploaded_by"::text = ${first_param}::text AND {quoted_alias}."is_deleted" = false',
+        [user_id(user)],
+        first_param + 1,
+    )
+
+
+def document_module_sql_where(alias: str, user: Any, *, first_param: int = 1) -> tuple[str, list[Any], int]:
+    quoted_alias = alias.strip()
+    if has_role_document_scope(user):
+        return f'{quoted_alias}."is_deleted" = false', [], first_param
     return (
         f'{quoted_alias}."uploaded_by"::text = ${first_param}::text AND {quoted_alias}."is_deleted" = false',
         [user_id(user)],

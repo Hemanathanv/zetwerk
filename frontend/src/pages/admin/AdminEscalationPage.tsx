@@ -1,16 +1,21 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { RotateCcw, Bell, Mail, Headphones, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { RotateCcw, Bell, Mail, Headphones, Loader2, Plus, Trash2 } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminFormSection } from '@/components/admin/AdminFormSection';
 import { useToast } from '@/hooks/use-toast';
-import { apiGet, apiPut } from '@/lib/api';
-import { useConfig } from '@/contexts/ConfigContext';
+import { apiDelete, apiGet, apiPost, apiPut } from '@/lib/api';
+import { useConfig, type ConfigDocType } from '@/contexts/ConfigContext';
+import { DOC_GEN_SCHEMAS } from '@/config/docGenSchematicRules';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 interface EscalationConfig {
   id: string;
   activityType: string;
+  activityName?: string;
+  description?: string;
+  scope?: string;
+  baseDoc?: string;
   baseSlaHours: string | number;
   reminderPct: number;
   warningPct: number;
@@ -39,6 +44,12 @@ interface TargetsConfig {
 
 interface Role { id: string; name: string }
 
+interface DocOption {
+  code: string;
+  label: string;
+  geography?: string | null;
+}
+
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const ACTIVITY_TYPE_LABELS: Record<string, { name: string; description: string }> = {
@@ -56,6 +67,13 @@ const DEFAULT_CHANNELS: ChannelConfig = {
   warning:    { email: true,  freshdesk: false },
   escalation: { email: true,  freshdesk: false },
   blocker:    { email: true,  freshdesk: true  },
+};
+
+const DEFAULT_THRESHOLDS = {
+  reminderPct: 0,
+  warningPct: 50,
+  escalationPct: 75,
+  blockerPct: 100,
 };
 
 const LEVEL_COLORS = {
@@ -92,8 +110,205 @@ function formatHoursShort(h: number): string {
 }
 
 function displayBase(h: number): string {
-  if (h >= 24 && h % 24 === 0) return `${h / 24} day${h / 24 === 1 ? '' : 's'} (= ${h}h)`;
-  return formatHours(h);
+  const days = h / 24;
+  const rounded = Math.round(days * 100) / 100;
+  return `${rounded} day${rounded === 1 ? '' : 's'}`;
+}
+
+function displayDayInputValue(hours: string): string {
+  const days = (parseFloat(hours) || 0) / 24;
+  return Number.isInteger(days) ? String(days) : String(Math.round(days * 100) / 100);
+}
+
+function shouldHideEscalationScope(activityName: string): boolean {
+  return ['Map Container to SKU', 'Approve Container Mapping'].includes(activityName);
+}
+
+function isGeneratedEscalationActivity(activityName: string): boolean {
+  return ['Fill Manual Fields', 'Submit for Review', 'Approve Generated Document'].includes(activityName);
+}
+
+function splitDocValue(value?: string): string[] {
+  return String(value ?? '')
+    .split(',')
+    .map(v => v.trim())
+    .filter(Boolean)
+    .filter(v => !/^doc names$/i.test(v) && !/^\d+\s+docs?$/i.test(v));
+}
+
+function docMatches(option: DocOption, value: string): boolean {
+  return option.code.toLowerCase() === value.toLowerCase() || option.label.toLowerCase() === value.toLowerCase();
+}
+
+function docStorageValue(selectedCodes: string[], options: DocOption[]): string {
+  return selectedCodes
+    .map(code => options.find(o => o.code === code)?.label ?? code)
+    .join(', ');
+}
+
+function getSelectedDocCodes(value: string | undefined, options: DocOption[], useAllForCountPlaceholder = false): string[] {
+  if (useAllForCountPlaceholder && /^\d+\s+docs?$/i.test(String(value ?? '').trim())) {
+    return options.map(o => o.code);
+  }
+  const values = splitDocValue(value);
+  return values
+    .map(v => options.find(o => docMatches(o, v))?.code)
+    .filter((v): v is string => !!v);
+}
+
+function baseDocButtonLabel(value: string | undefined, options: DocOption[], generatedScope: boolean): string {
+  const selectedCodes = getSelectedDocCodes(value, options, generatedScope);
+  if (selectedCodes.length === 0) return 'Choose docs';
+  if (selectedCodes.length === options.length && options.length > 0) {
+    return generatedScope ? `${selectedCodes.length} source docs` : 'All documents';
+  }
+  if (selectedCodes.length === 1) {
+    return options.find(o => o.code === selectedCodes[0])?.label ?? selectedCodes[0];
+  }
+  return `${selectedCodes.length} documents`;
+}
+
+function scopeButtonLabel(value: string | undefined, options: DocOption[], generatedScope: boolean): string {
+  const selectedCodes = getSelectedDocCodes(value, options, generatedScope);
+  if (selectedCodes.length === 0) return 'Choose scope';
+  if (selectedCodes.length === 1) {
+    return options.find(o => o.code === selectedCodes[0])?.label ?? selectedCodes[0];
+  }
+  return `${selectedCodes.length} scopes`;
+}
+
+function toDocOption(code: string, docTypes: ConfigDocType[], fallbackLabel?: string): DocOption {
+  const dt = docTypes.find(d => d.typeCode === code || d.shortCode === code);
+  return {
+    code,
+    label: dt?.displayName ?? fallbackLabel ?? code.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+    geography: dt?.geography,
+  };
+}
+
+function buildGenerationSourceOptions(docTypes: ConfigDocType[]): DocOption[] {
+  const codes = new Set<string>();
+  Object.values(DOC_GEN_SCHEMAS).forEach(schema => {
+    schema.sourceDocs.forEach(code => {
+      if (!['MANUAL', 'CALCULATED'].includes(code)) codes.add(code);
+    });
+  });
+  return Array.from(codes).map(code => toDocOption(code, docTypes));
+}
+
+function buildGeneratedDocOptions(docTypes: ConfigDocType[]): DocOption[] {
+  return Object.values(DOC_GEN_SCHEMAS).map(schema => toDocOption(schema.generatedDocType, docTypes, schema.displayName));
+}
+
+function DocPicker({
+  title,
+  options,
+  selectedCodes,
+  disabledCodes = [],
+  onToggle,
+  onClose,
+  generatedScope,
+}: {
+  title: string;
+  options: DocOption[];
+  selectedCodes: string[];
+  disabledCodes?: string[];
+  onToggle: (code: string) => void;
+  onClose: () => void;
+  generatedScope: boolean;
+}) {
+  const groups = options.reduce<Record<string, DocOption[]>>((acc, option) => {
+    const key = option.geography || (generatedScope ? 'Generated docs' : 'Documents');
+    (acc[key] ||= []).push(option);
+    return acc;
+  }, {});
+
+  return (
+    <div
+      role="dialog"
+      style={{
+        position: 'fixed', inset: 0, zIndex: 60,
+        background: 'rgba(15, 23, 42, 0.32)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20,
+      }}
+      onMouseDown={onClose}
+    >
+      <div
+        style={{
+          width: 420, maxWidth: '100%', maxHeight: '78vh',
+          background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))',
+          borderRadius: 8, boxShadow: '0 24px 60px rgba(15, 23, 42, 0.24)',
+          overflow: 'hidden',
+        }}
+        onMouseDown={e => e.stopPropagation()}
+      >
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid hsl(var(--border))' }}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>{title}</div>
+          <div style={{ fontSize: 13.5, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>
+            {selectedCodes.length} selected
+          </div>
+        </div>
+        <div style={{ padding: 12, maxHeight: 430, overflowY: 'auto' }}>
+          {Object.entries(groups).map(([group, docs]) => (
+            <div key={group} style={{ marginBottom: 12 }}>
+              <div style={{
+                fontSize: 12, fontWeight: 700, textTransform: 'uppercase',
+                letterSpacing: '0.05em', color: 'hsl(var(--muted-foreground))',
+                margin: '0 0 6px 4px',
+              }}>
+                {group}
+              </div>
+              <div style={{ display: 'grid', gap: 6 }}>
+                {docs.map(doc => {
+                  const checked = selectedCodes.includes(doc.code);
+                  const disabled = disabledCodes.includes(doc.code) && !checked;
+                  return (
+                    <label
+                      key={doc.code}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 9,
+                        padding: '8px 10px', borderRadius: 6,
+                        border: `1px solid ${checked ? 'hsl(173 58% 39%)' : 'hsl(var(--border))'}`,
+                        background: checked ? 'hsl(173 58% 39% / 0.09)' : 'hsl(var(--background))',
+                        cursor: disabled ? 'not-allowed' : 'pointer',
+                        opacity: disabled ? 0.45 : 1,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={() => onToggle(doc.code)}
+                        style={{ accentColor: 'hsl(173 58% 39%)' }}
+                      />
+                      <span style={{ fontSize: 14.5 }}>{doc.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          {options.length === 0 && (
+            <div style={{ padding: 16, textAlign: 'center', color: 'hsl(var(--muted-foreground))', fontSize: 14.5 }}>
+              No document options available.
+            </div>
+          )}
+        </div>
+        <div style={{ padding: 12, borderTop: '1px solid hsl(var(--border))', display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            onClick={onClose}
+            style={{
+              border: '1px solid hsl(var(--border))', background: 'hsl(var(--background))',
+              borderRadius: 6, padding: '7px 14px', cursor: 'pointer', fontWeight: 600,
+            }}
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── SlaRow ────────────────────────────────────────────────────────────────────
@@ -101,11 +316,30 @@ function displayBase(h: number): string {
 interface SlaRowProps {
   config: EscalationConfig;
   onSave: (id: string, data: Partial<EscalationConfig>) => Promise<void>;
+  onAdd: (config: EscalationConfig, scopeCode: string, scopeOptions: DocOption[]) => Promise<void>;
+  onRemove: (config: EscalationConfig) => Promise<void>;
+  docTypes: ConfigDocType[];
+  generationSourceOptions: DocOption[];
+  generatedDocOptions: DocOption[];
+  usedScopeCodes: string[];
+  canRemove: boolean;
 }
 
 type EditField = 'base' | 'reminder' | 'warning' | 'esc' | 'blocker' | null;
 
-function SlaRow({ config, onSave }: SlaRowProps) {
+function SlaRow({
+  config,
+  onSave,
+  onAdd,
+  onRemove,
+  docTypes,
+  generationSourceOptions,
+  generatedDocOptions,
+  usedScopeCodes,
+  canRemove,
+}: SlaRowProps) {
+  const [scope,    setScope]    = useState(config.scope ?? '');
+  const [baseDoc,  setBaseDoc]  = useState(config.baseDoc ?? '');
   const [base,     setBase]     = useState(String(toNum(config.baseSlaHours)));
   const [reminder, setReminder] = useState(config.reminderPct);
   const [warning,  setWarning]  = useState(config.warningPct);
@@ -114,13 +348,33 @@ function SlaRow({ config, onSave }: SlaRowProps) {
   const [hovered,  setHovered]  = useState(false);
   const [editing,  setEditing]  = useState<EditField>(null);
   const [saving,   setSaving]   = useState(false);
+  const [scopePickerOpen, setScopePickerOpen] = useState(false);
+  const [baseDocPickerOpen, setBaseDocPickerOpen] = useState(false);
 
   const { toast } = useToast();
   const baseH = parseFloat(base) || 0;
 
   const actLabel = ACTIVITY_TYPE_LABELS[config.activityType] ?? {
-    name: config.activityType, description: '',
+    name: config.activityName ?? config.activityType, description: config.description ?? '',
   };
+  const activityName = config.activityName ?? actLabel.name;
+  const hideScope = shouldHideEscalationScope(activityName);
+  const generatedActivity = isGeneratedEscalationActivity(activityName);
+  const visibleScope = hideScope ? '' : scope;
+  const generatedScope = generatedActivity || (visibleScope || config.scope || '').toLowerCase().includes('generated');
+  const scopeOptions = generatedActivity
+    ? generatedDocOptions
+    : docTypes.map(d => ({ code: d.typeCode, label: d.displayName, geography: d.geography }));
+  const selectedScopeCodes = getSelectedDocCodes(visibleScope, scopeOptions, generatedActivity);
+  const addableScopeCodes = hideScope
+    ? []
+    : scopeOptions
+        .map(o => o.code)
+        .filter(code => !usedScopeCodes.includes(code) && !selectedScopeCodes.includes(code));
+  const baseDocOptions = generatedScope
+    ? generationSourceOptions
+    : docTypes.map(d => ({ code: d.typeCode, label: d.displayName, geography: d.geography }));
+  const selectedBaseDocCodes = getSelectedDocCodes(baseDoc, baseDocOptions, generatedScope);
 
   async function saveFld(field: string, value: number) {
     setSaving(true);
@@ -140,9 +394,21 @@ function SlaRow({ config, onSave }: SlaRowProps) {
     else setEditing(null);
   }
 
+  function handleBaseDaysChange(value: string) {
+    const days = parseFloat(value);
+    if (Number.isNaN(days)) {
+      setBase('');
+      return;
+    }
+    setBase(String(days * 24));
+  }
+
   function resetDefaults() {
-    setReminder(50); setWarning(75); setEsc(100); setBlocker(150);
-    onSave(config.id, { reminderPct: 50, warningPct: 75, escalationPct: 100, blockerPct: 150 })
+    setReminder(DEFAULT_THRESHOLDS.reminderPct);
+    setWarning(DEFAULT_THRESHOLDS.warningPct);
+    setEsc(DEFAULT_THRESHOLDS.escalationPct);
+    setBlocker(DEFAULT_THRESHOLDS.blockerPct);
+    onSave(config.id, DEFAULT_THRESHOLDS)
       .then(() => toast({ title: 'Reset to defaults' }))
       .catch(() => toast({ title: 'Reset failed', variant: 'destructive' }));
   }
@@ -161,6 +427,62 @@ function SlaRow({ config, onSave }: SlaRowProps) {
   };
   const monoS: React.CSSProperties = { fontFamily: 'monospace', fontSize: 14 };
 
+  async function saveTextFld(field: 'scope' | 'baseDoc', value: string) {
+    setSaving(true);
+    try {
+      await onSave(config.id, { [field]: value.trim() } as Partial<EscalationConfig>);
+      toast({ title: field === 'scope' ? 'Scope updated' : 'Base doc updated' });
+    } catch {
+      toast({ title: 'Save failed', variant: 'destructive' });
+    }
+    setSaving(false);
+    setEditing(null);
+  }
+
+  async function toggleBaseDoc(code: string) {
+    const nextCodes = selectedBaseDocCodes.includes(code)
+      ? selectedBaseDocCodes.filter(c => c !== code)
+      : [...selectedBaseDocCodes, code];
+    const nextValue = docStorageValue(nextCodes, baseDocOptions);
+    setBaseDoc(nextValue);
+    await saveTextFld('baseDoc', nextValue);
+  }
+
+  async function toggleScope(code: string) {
+    if (usedScopeCodes.includes(code) && !selectedScopeCodes.includes(code)) return;
+    const nextCodes = selectedScopeCodes.includes(code)
+      ? selectedScopeCodes.filter(c => c !== code)
+      : [...selectedScopeCodes, code];
+    const nextValue = docStorageValue(nextCodes, scopeOptions);
+    setScope(nextValue);
+    await saveTextFld('scope', nextValue);
+  }
+
+  async function addEscalationForNextScope() {
+    const nextScopeCode = addableScopeCodes[0];
+    if (!nextScopeCode) return;
+    setSaving(true);
+    try {
+      await onAdd(config, nextScopeCode, scopeOptions);
+      toast({ title: 'Escalation added' });
+    } catch {
+      toast({ title: 'Add failed', variant: 'destructive' });
+    }
+    setSaving(false);
+  }
+
+  async function removeEscalation() {
+    if (!canRemove) return;
+    setSaving(true);
+    try {
+      await onRemove(config);
+      toast({ title: 'Escalation removed' });
+    } catch {
+      toast({ title: 'Remove failed', variant: 'destructive' });
+      setSaving(false);
+    }
+  }
+
   // ── per-level percentage cell ──────────────────────────────────────────────
   type PctLevel = 'reminder' | 'warning' | 'esc' | 'blocker';
   const PCT_META: Record<PctLevel, { value: number; set: (v: number) => void; saveKey: string; color: string; cellBg: string }> = {
@@ -175,12 +497,12 @@ function SlaRow({ config, onSave }: SlaRowProps) {
     const isEditing = editing === level;
     const computed  = formatHours((baseH * m.value) / 100);
     return (
-      <td style={{ ...tdBase, background: m.cellBg, textAlign: 'center', minWidth: 90 }}>
+      <td style={{ ...tdBase, background: m.cellBg, textAlign: 'center', width: 96, minWidth: 96 }}>
         {isEditing ? (
           <input
             autoFocus
             type="number"
-            min={1}
+            min={0}
             max={999}
             value={m.value}
             style={{
@@ -206,7 +528,7 @@ function SlaRow({ config, onSave }: SlaRowProps) {
             }}
             title="Click to edit"
           >
-            <span style={{ ...monoS, fontSize: 14.5, color: m.color, fontWeight: 600 }}>{m.value}%</span>
+            <span style={{ ...monoS, fontSize: 13.5, color: m.color, fontWeight: 600 }}>{m.value}%</span>
             <span style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>{computed}</span>
           </button>
         )}
@@ -222,34 +544,68 @@ function SlaRow({ config, onSave }: SlaRowProps) {
         style={{ background: hovered ? 'hsl(var(--muted) / 0.25)' : 'hsl(var(--card))', transition: 'background 0.15s' }}
       >
         {/* Activity type */}
-        <td style={{ ...tdBase, minWidth: 200 }}>
-          <div style={{ fontSize: 14.5, fontWeight: 600 }}>{actLabel.name}</div>
-          <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>{actLabel.description}</div>
+        <td style={{ ...tdBase, width: 230, minWidth: 230 }}>
+          <div style={{ fontSize: 14.5, fontWeight: 700 }}>{activityName}</div>
           {saving && <Loader2 size={10} className="animate-spin" style={{ marginTop: 3, color: 'hsl(var(--muted-foreground))' }} />}
         </td>
 
-        {/* Base SLA */}
-        <td style={{ ...tdBase, minWidth: 120, textAlign: 'center' }}>
-          {editing === 'base' ? (
-            <input
-              autoFocus
-              type="number"
-              min={0.5}
-              step={0.5}
-              value={base}
+        {/* Scope */}
+        <td style={{ ...tdBase, width: 125, minWidth: 125, textAlign: 'center' }}>
+          {hideScope ? (
+            <span style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>-</span>
+          ) : (
+            <button
+              onClick={() => setScopePickerOpen(true)}
               style={{
-                ...monoS, width: 72, padding: '3px 6px', borderRadius: 4,
-                border: '1px solid hsl(var(--border))',
-                background: 'hsl(var(--background))',
-                color: 'hsl(var(--foreground))',
+                background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px',
+                fontSize: 14, color: 'hsl(var(--foreground))', lineHeight: 1.25,
               }}
-              onChange={e => setBase(e.target.value)}
-              onBlur={handleBaseBlur}
-              onKeyDown={e => {
-                if (e.key === 'Enter')  handleBaseBlur();
-                if (e.key === 'Escape') setEditing(null);
-              }}
-            />
+              title="Choose scope"
+            >
+              {scopeButtonLabel(visibleScope, scopeOptions, generatedActivity)}
+            </button>
+          )}
+        </td>
+
+        {/* Base Doc */}
+        <td style={{ ...tdBase, width: 105, minWidth: 105, textAlign: 'center' }}>
+          <button
+            onClick={() => setBaseDocPickerOpen(true)}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px',
+              fontSize: 14, color: 'hsl(var(--foreground))', lineHeight: 1.25,
+            }}
+            title="Choose base documents"
+          >
+            {baseDocButtonLabel(baseDoc, baseDocOptions, generatedScope)}
+          </button>
+        </td>
+
+        {/* Base SLA */}
+        <td style={{ ...tdBase, width: 105, minWidth: 105, textAlign: 'center' }}>
+          {editing === 'base' ? (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <input
+                autoFocus
+                type="number"
+                min={0.1}
+                step={0.25}
+                value={displayDayInputValue(base)}
+                style={{
+                  ...monoS, width: 52, padding: '3px 6px', borderRadius: 4,
+                  border: '1px solid hsl(var(--border))',
+                  background: 'hsl(var(--background))',
+                  color: 'hsl(var(--foreground))',
+                }}
+                onChange={e => handleBaseDaysChange(e.target.value)}
+                onBlur={handleBaseBlur}
+                onKeyDown={e => {
+                  if (e.key === 'Enter')  handleBaseBlur();
+                  if (e.key === 'Escape') setEditing(null);
+                }}
+              />
+              <span style={{ fontSize: 13, color: 'hsl(var(--muted-foreground))' }}>days</span>
+            </div>
           ) : (
             <button
               onClick={() => setEditing('base')}
@@ -268,9 +624,39 @@ function SlaRow({ config, onSave }: SlaRowProps) {
 
         {/* Reset */}
         <td style={{ ...tdBase, textAlign: 'center' }}>
+          {!hideScope && (
+            <button
+              onClick={addEscalationForNextScope}
+              disabled={addableScopeCodes.length === 0 || saving}
+              title={addableScopeCodes.length === 0 ? 'All scopes already have escalations' : 'Add escalation for another scope'}
+              style={{
+                background: 'none', border: 'none',
+                cursor: addableScopeCodes.length === 0 || saving ? 'not-allowed' : 'pointer',
+                color: addableScopeCodes.length === 0 ? 'hsl(var(--muted-foreground) / 0.45)' : 'hsl(173 58% 39%)',
+                padding: 4, borderRadius: 4, marginRight: 2,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <Plus size={14} />
+            </button>
+          )}
+          <button
+            onClick={removeEscalation}
+            disabled={!canRemove || saving}
+            title={canRemove ? 'Remove this escalation' : 'Each activity needs at least one escalation'}
+            style={{
+              background: 'none', border: 'none',
+              cursor: !canRemove || saving ? 'not-allowed' : 'pointer',
+              color: canRemove ? '#dc2626' : 'hsl(var(--muted-foreground) / 0.45)',
+              padding: 4, borderRadius: 4, marginRight: 2,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <Trash2 size={14} />
+          </button>
           <button
             onClick={resetDefaults}
-            title="Reset to default thresholds (50 / 75 / 100 / 150)"
+            title="Reset to default thresholds (0 / 50 / 75 / 100)"
             style={{
               background: 'none', border: 'none', cursor: 'pointer',
               color: 'hsl(var(--muted-foreground))', padding: 4, borderRadius: 4,
@@ -287,7 +673,7 @@ function SlaRow({ config, onSave }: SlaRowProps) {
       {/* Timeline row — visible on hover / edit */}
       {showTimeline && baseH > 0 && (
         <tr style={{ background: 'hsl(var(--muted) / 0.12)' }}>
-          <td colSpan={7} style={{ padding: '8px 16px 10px', borderBottom: '1px solid hsl(var(--border))' }}>
+          <td colSpan={9} style={{ padding: '8px 16px 10px', borderBottom: '1px solid hsl(var(--border))' }}>
             {/* Coloured bar */}
             <div style={{ display: 'flex', borderRadius: 4, overflow: 'hidden', height: 6, marginBottom: 5 }}>
               <div style={{ flex: rH,      background: '#16a34a' }} />
@@ -316,6 +702,29 @@ function SlaRow({ config, onSave }: SlaRowProps) {
             </div>
           </td>
         </tr>
+      )}
+
+      {scopePickerOpen && (
+        <DocPicker
+          title={`${activityName} scope`}
+          options={scopeOptions}
+          selectedCodes={selectedScopeCodes}
+          disabledCodes={usedScopeCodes}
+          generatedScope={generatedActivity}
+          onToggle={toggleScope}
+          onClose={() => setScopePickerOpen(false)}
+        />
+      )}
+
+      {baseDocPickerOpen && (
+        <DocPicker
+          title={`${activityName} base docs`}
+          options={baseDocOptions}
+          selectedCodes={selectedBaseDocCodes}
+          generatedScope={generatedScope}
+          onToggle={toggleBaseDoc}
+          onClose={() => setBaseDocPickerOpen(false)}
+        />
       )}
     </>
   );
@@ -565,7 +974,9 @@ function TargetCards({ targets, roles, onChange }: TargetCardsProps) {
 export function AdminEscalationPage() {
   const { toast } = useToast();
 
-  const { roles } = useConfig();
+  const { roles, docTypes } = useConfig();
+  const generationSourceOptions = useMemo(() => buildGenerationSourceOptions(docTypes), [docTypes]);
+  const generatedDocOptions = useMemo(() => buildGeneratedDocOptions(docTypes), [docTypes]);
   const [configs,  setConfigs]  = useState<EscalationConfig[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [channels, setChannels] = useState<ChannelConfig>(DEFAULT_CHANNELS);
@@ -599,6 +1010,63 @@ export function AdminEscalationPage() {
     } else {
       throw new Error('Failed');
     }
+  }
+
+  async function addConfigForScope(config: EscalationConfig, scopeCode: string, scopeOptions: DocOption[]) {
+    const payload: Partial<EscalationConfig> = {
+      activityType: config.activityType,
+      activityName: config.activityName,
+      description: config.description,
+      scope: docStorageValue([scopeCode], scopeOptions),
+      baseDoc: config.baseDoc,
+      baseSlaHours: config.baseSlaHours,
+      reminderPct: config.reminderPct,
+      warningPct: config.warningPct,
+      escalationPct: config.escalationPct,
+      blockerPct: config.blockerPct,
+      channels,
+      targets,
+    };
+    const res = await apiPost<any>('/api/admin/escalation', payload);
+    if (res.ok) {
+      setConfigs(prev => {
+        const lastSibling = prev.map(c => c.activityType).lastIndexOf(config.activityType);
+        const next = [...prev];
+        next.splice(lastSibling + 1, 0, res.data);
+        return next;
+      });
+    } else {
+      throw new Error(res.error || 'Failed');
+    }
+  }
+
+  async function removeConfig(config: EscalationConfig) {
+    const activityCount = configs.filter(c => c.activityType === config.activityType).length;
+    if (activityCount <= 1) {
+      toast({ title: 'Keep at least one escalation per activity', variant: 'destructive' });
+      return;
+    }
+    const res = await apiDelete<any>(`/api/admin/escalation/${config.id}`);
+    if (res.ok) {
+      setConfigs(prev => prev.filter(c => c.id !== config.id));
+    } else {
+      throw new Error(res.error || 'Failed');
+    }
+  }
+
+  function canRemoveConfig(config: EscalationConfig): boolean {
+    return configs.filter(c => c.activityType === config.activityType).length > 1;
+  }
+
+  function usedScopeCodesFor(config: EscalationConfig): string[] {
+    const activityName = config.activityName ?? config.activityType;
+    const generatedActivity = isGeneratedEscalationActivity(activityName);
+    const options = generatedActivity
+      ? generatedDocOptions
+      : docTypes.map(d => ({ code: d.typeCode, label: d.displayName, geography: d.geography }));
+    return configs
+      .filter(c => c.id !== config.id && c.activityType === config.activityType)
+      .flatMap(c => getSelectedDocCodes(c.scope, options, generatedActivity));
   }
 
   async function handleChannelChange(level: keyof ChannelConfig, ch: string, val: boolean) {
@@ -667,50 +1135,63 @@ export function AdminEscalationPage() {
 
             <div style={{
               background: 'hsl(var(--card))', borderRadius: 10,
-              border: '1px solid hsl(var(--border))', overflow: 'hidden',
+              border: '1px solid hsl(var(--border))', overflowX: 'auto', overflowY: 'hidden',
             }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <table style={{ width: '100%', minWidth: 1120, borderCollapse: 'collapse', tableLayout: 'fixed' }}>
                 <thead>
                   <tr>
-                    <th style={{ ...thStyle, textAlign: 'left', minWidth: 200 }}>Activity Type</th>
-                    <th style={{ ...thStyle, minWidth: 120 }}>Base SLA</th>
-                    <th style={{ ...thStyle, minWidth: 90 }}>
+                    <th style={{ ...thStyle, textAlign: 'left', width: 230 }}>Activity Type</th>
+                    <th style={{ ...thStyle, width: 125 }}>Scope</th>
+                    <th style={{ ...thStyle, width: 105 }}>Base Doc</th>
+                    <th style={{ ...thStyle, width: 105 }}>Base SLA (Days)</th>
+                    <th style={{ ...thStyle, width: 96 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: LEVEL_COLORS.reminder.dot }} />
                         Reminder
                       </div>
                     </th>
-                    <th style={{ ...thStyle, minWidth: 90 }}>
+                    <th style={{ ...thStyle, width: 96 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: LEVEL_COLORS.warning.dot }} />
                         Warning
                       </div>
                     </th>
-                    <th style={{ ...thStyle, minWidth: 90 }}>
+                    <th style={{ ...thStyle, width: 96 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: LEVEL_COLORS.escalation.dot }} />
                         Escalation
                       </div>
                     </th>
-                    <th style={{ ...thStyle, minWidth: 90 }}>
+                    <th style={{ ...thStyle, width: 96 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                         <span style={{ width: 7, height: 7, borderRadius: '50%', background: LEVEL_COLORS.blocker.dot }} />
                         Blocker
                       </div>
                     </th>
-                    <th style={{ ...thStyle, minWidth: 50 }} />
+                    <th style={{ ...thStyle, width: 58 }} />
                   </tr>
                 </thead>
                 <tbody>
                   {configs.length === 0 ? (
                     <tr>
-                      <td colSpan={7} style={{ padding: 32, textAlign: 'center', color: 'hsl(var(--muted-foreground))', fontSize: 14.5 }}>
+                      <td colSpan={9} style={{ padding: 32, textAlign: 'center', color: 'hsl(var(--muted-foreground))', fontSize: 14.5 }}>
                         No escalation configs found. Run the seed script to populate activity types.
                       </td>
                     </tr>
                   ) : (
                     configs.map(c => (
-                      <SlaRow key={c.id} config={c} onSave={saveConfig} />
+                      <SlaRow
+                        key={c.id}
+                        config={c}
+                        onSave={saveConfig}
+                        onAdd={addConfigForScope}
+                        onRemove={removeConfig}
+                        docTypes={docTypes}
+                        generationSourceOptions={generationSourceOptions}
+                        generatedDocOptions={generatedDocOptions}
+                        usedScopeCodes={usedScopeCodesFor(c)}
+                        canRemove={canRemoveConfig(c)}
+                      />
                     ))
                   )}
                 </tbody>

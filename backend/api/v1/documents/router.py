@@ -275,6 +275,7 @@ async def _doc_type_gate_rows(prisma, gate_config_ids: list[str]) -> dict[str, l
                 "isGenerated": bool(row.get("is_generated")),
                 "mandatoryPhoto": bool(row.get("mandatory_photo")),
                 "slaOverrideDays": row.get("sla_override_days"),
+                "sortOrder": row.get("sort_order"),
             }
         )
     return grouped
@@ -343,30 +344,34 @@ async def _gate_documents_for_types(
 ) -> list[dict[str, Any]]:
     if not doc_types:
         return []
-    queries = [
-        """
-        SELECT "id"::text AS id, "document_type"::text AS doc_type,
-               "approved_at", "status"::text AS status
-        FROM "public"."documents"
-        WHERE "shipment_id" = $1::uuid
-          AND "document_type"::text = ANY($2::text[])
-        ORDER BY "approved_at" DESC NULLS LAST, "created_at" DESC
-        """,
-        """
-        SELECT "id"::text AS id, "doc_type"::text AS doc_type,
-               NULL::timestamptz AS approved_at, "status"::text AS status
-        FROM "public"."documents"
-        WHERE "shipment_id" = $1::uuid
-          AND "doc_type"::text = ANY($2::text[])
-        ORDER BY "created_at" DESC
-        """,
-    ]
-    for sql in queries:
-        try:
-            return await _query_raw(prisma, sql, shipment_id, doc_types)
-        except Exception:
-            continue
-    return []
+    try:
+        return await _query_raw(
+            prisma,
+            """
+            SELECT "id"::text AS id,
+                   COALESCE("document_type"::text, "doc_type"::text) AS doc_type,
+                   "approved_at",
+                   "status"::text AS status
+            FROM "public"."documents"
+            WHERE "shipment_id" = $1::uuid
+              AND COALESCE("is_deleted", false) = false
+              AND (
+                "document_type"::text = ANY($2::text[])
+                OR "doc_type"::text = ANY($2::text[])
+              )
+            ORDER BY "approved_at" DESC NULLS LAST, "created_at" DESC
+            """,
+            shipment_id,
+            doc_types,
+        )
+    except Exception:
+        return []
+
+
+def _validation_block_reason(status: str) -> str:
+    if status in {"WAITING", "RUNNING", "PENDING", "PROCESSING"}:
+        return "Cross validation has not finished yet."
+    return "Blocking validation failed."
 
 
 async def _gate_validation_blocks(
@@ -430,11 +435,7 @@ async def _gate_validation_blocks(
                         "documentId": doc_id,
                         "docType": doc.get("doc_type"),
                         "status": status,
-                        "reason": (
-                            "Validation has not finished yet."
-                            if status == "WAITING"
-                            else "Blocking validation failed."
-                        ),
+                        "reason": _validation_block_reason(status),
                     }
                 )
     return blocks

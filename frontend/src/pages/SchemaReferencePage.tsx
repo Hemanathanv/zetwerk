@@ -1061,7 +1061,7 @@ const MODELS: ModelDef[] = [
     name: 'EntrySummaryTariffLineItem',
     table: 'entry_summary_tariff_line_items',
     category: 'Child Tables',
-    description: 'Tariff sub-lines extracted with the parent CBP FORM-7501.',
+    description: 'Tariff sub-lines extracted with the parent CBP FORM 7501.',
     fields: [
       f('id','UUID',false,'id',{pk:true}),
       f('entrySummaryId','UUID',false,'entry_summary_id',{fk:'EntrySummaryExtraction.id'}),

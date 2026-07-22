@@ -1,10 +1,15 @@
 import { useParams, useLocation } from 'wouter';
 import { useEffect, useState, useCallback } from 'react';
-import { usePermittedGates } from '@/contexts/PermissionContext';
 import { useShipmentDocuments } from '@/hooks/useOperationalData';
 import { useConfig } from '@/contexts/ConfigContext';
 import { RequireActivity } from '@/components/PermissionGate';
 import { getAuthToken } from '@/lib/api';
+import {
+  DOCUMENT_EXPECTED_DOCS_BY_GATE,
+  DOCUMENT_GATE_LABELS,
+  DOCUMENT_PARALLEL_DOC_TYPES,
+  documentGateDocDef,
+} from '@/config/documentGateConfig';
 import {
   Fingerprint, Sparkles, Calculator, CheckCircle, Circle,
   AlertCircle, ChevronLeft, Camera, Clock, CheckCircle2,
@@ -19,6 +24,7 @@ interface ApiDocTypeGate {
   isGenerated?: boolean;
   mandatoryPhoto?: boolean;
   slaOverrideDays?: number | null;
+  sortOrder?: number | null;
 }
 
 interface ApiGate {
@@ -69,10 +75,27 @@ interface ApiMilestoneTracking {
   } | null;
 }
 
+const SHIPMENT_GATE_LABELS = DOCUMENT_GATE_LABELS;
+const SHIPMENT_EXPECTED_DOCS_BY_GATE = DOCUMENT_EXPECTED_DOCS_BY_GATE;
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatTypeCode(code: string): string {
+  const normalized = code.toUpperCase();
+  const canonical = documentGateDocDef(normalized);
+  if (canonical) return canonical.label;
+  if (normalized === 'US_PACKING_LIST' || normalized.includes('US_PACKING')) return 'US Packing List';
+  if (normalized === 'US_SALES_INVOICE' || normalized.includes('US_SALES')) return 'US Sales Invoice';
   return code.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function docTypeShortCode(code: string): string {
+  const normalized = code.toUpperCase();
+  const canonical = documentGateDocDef(normalized);
+  if (canonical) return canonical.code;
+  if (normalized === 'US_PACKING_LIST' || normalized.includes('US_PACKING')) return 'UP';
+  if (normalized === 'US_SALES_INVOICE' || normalized.includes('US_SALES')) return 'UI';
+  return code.slice(0, 2).toUpperCase();
 }
 
 // Strict: only the stored MIME type is used for the "needs photo" indicator.
@@ -83,12 +106,27 @@ function fileIsImage(contentType?: string | null, _fileName?: string | null): bo
 
 function deriveDocStatus(doc: any): string {
   if (!doc) return 'MISSING';
-  if (doc.approvedAt) return 'CLOSED';
+  const validationStatus = String(doc.validationStatus ?? '').toUpperCase();
+  if (validationStatus === 'PASSED') return 'CLOSED';
+  if (validationStatus === 'BLOCKED' || validationStatus === 'FAILED') return 'REJECTED';
+  if (validationStatus === 'WAITING' || validationStatus === 'WARNING') return 'EXTRACTED';
+  if (doc.approvedAt) return 'REVIEWED';
   const s = (doc.ocrStatus ?? '').toUpperCase();
   if (s === 'EXTRACTED') return 'EXTRACTED';
   if (s === 'FAILED')    return 'REJECTED';
   if (s === 'PROCESSING' || s === 'QUEUED') return 'PROCESSING';
   return 'UPLOADED';
+}
+
+function validationPassed(document: any | undefined, validation?: ValidationCount | null): boolean {
+  if (!document) return false;
+  if (validation && validation.total > 0) {
+    return validation.passed >= validation.total
+      && validation.blockers === 0
+      && validation.warnings === 0
+      && validation.waiting === 0;
+  }
+  return String(document.validationStatus ?? '').toUpperCase() === 'PASSED';
 }
 
 function hasReachedStatus(current: string, required: string): boolean {
@@ -101,7 +139,118 @@ function hasReachedStatus(current: string, required: string): boolean {
 
 function matchDoc(docs: any[], docType: string): any | undefined {
   const dt = docType.toUpperCase();
-  return docs.find((d: any) => (d.documentType ?? '').toUpperCase() === dt);
+  return docs.find((d: any) => docTypeMatches(d.documentType, dt));
+}
+
+function normalizedDocType(dt: string | null | undefined): string {
+  return String(dt ?? '').toUpperCase();
+}
+
+function docTypeMatches(actual: string | null | undefined, expected: string): boolean {
+  const a = normalizedDocType(actual);
+  const e = normalizedDocType(expected);
+  if (a === e) return true;
+  if (e === 'SALES_INVOICE') return a === 'SI' || a.includes('SALES_INVOICE');
+  if (e === 'PACKING_LIST') return a === 'PL' || (a.includes('PACKING_LIST') && !a.includes('OUTWARD'));
+  if (e === 'SHIPPING_BILL') return a === 'SB' || a.includes('SHIPPING_BILL');
+  if (e === 'CHA_BILL') return a === 'CHA' || a.includes('CHA_BILL');
+  if (e === 'BILL_OF_LADING') return a === 'BL' || a === 'BOL' || a.includes('BILL_OF_LADING');
+  if (e === 'FREIGHT_FORWARDER_BILL') return a.includes('FREIGHT_FORWARDER');
+  if (e === 'ENTRY_SUMMARY_DRAFT') return a.includes('DRAFT') && (a.includes('ENTRY_SUMMARY') || a.includes('BOE') || a.includes('CBP'));
+  if (e === 'ENTRY_SUMMARY_TARIFF_LINES') return a.includes('ENTRY_SUMMARY_TARIFF') || a.includes('TARIFF_LINES');
+  if (e === 'ENTRY_SUMMARY') return a === 'BOE' || a.includes('BILL_OF_ENTRY') || a.includes('CBP_FORM_7501');
+  if (e === 'US_CARGO_RELEASE_ORDER') return a.includes('CARGO_RELEASE');
+  if (e === 'US_CUSTOMS_RELEASE_ORDER') return a.includes('CUSTOMS_RELEASE');
+  if (e === 'US_DELIVERY_ORDER') return a.includes('DELIVERY_ORDER');
+  if (e === 'ISF') return a === 'ISF' || a.includes('IMPORTER_SECURITY');
+  if (e === 'CUSTOMER_BROKER_BILL') return a.includes('CUSTOMER_BROKER') || a.includes('CUSTOM_BROKER') || a.includes('CUSTOMS_BROKER');
+  if (e === 'OCEAN_FREIGHT') return a.includes('OCEAN_FREIGHT');
+  if (e === 'GRN_INBOUND') return a === 'GR' || a.includes('GRN_INBOUND') || a.includes('GOODS_RECEIPT');
+  if (e === 'PORT_TO_WH') return a.includes('PORT_TO_WH') || a.includes('PORT_TO_WAREHOUSE');
+  if (e === 'US_PACKING_LIST') return a.includes('US_PACKING');
+  if (e === 'US_SALES_INVOICE') return a.includes('US_SALES');
+  if (e === 'WH_TO_CUSTOMER') return a.includes('WH_TO_CUSTOMER') || a.includes('WAREHOUSE_TO_CUSTOMER');
+  return false;
+}
+
+function findDocForSlot(documents: any[], docType: string, usedDocIds?: Set<string>, gateNumber?: number): any | undefined {
+  const doc = documents.find((d: any) =>
+    !usedDocIds?.has(d.id)
+    && docTypeMatches(d.documentType, docType)
+    && (gateNumber == null || d.gateNumber == null || Number(d.gateNumber) === gateNumber)
+  );
+  if (doc && usedDocIds) usedDocIds.add(doc.id);
+  return doc;
+}
+
+function findDocsForSlot(documents: any[], docType: string, usedDocIds?: Set<string>, gateNumber?: number): any[] {
+  const docs = documents.filter((d: any) =>
+    !usedDocIds?.has(d.id)
+    && docTypeMatches(d.documentType, docType)
+    && (gateNumber == null || d.gateNumber == null || Number(d.gateNumber) === gateNumber)
+  );
+  if (usedDocIds) docs.forEach(doc => usedDocIds.add(doc.id));
+  return docs;
+}
+
+function orderedDocTypeGates(docTypeGates: ApiDocTypeGate[] = []): ApiDocTypeGate[] {
+  return [...docTypeGates].sort((a, b) => {
+    const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+    const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+    if (ao !== bo) return ao - bo;
+    return String(a.docType ?? '').localeCompare(String(b.docType ?? ''));
+  });
+}
+
+function expectedDocTypesForGate(gate: ApiGate): ApiDocTypeGate[] {
+  const gateNumber = Number(gate.gateConfig.gateNumber ?? 0);
+  const configured = orderedDocTypeGates(gate.gateConfig.docTypeGates ?? []);
+  const fallbackTypes = SHIPMENT_EXPECTED_DOCS_BY_GATE[gateNumber] ?? [];
+  if (fallbackTypes.length === 0) return configured;
+  const merged = fallbackTypes.map((docType, index) => {
+    const key = normalizedDocType(docType);
+    const configuredMatch = configured.find(item => normalizedDocType(item.docType) === key);
+    return configuredMatch ? { ...configuredMatch, sortOrder: index + 1 } : {
+      id: `shipment-expected-${gateNumber}-${index}-${key}`,
+      docType,
+      roleInGate: DOCUMENT_PARALLEL_DOC_TYPES.has(key) ? 'PARALLEL' : 'PRIMARY',
+      isGenerated: key.includes('DRAFT') || key === 'US_PACKING_LIST',
+      sortOrder: index + 1,
+    };
+  });
+  return orderedDocTypeGates(merged);
+}
+
+function documentModuleDocTypesForGate(documents: any[], gateNumber: number, existingDocTypes: Set<string>): ApiDocTypeGate[] {
+  const seen = new Set<string>();
+  return documents
+    .filter(doc => Number(doc.gateNumber) === gateNumber)
+    .map(doc => normalizedDocType(doc.documentType))
+    .filter(docType => {
+      if (!docType || existingDocTypes.has(docType) || seen.has(docType)) return false;
+      seen.add(docType);
+      return true;
+    })
+    .map((docType, index) => {
+      const sample = documents.find(doc => Number(doc.gateNumber) === gateNumber && docTypeMatches(doc.documentType, docType));
+      return {
+        id: `document-module-${gateNumber}-${docType}`,
+        docType,
+        roleInGate: sample?.isParallel || DOCUMENT_PARALLEL_DOC_TYPES.has(docType) ? 'PARALLEL' : 'PRIMARY',
+        isGenerated: Boolean(sample?.isGenerated),
+        sortOrder: 1000 + index,
+      };
+    });
+}
+
+function docTypesForGate(gate: ApiGate, documents: any[]): ApiDocTypeGate[] {
+  const gateNumber = Number(gate.gateConfig.gateNumber ?? 0);
+  const expected = expectedDocTypesForGate(gate);
+  const existing = new Set(expected.map(dt => normalizedDocType(dt.docType)));
+  return orderedDocTypeGates([
+    ...expected,
+    ...documentModuleDocTypesForGate(documents, gateNumber, existing),
+  ]);
 }
 
 function gateDisplayStatus(gate: ApiGate, isFirst: boolean): string {
@@ -138,10 +287,11 @@ function GateStatusBadge({ status }: { status: string }) {
 
 // ─── DocumentStatusCard (G-S10, G-S11) ───────────────────────────────────────
 
-function DocumentStatusCard({ dtInfo, assignment, document, validation, isAccountingTrigger, slaDeadline, onNavigate }: {
+function DocumentStatusCard({ dtInfo, assignment, document, documentCount = 0, validation, isAccountingTrigger, slaDeadline, onNavigate }: {
   dtInfo: any;
   assignment: ApiDocTypeGate;
   document: any | undefined;
+  documentCount?: number;
   validation: ValidationCount | null;
   isAccountingTrigger: boolean;
   slaDeadline?: Date | null;
@@ -158,18 +308,20 @@ function DocumentStatusCard({ dtInfo, assignment, document, validation, isAccoun
     geo === 'US'    ? 'hsl(217 91% 60%)' :
     'hsl(173 58% 39%)';
 
-  const shortCode = dtInfo?.shortCode ?? assignment.docType.slice(0, 2).toUpperCase();
-  const displayLabel = dtInfo?.displayName ?? formatTypeCode(assignment.docType);
+  const isUsPackingOrInvoice = ['US_PACKING_LIST', 'US_SALES_INVOICE'].includes(normalizedDocType(assignment.docType));
+  const shortCode = isUsPackingOrInvoice ? docTypeShortCode(assignment.docType) : (dtInfo?.shortCode ?? docTypeShortCode(assignment.docType));
+  const baseDisplayLabel = isUsPackingOrInvoice ? formatTypeCode(assignment.docType) : (dtInfo?.displayName ?? formatTypeCode(assignment.docType));
+  const displayLabel = `${baseDisplayLabel}${documentCount > 1 ? ` (${documentCount})` : ''}`;
 
   const docStatus = deriveDocStatus(document);
-  const isComplete   = ['CLOSED', 'REVIEWED', 'ARCHIVED'].includes(docStatus);
+  const isComplete   = validationPassed(document, validation);
   const isProcessing = ['PROCESSING', 'QUEUED', 'UPLOADED'].includes(docStatus);
-  const isExtracted  = docStatus === 'EXTRACTED';
+  const isExtracted  = docStatus === 'EXTRACTED' || docStatus === 'REVIEWED';
   const isRejected   = docStatus === 'REJECTED';
   const hasDoc       = !!document;
 
   const bgColor =
-    isComplete  ? 'hsla(173,58%,39%,0.07)' :
+    isComplete  ? 'hsla(142,71%,45%,0.10)' :
     isRejected  ? 'hsla(0,72%,51%,0.07)' :
     hasDoc      ? 'hsl(var(--card))' :
     'hsl(var(--muted) / 0.2)';
@@ -181,7 +333,7 @@ function DocumentStatusCard({ dtInfo, assignment, document, validation, isAccoun
     isRejected   ? '✗' : '—';
 
   const statusColor =
-    isComplete   ? 'hsl(173 58% 32%)' :
+    isComplete   ? 'hsl(142 71% 30%)' :
     isExtracted  ? 'hsl(38 92% 38%)' :
     isProcessing ? 'hsl(217 91% 50%)' :
     isRejected   ? 'hsl(0 72% 45%)' :
@@ -281,12 +433,8 @@ function DocumentStatusCard({ dtInfo, assignment, document, validation, isAccoun
         </div>
       </div>
 
-      {/* Row 2: filename or hint */}
-      {document ? (
-        <div style={{ fontSize: 12, color: 'hsl(var(--muted-foreground) / 0.75)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
-          {document.originalFileName || document.documentNumber || docStatus}
-        </div>
-      ) : (
+      {/* Row 2: hint only when no document is available */}
+      {!document && (
         <div style={{ fontSize: 12, color: 'hsl(var(--muted-foreground) / 0.5)', marginTop: 3, fontStyle: 'italic' }}>
           {assignment.isGenerated ? 'Awaiting generation' : 'Expected'}
         </div>
@@ -366,8 +514,9 @@ function GateColumn({ gate, displayStatus, accessLevel, documents, validationMap
     ? new Date((gate.updatedAt ?? gate.createdAt) as string)
     : null;
 
-  const allGateDocs = gc.docTypeGates ?? [];
+  const allGateDocs = docTypesForGate(gate, documents);
   const blockingGateDocs = allGateDocs.filter(dtg => dtg.roleInGate !== 'PARALLEL');
+  const usedDocIds = new Set<string>();
 
   const borderColor =
     displayStatus === 'PASSED'  ? 'hsl(173 58% 70%)' :
@@ -396,8 +545,8 @@ function GateColumn({ gate, displayStatus, accessLevel, documents, validationMap
 
   // Doc completion count for header
   const completedCount = blockingGateDocs.filter(dtg => {
-    const doc = documents.find(d => (d.documentType ?? '').toUpperCase() === dtg.docType.toUpperCase());
-    return doc && ['CLOSED', 'REVIEWED', 'ARCHIVED'].includes(deriveDocStatus(doc));
+    const doc = findDocForSlot(documents, dtg.docType, undefined, gc.gateNumber);
+    return validationPassed(doc, doc ? validationMap[doc.id] : null);
   }).length;
 
   return (
@@ -419,7 +568,7 @@ function GateColumn({ gate, displayStatus, accessLevel, documents, validationMap
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--foreground))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '0.03em', textTransform: 'uppercase' }}>
-              {gc.gateName}
+              {SHIPMENT_GATE_LABELS[gc.gateNumber] ?? gc.gateName}
             </div>
           </div>
           {gc.isIdentityGate && (
@@ -462,7 +611,8 @@ function GateColumn({ gate, displayStatus, accessLevel, documents, validationMap
           allGateDocs.length > 0 ? (
             allGateDocs.map((dtg) => {
               const dtInfo = allDocTypes.find(dt => dt.typeCode === dtg.docType);
-              const actualDoc = matchDoc(documents, dtg.docType);
+              const actualDocs = findDocsForSlot(documents, dtg.docType, usedDocIds, gc.gateNumber);
+              const actualDoc = actualDocs.find(doc => !validationPassed(doc, validationMap[doc.id])) ?? actualDocs[0];
               const validation = actualDoc ? (validationMap[actualDoc.id] ?? null) : null;
               const isAccTrigger = accountingTriggerDocTypes.has(dtg.docType);
               const slaDeadline = gateActivatedAt && typeof dtg.slaOverrideDays === 'number' && dtg.slaOverrideDays > 0
@@ -474,6 +624,7 @@ function GateColumn({ gate, displayStatus, accessLevel, documents, validationMap
                   dtInfo={dtInfo}
                   assignment={dtg}
                   document={actualDoc}
+                  documentCount={actualDocs.length}
                   validation={validation}
                   isAccountingTrigger={isAccTrigger}
                   slaDeadline={slaDeadline}
@@ -491,11 +642,12 @@ function GateColumn({ gate, displayStatus, accessLevel, documents, validationMap
           <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', padding: '6px 2px' }}>
               <div>{allGateDocs.length} doc{allGateDocs.length !== 1 ? 's' : ''}</div>
             {(() => {
-              const complete = blockingGateDocs.filter(dtg =>
-                matchDoc(documents, dtg.docType) && ['CLOSED', 'REVIEWED', 'ARCHIVED'].includes(deriveDocStatus(matchDoc(documents, dtg.docType)))
-              ).length;
+              const complete = blockingGateDocs.filter(dtg => {
+                const doc = findDocForSlot(documents, dtg.docType, undefined, gc.gateNumber);
+                return validationPassed(doc, doc ? validationMap[doc.id] : null);
+              }).length;
               return complete > 0 && (
-                <div style={{ color: 'hsl(173 58% 32%)', marginTop: 3 }}>{complete} complete</div>
+                <div style={{ color: 'hsl(173 58% 32%)', marginTop: 3 }}>{complete} validated</div>
               );
             })()}
           </div>
@@ -852,7 +1004,6 @@ export function ShipmentDocumentsPage() {
   const [, navigate] = useLocation();
 
   const { docTypes: allDocTypes, templates } = useConfig();
-  const permittedGates = usePermittedGates();
   const { documents, loading: docsLoading } = useShipmentDocuments(shipmentId);
 
   const [shipment, setShipment]     = useState<any>(null);
@@ -953,18 +1104,11 @@ export function ShipmentDocumentsPage() {
 
   // ─── Derived ─────────────────────────────────────────────────────────────
 
-  // Build permitted gate numbers set
-  const permittedGateMap = new Map(permittedGates.map(g => [g.gateNumber, g.accessLevel]));
-
   // Find first OPEN gate index for ACTIVE designation
   const firstOpenIdx = gates.findIndex(g => g.status === 'OPEN');
 
   // Visible gates (not 'none' access)
-  const visibleGates = gates.filter(g => {
-    const al = permittedGateMap.get(g.gateConfig?.gateNumber);
-    if (al === undefined && permittedGates.length === 0) return true; // no restrictions
-    return al && al !== 'none';
-  });
+  const visibleGates = gates;
 
   // Identity gate name
   const identityGate = gates.find(g => g.gateConfig?.isIdentityGate);
@@ -1012,7 +1156,7 @@ export function ShipmentDocumentsPage() {
           <h1 style={{ margin: 0, fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', color: 'hsl(var(--foreground))', letterSpacing: '-0.025em' }}>Documents Status</h1>
         </div>
         <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
-          Gate-column view · {gates.filter(g => g.status === 'PASSED').length}/{gates.length} gates passed · {documents.filter(d => d.approvedAt).length}/{documents.length} docs approved
+          Gate-column view · {gates.filter(g => g.status === 'PASSED').length}/{gates.length} gates passed · {documents.filter(d => validationPassed(d, validationMap[d.id])).length}/{documents.length} docs validated
         </div>
       </div>
 
@@ -1038,9 +1182,7 @@ export function ShipmentDocumentsPage() {
         <div style={{ overflowX: 'auto', paddingBottom: 16 }}>
           <div style={{ display: 'flex', gap: 16, minWidth: 'max-content' }}>
             {visibleGates.map((gate, idx) => {
-              const gateNumber = gate.gateConfig?.gateNumber;
-              const al = permittedGateMap.get(gateNumber);
-              const accessLevel = (al ?? (permittedGates.length === 0 ? 'full' : 'summary')) as 'full' | 'summary';
+              const accessLevel = 'full' as const;
 
               // Determine display status
               const isFirstOpen = gates.indexOf(gate) === firstOpenIdx;

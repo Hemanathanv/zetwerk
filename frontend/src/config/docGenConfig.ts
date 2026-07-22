@@ -176,13 +176,13 @@ const PACKING_LIST_SCHEMA: DocGenSchema = {
 const OUTWARD_PL_SCHEMA: DocGenSchema = {
   docType:          'outward-pl',
   displayName:      'Outward GRN',
-  triggerCondition: 'Packing List approved + Bill of Lading extracted',
+  triggerCondition: 'Packing List stock available; Bill of Lading details used when available',
   sourceDocs: [
     { docType: 'PACKING_LIST',   label: 'Packing List' },
     { docType: 'BILL_OF_LADING', label: 'Bill of Lading' },
   ],
-  humanAction:  'Assign containers to line items, enter 3PL details',
-  fieldCounts:  { auto: 22, calculated: 4, manual: 8, total: 34 },
+  humanAction:  'Select/confirm dispatched stock lines and enter destination, vehicle, and driver details',
+  fieldCounts:  { auto: 22, calculated: 4, manual: 13, total: 39 },
 
   sections: [
     {
@@ -208,6 +208,17 @@ const OUTWARD_PL_SCHEMA: DocGenSchema = {
         { targetField: 'notifyParty',     targetLabel: 'Notify Party',       sourceDoc: 'BILL_OF_LADING', sourceField: 'notifyPartyName', sourceLabel: 'Notify Party',   mappingType: 'direct' },
         { targetField: 'threePlName',     targetLabel: '3PL / Warehouse',    sourceDoc: 'MANUAL',        sourceField: 'manual',         sourceLabel: 'Manual',          mappingType: 'manual', validation: 'NOT NULL', validationSeverity: 'warning' },
         { targetField: 'threePlAddress',  targetLabel: '3PL Address',        sourceDoc: 'MANUAL',        sourceField: 'manual',         sourceLabel: 'Manual',          mappingType: 'manual' },
+      ],
+    },
+    {
+      sectionLabel: 'Dispatch Details',
+      renderAs: 'fields',
+      mappings: [
+        { targetField: 'destinationName',    targetLabel: 'Destination Name',    sourceDoc: 'MANUAL', sourceField: 'manual', sourceLabel: 'Manual', mappingType: 'manual', validation: 'NOT NULL', validationSeverity: 'critical' },
+        { targetField: 'destinationAddress', targetLabel: 'Destination Address', sourceDoc: 'MANUAL', sourceField: 'manual', sourceLabel: 'Manual', mappingType: 'manual' },
+        { targetField: 'truckNumber',        targetLabel: 'Truck / Vehicle No.', sourceDoc: 'MANUAL', sourceField: 'manual', sourceLabel: 'Manual', mappingType: 'manual', mono: true },
+        { targetField: 'driverName',         targetLabel: 'Driver Name',         sourceDoc: 'MANUAL', sourceField: 'manual', sourceLabel: 'Manual', mappingType: 'manual' },
+        { targetField: 'dispatchNotes',      targetLabel: 'Dispatch Notes',      sourceDoc: 'MANUAL', sourceField: 'manual', sourceLabel: 'Manual', mappingType: 'manual' },
       ],
     },
     {
@@ -285,6 +296,11 @@ const OUTWARD_PL_SCHEMA: DocGenSchema = {
       notifyParty:      'Buyer Corporation Inc., Los Angeles, CA',
       threePlName:      '',
       threePlAddress:   '',
+      destinationName: '',
+      destinationAddress: '',
+      truckNumber: '',
+      driverName: '',
+      dispatchNotes: '',
       vesselName:       'MV ESL DACHAN BAY',
       voyageNumber:     '0035W',
       portOfLoading:    'JNPT, Nhava Sheva',
@@ -316,7 +332,7 @@ const OUTWARD_PL_SCHEMA: DocGenSchema = {
 
 const DRAFT_BOE_SCHEMA: DocGenSchema = {
   docType:          'draft-boe',
-  displayName:      'Draft BOE',
+  displayName:      'Draft CBP FORM 7501',
   triggerCondition: 'Bill of Lading + Sales Invoice both extracted and approved',
   sourceDocs: [
     { docType: 'BILL_OF_LADING', label: 'Bill of Lading' },

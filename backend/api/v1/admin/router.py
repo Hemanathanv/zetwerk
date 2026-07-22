@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from db import get_prisma
 from documents_ocr.cross_validation import (
@@ -27,79 +27,421 @@ legacy_router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
 ROLE_DEFINITIONS = [
     {
-        "id": "SUPER_ADMIN",
+        "id": "Super Admin",
         "name": "Super Admin",
-        "roleCategory": "admin",
-        "modules": ["dashboard", "reports", "shipments", "tasks", "documents", "inventory", "warehouse", "dnd", "accounting", "admin", "settings"],
+        "systemCode": "super_admin",
+        "roleCategory": "INTERNAL_OPS",
+        "modules": ["dashboard", "shipments", "tasks", "documents", "inventory", "accounting", "reports", "admin"],
     },
     {
-        "id": "ADMIN",
+        "id": "Org Admin",
         "name": "Org Admin",
-        "roleCategory": "admin",
-        "modules": ["dashboard", "reports", "shipments", "tasks", "documents", "inventory", "warehouse", "dnd", "accounting", "admin", "settings"],
+        "systemCode": "org_admin",
+        "roleCategory": "INTERNAL_OPS",
+        "modules": ["dashboard", "shipments", "tasks", "documents", "inventory", "accounting", "reports", "admin"],
     },
     {
-        "id": "USER",
-        "name": "User",
-        "roleCategory": "user",
-        "modules": ["dashboard", "reports", "shipments", "tasks", "documents", "inventory", "warehouse", "dnd", "accounting", "settings"],
+        "id": "Ops Manager",
+        "name": "Ops Manager",
+        "systemCode": "ops_manager",
+        "roleCategory": "INTERNAL_OPS",
+        "modules": ["dashboard", "shipments", "tasks", "documents", "inventory", "accounting", "reports", "admin"],
+    },
+    {
+        "id": "India Logistics",
+        "name": "India Logistics",
+        "systemCode": "india_logistics",
+        "roleCategory": "INTERNAL_SPECIALIST",
+        "modules": ["dashboard", "shipments", "tasks", "documents", "inventory"],
+    },
+    {
+        "id": "US Logistics",
+        "name": "US Logistics",
+        "systemCode": "us_logistics",
+        "roleCategory": "INTERNAL_SPECIALIST",
+        "modules": ["dashboard", "shipments", "tasks", "documents", "inventory"],
+    },
+    {
+        "id": "Finance AP India",
+        "name": "Finance AP India",
+        "systemCode": "finance_ap_india",
+        "roleCategory": "INTERNAL_SPECIALIST",
+        "modules": ["dashboard", "accounting", "documents", "reports"],
+    },
+    {
+        "id": "Finance AP US",
+        "name": "Finance AP US",
+        "systemCode": "finance_ap_us",
+        "roleCategory": "INTERNAL_SPECIALIST",
+        "modules": ["dashboard", "accounting", "documents", "reports"],
+    },
+    {
+        "id": "Finance Revenue",
+        "name": "Finance Revenue",
+        "systemCode": "finance_revenue",
+        "roleCategory": "INTERNAL_SPECIALIST",
+        "modules": ["dashboard", "accounting", "documents", "reports"],
+    },
+    {
+        "id": "Finance Controller",
+        "name": "Finance Controller",
+        "systemCode": "finance_controller",
+        "roleCategory": "INTERNAL_SPECIALIST",
+        "modules": ["dashboard", "accounting", "documents", "reports", "admin"],
+    },
+    {
+        "id": "Auditor",
+        "name": "Auditor",
+        "systemCode": "auditor",
+        "roleCategory": "INTERNAL_SPECIALIST",
+        "modules": ["dashboard", "shipments", "documents", "reports"],
+    },
+    {
+        "id": "CHA Partner",
+        "name": "CHA Partner",
+        "systemCode": "cha_partner",
+        "roleCategory": "EXTERNAL_PARTNER",
+        "modules": ["shipments", "documents", "tasks"],
+    },
+    {
+        "id": "Freight Forwarder",
+        "name": "Freight Forwarder",
+        "systemCode": "freight_forwarder",
+        "roleCategory": "EXTERNAL_PARTNER",
+        "modules": ["shipments", "documents", "tasks"],
+    },
+    {
+        "id": "US Broker",
+        "name": "US Broker",
+        "systemCode": "us_broker",
+        "roleCategory": "EXTERNAL_PARTNER",
+        "modules": ["shipments", "documents", "tasks"],
+    },
+    {
+        "id": "3PL Partner",
+        "name": "3PL Partner",
+        "systemCode": "tpl_partner",
+        "roleCategory": "EXTERNAL_PARTNER",
+        "modules": ["shipments", "documents", "inventory", "tasks"],
+    },
+    {
+        "id": "Customer Portal",
+        "name": "Customer Portal",
+        "systemCode": "customer_portal",
+        "roleCategory": "CUSTOMER",
+        "modules": ["portal"],
     },
 ]
 
 ROLE_ALIASES = {
-    "role-org-admin": "ADMIN",
-    "role-admin": "ADMIN",
-    "admin": "ADMIN",
-    "org admin": "ADMIN",
-    "super_admin": "SUPER_ADMIN",
-    "super-admin": "SUPER_ADMIN",
-    "super admin": "SUPER_ADMIN",
-    "role-super-admin": "SUPER_ADMIN",
-    "role-viewer": "USER",
-    "role-user": "USER",
-    "viewer": "USER",
-    "user": "USER",
+    "role-org-admin": "Org Admin",
+    "role-admin": "Org Admin",
+    "admin": "Org Admin",
+    "org_admin": "Org Admin",
+    "org-admin": "Org Admin",
+    "org admin": "Org Admin",
+    "super_admin": "Super Admin",
+    "super-admin": "Super Admin",
+    "super admin": "Super Admin",
+    "role-super-admin": "Super Admin",
+    "ops_manager": "Ops Manager",
+    "ops-manager": "Ops Manager",
+    "ops manager": "Ops Manager",
+    "india_logistics": "India Logistics",
+    "india-logistics": "India Logistics",
+    "india logistics": "India Logistics",
+    "us_logistics": "US Logistics",
+    "us-logistics": "US Logistics",
+    "us logistics": "US Logistics",
+    "finance_ap_india": "Finance AP India",
+    "finance-ap-india": "Finance AP India",
+    "finance ap india": "Finance AP India",
+    "finance_ap_us": "Finance AP US",
+    "finance-ap-us": "Finance AP US",
+    "finance ap us": "Finance AP US",
+    "finance_revenue": "Finance Revenue",
+    "finance-revenue": "Finance Revenue",
+    "finance revenue": "Finance Revenue",
+    "finance_controller": "Finance Controller",
+    "finance-controller": "Finance Controller",
+    "finance controller": "Finance Controller",
+    "auditor": "Auditor",
+    "cha_partner": "CHA Partner",
+    "cha-partner": "CHA Partner",
+    "cha partner": "CHA Partner",
+    "freight_forwarder": "Freight Forwarder",
+    "freight-forwarder": "Freight Forwarder",
+    "freight forwarder": "Freight Forwarder",
+    "us_broker": "US Broker",
+    "us-broker": "US Broker",
+    "us broker": "US Broker",
+    "tpl_partner": "3PL Partner",
+    "tpl-partner": "3PL Partner",
+    "3pl partner": "3PL Partner",
+    "customer_portal": "Customer Portal",
+    "customer-portal": "Customer Portal",
+    "customer portal": "Customer Portal",
+    "role-viewer": "Auditor",
+    "role-user": "India Logistics",
+    "viewer": "Auditor",
+    "user": "India Logistics",
 }
 
+SHEET_ACTIVITY_SETS = {
+    "documents_basic": [
+        "documents.upload", "documents.classify_document_type", "documents.re_upload_document",
+        "documents.reassign_document_to_shipment", "documents.download_export", "documents.view",
+        "documents.view_extracted",
+    ],
+    "documents_approval": [
+        "documents.edit_extracted", "documents.submit_for_approval", "documents.approve_draft",
+        "documents.reject_extraction", "documents.revoke_approval", "documents.override_approved_fields",
+    ],
+    "generation": [
+        "documents.view_draft", "documents.fill_manual_fields", "documents.modify_generated_fields",
+        "documents.save_draft", "documents.submit_for_review", "documents.approve_generated_document",
+        "documents.reject_generated_document", "documents.generate_draft", "documents.re_trigger_generation",
+        "documents.discard_draft",
+    ],
+    "validation": [
+        "documents.view_validation_results", "documents.resolve_validation_failure",
+        "documents.trigger_re_validation", "documents.override_validation",
+    ],
+    "mapping": [
+        "documents.map_container_to_sku", "documents.submit_mapping_for_approval",
+        "documents.approve_container_mapping", "documents.reject_container_mapping",
+    ],
+    "shipments": [
+        "shipments.view", "shipments.create", "shipments.export_details", "shipments.hold_shipment",
+        "shipments.resume_shipment", "shipments.cancel_shipment", "shipments.change_shipment_type",
+    ],
+    "inventory": [
+        "inventory.view_warehouse", "inventory.view_container", "inventory.inventory_tracking_breakbulk",
+        "inventory.create_outward_grn_new_dispatch", "inventory.approve_dispatch",
+        "inventory.reject_dispatch", "inventory.view_outward_dispatches",
+        "inventory.adjust_stock_without_remarks", "inventory.adjust_stock_with_remarks",
+        "inventory.warehouse_inventory_stock_position", "inventory.3_way_recon",
+    ],
+}
+
+
+def _activities_for(*set_names: str) -> list[str]:
+    codes: list[str] = []
+    for set_name in set_names:
+        for code in SHEET_ACTIVITY_SETS.get(set_name, []):
+            if code not in codes:
+                codes.append(code)
+    return codes
+
+
 ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
-    "SUPER_ADMIN": {
+    "Super Admin": {
         "name": "Super Admin",
-        "description": "Full platform administration.",
-        "roleCategory": "platform",
-        "color": "#0f766e",
-        "allowedLevels": ["L1", "L2", "L3", "L4"],
+        "description": "Platform-level admin - full access to all modules and data.",
+        "roleCategory": "INTERNAL_OPS",
+        "color": "#1E293B",
+        "allowedLevels": ["L4"],
         "defaultDataScope": "ALL",
-        "defaultModules": ROLE_DEFINITIONS[0]["modules"],
-        "activityCodes": [
-            "admin.manage", "users.manage", "roles.manage", "documents.manage", "shipments.manage",
-            "documents.upload", "documents.view_extracted", "documents.edit_extracted",
-            "documents.generate_draft", "documents.approve_draft", "documents.override_validation",
-            "documents.reprocess_ocr", "documents.download_export", "documents.delete",
-        ],
+        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "accounting", "reports", "admin"],
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory"),
     },
-    "ADMIN": {
+    "Org Admin": {
         "name": "Org Admin",
         "description": "Organisation administration and operations control.",
-        "roleCategory": "org_admin",
-        "color": "#2563eb",
-        "allowedLevels": ["L2", "L3", "L4"],
+        "roleCategory": "INTERNAL_OPS",
+        "color": "#334155",
+        "allowedLevels": ["L4"],
         "defaultDataScope": "ALL",
-        "defaultModules": ROLE_DEFINITIONS[1]["modules"],
-        "activityCodes": [
-            "users.manage", "roles.view", "documents.manage", "shipments.manage",
-            "documents.upload", "documents.view_extracted", "documents.edit_extracted",
-            "documents.generate_draft", "documents.approve_draft", "documents.download_export",
-        ],
+        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "accounting", "reports", "admin"],
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory"),
     },
-    "USER": {
-        "name": "User",
-        "description": "Standard operational user.",
-        "roleCategory": "org_internal",
-        "color": "#64748b",
+    "Ops Manager": {
+        "name": "Ops Manager",
+        "description": "Operations manager - manages shipments, workflow, documents, and overrides.",
+        "roleCategory": "INTERNAL_OPS",
+        "color": "#0F766E",
+        "allowedLevels": ["L3"],
+        "defaultDataScope": "ALL",
+        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "accounting", "reports", "admin"],
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory"),
+    },
+    "India Logistics": {
+        "name": "India Logistics",
+        "description": "India-side logistics coordinator - shipments, documents, and inventory.",
+        "roleCategory": "INTERNAL_SPECIALIST",
+        "color": "#0EA5A0",
         "allowedLevels": ["L1", "L2"],
         "defaultDataScope": "TEAM",
-        "defaultModules": ROLE_DEFINITIONS[2]["modules"],
-        "activityCodes": ["documents.view", "shipments.view", "tasks.view"],
+        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory"],
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "shipments", "inventory"),
+    },
+    "US Logistics": {
+        "name": "US Logistics",
+        "description": "US-side logistics coordinator - tracking, inventory, and POD.",
+        "roleCategory": "INTERNAL_SPECIALIST",
+        "color": "#0284C7",
+        "allowedLevels": ["L1", "L2"],
+        "defaultDataScope": "TEAM",
+        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory"],
+        "activityCodes": _activities_for("documents_basic", "validation", "shipments", "inventory"),
+    },
+    "Finance AP India": {
+        "name": "Finance AP India",
+        "description": "Accounts payable India - INR tickets and India vendor bills.",
+        "roleCategory": "INTERNAL_SPECIALIST",
+        "color": "#D97706",
+        "allowedLevels": ["L1", "L2"],
+        "defaultDataScope": "ALL",
+        "defaultModules": ["dashboard", "accounting", "documents", "reports"],
+        "activityCodes": _activities_for("documents_basic", "validation"),
+    },
+    "Finance AP US": {
+        "name": "Finance AP US",
+        "description": "Accounts payable US - USD tickets, ocean freight, and duties.",
+        "roleCategory": "INTERNAL_SPECIALIST",
+        "color": "#EA580C",
+        "allowedLevels": ["L1", "L2"],
+        "defaultDataScope": "ALL",
+        "defaultModules": ["dashboard", "accounting", "documents", "reports"],
+        "activityCodes": _activities_for("documents_basic", "validation"),
+    },
+    "Finance Revenue": {
+        "name": "Finance Revenue",
+        "description": "Revenue accounting - sales invoice recognition.",
+        "roleCategory": "INTERNAL_SPECIALIST",
+        "color": "#CA8A04",
+        "allowedLevels": ["L1", "L2"],
+        "defaultDataScope": "ALL",
+        "defaultModules": ["dashboard", "accounting", "documents", "reports"],
+        "activityCodes": _activities_for("documents_basic", "generation"),
+    },
+    "Finance Controller": {
+        "name": "Finance Controller",
+        "description": "Finance controller - full finance and admin access.",
+        "roleCategory": "INTERNAL_SPECIALIST",
+        "color": "#B45309",
+        "allowedLevels": ["L3", "L4"],
+        "defaultDataScope": "ALL",
+        "defaultModules": ["dashboard", "accounting", "documents", "reports", "admin"],
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation"),
+    },
+    "Auditor": {
+        "name": "Auditor",
+        "description": "Read-only access across modules - no write actions.",
+        "roleCategory": "INTERNAL_SPECIALIST",
+        "color": "#64748B",
+        "allowedLevels": ["L2", "L3"],
+        "defaultDataScope": "ALL",
+        "defaultModules": ["dashboard", "shipments", "documents", "reports"],
+        "activityCodes": ["documents.view", "documents.view_extracted", "documents.download_export", "documents.view_validation_results", "shipments.view"],
+    },
+    "CHA Partner": {
+        "name": "CHA Partner",
+        "description": "Customs house agent - upload CHA bills and view tagged shipments.",
+        "roleCategory": "EXTERNAL_PARTNER",
+        "color": "#7C3AED",
+        "allowedLevels": ["L1", "L2"],
+        "defaultDataScope": "TAGGED",
+        "defaultModules": ["shipments", "documents", "tasks"],
+        "activityCodes": ["shipments.view", "documents.upload", "documents.view"],
+    },
+    "Freight Forwarder": {
+        "name": "Freight Forwarder",
+        "description": "Freight forwarder - upload freight bills and BOLs.",
+        "roleCategory": "EXTERNAL_PARTNER",
+        "color": "#9333EA",
+        "allowedLevels": ["L1", "L2"],
+        "defaultDataScope": "TAGGED",
+        "defaultModules": ["shipments", "documents", "tasks"],
+        "activityCodes": ["shipments.view", "documents.upload", "documents.view", "documents.view_extracted", "documents.download_export"],
+    },
+    "US Broker": {
+        "name": "US Broker",
+        "description": "US customs broker - CBP FORM 7501 and ISF workflows.",
+        "roleCategory": "EXTERNAL_PARTNER",
+        "color": "#C026D3",
+        "allowedLevels": ["L1", "L2"],
+        "defaultDataScope": "TAGGED",
+        "defaultModules": ["shipments", "documents", "tasks"],
+        "activityCodes": ["shipments.view", "documents.upload", "documents.view", "documents.view_extracted"],
+    },
+    "3PL Partner": {
+        "name": "3PL Partner",
+        "description": "Third-party logistics partner - warehouse, POD, and delivery workflows.",
+        "roleCategory": "EXTERNAL_PARTNER",
+        "color": "#DB2777",
+        "allowedLevels": ["L1", "L2"],
+        "defaultDataScope": "TAGGED",
+        "defaultModules": ["shipments", "documents", "inventory", "tasks"],
+        "activityCodes": ["shipments.view", "documents.upload", "documents.view", "inventory.view_warehouse", "inventory.view_container"],
+    },
+    "Customer Portal": {
+        "name": "Customer Portal",
+        "description": "Customer portal user - external shipment visibility.",
+        "roleCategory": "CUSTOMER",
+        "color": "#059669",
+        "allowedLevels": ["L1"],
+        "defaultDataScope": "TAGGED",
+        "defaultModules": ["portal"],
+        "activityCodes": [],
+    },
+}
+
+ROLE_SYSTEM_CODES = {
+    item["id"]: item.get("systemCode")
+    for item in ROLE_DEFINITIONS
+    if item.get("systemCode")
+}
+
+ROLE_PROFILE_CATEGORIES = {
+    "INTERNAL_OPS": "operations",
+    "INTERNAL_SPECIALIST": "document_controller",
+    "EXTERNAL_PARTNER": "partner",
+    "CUSTOMER": "customer",
+}
+
+REFERENCE_USER_DEFAULTS = {
+    "admin@sprconsultech.com": {
+        "fullName": "SPR Admin",
+        "roleName": "Super Admin",
+        "level": "L4",
+        "dataScope": "ALL",
+        "userType": "internal",
+    },
+    "ops@zetwerk.com": {
+        "fullName": "Manish Agarwal",
+        "roleName": "Ops Manager",
+        "level": "L4",
+        "dataScope": "ALL",
+        "userType": "internal",
+    },
+    "india@zetwerk.com": {
+        "fullName": "Priya Logistics",
+        "roleName": "India Logistics",
+        "level": "L2",
+        "dataScope": "TEAM",
+        "userType": "internal",
+    },
+    "us@zetwerk.com": {
+        "fullName": "Mike US Logistics",
+        "roleName": "US Logistics",
+        "level": "L2",
+        "dataScope": "TEAM",
+        "userType": "internal",
+    },
+    "finance@zetwerk.com": {
+        "fullName": "Ravi Finance",
+        "roleName": "Finance AP India",
+        "level": "L2",
+        "dataScope": "ALL",
+        "userType": "internal",
+    },
+    "3pl@pacific-dist.com": {
+        "fullName": "Pacific Distribution - 3PL",
+        "roleName": "3PL Partner",
+        "level": "L2",
+        "dataScope": "TAGGED",
+        "userType": "internal",
     },
 }
 
@@ -171,10 +513,192 @@ ACTIVITY_DEFINITIONS = [
     {"id": "activity-admin-security-settings", "activityCode": "admin.security_settings", "name": "Security settings", "category": "admin", "minLevel": "L4"},
 ]
 
+SHEET_STATUS_ACTIVITY_ROWS = [
+    ("documents", "Document", "documents.upload", "Upload Document", "Doc names", "Uploaded", None),
+    ("documents", "Document", "documents.classify_document_type", "Classify Document Type", "Doc names", "(No State Change)", None),
+    ("documents", "Document", "documents.reprocess_ocr", "Retry OCR", None, "OCR Processing", None),
+    ("documents", "Document", "documents.re_upload_document", "Re-upload Document", "Doc names", "Uploaded (New Version)", None),
+    ("documents", "Document", "documents.reassign_document_to_shipment", "Reassign Document to Shipment", "Doc names", "(No State Change)", None),
+    ("documents", "Document", "documents.download_export", "Download Document", "Doc names", "(No State Change)", None),
+    ("documents", "Document", "documents.delete", "Delete Document", "Doc names", "deleted", None),
+    ("documents", "Document", "documents.view", "View Document", "Doc names", "(No State Change)", None),
+    ("documents", "OCR & Extraction", "documents.ocr_completed", "OCR Completed (System)", "Doc names", "Extracted", None),
+    ("documents", "OCR & Extraction", "documents.view_extracted", "View Extraction", "Doc names", "(No State Change)", None),
+    ("documents", "OCR & Extraction", "documents.edit_extracted", "Amend Extracted Fields", "Doc names", "Amended", None),
+    ("documents", "OCR & Extraction", "documents.submit_for_approval", "Submit for Approval (if approval enabled)", "Doc names", "Pending Approval", None),
+    ("documents", "OCR & Extraction", "documents.approve_draft", "Approve Extraction (if approval disabled OR Supervisor approves)", "Doc names", "Approved", None),
+    ("documents", "OCR & Extraction", "documents.reject_extraction", "Reject Extraction", "Doc names", "Rejected", None),
+    ("documents", "OCR & Extraction", "documents.revoke_approval", "Revoke Approval", "Doc names", "Under Review", None),
+    ("documents", "OCR & Extraction", "documents.override_approved_fields", "Override Approved Fields", "Doc names", "Amended", None),
+    ("documents", "Generated Documents", "documents.view_draft", "View Draft", "Doc names", "Draft", None),
+    ("documents", "Generated Documents", "documents.fill_manual_fields", "Fill Manual Fields", "Doc names", "Draft", None),
+    ("documents", "Generated Documents", "documents.modify_generated_fields", "Modify Generated Fields", "Doc names", "Draft", None),
+    ("documents", "Generated Documents", "documents.save_draft", "Save Draft", "Doc names", "Draft", None),
+    ("documents", "Generated Documents", "documents.submit_for_review", "Submit for Review", "Doc names", "Pending Approval", None),
+    ("documents", "Generated Documents", "documents.approve_generated_document", "Approve Generated Document", "Doc names", "Approved", None),
+    ("documents", "Generated Documents", "documents.reject_generated_document", "Reject Generated Document", "Doc names", "Rejected", None),
+    ("documents", "Generated Documents", "documents.generate_draft", "Generate PDF (System)", "Doc names", "Generated", None),
+    ("documents", "Generated Documents", "documents.re_trigger_generation", "Re-trigger Generation", "Doc names", "Draft", None),
+    ("documents", "Generated Documents", "documents.discard_draft", "Discard draft", "Doc names", "Discarded", None),
+    ("documents", "Validation", "documents.validation_triggered", "Validation Triggered (System)", "Doc names", "Validation In Progress", None),
+    ("documents", "Validation", "documents.view_validation_results", "View Validation Results", "Doc names", "Validated / Validation Warning / Validation Blocked", None),
+    ("documents", "Validation", "documents.resolve_validation_failure", "Resolve Validation Failure", "Doc names", "Pending Revalidation", None),
+    ("documents", "Validation", "documents.trigger_re_validation", "Trigger Re-validation", "Doc names", "Validation In Progress", None),
+    ("documents", "Validation", "documents.override_validation", "Override Validation", "Doc names", "Validated (Override)", None),
+    ("documents", "Container Mapping", "documents.map_container_to_sku", "Map Container to SKU", "Doc names", "Mapped", None),
+    ("documents", "Container Mapping", "documents.submit_mapping_for_approval", "Submit Mapping for Approval (if applicable)", "Doc names", "Pending Approval", None),
+    ("documents", "Container Mapping", "documents.approve_container_mapping", "Approve Container Mapping", "Doc names", "Approved", None),
+    ("documents", "Container Mapping", "documents.reject_container_mapping", "Reject Container Mapping", "Doc names", "Rejected", None),
+    ("shipments", "Active Templates", "shipments.view", "View Shipment", None, None, None),
+    ("shipments", "Active Templates", "shipments.create", "Create Shipment", None, None, None),
+    ("shipments", "Active Templates", "shipments.export_details", "Export Shipment details", None, None, None),
+    ("shipments", "Active Templates", "shipments.hold_shipment", "Hold Shipment", None, "Hold/ Resume", None),
+    ("shipments", "Active Templates", "shipments.resume_shipment", "Resume Shipment", None, None, None),
+    ("shipments", "Active Templates", "shipments.cancel_shipment", "Cancel Shipment", None, None, None),
+    ("shipments", "Active Templates", "shipments.change_shipment_type", "Change Shipment Type", None, None, None),
+    ("inventory", "Inventory", "inventory.view_warehouse", "View Inventory - Warehouse", None, None, None),
+    ("inventory", "Inventory", "inventory.view_container", "Inventory tracking   - Container", None, None, None),
+    ("inventory", "Inventory", "inventory.inventory_tracking_breakbulk", "Inventory tracking   - Breakbulk", None, None, None),
+    ("inventory", "Inventory", "inventory.create_outward_grn_new_dispatch", "Create Outward GRN / New dispatch", "Target Out - DRAFT", "Reserved", "SKU status"),
+    ("inventory", "Inventory", "inventory.approve_dispatch", "Approve Dispatch", "Confirmed out", None, None),
+    ("inventory", "Inventory", "inventory.reject_dispatch", "Reject Dispatch", "Dispatch rejected", None, None),
+    ("inventory", "Inventory", "inventory.view_outward_dispatches", "View outward Dispatches", None, None, None),
+    ("inventory", "Inventory", "inventory.adjust_stock_without_remarks", "Adjust Stock - without remarks", None, None, None),
+    ("inventory", "Inventory", "inventory.adjust_stock_with_remarks", "Adjust Stock - with remarks", None, None, None),
+    ("inventory", "Inventory", "inventory.move_inventory", "Move Inventory", None, None, "Not implemented"),
+    ("inventory", "Inventory", "inventory.warehouse_inventory_stock_position", "Warehouse Inventory / stock position", None, None, None),
+    ("inventory", "Inventory", "inventory.3_way_recon", "3 way recon", None, None, None),
+    ("inventory", "Inventory", "inventory.view_dnd_charges", "View D&D charges", None, None, None),
+    ("inventory", "Inventory", "inventory.view_last_free_days_shipment_based", "View Last free days - shipment based", None, None, None),
+    ("inventory", "Inventory", "inventory.view_lfd_calendar", "View LFD calendar", None, None, None),
+    ("inventory", "Inventory", "inventory.modify_lfd", "Modify LFD", None, None, None),
+    ("inventory", "Inventory", "inventory.returned", "Returned", "Returned", None, "Both SKU n GRN"),
+    ("inventory", "Inventory", "inventory.delivered", "delivered", "Delivered", None, "Both SKU n GRN"),
+]
+
+SHEET_ACTIVITY_MIN_LEVELS = {
+    "documents.reject_extraction": "L2",
+    "documents.revoke_approval": "L3",
+    "documents.override_approved_fields": "L3",
+    "documents.view_draft": "L2",
+    "documents.fill_manual_fields": "L1",
+    "documents.modify_generated_fields": "L2",
+    "documents.save_draft": "L1",
+    "documents.submit_for_review": "L2",
+    "documents.approve_generated_document": "L2",
+    "documents.reject_generated_document": "L2",
+    "documents.generate_draft": "L2",
+    "documents.re_trigger_generation": "L2",
+    "documents.discard_draft": "L2",
+    "documents.validation_triggered": "L1",
+    "documents.view_validation_results": "L1",
+    "documents.resolve_validation_failure": "L2",
+    "documents.trigger_re_validation": "L2",
+    "documents.map_container_to_sku": "L1",
+    "documents.submit_mapping_for_approval": "L2",
+    "documents.approve_container_mapping": "L3",
+    "documents.reject_container_mapping": "L3",
+    "shipments.export_details": "L2",
+    "shipments.hold_shipment": "L3",
+    "shipments.resume_shipment": "L3",
+    "shipments.cancel_shipment": "L4",
+    "shipments.change_shipment_type": "L3",
+    "inventory.create_outward_grn_new_dispatch": "L2",
+    "inventory.approve_dispatch": "L3",
+    "inventory.reject_dispatch": "L3",
+    "inventory.adjust_stock_without_remarks": "L3",
+    "inventory.adjust_stock_with_remarks": "L4",
+    "inventory.move_inventory": "L3",
+    "inventory.modify_lfd": "L3",
+    "inventory.returned": "L2",
+    "inventory.delivered": "L2",
+}
+
+
+def _sheet_activity_id(activity_code: str) -> str:
+    return "activity-" + activity_code.replace(".", "-").replace("_", "-")
+
+
+def _sheet_activity_group(sub_module: str) -> tuple[str, str]:
+    if sub_module in {"Document", "OCR & Extraction"}:
+        return ("document", "Document Activities")
+    if sub_module == "Generated Documents":
+        return ("generation", "Generation Activities")
+    if sub_module == "Validation":
+        return ("validation", "Validation Activities")
+    if sub_module == "Container Mapping":
+        return ("container_mapping", "Container Mapping Activities")
+    if sub_module == "Active Templates":
+        return ("shipment", "Shipment Activities")
+    if sub_module == "Inventory":
+        return ("inventory", "Inventory Activities")
+    slug = sub_module.lower().replace("&", "and").replace(" ", "_")
+    return (slug, f"{sub_module} Activities")
+
+
+def _activity_prefix(group_code: str, module_code: str) -> str:
+    return {
+        "document": "DOC",
+        "generation": "GEN",
+        "validation": "VAL",
+        "container_mapping": "MAP",
+        "shipment": "SHP",
+        "inventory": "INV",
+    }.get(group_code, module_code[:3].upper())
+
+
+def _merge_sheet_status_activities(activities: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    sheet_codes = {row[2] for row in SHEET_STATUS_ACTIVITY_ROWS}
+    old_activity_by_code = {
+        str(activity["activityCode"]): activity
+        for activity in activities
+        if str(activity.get("activityCode") or "") in sheet_codes
+    }
+    for activity in activities:
+        code = str(activity["activityCode"])
+        if code not in sheet_codes:
+            continue
+        merged[code] = {**activity, "moduleCode": activity.get("moduleCode") or activity.get("category")}
+
+    group_counts: dict[str, int] = {}
+    for module_code, sub_module, activity_code, name, scope, status, remarks in SHEET_STATUS_ACTIVITY_ROWS:
+        group_code, group_label = _sheet_activity_group(sub_module)
+        group_counts[group_code] = group_counts.get(group_code, 0) + 1
+        display_code = f"{_activity_prefix(group_code, module_code)}-{group_counts[group_code]:03d}"
+        row: dict[str, Any] = {
+            "id": _sheet_activity_id(activity_code),
+            "activityCode": activity_code,
+            "displayCode": display_code,
+            "name": name,
+            "category": group_code,
+            "moduleCode": module_code,
+            "displayGroup": group_label,
+            "subModule": sub_module,
+            "scope": scope,
+            "status": status,
+            "remarks": remarks,
+            "minLevel": old_activity_by_code.get(activity_code, {}).get("minLevel", SHEET_ACTIVITY_MIN_LEVELS.get(activity_code, "L1")),
+        }
+        if scope and "doc" in scope.lower():
+            row["scopeType"] = "docType"
+        clean_row = {key: value for key, value in row.items() if value is not None}
+        if activity_code in merged:
+            merged[activity_code].update(clean_row)
+        else:
+            merged[activity_code] = clean_row
+        order.append(activity_code)
+
+    return [merged[code] for code in order]
+
+
+ACTIVITY_DEFINITIONS = _merge_sheet_status_activities(ACTIVITY_DEFINITIONS)
+
 ACTIVITY_MODULES = {
-    activity["activityCode"]: activity["category"]
+    activity["activityCode"]: activity.get("moduleCode") or activity["category"]
     for activity in ACTIVITY_DEFINITIONS
-    if activity.get("category") in {module["moduleCode"] for module in MODULE_DEFINITIONS}
+    if (activity.get("moduleCode") or activity.get("category")) in {module["moduleCode"] for module in MODULE_DEFINITIONS}
 }
 
 
@@ -244,6 +768,8 @@ class RoleProfileRequest(BaseModel):
     color: str | None = None
     allowedLevels: list[str] = []
     defaultDataScope: str | None = None
+    documentScope: list[str] = []
+    docTypeScopes: dict[str, list[str]] = Field(default_factory=dict)
     defaultModules: list[str] = []
     activityCodes: list[str] = []
 
@@ -252,6 +778,21 @@ class TeamRequest(BaseModel):
     name: str
     function: str | None = None
     region: str | None = None
+
+
+class EscalationConfigRequest(BaseModel):
+    activityType: str | None = None
+    activityName: str | None = None
+    description: str | None = None
+    scope: str | None = None
+    baseDoc: str | None = None
+    baseSlaHours: float | None = None
+    reminderPct: int | None = None
+    warningPct: int | None = None
+    escalationPct: int | None = None
+    blockerPct: int | None = None
+    channels: dict[str, Any] | None = None
+    targets: dict[str, Any] | None = None
 
 
 class DelegationRequest(BaseModel):
@@ -290,7 +831,7 @@ DOC_TYPE_REGISTRY: list[dict[str, Any]] = [
     {"id": "PACKING_LIST", "typeCode": "PACKING_LIST", "displayName": "Packing List", "shortCode": "PL", "geography": "INDIA", "hasExtraction": True, "isSystem": True, "sortOrder": 20},
     {"id": "BILL_OF_LADING", "typeCode": "BILL_OF_LADING", "displayName": "Bill of Lading", "shortCode": "BOL", "geography": "GLOBAL", "hasExtraction": True, "isSystem": True, "sortOrder": 30},
     {"id": "SHIPPING_BILL", "typeCode": "SHIPPING_BILL", "displayName": "Shipping Bill", "shortCode": "SB", "geography": "INDIA", "hasExtraction": True, "isSystem": True, "sortOrder": 40},
-    {"id": "ENTRY_SUMMARY", "typeCode": "ENTRY_SUMMARY", "displayName": "Entry Summary", "shortCode": "BOE", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 50},
+    {"id": "ENTRY_SUMMARY", "typeCode": "ENTRY_SUMMARY", "displayName": "CBP FORM 7501", "shortCode": "CBP", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 50},
     {"id": "CHA_BILL", "typeCode": "CHA_BILL", "displayName": "CHA Bill", "shortCode": "CHA", "geography": "INDIA", "hasExtraction": True, "isSystem": True, "sortOrder": 60},
     {"id": "FREIGHT_FORWARDER_BILL", "typeCode": "FREIGHT_FORWARDER_BILL", "displayName": "Freight Forwarder Bill", "shortCode": "FF", "geography": "GLOBAL", "hasExtraction": True, "isSystem": True, "sortOrder": 70},
     {"id": "OCEAN_FREIGHT", "typeCode": "OCEAN_FREIGHT", "displayName": "Ocean Freight", "shortCode": "OF", "geography": "GLOBAL", "hasExtraction": True, "isSystem": True, "sortOrder": 80},
@@ -306,6 +847,90 @@ DOC_TYPE_REGISTRY: list[dict[str, Any]] = [
     {"id": "ISF", "typeCode": "ISF", "displayName": "ISF", "shortCode": "ISF", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 180},
 ]
 
+DEFAULT_ESCALATION_CHANNELS: dict[str, Any] = {
+    "reminder": {"email": False, "freshdesk": False},
+    "warning": {"email": True, "freshdesk": False},
+    "escalation": {"email": True, "freshdesk": False},
+    "blocker": {"email": True, "freshdesk": True},
+}
+
+GENERATED_DOCUMENT_SOURCE_DOCS = "Sales Invoice, Packing List, Bill of Lading"
+
+SLA_ELIGIBLE_ACTIVITY_ROWS: list[tuple[str, str, str, str]] = [
+    ("Document", "Upload Document", "SCOPE OF DOCS BASED - every doc to have a SLA", "Doc names"),
+    ("Generated Documents", "Fill Manual Fields", "Scope -3 docs", GENERATED_DOCUMENT_SOURCE_DOCS),
+    (
+        "Generated Documents",
+        "Submit for Review",
+        "SCOPE OF DOCS BASED - every doc to have a SLA. Edge case: If the doc is rejected - the submit for review timer will start",
+        GENERATED_DOCUMENT_SOURCE_DOCS,
+    ),
+    ("Generated Documents", "Approve Generated Document", "", GENERATED_DOCUMENT_SOURCE_DOCS),
+    ("Validation", "Resolve Validation Failure", "SCOPE OF DOCS BASED - every doc to have a SLA", "Doc names"),
+    ("", "Map Container to SKU", "", ""),
+    ("", "Approve Container Mapping", "", ""),
+]
+
+def _slug(value: str) -> str:
+    slug = "".join(ch.lower() if ch.isalnum() else "_" for ch in value.strip())
+    while "__" in slug:
+        slug = slug.replace("__", "_")
+    return slug.strip("_") or "activity"
+
+
+def _escalation_config_from_sla_row(index: int, scope: str, activity_name: str, description: str, base_doc: str) -> dict[str, Any]:
+    activity_type = _slug(activity_name)
+    return {
+        "id": f"sla_{index:03d}_{activity_type}",
+        "activityType": activity_type,
+        "activityName": activity_name,
+        "description": description,
+        "scope": scope,
+        "baseDoc": base_doc,
+        "baseSlaHours": 24,
+        "reminderPct": 0,
+        "warningPct": 50,
+        "escalationPct": 75,
+        "blockerPct": 100,
+        "channels": DEFAULT_ESCALATION_CHANNELS,
+        "targets": {},
+    }
+
+
+DEFAULT_ESCALATION_CONFIGS: list[dict[str, Any]] = [
+    _escalation_config_from_sla_row(index, scope, activity_name, description, base_doc)
+    for index, (scope, activity_name, description, base_doc) in enumerate(SLA_ELIGIBLE_ACTIVITY_ROWS, start=1)
+]
+
+def _escalation_row_to_config(row: dict[str, Any]) -> dict[str, Any]:
+    channels = row.get("channels")
+    targets = row.get("targets")
+    if isinstance(channels, str):
+        try:
+            channels = json.loads(channels)
+        except Exception:
+            channels = {}
+    if isinstance(targets, str):
+        try:
+            targets = json.loads(targets)
+        except Exception:
+            targets = {}
+    return {
+        "id": str(row.get("id") or ""),
+        "activityType": row.get("activity_type") or "",
+        "activityName": row.get("activity_name") or "",
+        "description": row.get("description") or "",
+        "scope": row.get("scope") or "",
+        "baseDoc": row.get("base_doc") or "",
+        "baseSlaHours": float(row.get("base_sla_hours") or 24),
+        "reminderPct": int(row.get("reminder_pct") or 0),
+        "warningPct": int(row.get("warning_pct") or 50),
+        "escalationPct": int(row.get("escalation_pct") or 75),
+        "blockerPct": int(row.get("blocker_pct") or 100),
+        "channels": channels or DEFAULT_ESCALATION_CHANNELS,
+        "targets": targets or {},
+    }
+
 def _role_value(role) -> str:
     return getattr(role, "value", None) or str(role)
 
@@ -317,7 +942,12 @@ def _role_definition(role) -> dict:
 
 def _role_from_request(role_id: str) -> str:
     normalized = role_id.strip()
-    return ROLE_ALIASES.get(normalized.lower(), normalized if normalized in {"SUPER_ADMIN", "ADMIN", "USER"} else "USER")
+    known_roles = {item["id"] for item in ROLE_DEFINITIONS}
+    return ROLE_ALIASES.get(normalized.lower(), normalized if normalized in known_roles else "India Logistics")
+
+
+def _canonical_role_name(role_name: str) -> str:
+    return ROLE_ALIASES.get(str(role_name or "").strip().lower(), str(role_name or "").strip())
 
 
 def _display_role_name(role_name: str) -> str:
@@ -326,9 +956,8 @@ def _display_role_name(role_name: str) -> str:
 
 def _role_category(role_name: str) -> str:
     normalized = _role_from_request(role_name)
-    if normalized in {"ADMIN", "SUPER_ADMIN"}:
-        return "admin"
-    return "user"
+    defaults = ROLE_DEFAULTS.get(normalized, {})
+    return str(defaults.get("roleCategory") or "INTERNAL_SPECIALIST")
 
 
 def _normalize_data_scope(scope: str) -> str:
@@ -338,6 +967,18 @@ def _normalize_data_scope(scope: str) -> str:
     if normalized in {"ASSIGNED", "ASSIGNED_ONLY"}:
         return "TAGGED"
     return "TEAM"
+
+
+def _is_external_access_user(attrs: dict, role_category: str = "") -> bool:
+    org_id = _attr_value(attrs, "ewms.orgId", "default-org").strip()
+    if org_id in {"", "default-org"}:
+        return False
+    user_type = _attr_value(attrs, "ewms.userType", "").strip().lower()
+    if user_type in {"external", "partner"}:
+        return True
+    if user_type == "internal":
+        return False
+    return str(role_category or "").strip().lower() in {"org_external", "external", "partner"}
 
 
 def _attr_values(attributes: dict | None, key: str) -> list[str]:
@@ -361,6 +1002,48 @@ def _role_id_from_name(name: str) -> str:
     return normalized.strip("_") or "CUSTOM_ROLE"
 
 
+def _default_document_scope(role_name: str, defaults: dict[str, Any]) -> list[str]:
+    configured = defaults.get("documentScope")
+    if configured:
+        return sorted({str(item) for item in configured if str(item)})
+    from helpers.rbac_data_access import ALL_DOCUMENT_ACCESS_ROLES, ROLE_DOCUMENT_TYPES, normalize_role_name
+
+    normalized = normalize_role_name(role_name)
+    if normalized in ALL_DOCUMENT_ACCESS_ROLES:
+        return sorted({str(item["typeCode"]) for item in DOC_TYPE_REGISTRY})
+    return sorted(ROLE_DOCUMENT_TYPES.get(normalized, set()))
+
+
+def _normalize_doc_type_list(values: list[str] | None) -> list[str]:
+    return sorted({str(item).strip().upper() for item in values or [] if str(item).strip()})
+
+
+def _parse_doc_type_scopes(attrs: dict | None) -> dict[str, list[str]]:
+    raw = _attr_value(attrs, "ewms.docTypeScopes", "")
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    scopes: dict[str, list[str]] = {}
+    for activity_code, values in parsed.items():
+        if isinstance(values, list):
+            scopes[str(activity_code)] = _normalize_doc_type_list(values)
+    return scopes
+
+
+def _doc_type_scopes_from_request(request: RoleProfileRequest) -> dict[str, list[str]]:
+    scopes: dict[str, list[str]] = {}
+    for activity_code, values in (request.docTypeScopes or {}).items():
+        normalized = _normalize_doc_type_list(values)
+        if normalized:
+            scopes[str(activity_code)] = normalized
+    return scopes
+
+
 def _role_profile_from_keycloak(role: dict, *, user_count: int = 0, detail: bool = False) -> dict[str, Any]:
     role_name = str(role.get("name") or "")
     default_key = role_name if role_name in ROLE_DEFAULTS else ROLE_ALIASES.get(role_name.lower(), "")
@@ -369,20 +1052,36 @@ def _role_profile_from_keycloak(role: dict, *, user_count: int = 0, detail: bool
     modules = _attr_values(attrs, "ewms.modules") or list(defaults.get("defaultModules", []))
     levels = _attr_values(attrs, "ewms.levels") or list(defaults.get("allowedLevels", []))
     activity_codes = _attr_values(attrs, "ewms.activities") or list(defaults.get("activityCodes", []))
+    document_scope = _attr_values(attrs, "ewms.documentScope") or _default_document_scope(role_name, defaults)
+    doc_type_scopes = _parse_doc_type_scopes(attrs)
+    scoped_activity_codes = {
+        str(activity["activityCode"])
+        for activity in ACTIVITY_DEFINITIONS
+        if activity.get("scopeType") == "docType"
+    }
+    for activity_code in scoped_activity_codes:
+        if activity_code in activity_codes and activity_code not in doc_type_scopes and document_scope:
+            doc_type_scopes[activity_code] = list(document_scope)
+    role_id = default_key if default_key in ROLE_DEFAULTS else role_name
+    is_reference_role = default_key in ROLE_DEFAULTS
+    display_name = str(defaults.get("name") or _display_role_name(role_name)) if is_reference_role else _attr_value(attrs, "ewms.displayName", _display_role_name(role_name))
+    role_category = str(defaults.get("roleCategory") or _role_category(role_name)) if is_reference_role else _attr_value(attrs, "ewms.category", _role_category(role_name))
     row = {
-        "id": role_name,
-        "name": _attr_value(attrs, "ewms.displayName", str(defaults.get("name") or _display_role_name(role_name))),
-        "displayName": _attr_value(attrs, "ewms.displayName", str(defaults.get("name") or _display_role_name(role_name))),
+        "id": role_id,
+        "name": display_name,
+        "displayName": display_name,
         "description": role.get("description") or defaults.get("description"),
-        "roleCategory": _attr_value(attrs, "ewms.category", str(defaults.get("roleCategory") or _role_category(role_name))),
-        "profileCategory": _attr_value(attrs, "ewms.category", str(defaults.get("roleCategory") or _role_category(role_name))),
+        "roleCategory": role_category,
+        "profileCategory": ROLE_PROFILE_CATEGORIES.get(role_category, role_category),
         "isActive": True,
         "isSystemDefault": default_key in ROLE_DEFAULTS or role_name.lower() in {"admin", "user"},
-        "systemCode": default_key if default_key in ROLE_DEFAULTS else None,
+        "systemCode": ROLE_SYSTEM_CODES.get(default_key),
         "color": _attr_value(attrs, "ewms.color", str(defaults.get("color") or "#64748b")),
         "allowedLevels": levels,
         "defaultModules": modules,
         "defaultDataScope": _attr_value(attrs, "ewms.dataScope", str(defaults.get("defaultDataScope") or "TEAM")),
+        "documentScope": document_scope,
+        "docTypeScopes": doc_type_scopes,
         "_count": {"users": user_count, "roleActivities": len(activity_codes)},
     }
     if detail:
@@ -393,7 +1092,11 @@ def _role_profile_from_keycloak(role: dict, *, user_count: int = 0, detail: bool
                     for activity in ACTIVITY_DEFINITIONS
                     if activity["activityCode"] in activity_codes
                 ],
-                "docTypePerms": [],
+                "docTypePerms": [
+                    {"action": activity_code, "activityCode": activity_code, "docType": doc_type}
+                    for activity_code, doc_types in doc_type_scopes.items()
+                    for doc_type in doc_types
+                ],
                 "ticketPerms": [],
                 "gateAssignments": [],
             }
@@ -404,6 +1107,10 @@ def _role_profile_from_keycloak(role: dict, *, user_count: int = 0, detail: bool
 def _role_payload_from_request(request: RoleProfileRequest, *, role_id: str | None = None) -> dict[str, Any]:
     name = role_id or _role_id_from_name(request.name)
     modules = set(request.defaultModules or [])
+    doc_type_scopes = _doc_type_scopes_from_request(request)
+    document_scope = _normalize_doc_type_list(request.documentScope)
+    if not document_scope and doc_type_scopes:
+        document_scope = sorted({doc_type for doc_types in doc_type_scopes.values() for doc_type in doc_types})
     for activity_code in request.activityCodes or []:
         module_code = ACTIVITY_MODULES.get(activity_code)
         if module_code:
@@ -417,11 +1124,44 @@ def _role_payload_from_request(request: RoleProfileRequest, *, role_id: str | No
             "ewms.color": [request.color or "#64748b"],
             "ewms.levels": request.allowedLevels or ["L1"],
             "ewms.dataScope": [request.defaultDataScope or "TEAM"],
+            "ewms.documentScope": document_scope,
+            "ewms.docTypeScopes": [json.dumps(doc_type_scopes, sort_keys=True)],
             "ewms.modules": sorted(modules),
             "ewms.activities": request.activityCodes,
             "ewms.managedBy": ["ewms-admin"],
         },
     }
+
+
+def _default_role_request(role_name: str) -> RoleProfileRequest:
+    canonical_name = _canonical_role_name(role_name)
+    defaults = ROLE_DEFAULTS[canonical_name]
+    return RoleProfileRequest(
+        name=canonical_name,
+        description=str(defaults.get("description") or ""),
+        roleCategory=str(defaults.get("roleCategory") or "INTERNAL_SPECIALIST"),
+        color=str(defaults.get("color") or "#64748b"),
+        allowedLevels=list(defaults.get("allowedLevels") or ["L1"]),
+        defaultDataScope=str(defaults.get("defaultDataScope") or "TEAM"),
+        documentScope=_default_document_scope(canonical_name, defaults),
+        defaultModules=list(defaults.get("defaultModules") or []),
+        activityCodes=list(defaults.get("activityCodes") or []),
+    )
+
+
+def _ensure_keycloak_role(keycloak_admin, role_name: str) -> dict:
+    try:
+        return keycloak_admin.get_realm_role(role_name)
+    except Exception:
+        canonical_name = _canonical_role_name(role_name)
+        if canonical_name not in ROLE_DEFAULTS:
+            raise
+        payload = _role_payload_from_request(_default_role_request(canonical_name), role_id=canonical_name)
+        try:
+            keycloak_admin.create_realm_role(payload, skip_exists=True)
+        except Exception:
+            pass
+        return keycloak_admin.get_realm_role(canonical_name)
 
 
 def _user_attrs(user: dict) -> dict[str, Any]:
@@ -526,6 +1266,132 @@ async def _execute_raw(prisma, sql: str, *params) -> Any:
     if execute_raw is None:
         raise RuntimeError("Prisma client has no execute_raw")
     return await execute_raw(sql, *params)
+
+
+async def _ensure_escalation_config_table(prisma) -> None:
+    await _execute_raw(
+        prisma,
+        """
+        CREATE TABLE IF NOT EXISTS "public"."escalation_configs" (
+          "id" TEXT PRIMARY KEY,
+          "activity_type" TEXT NOT NULL,
+          "activity_name" TEXT NOT NULL,
+          "description" TEXT NOT NULL DEFAULT '',
+          "scope" TEXT NOT NULL DEFAULT '',
+          "base_doc" TEXT NOT NULL DEFAULT '',
+          "base_sla_hours" DOUBLE PRECISION NOT NULL DEFAULT 24,
+          "reminder_pct" INTEGER NOT NULL DEFAULT 0,
+          "warning_pct" INTEGER NOT NULL DEFAULT 50,
+          "escalation_pct" INTEGER NOT NULL DEFAULT 75,
+          "blocker_pct" INTEGER NOT NULL DEFAULT 100,
+          "channels" JSONB NOT NULL DEFAULT '{}'::jsonb,
+          "targets" JSONB NOT NULL DEFAULT '{}'::jsonb,
+          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+    )
+    await _execute_raw(
+        prisma,
+        """
+        CREATE INDEX IF NOT EXISTS "idx_escalation_configs_activity_type"
+        ON "public"."escalation_configs" ("activity_type")
+        """,
+    )
+    await _execute_raw(
+        prisma,
+        """
+        CREATE INDEX IF NOT EXISTS "idx_escalation_configs_scope"
+        ON "public"."escalation_configs" ("scope")
+        """,
+    )
+
+
+async def _seed_default_escalation_configs(prisma) -> None:
+    await _ensure_escalation_config_table(prisma)
+    for item in DEFAULT_ESCALATION_CONFIGS:
+        await _execute_raw(
+            prisma,
+            """
+            INSERT INTO "public"."escalation_configs" (
+              "id", "activity_type", "activity_name", "description", "scope", "base_doc",
+              "base_sla_hours", "reminder_pct", "warning_pct", "escalation_pct", "blocker_pct",
+              "channels", "targets"
+            )
+            VALUES (
+              $1, $2, $3, $4, $5, $6,
+              $7, $8, $9, $10, $11,
+              $12::jsonb, $13::jsonb
+            )
+            ON CONFLICT ("id") DO NOTHING
+            """,
+            str(item["id"]),
+            str(item["activityType"]),
+            str(item["activityName"]),
+            str(item.get("description") or ""),
+            str(item.get("scope") or ""),
+            str(item.get("baseDoc") or ""),
+            float(item.get("baseSlaHours") or 24),
+            int(item.get("reminderPct") or 0),
+            int(item.get("warningPct") or 50),
+            int(item.get("escalationPct") or 75),
+            int(item.get("blockerPct") or 100),
+            json.dumps(item.get("channels") or DEFAULT_ESCALATION_CHANNELS),
+            json.dumps(item.get("targets") or {}),
+        )
+
+
+async def _list_escalation_configs(prisma) -> list[dict[str, Any]]:
+    await _seed_default_escalation_configs(prisma)
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT *
+        FROM "public"."escalation_configs"
+        ORDER BY "activity_name" ASC, "scope" ASC, "id" ASC
+        """,
+    )
+    return [_escalation_row_to_config(row) for row in rows]
+
+
+async def _get_escalation_config(prisma, config_id: str) -> dict[str, Any] | None:
+    await _seed_default_escalation_configs(prisma)
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT *
+        FROM "public"."escalation_configs"
+        WHERE "id" = $1
+        LIMIT 1
+        """,
+        config_id,
+    )
+    return _escalation_row_to_config(rows[0]) if rows else None
+
+
+async def _next_escalation_config_id_db(prisma, activity_type: str, scope: str = "") -> str:
+    await _seed_default_escalation_configs(prisma)
+    base = f"sla_custom_{_slug(activity_type)}"
+    scope_slug = _slug(scope)
+    if scope_slug:
+        base = f"{base}_{scope_slug}"
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT "id"
+        FROM "public"."escalation_configs"
+        WHERE "id" = $1 OR "id" LIKE $2
+        """,
+        base,
+        f"{base}_%",
+    )
+    existing = {str(row["id"]) for row in rows}
+    candidate = base
+    index = 2
+    while candidate in existing:
+        candidate = f"{base}_{index}"
+        index += 1
+    return candidate
 
 
 async def _ensure_validation_rule_override_table(prisma) -> None:
@@ -707,6 +1573,149 @@ async def list_admin_activities(_user=Depends(get_admin_user)):
     return {"ok": True, "data": ACTIVITY_DEFINITIONS}
 
 
+@router.get("/escalation")
+@legacy_router.get("/escalation")
+async def list_admin_escalation(_user=Depends(get_admin_user)):
+    prisma = await get_prisma()
+    return {"ok": True, "data": await _list_escalation_configs(prisma)}
+
+
+@router.post("/escalation")
+@legacy_router.post("/escalation")
+async def create_admin_escalation(request: EscalationConfigRequest, _user=Depends(get_admin_user)):
+    prisma = await get_prisma()
+    data = request.model_dump(exclude_unset=True)
+    activity_type = str(data.get("activityType") or "").strip()
+    activity_name = str(data.get("activityName") or activity_type).strip()
+    if not activity_type or not activity_name:
+        return {"ok": False, "error": "Activity type and name are required."}
+
+    scope = str(data.get("scope") or "").strip()
+    config_id = await _next_escalation_config_id_db(prisma, activity_type, scope)
+    current = {
+        "id": config_id,
+        "activityType": activity_type,
+        "activityName": activity_name,
+        "description": data.get("description") or "",
+        "scope": scope,
+        "baseDoc": data.get("baseDoc") or "",
+        "baseSlaHours": data.get("baseSlaHours") or 24,
+        "reminderPct": data.get("reminderPct") if data.get("reminderPct") is not None else 0,
+        "warningPct": data.get("warningPct") if data.get("warningPct") is not None else 50,
+        "escalationPct": data.get("escalationPct") if data.get("escalationPct") is not None else 75,
+        "blockerPct": data.get("blockerPct") if data.get("blockerPct") is not None else 100,
+        "channels": data.get("channels") or DEFAULT_ESCALATION_CHANNELS,
+        "targets": data.get("targets") or {},
+    }
+    await _execute_raw(
+        prisma,
+        """
+        INSERT INTO "public"."escalation_configs" (
+          "id", "activity_type", "activity_name", "description", "scope", "base_doc",
+          "base_sla_hours", "reminder_pct", "warning_pct", "escalation_pct", "blocker_pct",
+          "channels", "targets"
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6,
+          $7, $8, $9, $10, $11,
+          $12::jsonb, $13::jsonb
+        )
+        """,
+        config_id,
+        activity_type,
+        activity_name,
+        str(current["description"]),
+        scope,
+        str(current["baseDoc"]),
+        float(current["baseSlaHours"]),
+        int(current["reminderPct"]),
+        int(current["warningPct"]),
+        int(current["escalationPct"]),
+        int(current["blockerPct"]),
+        json.dumps(current["channels"]),
+        json.dumps(current["targets"]),
+    )
+    return {"ok": True, "data": current}
+
+
+@router.put("/escalation/{config_id}")
+@legacy_router.put("/escalation/{config_id}")
+async def update_admin_escalation(config_id: str, request: EscalationConfigRequest, _user=Depends(get_admin_user)):
+    prisma = await get_prisma()
+    current = await _get_escalation_config(prisma, config_id)
+    if not current:
+        return {"ok": False, "error": "Escalation config not found."}
+    updates = request.model_dump(exclude_unset=True)
+    for key, value in updates.items():
+        if value is not None:
+            current[key] = value
+    await _execute_raw(
+        prisma,
+        """
+        UPDATE "public"."escalation_configs"
+        SET "activity_type" = $2,
+            "activity_name" = $3,
+            "description" = $4,
+            "scope" = $5,
+            "base_doc" = $6,
+            "base_sla_hours" = $7,
+            "reminder_pct" = $8,
+            "warning_pct" = $9,
+            "escalation_pct" = $10,
+            "blocker_pct" = $11,
+            "channels" = $12::jsonb,
+            "targets" = $13::jsonb,
+            "updated_at" = NOW()
+        WHERE "id" = $1
+        """,
+        config_id,
+        str(current["activityType"]),
+        str(current["activityName"]),
+        str(current.get("description") or ""),
+        str(current.get("scope") or ""),
+        str(current.get("baseDoc") or ""),
+        float(current.get("baseSlaHours") or 24),
+        int(current.get("reminderPct") or 0),
+        int(current.get("warningPct") or 50),
+        int(current.get("escalationPct") or 75),
+        int(current.get("blockerPct") or 100),
+        json.dumps(current.get("channels") or DEFAULT_ESCALATION_CHANNELS),
+        json.dumps(current.get("targets") or {}),
+    )
+    return {"ok": True, "data": current}
+
+
+@router.delete("/escalation/{config_id}")
+@legacy_router.delete("/escalation/{config_id}")
+async def delete_admin_escalation(config_id: str, _user=Depends(get_admin_user)):
+    prisma = await get_prisma()
+    current = await _get_escalation_config(prisma, config_id)
+    if not current:
+        return {"ok": False, "error": "Escalation config not found."}
+    activity_type = str(current.get("activityType") or "")
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT COUNT(*) AS count
+        FROM "public"."escalation_configs"
+        WHERE "activity_type" = $1
+        """,
+        activity_type,
+    )
+    sibling_count = int(rows[0].get("count") or 0) if rows else 0
+    if sibling_count <= 1:
+        return {"ok": False, "error": "Each activity must have at least one escalation config."}
+    await _execute_raw(
+        prisma,
+        """
+        DELETE FROM "public"."escalation_configs"
+        WHERE "id" = $1
+        """,
+        config_id,
+    )
+    return {"ok": True, "data": current}
+
+
 @router.get("/partners")
 @legacy_router.get("/partners")
 async def list_admin_partners(_user=Depends(get_admin_user)):
@@ -726,11 +1735,21 @@ async def get_team_overview(_user=Depends(get_admin_user)):
         override_users = 0
         for user in active_users:
             user = keycloak_admin.get_user(user["id"])
-            roles = [str(role.get("name") or "") for role in keycloak_admin.get_realm_roles_of_user(user["id"])]
-            if _local_role_from_keycloak_roles(roles, str(user.get("email") or "")) in {"ADMIN", "SUPER_ADMIN"}:
+            assigned_roles = keycloak_admin.get_realm_roles_of_user(user["id"])
+            role_names = [str(role.get("name") or "") for role in assigned_roles]
+            local_role = _local_role_from_keycloak_roles(role_names, str(user.get("email") or ""))
+            if local_role in {"ADMIN", "SUPER_ADMIN"}:
                 admin_users += 1
             attrs = _user_attrs(user)
-            if _attr_value(attrs, "ewms.userType", "internal") != "internal":
+            primary_role = _primary_role_name(role_names)
+            role_category = "org_admin" if local_role in {"ADMIN", "SUPER_ADMIN"} else "org_internal"
+            if primary_role:
+                try:
+                    role = keycloak_admin.get_realm_role(primary_role)
+                    role_category = _attr_value(role.get("attributes") or {}, "ewms.category", role_category)
+                except Exception:
+                    pass
+            if _is_external_access_user(attrs, role_category):
                 partner_users += 1
             if _attr_value(attrs, "ewms.approvalLimitInr") or _attr_value(attrs, "ewms.approvalLimitUsd"):
                 override_users += 1
@@ -861,12 +1880,13 @@ async def update_validation_rule(
 
 def _local_role_from_keycloak_roles(roles: list[str], email: str = "") -> str:
     if email.lower() == "admin@sprconsultech.com":
-        return "ADMIN"
-    normalized = {role.upper().replace("-", "_") for role in roles}
-    if "SUPER_ADMIN" in normalized:
         return "SUPER_ADMIN"
-    if "ADMIN" in normalized:
-        return "ADMIN"
+    for role in roles:
+        normalized = ROLE_ALIASES.get(str(role).lower(), str(role))
+        if normalized == "Super Admin":
+            return "SUPER_ADMIN"
+        if normalized == "Org Admin":
+            return "ADMIN"
     return "USER"
 
 
@@ -880,8 +1900,8 @@ def _keycloak_user_name(user: dict) -> str:
 
 
 def _primary_role_name(role_names: list[str]) -> str:
-    normalized = {role.upper().replace("-", "_"): role for role in role_names}
-    for role in ("SUPER_ADMIN", "ADMIN"):
+    normalized = {ROLE_ALIASES.get(role.lower(), role): role for role in role_names}
+    for role in ROLE_DEFAULTS:
         if role in normalized:
             return normalized[role]
     for role in role_names:
@@ -892,17 +1912,29 @@ def _primary_role_name(role_names: list[str]) -> str:
             and normalized_role not in {"USER", "ADMIN", "SUPER_ADMIN"}
         ):
             return role
-    if "USER" in normalized:
-        return normalized["USER"]
-    return "USER"
+    if "India Logistics" in normalized:
+        return normalized["India Logistics"]
+    return "India Logistics"
 
 
 def _keycloak_user_row(user: dict, roles: list[dict], groups: list[dict] | None = None) -> dict:
     role_names = [str(role.get("name")) for role in roles if role.get("name")]
+    email = str(user.get("email") or user.get("username") or "").strip().lower()
+    reference_user = REFERENCE_USER_DEFAULTS.get(email, {})
     primary_role = _primary_role_name(role_names)
-    primary_role_data = next((role for role in roles if str(role.get("name") or "") == primary_role), {})
+    if reference_user:
+        primary_role = str(reference_user["roleName"])
+    canonical_role = _canonical_role_name(primary_role)
+    primary_role_data = next(
+        (
+            role for role in roles
+            if str(role.get("name") or "") == primary_role
+            or _canonical_role_name(str(role.get("name") or "")) == canonical_role
+        ),
+        {},
+    )
     role_attrs = primary_role_data.get("attributes") or {}
-    role_defaults = ROLE_DEFAULTS.get(primary_role, {})
+    role_defaults = ROLE_DEFAULTS.get(canonical_role, {})
     attrs = _user_attrs(user)
     team_id = _attr_value(attrs, "ewms.teamId", "")
     if not team_id and groups:
@@ -911,24 +1943,35 @@ def _keycloak_user_row(user: dict, roles: list[dict], groups: list[dict] | None 
     level = _attr_value(
         attrs,
         "ewms.level",
-        sorted(role_levels or ["L1"], key=lambda item: int(str(item).replace("L", "") or "1"))[-1],
+        str(reference_user.get("level") or sorted(role_levels or ["L1"], key=lambda item: int(str(item).replace("L", "") or "1"))[-1]),
     )
     role_data_scope = _normalize_data_scope(_attr_value(role_attrs, "ewms.dataScope", str(role_defaults.get("defaultDataScope") or "TEAM")))
-    data_scope = _normalize_data_scope(_attr_value(attrs, "ewms.dataScope", role_data_scope))
-    role_category = _attr_value(role_attrs, "ewms.category", _role_category(primary_role))
-    full_name = _keycloak_user_name(user)
+    data_scope = _normalize_data_scope(_attr_value(attrs, "ewms.dataScope", str(reference_user.get("dataScope") or role_data_scope)))
+    doc_type_scopes = _parse_doc_type_scopes(role_attrs)
+    document_scope = (
+        _attr_values(role_attrs, "ewms.documentScope")
+        or sorted({doc_type for doc_types in doc_type_scopes.values() for doc_type in doc_types})
+        or _default_document_scope(canonical_role, role_defaults)
+    )
+    is_reference_role = canonical_role in ROLE_DEFAULTS
+    role_category = str(role_defaults.get("roleCategory") or _role_category(canonical_role)) if is_reference_role else _attr_value(role_attrs, "ewms.category", _role_category(canonical_role))
+    full_name = str(reference_user.get("fullName") or _keycloak_user_name(user))
+    row_role_id = canonical_role if canonical_role in ROLE_DEFAULTS else primary_role
+    role_display_name = str(role_defaults.get("name") or _display_role_name(primary_role)) if is_reference_role else _attr_value(role_attrs, "ewms.displayName", _display_role_name(primary_role))
     return {
         "id": str(user.get("id") or ""),
         "orgId": _attr_value(attrs, "ewms.orgId", "default-org"),
-        "roleId": primary_role,
-        "email": str(user.get("email") or user.get("username") or ""),
+        "roleId": row_role_id,
+        "email": email,
         "fullName": full_name,
-        "userType": _attr_value(attrs, "ewms.userType", "external" if role_category in {"org_external", "external"} else "internal"),
+        "userType": _attr_value(attrs, "ewms.userType", str(reference_user.get("userType") or ("external" if role_category in {"org_external", "external", "EXTERNAL_PARTNER"} else "internal"))),
         "status": "active" if user.get("enabled", False) else "inactive",
         "phone": _attr_value(attrs, "phone", ""),
         "level": level,
         "teamId": team_id,
         "dataScope": data_scope,
+        "documentScope": document_scope,
+        "docTypeScopes": doc_type_scopes,
         "geographyOrigin": _attr_value(attrs, "ewms.geographyOrigin", ""),
         "geographyDestination": _attr_value(attrs, "ewms.geographyDestination", ""),
         "approvalLimitInr": float(_attr_value(attrs, "ewms.approvalLimitInr", "0") or 0) or None,
@@ -937,8 +1980,8 @@ def _keycloak_user_row(user: dict, roles: list[dict], groups: list[dict] | None 
         "lastLoginAt": None,
         "keycloakRoles": role_names,
         "role": {
-            "id": primary_role,
-            "name": _attr_value(role_attrs, "ewms.displayName", str(role_defaults.get("name") or _display_role_name(primary_role))),
+            "id": row_role_id,
+            "name": role_display_name,
             "roleCategory": role_category,
         },
     }
@@ -1051,6 +2094,18 @@ async def list_admin_users(_user=Depends(get_admin_user)):
         for keycloak_user in users:
             keycloak_user = keycloak_admin.get_user(keycloak_user["id"])
             assigned_roles = keycloak_admin.get_realm_roles_of_user(keycloak_user["id"])
+            email = str(keycloak_user.get("email") or keycloak_user.get("username") or "").strip().lower()
+            reference_user = REFERENCE_USER_DEFAULTS.get(email)
+            if reference_user:
+                expected_role = str(reference_user["roleName"])
+                assigned_canonical_roles = {
+                    _canonical_role_name(str(role.get("name") or ""))
+                    for role in assigned_roles
+                    if role.get("name")
+                }
+                if expected_role not in assigned_canonical_roles:
+                    _assign_primary_role(keycloak_admin, keycloak_user["id"], expected_role)
+                    assigned_roles = keycloak_admin.get_realm_roles_of_user(keycloak_user["id"])
             roles = [
                 keycloak_admin.get_realm_role(str(role["name"]))
                 for role in assigned_roles
@@ -1076,7 +2131,7 @@ def _split_full_name(full_name: str) -> tuple[str, str]:
 
 
 def _assign_primary_role(keycloak_admin, user_id: str, role_name: str) -> None:
-    selected_role = keycloak_admin.get_realm_role(role_name)
+    selected_role = _ensure_keycloak_role(keycloak_admin, role_name)
     existing_roles = keycloak_admin.get_realm_roles_of_user(user_id)
     removable = [
         role
@@ -1233,36 +2288,71 @@ async def list_admin_roles(_user=Depends(get_admin_user)):
         users = keycloak_admin.get_users({})
         role_counts: dict[str, int] = {}
         for user in users:
+            email = str(user.get("email") or user.get("username") or "").strip().lower()
+            reference_user = REFERENCE_USER_DEFAULTS.get(email)
+            if reference_user:
+                role_name = str(reference_user["roleName"])
+                role_counts[role_name] = role_counts.get(role_name, 0) + 1
+                continue
             for role in keycloak_admin.get_realm_roles_of_user(user["id"]):
                 name = str(role.get("name") or "")
                 role_counts[name] = role_counts.get(name, 0) + 1
+                canonical_name = _canonical_role_name(name)
+                if canonical_name != name:
+                    role_counts[canonical_name] = role_counts.get(canonical_name, 0) + 1
         filtered_roles = [
             role for role in roles
             if role.get("name") and not str(role["name"]).startswith("default-roles-")
             and str(role["name"]) not in {"offline_access", "uma_authorization"}
         ]
+        role_rows_by_id: dict[str, dict[str, Any]] = {}
+        seen_defaults: set[str] = set()
+        for role in sorted(filtered_roles, key=lambda item: str(item.get("name", "")).lower()):
+            role_name = str(role.get("name") or "")
+            canonical_name = _canonical_role_name(role_name)
+            if canonical_name in ROLE_DEFAULTS:
+                seen_defaults.add(canonical_name)
+            row = _role_profile_from_keycloak(
+                role,
+                user_count=role_counts.get(role_name, role_counts.get(canonical_name, 0)),
+            )
+            role_rows_by_id[row["id"]] = row
+        for role_name, defaults in ROLE_DEFAULTS.items():
+            if role_name in seen_defaults:
+                continue
+            row = _role_profile_from_keycloak(
+                {
+                    "name": role_name,
+                    "description": defaults.get("description"),
+                    "attributes": {},
+                },
+                user_count=role_counts.get(role_name, 0),
+            )
+            role_rows_by_id[row["id"]] = row
         return {
             "ok": True,
-            "data": [
-                _role_profile_from_keycloak(role, user_count=role_counts.get(str(role["name"]), 0))
-                for role in sorted(filtered_roles, key=lambda item: str(item.get("name", "")).lower())
-            ],
+            "data": sorted(role_rows_by_id.values(), key=lambda item: list(ROLE_DEFAULTS).index(item["id"]) if item["id"] in ROLE_DEFAULTS else 999),
         }
     except Exception as exc:
         return {
             "ok": True,
             "data": [
                 {
-                    "id": item["id"],
-                    "name": item["name"],
-                    "roleCategory": item["roleCategory"],
+                    "id": role_name,
+                    "name": defaults["name"],
+                    "displayName": defaults["name"],
+                    "description": defaults.get("description"),
+                    "roleCategory": defaults["roleCategory"],
+                    "profileCategory": defaults["roleCategory"],
                     "isSystemDefault": True,
-                    "color": "#0f766e",
-                    "allowedLevels": [],
-                    "defaultModules": item["modules"],
-                    "defaultDataScope": "org",
+                    "systemCode": ROLE_SYSTEM_CODES.get(role_name),
+                    "color": defaults["color"],
+                    "allowedLevels": defaults["allowedLevels"],
+                    "defaultModules": defaults["defaultModules"],
+                    "defaultDataScope": defaults["defaultDataScope"],
+                    "_count": {"users": 0, "roleActivities": len(defaults.get("activityCodes", []))},
                 }
-                for item in ROLE_DEFINITIONS
+                for role_name, defaults in ROLE_DEFAULTS.items()
             ],
             "warning": f"Could not sync roles from Keycloak: {exc}",
         }
@@ -1273,10 +2363,20 @@ async def list_admin_roles(_user=Depends(get_admin_user)):
 async def get_admin_role(role_id: str, _user=Depends(get_admin_user)):
     keycloak_admin = get_keycloak_admin()
     try:
-        role = keycloak_admin.get_realm_role(role_id)
-        users = keycloak_admin.get_realm_role_members(role_id)
+        role = _ensure_keycloak_role(keycloak_admin, role_id)
+        users = keycloak_admin.get_realm_role_members(str(role.get("name") or role_id))
         return {"ok": True, "data": _role_profile_from_keycloak(role, user_count=len(users or []), detail=True)}
     except Exception as exc:
+        canonical_name = _canonical_role_name(role_id)
+        if canonical_name in ROLE_DEFAULTS:
+            defaults = ROLE_DEFAULTS[canonical_name]
+            return {
+                "ok": True,
+                "data": _role_profile_from_keycloak(
+                    {"name": canonical_name, "description": defaults.get("description"), "attributes": {}},
+                    detail=True,
+                ),
+            }
         raise HTTPException(status_code=404, detail=f"Role not found in Keycloak: {exc}")
 
 
@@ -1300,17 +2400,18 @@ async def create_admin_role(request: RoleProfileRequest, _user=Depends(get_admin
 async def update_admin_role(role_id: str, request: RoleProfileRequest, _user=Depends(get_admin_user)):
     keycloak_admin = get_keycloak_admin()
     try:
-        existing = keycloak_admin.get_realm_role(role_id)
-        if role_id in ROLE_DEFAULTS:
-            payload = _role_payload_from_request(request, role_id=role_id)
-            payload["name"] = role_id
+        existing = _ensure_keycloak_role(keycloak_admin, role_id)
+        update_role_name = str(existing.get("name") or role_id)
+        if _canonical_role_name(role_id) in ROLE_DEFAULTS:
+            payload = _role_payload_from_request(request, role_id=update_role_name)
+            payload["name"] = update_role_name
         else:
-            payload = _role_payload_from_request(request, role_id=role_id)
+            payload = _role_payload_from_request(request, role_id=update_role_name)
         if not payload["attributes"]["ewms.modules"]:
             return {"ok": False, "error": "Select at least one module for this role."}
         payload["id"] = existing.get("id")
-        keycloak_admin.update_realm_role(role_id, payload)
-        role = keycloak_admin.get_realm_role(role_id)
+        keycloak_admin.update_realm_role(update_role_name, payload)
+        role = keycloak_admin.get_realm_role(update_role_name)
         return {"ok": True, "data": _role_profile_from_keycloak(role, detail=True)}
     except Exception as exc:
         return {"ok": False, "error": f"Could not update Keycloak role: {exc}"}
@@ -1319,7 +2420,7 @@ async def update_admin_role(role_id: str, request: RoleProfileRequest, _user=Dep
 @router.delete("/roles/{role_id}")
 @legacy_router.delete("/roles/{role_id}")
 async def delete_admin_role(role_id: str, _user=Depends(get_admin_user)):
-    if role_id in ROLE_DEFAULTS or role_id.lower() in {"admin", "user"}:
+    if _canonical_role_name(role_id) in ROLE_DEFAULTS or role_id.lower() in {"admin", "user"}:
         return {"ok": False, "error": "System roles cannot be deleted."}
     keycloak_admin = get_keycloak_admin()
     try:
@@ -1349,14 +2450,10 @@ async def invite_admin_user(request: InviteUserRequest, admin_user=Depends(get_a
         return {"ok": False, "error": "Role is required."}
 
     try:
-        role = keycloak_admin.get_realm_role(role_name)
+        role = _ensure_keycloak_role(keycloak_admin, role_name)
+        role_name = str(role.get("name") or _canonical_role_name(role_name))
     except Exception:
-        local_role = _role_from_request(role_name)
-        try:
-            role = keycloak_admin.get_realm_role(local_role)
-            role_name = local_role
-        except Exception:
-            return {"ok": False, "error": f"Role not found in Keycloak: {request.roleId}"}
+        return {"ok": False, "error": f"Role not found in Keycloak: {request.roleId}"}
 
     try:
         user_id = keycloak_admin.get_user_id(email)
@@ -1405,7 +2502,7 @@ async def invite_admin_user(request: InviteUserRequest, admin_user=Depends(get_a
         raise HTTPException(status_code=500, detail=f"Could not sync user with Keycloak: {exc}")
 
     local_role = getattr(synced_user, "role", "USER") if synced_user else "USER"
-    if _role_from_request(_role_value(local_role)) in {"ADMIN", "SUPER_ADMIN"} and synced_user:
+    if _role_value(local_role) in {"ADMIN", "SUPER_ADMIN"} and synced_user:
         try:
             buckets = list_buckets()
         except Exception:

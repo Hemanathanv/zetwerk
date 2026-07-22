@@ -52,6 +52,10 @@ ACTIVITY_MIN_LEVELS = {
     "reports.export_report": "L2",
     "reports.schedule_auto": "L3",
     "tasks.view": "L1",
+    "tasks.update": "L2",
+    "tasks.assign": "L3",
+    "tasks.escalate": "L3",
+    "tasks.delegate": "L3",
     "admin.manage": "L3",
     "users.manage": "L3",
     "roles.view": "L2",
@@ -66,6 +70,21 @@ ACTIVITY_MIN_LEVELS = {
     "admin.manage_partners": "L3",
     "admin.view_audit_log": "L3",
     "admin.security_settings": "L4",
+    "SHP-001": "L1",
+    "SHP-002": "L2",
+    "SHP-003": "L2",
+    "SHP-005": "L4",
+    "GATE-001": "L1",
+    "GATE-002": "L2",
+    "DOC-003": "L2",
+    "ACC-001": "L1",
+    "ACC-003": "L2",
+    "ACC-004": "L2",
+    "TSK-001": "L1",
+    "TSK-002": "L2",
+    "TSK-003": "L3",
+    "TSK-004": "L3",
+    "TSK-007": "L3",
 }
 
 IMPLIED_ACTIVITY_CODES = {
@@ -90,6 +109,24 @@ IMPLIED_ACTIVITY_CODES = {
         "shipments.override_blocked_stage",
         "shipments.tag_partner",
     },
+}
+
+LEGACY_ACTIVITY_ALIASES = {
+    "shipments.view": {"SHP-001"},
+    "shipments.create": {"SHP-002"},
+    "shipments.edit_metadata": {"SHP-003", "GATE-002"},
+    "shipments.override_blocked_stage": {"SHP-005"},
+    "inventory.view_timeline": {"GATE-001"},
+    "documents.generate_draft": {"DOC-003"},
+    "documents.approve_draft": {"DOC-003"},
+    "accounting.view_queue": {"ACC-001"},
+    "accounting.export_data": {"ACC-003"},
+    "accounting.review_ticket": {"ACC-004"},
+    "tasks.view": {"TSK-001"},
+    "tasks.update": {"TSK-002"},
+    "tasks.assign": {"TSK-003"},
+    "tasks.escalate": {"TSK-004"},
+    "tasks.delegate": {"TSK-007"},
 }
 
 
@@ -142,8 +179,12 @@ def _level_at_least(user_level: str, required_level: str) -> bool:
 
 def _expand_activity_codes(activities: set[str]) -> set[str]:
     expanded = set(activities)
+    if "documents.view" in expanded:
+        expanded.add("documents.view_extracted")
     for activity in list(activities):
         expanded.update(IMPLIED_ACTIVITY_CODES.get(activity, set()))
+    for activity in list(expanded):
+        expanded.update(LEGACY_ACTIVITY_ALIASES.get(activity, set()))
     return expanded
 
 

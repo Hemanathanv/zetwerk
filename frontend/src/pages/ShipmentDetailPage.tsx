@@ -18,6 +18,12 @@ import type { SafeCubeData, SafeCubeEvent } from '@/hooks/useSafeCubeTracking';
 import { SafeCubeLivePanel, SafeCubeTimeline, SafeCubeAlerts } from '@/components/SafeCubePanel';
 import VesselRouteMap from '@/components/VesselRouteMap';
 import { adaptSafeCubeToMapProps } from '@/utils/safeCubeMapAdapter';
+import {
+  DOCUMENT_EXPECTED_DOCS_BY_GATE,
+  DOCUMENT_GATE_LABELS,
+  DOCUMENT_PARALLEL_DOC_TYPES,
+  documentGateDocDef,
+} from '@/config/documentGateConfig';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -43,7 +49,7 @@ interface ApiShipment {
   partnerTags?: ApiPartnerTag[];
   packingListItems?: { id: string; productCode?: string | null; productDescription?: string | null; productSpecification?: string | null; hsnCode?: string | null; noOfBundles?: string | null; totalQtyInPcs?: string | null; netWeightKgs?: string | null; grossWeightKgs?: string | null }[];
 }
-interface ApiDocTypeGate { id: string; docType: string; roleInGate?: string | null; isGenerated?: boolean; mandatoryPhoto?: boolean }
+interface ApiDocTypeGate { id: string; docType: string; roleInGate?: string | null; isGenerated?: boolean; mandatoryPhoto?: boolean; sortOrder?: number | null }
 interface ApiGate {
   id: string; gateConfigId: string; status: 'OPEN' | 'PASSED' | 'SKIPPED' | 'FAILED' | string;
   passedAt?: string | null; skippedAt?: string | null; failureReason?: string | null;
@@ -55,6 +61,9 @@ interface ApiMilestoneTracking {
   completedByName?: string | null;
   milestoneConfig?: { id: string; gateConfigId?: string | null; name: string; type?: string | null; systemCode?: string | null; completionMode?: string | null } | null;
 }
+
+const SHIPMENT_GATE_LABELS = DOCUMENT_GATE_LABELS;
+const SHIPMENT_EXPECTED_DOCS_BY_GATE = DOCUMENT_EXPECTED_DOCS_BY_GATE;
 
 // ─── Color tokens ─────────────────────────────────────────────────────────────
 const TEAL  = 'hsl(var(--vs-teal))';
@@ -95,15 +104,28 @@ const CARD  = 'hsl(var(--card))';
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function dtShort(dt: string): string {
   const t = dt.toUpperCase();
+  const canonical = documentGateDocDef(t);
+  if (canonical) return canonical.code;
+  if (t === 'US_PACKING_LIST' || t.includes('US_PACKING')) return 'UP';
+  if (t === 'US_SALES_INVOICE' || t.includes('US_SALES')) return 'UI';
   if (t.includes('SALES_INVOICE') || t === 'SI') return 'SI';
   if (t.includes('PACKING_LIST') && !t.includes('OUTWARD')) return 'PL';
   if (t.includes('SHIPPING_BILL') || t === 'SB') return 'SB';
   if (t.includes('BILL_OF_LADING') || t === 'BOL' || t === 'BL') return 'BL';
-  if (t.includes('BILL_OF_ENTRY') || t === 'BOE') return 'BE';
+  if (t.includes('ENTRY_SUMMARY_DRAFT') || t.includes('DRAFT')) return 'DR';
+  if (t.includes('ENTRY_SUMMARY_TARIFF')) return 'TL';
+  if (t === 'ENTRY_SUMMARY' || t.includes('BILL_OF_ENTRY') || t.includes('CBP_FORM_7501') || t === 'BOE') return 'CBP';
   if (t.includes('IMPORTER_SECURITY') || t === 'ISF') return 'IS';
+  if (t.includes('US_CUSTOMS_RELEASE')) return 'CU';
   if (t.includes('CARGO_RELEASE') || t === 'CRO') return 'CR';
   if (t.includes('DELIVERY_ORDER')) return 'DO';
   if (t.includes('PROOF_OF_DELIVERY') || t.includes('POD')) return 'PD';
+  if (t.includes('OCEAN_FREIGHT')) return 'OF';
+  if (t.includes('CUSTOMER_BROKER') || t.includes('CUSTOMS_BROKER')) return 'BB';
+  if (t.includes('FREIGHT_FORWARDER')) return 'FR';
+  if (t.includes('GRN_INBOUND')) return 'GR';
+  if (t.includes('PORT_TO_WH')) return 'PO';
+  if (t.includes('WH_TO_CUSTOMER')) return 'WH';
   if (t.includes('OUTWARD')) return 'OP';
   if (t.includes('METAL_CONTENT')) return 'MC';
   if (t.includes('DEDUCTION')) return 'DD';
@@ -112,15 +134,28 @@ function dtShort(dt: string): string {
 }
 function docLabel(dt: string): string {
   const t = dt.toUpperCase();
+  const canonical = documentGateDocDef(t);
+  if (canonical) return canonical.label;
+  if (t === 'US_PACKING_LIST' || t.includes('US_PACKING')) return 'US Packing List';
+  if (t === 'US_SALES_INVOICE' || t.includes('US_SALES')) return 'US Sales Invoice';
   if (t.includes('SALES_INVOICE')) return 'Sales Invoice';
   if (t.includes('PACKING_LIST') && !t.includes('OUTWARD')) return 'Packing List';
   if (t.includes('SHIPPING_BILL')) return 'Shipping Bill';
   if (t.includes('BILL_OF_LADING')) return 'Bill of Lading';
-  if (t.includes('BILL_OF_ENTRY')) return 'CBP FORM-7501';
+  if (t.includes('ENTRY_SUMMARY_DRAFT') || t.includes('DRAFT')) return 'Draft CBP FORM 7501';
+  if (t.includes('ENTRY_SUMMARY_TARIFF')) return 'CBP FORM 7501 Tariff Lines';
+  if (t === 'ENTRY_SUMMARY' || t.includes('BILL_OF_ENTRY') || t.includes('CBP_FORM_7501') || t === 'BOE') return 'CBP FORM 7501';
   if (t.includes('IMPORTER_SECURITY') || t === 'ISF') return 'ISF Filing';
+  if (t.includes('US_CUSTOMS_RELEASE')) return 'US Customs Release Order';
   if (t.includes('CARGO_RELEASE')) return 'Cargo Release';
   if (t.includes('DELIVERY_ORDER')) return 'Delivery Order';
   if (t.includes('PROOF_OF_DELIVERY')) return 'Proof of Delivery';
+  if (t.includes('OCEAN_FREIGHT')) return 'Ocean Freight Invoice';
+  if (t.includes('CUSTOMER_BROKER') || t.includes('CUSTOMS_BROKER')) return 'US Customs Broker Bill';
+  if (t.includes('FREIGHT_FORWARDER')) return 'Freight Forwarder Bill';
+  if (t.includes('GRN_INBOUND')) return 'GRN Inbound';
+  if (t.includes('PORT_TO_WH')) return 'Port To WH';
+  if (t.includes('WH_TO_CUSTOMER')) return 'WH To Customer';
   if (t.includes('OUTWARD')) return 'Outward Packing List';
   if (t.includes('METAL_CONTENT')) return 'Metal Content Sheet';
   if (t.includes('DEDUCTION')) return 'Deduction Certificate';
@@ -371,7 +406,7 @@ function ContextStrip({ shipment, gates, scData, documents }: {
   const atSeaDays = scData?.polAt && !scData?.podAt
     ? Math.floor((Date.now() - new Date(scData.polAt).getTime()) / 86400000) : null;
   const docsTotal    = documents.length || shipment.documents.length;
-  const docsApproved = (documents.length ? documents : shipment.documents).filter((d: any) => d.approvedAt).length;
+  const docsValidated = (documents.length ? documents : shipment.documents).filter(isCrossValidationPassed).length;
   const eta          = scData?.podPredictiveEta ?? scData?.podAt;
   const hasDelay     = scData && scData.delayDays != null && scData.delayDays > 0;
   const isOnTime     = scData && !hasDelay && (scData.delayDays === 0 || (scData.scheduleStatus ?? '').toLowerCase().includes('on time'));
@@ -382,7 +417,7 @@ function ContextStrip({ shipment, gates, scData, documents }: {
     atSeaDays !== null && { icon: <Anchor size={11} />, text: `~${atSeaDays}d at sea` },
     hasDelay && { icon: <Clock size={11} />, text: `${scData!.delayDays}d delay`, variant: 'delay' as const },
     isOnTime  && { icon: <Check size={11} />,  text: 'On Time',              variant: 'ontime' as const },
-    docsTotal > 0 && { icon: <FileText size={11} />, text: `${docsApproved}/${docsTotal} docs` },
+    docsTotal > 0 && { icon: <FileText size={11} />, text: `${docsValidated}/${docsTotal} docs validated` },
     (shipment.portOfLoading || shipment.portOfDischarge) && { icon: <Navigation size={11} />, text: `${shipment.portOfLoading ?? '—'} → ${shipment.portOfDischarge ?? '—'}${shipment.incoterm ? ` · ${shipment.incoterm}` : ''}` },
   ].filter(Boolean) as { icon: React.ReactNode; text: string; variant?: 'delay' | 'ontime' }[];
 
@@ -473,12 +508,9 @@ function InventoryJourneyPanel({ scData, milestones, shipment, inventoryItems, p
 }) {
   type JItem = { id: string; date: string | null; label: string; sublabel?: string; isActual: boolean; isCurrent?: boolean };
 
-  const items: JItem[] = scData && scData.events.length > 0
-    ? scData.events.map(e => ({
-        id: e.id, date: e.eventAt, label: e.description ?? 'Event',
-        sublabel: [e.facilityName ?? e.locationName, e.vesselName].filter(Boolean).join(' · ') || undefined,
-        isActual: e.isActual ?? false, isCurrent: !e.isActual && e.eventAt != null,
-      }))
+  const apiJourneyItems = safeCubeInventoryJourneyItems(scData);
+  const items: JItem[] = apiJourneyItems.length > 0
+    ? apiJourneyItems
     : milestones
         .filter(m => m.status !== 'PENDING' || m.completedAt)
         .sort((a, b) => (a.milestoneNumber - b.milestoneNumber))
@@ -567,6 +599,67 @@ function InventoryJourneyPanel({ scData, milestones, shipment, inventoryItems, p
 
 // ─── Container Grid Panel ─────────────────────────────────────────────────────
 type PlItem = NonNullable<ApiShipment['packingListItems']>[0];
+
+function safeCubeInventoryJourneyItems(scData: SafeCubeData | null): {
+  id: string;
+  date: string | null;
+  label: string;
+  sublabel?: string;
+  isActual: boolean;
+  isCurrent?: boolean;
+}[] {
+  if (!scData?.events?.length) return [];
+
+  const groups = new Map<string, { event: SafeCubeEvent; containers: Set<string> }>();
+  [...scData.events]
+    .sort((a, b) => {
+      const at = a.eventAt ? new Date(a.eventAt).getTime() : 0;
+      const bt = b.eventAt ? new Date(b.eventAt).getTime() : 0;
+      return at - bt || a.sequenceNo - b.sequenceNo;
+    })
+    .forEach(event => {
+      const key = [
+        event.eventAt ?? '',
+        event.description ?? event.eventCode ?? '',
+        event.locationName ?? '',
+        event.facilityName ?? '',
+        event.vesselName ?? '',
+      ].join('|');
+      const existing = groups.get(key);
+      if (existing) {
+        if (event.containerId) existing.containers.add(event.containerId);
+        return;
+      }
+      groups.set(key, {
+        event,
+        containers: new Set(event.containerId ? [event.containerId] : []),
+      });
+    });
+
+  const items = Array.from(groups.values()).map(({ event, containers }, index) => {
+    const containerList = Array.from(containers);
+    const containerText = containerList.length > 0
+      ? `${containerList.length} container${containerList.length === 1 ? '' : 's'}: ${containerList.slice(0, 3).join(', ')}${containerList.length > 3 ? ` +${containerList.length - 3}` : ''}`
+      : null;
+
+    return {
+      id: `${event.id}-${index}`,
+      date: event.eventAt,
+      label: event.description ?? event.eventCode ?? 'SafeCube event',
+      sublabel: [event.facilityName ?? event.locationName, event.vesselName, containerText].filter(Boolean).join(' - ') || undefined,
+      isActual: event.isActual ?? false,
+      isCurrent: false,
+    };
+  });
+
+  const latestActualFromEnd = [...items].reverse().findIndex(item => item.isActual);
+  if (latestActualFromEnd >= 0) {
+    const index = items.length - 1 - latestActualFromEnd;
+    items[index] = { ...items[index], isCurrent: scData.shippingStatus !== 'DELIVERED' };
+  }
+
+  return items;
+}
 
 function SkuTable({ items }: { items: PlItem[] }) {
   if (!items.length) return null;
@@ -753,26 +846,171 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
 // ─── Documents Panel ──────────────────────────────────────────────────────────
 const US_DOC_TYPES = ['IMPORTER_SECURITY', 'ISF', 'BILL_OF_ENTRY', 'BOE', 'CARGO_RELEASE', 'PROOF_OF_DELIVERY', 'DELIVERY_ORDER'];
 
+function orderedDocTypeGates(docTypeGates: ApiDocTypeGate[] = []): ApiDocTypeGate[] {
+  return [...docTypeGates].sort((a, b) => {
+    const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+    const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+    if (ao !== bo) return ao - bo;
+    return String(a.docType ?? '').localeCompare(String(b.docType ?? ''));
+  });
+}
+
+function normalizedDocType(dt: string | null | undefined): string {
+  return String(dt ?? '').toUpperCase();
+}
+
+function docTypeMatches(actual: string | null | undefined, expected: string): boolean {
+  const a = normalizedDocType(actual);
+  const e = normalizedDocType(expected);
+  if (a === e) return true;
+  if (e === 'SALES_INVOICE') return a === 'SI' || a.includes('SALES_INVOICE');
+  if (e === 'PACKING_LIST') return a === 'PL' || (a.includes('PACKING_LIST') && !a.includes('OUTWARD'));
+  if (e === 'SHIPPING_BILL') return a === 'SB' || a.includes('SHIPPING_BILL');
+  if (e === 'CHA_BILL') return a === 'CHA' || a.includes('CHA_BILL');
+  if (e === 'BILL_OF_LADING') return a === 'BL' || a === 'BOL' || a.includes('BILL_OF_LADING');
+  if (e === 'FREIGHT_FORWARDER_BILL') return a.includes('FREIGHT_FORWARDER');
+  if (e === 'ENTRY_SUMMARY_DRAFT') return a.includes('DRAFT') && (a.includes('ENTRY_SUMMARY') || a.includes('BOE') || a.includes('CBP'));
+  if (e === 'ENTRY_SUMMARY_TARIFF_LINES') return a.includes('ENTRY_SUMMARY_TARIFF') || a.includes('TARIFF_LINES');
+  if (e === 'ENTRY_SUMMARY') return a === 'BOE' || a.includes('BILL_OF_ENTRY') || a.includes('CBP_FORM_7501');
+  if (e === 'US_CARGO_RELEASE_ORDER') return a.includes('CARGO_RELEASE');
+  if (e === 'US_CUSTOMS_RELEASE_ORDER') return a.includes('CUSTOMS_RELEASE');
+  if (e === 'US_DELIVERY_ORDER') return a.includes('DELIVERY_ORDER');
+  if (e === 'ISF') return a === 'ISF' || a.includes('IMPORTER_SECURITY');
+  if (e === 'CUSTOMER_BROKER_BILL') return a.includes('CUSTOMER_BROKER') || a.includes('CUSTOM_BROKER') || a.includes('CUSTOMS_BROKER');
+  if (e === 'OCEAN_FREIGHT') return a.includes('OCEAN_FREIGHT');
+  if (e === 'GRN_INBOUND') return a === 'GR' || a.includes('GRN_INBOUND') || a.includes('GOODS_RECEIPT');
+  if (e === 'PORT_TO_WH') return a.includes('PORT_TO_WH') || a.includes('PORT_TO_WAREHOUSE');
+  if (e === 'US_PACKING_LIST') return a.includes('US_PACKING');
+  if (e === 'US_SALES_INVOICE') return a.includes('US_SALES');
+  if (e === 'WH_TO_CUSTOMER') return a.includes('WH_TO_CUSTOMER') || a.includes('WAREHOUSE_TO_CUSTOMER');
+  return false;
+}
+
+function findDocForSlot(documents: any[], docType: string, usedDocIds?: Set<string>, gateNumber?: number): any | null {
+  const doc = documents.find(d =>
+    !usedDocIds?.has(d.id)
+    && docTypeMatches(d.documentType, docType)
+    && (gateNumber == null || d.gateNumber == null || Number(d.gateNumber) === gateNumber)
+  );
+  if (doc && usedDocIds) usedDocIds.add(doc.id);
+  return doc ?? null;
+}
+
+function findDocsForSlot(documents: any[], docType: string, usedDocIds?: Set<string>, gateNumber?: number): any[] {
+  const docs = documents.filter(d =>
+    !usedDocIds?.has(d.id)
+    && docTypeMatches(d.documentType, docType)
+    && (gateNumber == null || d.gateNumber == null || Number(d.gateNumber) === gateNumber)
+  );
+  if (usedDocIds) docs.forEach(doc => usedDocIds.add(doc.id));
+  return docs;
+}
+
+function expectedDocTypesForGate(gate: ApiGate): ApiDocTypeGate[] {
+  const gateNumber = Number(gate.gateConfig.gateNumber ?? 0);
+  const configured = orderedDocTypeGates(gate.gateConfig.docTypeGates ?? []);
+  const fallbackTypes = SHIPMENT_EXPECTED_DOCS_BY_GATE[gateNumber] ?? [];
+  if (fallbackTypes.length === 0) return configured;
+  const merged = fallbackTypes.map((docType, index) => {
+    const key = normalizedDocType(docType);
+    const configuredMatch = configured.find(item => normalizedDocType(item.docType) === key);
+    return configuredMatch ? { ...configuredMatch, sortOrder: index + 1 } : {
+      id: `shipment-expected-${gateNumber}-${index}-${key}`,
+      docType,
+      roleInGate: DOCUMENT_PARALLEL_DOC_TYPES.has(key) ? 'PARALLEL' : 'PRIMARY',
+      isGenerated: key.includes('DRAFT') || key === 'US_PACKING_LIST',
+      sortOrder: index + 1,
+    };
+  });
+  return orderedDocTypeGates(merged);
+}
+
+function documentModuleDocTypesForGate(documents: any[], gateNumber: number, existingDocTypes: Set<string>): ApiDocTypeGate[] {
+  const seen = new Set<string>();
+  return documents
+    .filter(doc => Number(doc.gateNumber) === gateNumber)
+    .map(doc => normalizedDocType(doc.documentType))
+    .filter(docType => {
+      if (!docType || existingDocTypes.has(docType) || seen.has(docType)) return false;
+      seen.add(docType);
+      return true;
+    })
+    .map((docType, index) => {
+      const sample = documents.find(doc => Number(doc.gateNumber) === gateNumber && docTypeMatches(doc.documentType, docType));
+      return {
+        id: `document-module-${gateNumber}-${docType}`,
+        docType,
+        roleInGate: sample?.isParallel || DOCUMENT_PARALLEL_DOC_TYPES.has(docType) ? 'PARALLEL' : 'PRIMARY',
+        isGenerated: Boolean(sample?.isGenerated),
+        sortOrder: 1000 + index,
+      };
+    });
+}
+
+function docTypesForGate(gate: ApiGate, documents: any[]): ApiDocTypeGate[] {
+  const gateNumber = Number(gate.gateConfig.gateNumber ?? 0);
+  const expected = expectedDocTypesForGate(gate);
+  const existing = new Set(expected.map(dt => normalizedDocType(dt.docType)));
+  return orderedDocTypeGates([
+    ...expected,
+    ...documentModuleDocTypesForGate(documents, gateNumber, existing),
+  ]);
+}
+
+function isCrossValidationPassed(doc: any | null | undefined): boolean {
+  return String(doc?.validationStatus ?? '').toUpperCase() === 'PASSED';
+}
+
 function docStatusPill(doc: any): { label: string; color: string; bg: string } {
-  if (doc.approvedAt) return { label: 'Validated', color: 'hsl(142 71% 30%)', bg: 'hsla(142,71%,45%,0.10)' };
-  if (doc.ocrStatus === 'FAILED' || (doc.validationStatus ?? '').toLowerCase().includes('fail'))
-    return { label: 'Failed', color: 'hsl(var(--vs-danger))', bg: 'hsla(0,72%,51%,0.08)' };
+  const validationStatus = String(doc.validationStatus ?? '').toUpperCase();
+  if (validationStatus === 'PASSED') return { label: 'Cross validated', color: 'hsl(142 71% 30%)', bg: 'hsla(142,71%,45%,0.10)' };
+  if (validationStatus === 'BLOCKED' || validationStatus === 'FAILED' || doc.ocrStatus === 'FAILED')
+    return { label: 'Cross validation failed', color: 'hsl(var(--vs-danger))', bg: 'hsla(0,72%,51%,0.08)' };
+  if (validationStatus === 'WAITING') return { label: 'Cross validation waiting', color: 'hsl(38 92% 38%)', bg: 'hsla(38,92%,50%,0.12)' };
+  if (validationStatus === 'WARNING') return { label: 'Cross validation warning', color: 'hsl(38 92% 38%)', bg: 'hsla(38,92%,50%,0.12)' };
+  if (doc.approvedAt) return { label: 'Reviewed', color: MUTED, bg: 'hsl(var(--muted)/0.45)' };
   if (doc.ocrStatus === 'PROCESSING') return { label: 'Processing', color: 'hsl(217 91% 55%)', bg: 'hsla(217,91%,55%,0.10)' };
   return { label: 'Pending', color: MUTED, bg: 'hsl(var(--muted)/0.5)' };
 }
 
-function DocRow360({ doc, isLast }: { doc: any; isLast: boolean }) {
-  const pill = docStatusPill(doc);
+function docGroupStatusPill(docs: any[]): { label: string; color: string; bg: string } {
+  if (docs.some(doc => ['BLOCKED', 'FAILED'].includes(String(doc.validationStatus ?? '').toUpperCase()) || doc.ocrStatus === 'FAILED')) {
+    return { label: 'Cross validation failed', color: 'hsl(var(--vs-danger))', bg: 'hsla(0,72%,51%,0.08)' };
+  }
+  if (docs.length > 0 && docs.every(isCrossValidationPassed)) {
+    return { label: 'Cross validated', color: 'hsl(142 71% 30%)', bg: 'hsla(142,71%,45%,0.10)' };
+  }
+  if (docs.some(doc => ['WAITING', 'WARNING'].includes(String(doc.validationStatus ?? '').toUpperCase()))) {
+    return { label: 'Cross validation pending', color: 'hsl(38 92% 38%)', bg: 'hsla(38,92%,50%,0.12)' };
+  }
+  if (docs.some(doc => doc.approvedAt)) {
+    return { label: 'Reviewed', color: MUTED, bg: 'hsl(var(--muted)/0.45)' };
+  }
+  return docs[0] ? docStatusPill(docs[0]) : { label: 'Pending', color: MUTED, bg: 'hsl(var(--muted)/0.5)' };
+}
+
+function groupDocsByType(docs: any[]): Array<{ docType: string; docs: any[] }> {
+  const groups = new Map<string, any[]>();
+  docs.forEach(doc => {
+    const docType = String(doc.documentType ?? 'DOCUMENT').toUpperCase();
+    groups.set(docType, [...(groups.get(docType) ?? []), doc]);
+  });
+  return Array.from(groups.entries()).map(([docType, groupDocs]) => ({ docType, docs: groupDocs }));
+}
+
+function DocRow360({ docType, docs, isLast }: { docType: string; docs: any[]; isLast: boolean }) {
+  const pill = docGroupStatusPill(docs);
+  const count = docs.length;
+  const label = `${docLabel(docType)}${count > 1 ? ` (${count})` : ''}`;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', borderBottom: isLast ? 'none' : `1px solid ${BDR}` }}>
       <div style={{ width: 44, height: 44, borderRadius: 8, background: 'hsl(var(--muted)/0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'monospace', letterSpacing: '0.02em' }}>
-        {dtShort(doc.documentType ?? '')}
+        {dtShort(docType)}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 15, fontWeight: 600, color: FG, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {docLabel(doc.documentType ?? '')}
+          {label}
         </div>
-        {doc.documentNumber && <div className="vs-mono" style={{ fontSize: 14, color: MUTED, marginTop: 2, fontWeight: 400 }}>{doc.documentNumber}</div>}
       </div>
       <span style={{ fontSize: 14, fontWeight: 600, padding: '4px 12px', borderRadius: 20, flexShrink: 0, background: pill.bg, color: pill.color }}>
         {pill.label}
@@ -797,31 +1035,244 @@ function AwaitedRow360({ docType, isLast }: { docType: string; isLast: boolean }
   );
 }
 
+type ShipmentGateProgressStatus = 'passed' | 'active' | 'future' | 'blocked';
+
+function shipmentGateApiStatus(gate: ApiGate): ShipmentGateProgressStatus {
+  const status = String(gate.status ?? '').toUpperCase();
+  if (status === 'PASSED') return 'passed';
+  if (status === 'FAILED' || status === 'BLOCKED') return 'blocked';
+  if (status === 'OPEN' || status === 'ACTIVE') return 'active';
+  return 'future';
+}
+
+interface ShipmentGateProgressRow {
+  gate: ApiGate;
+  label: string;
+  status: ShipmentGateProgressStatus;
+  docCount: string;
+}
+
+function buildShipmentGateProgressRows(gates: ApiGate[], documents: any[]): ShipmentGateProgressRow[] {
+  const sortedGates = [...gates].sort((a, b) => a.gateConfig.gateNumber - b.gateConfig.gateNumber);
+  const rows = sortedGates.map(gate => {
+    const gateNumber = Number(gate.gateConfig.gateNumber ?? 0);
+    const requiredDocs = docTypesForGate(gate, documents).filter(dt => !dt.isGenerated && dt.roleInGate !== 'PARALLEL');
+    const usedDocIds = new Set<string>();
+    const completed = requiredDocs.filter(dt => {
+      const doc = findDocForSlot(documents, dt.docType, usedDocIds, gateNumber);
+      return isCrossValidationPassed(doc);
+    }).length;
+    return {
+      gate,
+      label: SHIPMENT_GATE_LABELS[gateNumber] ?? gate.gateConfig.gateLabel ?? gate.gateConfig.gateName,
+      apiStatus: shipmentGateApiStatus(gate),
+      required: requiredDocs.length,
+      completed,
+    };
+  });
+
+  let precedingGatesComplete = true;
+  let activeGateAssigned = false;
+
+  return rows.map(row => {
+    const complete = row.required > 0 && row.completed === row.required;
+    let status: ShipmentGateProgressStatus = 'future';
+
+    if (row.apiStatus === 'blocked') {
+      status = 'blocked';
+      precedingGatesComplete = false;
+      activeGateAssigned = true;
+    } else if (precedingGatesComplete && complete) {
+      status = 'passed';
+    } else if (precedingGatesComplete && !activeGateAssigned) {
+      status = 'active';
+      activeGateAssigned = true;
+      precedingGatesComplete = false;
+    } else {
+      status = 'future';
+      precedingGatesComplete = false;
+    }
+
+    return {
+      gate: row.gate,
+      label: row.label,
+      status,
+      docCount: `${row.completed}/${row.required}`,
+    };
+  });
+}
+
+function shipmentGateProgressColor(status: ShipmentGateProgressStatus): string {
+  if (status === 'passed') return GREEN;
+  if (status === 'active') return TEAL;
+  if (status === 'blocked') return 'hsl(var(--vs-danger))';
+  return BDR;
+}
+
+function ShipmentPortMarker({ status, size = 20 }: { status: ShipmentGateProgressStatus; size?: number }) {
+  const isPassed = status === 'passed';
+  const isActive = status === 'active';
+  const isBlocked = status === 'blocked';
+  const color = shipmentGateProgressColor(status);
+  return (
+    <div style={{ position: 'relative', width: size, height: size, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {isActive && (
+        <div style={{
+          position: 'absolute', inset: -4, borderRadius: '50%',
+          border: `2px solid ${TEAL}`, opacity: 0.45,
+          animation: 'gateRing 1.4s ease-out infinite',
+        }} />
+      )}
+      <div style={{
+        width: size, height: size, borderRadius: '50%',
+        backgroundColor: isPassed ? GREEN : isActive ? TEAL : isBlocked ? 'hsl(var(--vs-danger))' : CARD,
+        border: status === 'future' ? `2px solid ${BDR}` : 'none',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: isActive ? `0 0 8px ${TEAL}55` : isPassed ? `0 0 4px ${GREEN}40` : 'none',
+      }}>
+        {isPassed && <Check size={11} color="#fff" strokeWidth={3} />}
+        {isActive && <div style={{ width: size * 0.28, height: size * 0.28, borderRadius: '50%', backgroundColor: '#fff' }} />}
+        {isBlocked && <span style={{ color: '#fff', fontSize: 11, fontWeight: 800, lineHeight: 1 }}>!</span>}
+      </div>
+    </div>
+  );
+}
+
+function VoyageProgressDocumentTracker({
+  documents,
+  loading,
+  gates = [],
+  shipment,
+  scData: _scData,
+}: {
+  documents: any[];
+  loading: boolean;
+  gates?: ApiGate[];
+  shipment: ApiShipment | null;
+  scData: SafeCubeData | null;
+}) {
+  const gateRows = buildShipmentGateProgressRows(gates, documents);
+  if (!loading && gateRows.length === 0) return null;
+
+  const N = gateRows.length;
+
+  const activeIdx = gateRows.findIndex(row => row.status === 'active' || row.status === 'blocked');
+  const lastPassedIdx = gateRows.reduce((last, row, index) => row.status === 'passed' ? index : last, -1);
+  const shipIdx = activeIdx >= 0 ? activeIdx : lastPassedIdx >= 0 ? lastPassedIdx : 0;
+  const pct = (index: number) => (2 * index + 1) / (2 * Math.max(N, 1)) * 100;
+  const firstPct = pct(0);
+  const lastPct = pct(Math.max(N - 1, 0));
+  const trackW = Math.max(lastPct - firstPct, 0);
+  let shipPct = pct(shipIdx);
+
+  const sailedW = trackW > 0 ? Math.max(0, Math.min(100, (shipPct - firstPct) / trackW * 100)) : 0;
+  const marker = 20;
+  const route = [shipment?.portOfLoading, shipment?.portOfDischarge].filter(Boolean).join(' -> ');
+
+  return (
+    <Card style={{ padding: '16px 24px', marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <Anchor size={14} color={TEAL} />
+        <span className="vs-mono" style={{ fontSize: 14, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          Voyage progress
+        </span>
+        <span style={{ fontSize: 14, color: BDR }}>·</span>
+        <span className="vs-mono" style={{ fontSize: 14, fontWeight: 700, color: TEAL }}>
+          {shipment?.shipmentNumber ?? 'Shipment'}
+        </span>
+        {(shipment?.vesselName || route) && (
+          <span style={{ fontSize: 14, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {[shipment?.vesselName, route].filter(Boolean).join(' · ')}
+          </span>
+        )}
+      </div>
+
+      {loading ? (
+        <SkeletonRow width={320} />
+      ) : (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${BDR}` }}>
+          <div style={{ position: 'relative', display: 'flex' }}>
+            <div style={{
+              position: 'absolute', top: marker / 2 - 1,
+              left: `${firstPct}%`, width: `${trackW}%`, height: 2,
+              zIndex: 0, pointerEvents: 'none',
+            }}>
+              <div style={{
+                position: 'absolute', inset: 0, width: `${sailedW}%`,
+                background: `linear-gradient(90deg, ${GREEN}, ${TEAL})`,
+                borderRadius: 2, boxShadow: `0 0 6px ${TEAL}55`,
+              }} />
+              <div style={{
+                position: 'absolute', top: 0, bottom: 0, left: `${sailedW}%`, right: 0,
+                background: `repeating-linear-gradient(90deg, ${BDR} 0px, ${BDR} 5px, transparent 5px, transparent 11px)`,
+                opacity: 0.7,
+              }} />
+            </div>
+
+            {gateRows.map(row => (
+              <div key={row.gate.id} style={{
+                flex: 1, display: 'flex', flexDirection: 'column',
+                alignItems: 'center', gap: 4, position: 'relative', zIndex: 1,
+                minWidth: 0,
+              }}>
+                <ShipmentPortMarker status={row.status} size={marker} />
+                <div style={{
+                  fontSize: 13, fontWeight: 700, textTransform: 'uppercase',
+                  letterSpacing: '0.06em', lineHeight: 1.3,
+                  color: row.status === 'future' ? MUTED : FG,
+                  width: '100%', textAlign: 'center',
+                  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden', wordBreak: 'break-word',
+                }}>
+                  {row.label}
+                </div>
+                <span className="vs-mono" style={{
+                  fontSize: 14, fontWeight: 700,
+                  color: row.status === 'future' ? MUTED : row.status === 'blocked' ? 'hsl(var(--vs-danger))' : row.status === 'active' ? TEAL : GREEN,
+                }}>
+                  {row.docCount}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[]; loading: boolean; gates?: ApiGate[] }) {
-  const pending   = documents.filter(d => !d.approvedAt);
-  const approved  = documents.filter(d => d.approvedAt);
+  const pending   = documents.filter(d => !isCrossValidationPassed(d));
   const pendingUs = pending.filter(d => US_DOC_TYPES.some(t => (d.documentType ?? '').toUpperCase().includes(t)));
   const hasAlert  = pendingUs.length > 0;
 
-  // Build gate-grouped structure
+  // Build the complete gate document matrix for the side panel:
+  // expected, generated, uploaded, and validated documents all stay visible.
   const sortedGates = [...gates].sort((a, b) => a.gateConfig.gateNumber - b.gateConfig.gateNumber);
   const gateGroups = sortedGates.map(gate => {
-    const entries = (gate.gateConfig.docTypeGates ?? []).map(dt => ({
+    const gateNumber = Number(gate.gateConfig.gateNumber ?? 0);
+    const usedInGate = new Set<string>();
+    const entries = docTypesForGate(gate, documents).map(dt => ({
       dt,
-      doc: documents.find(d => (d.documentType ?? '').toUpperCase() === dt.docType.toUpperCase()) ?? null,
+      docs: findDocsForSlot(documents, dt.docType, usedInGate, gateNumber),
     }));
     return { gate, entries };
   });
 
   // Docs not matched to any gate (manually uploaded extras)
   const assignedDocIds = new Set<string>(
-    gateGroups.flatMap(g => g.entries.map(e => e.doc?.id).filter((id): id is string => !!id))
+    gateGroups.flatMap(g => g.entries.flatMap(e => e.docs.map(doc => doc.id)).filter((id): id is string => !!id))
   );
   const ungatedDocs = documents.filter(d => !assignedDocIds.has(d.id));
+  const expectedCount = gateGroups.reduce((sum, group) => sum + group.entries.length, 0) + ungatedDocs.length;
+  const validatedCount = gateGroups.reduce(
+    (sum, group) => sum + group.entries.filter(entry => entry.docs.length > 0 && entry.docs.every(isCrossValidationPassed)).length,
+    0,
+  ) + ungatedDocs.filter(isCrossValidationPassed).length;
 
   return (
     <Card style={{ padding: '18px 20px', marginBottom: 16 }}>
-      <SectionLabel right={<span style={{ fontSize: 14.5, fontWeight: 700, color: approved.length === documents.length && documents.length > 0 ? GREEN : MUTED }}>{approved.length} OF {documents.length} COMPLETE</span>}>
+      <SectionLabel right={<span style={{ fontSize: 14.5, fontWeight: 700, color: expectedCount > 0 && validatedCount === expectedCount ? GREEN : MUTED }}>{validatedCount} OF {expectedCount} VALIDATED</span>}>
         <FileText size={12} style={{ display: 'inline', marginRight: 5 }} />Documents
       </SectionLabel>
 
@@ -846,9 +1297,9 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {gateGroups.map(({ gate, entries }) => {
             const gc = gate.gateConfig;
+            const gateNumber = Number(gc.gateNumber ?? 0);
             const status = gate.status;
-            // Show: uploaded docs + awaited required (non-generated) docs; skip gates with nothing to show
-            const visible = entries.filter(e => e.doc || !e.dt.isGenerated);
+            const visible = entries;
             if (visible.length === 0) return null;
 
             const statusColor = gateStatusColor(status);
@@ -867,7 +1318,7 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
                   }}>
                     {gc.gateNumber}
                   </div>
-                  <span style={{ fontSize: 14.5, fontWeight: 600, color: FG, flex: 1 }}>{gc.gateName}</span>
+                  <span style={{ fontSize: 14.5, fontWeight: 600, color: FG, flex: 1 }}>{SHIPMENT_GATE_LABELS[gateNumber] ?? gc.gateName}</span>
                   {gc.geography && <span style={{ fontSize: 14, color: MUTED }}>{gc.geography}</span>}
                   <span style={{ fontSize: 14, fontWeight: 700, color: statusColor, letterSpacing: '0.03em' }}>
                     {isPassed ? `✓ ${gate.passedAt ? fmtDate(gate.passedAt) : 'Passed'}` : isSkipped ? 'Skipped' : status}
@@ -876,10 +1327,10 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
 
                 {/* Document rows */}
                 <div style={{ borderRadius: 8, border: `1px solid ${BDR}`, overflow: 'hidden' }}>
-                  {visible.map(({ dt, doc }, i) => {
+                  {visible.map(({ dt, docs }, i) => {
                     const isLast = i === visible.length - 1;
-                    return doc
-                      ? <DocRow360 key={dt.id} doc={doc} isLast={isLast} />
+                    return docs.length > 0
+                      ? <DocRow360 key={dt.id} docType={dt.docType} docs={docs} isLast={isLast} />
                       : <AwaitedRow360 key={dt.id} docType={dt.docType} isLast={isLast} />;
                   })}
                 </div>
@@ -897,8 +1348,8 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
                 <span style={{ fontSize: 14.5, fontWeight: 600, color: MUTED }}>Other</span>
               </div>
               <div style={{ borderRadius: 8, border: `1px solid ${BDR}`, overflow: 'hidden' }}>
-                {ungatedDocs.map((doc, i) => (
-                  <DocRow360 key={doc.id} doc={doc} isLast={i === ungatedDocs.length - 1} />
+                {groupDocsByType(ungatedDocs).map((group, i, groups) => (
+                  <DocRow360 key={group.docType} docType={group.docType} docs={group.docs} isLast={i === groups.length - 1} />
                 ))}
               </div>
             </div>
@@ -909,8 +1360,8 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
       {/* Fallback flat list when no gate data */}
       {!loading && gateGroups.length === 0 && documents.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-          {documents.map((doc, i) => (
-            <DocRow360 key={doc.id} doc={doc} isLast={i === documents.length - 1} />
+          {groupDocsByType(documents).map((group, i, groups) => (
+            <DocRow360 key={group.docType} docType={group.docType} docs={group.docs} isLast={i === groups.length - 1} />
           ))}
         </div>
       )}
@@ -1122,7 +1573,7 @@ function GateRow({ gate, milestones, documents, shipmentId, onGateAction, onMile
   const gc = gate.gateConfig;
   const status = gate.status;
   const gateMilestones = milestones.filter(m => m.milestoneConfig?.gateConfigId === gc.id);
-  const gateDocTypes   = gc.docTypeGates ?? [];
+  const gateDocTypes   = orderedDocTypeGates(gc.docTypeGates ?? []);
   const [acting, setActing] = useState(false);
 
   const [completingMs, setCompletingMs] = useState<number | null>(null);
@@ -1382,7 +1833,6 @@ export function ShipmentDetailPage() {
   const isOnHold      = shipment?.status === 'on_hold';
   const isCancelled   = shipment?.status === 'cancelled';
   const cvState       = containerViewState(scData, milestones, shipment, gates);
-  const voyageSteps   = deriveVoyageSteps(scData, gates, shipment);
   const mapProps      = useMemo(() => {
     if (!scData) return null;
     return adaptSafeCubeToMapProps(scData, scData.events ?? []);
@@ -1394,7 +1844,12 @@ export function ShipmentDetailPage() {
   // ─── Render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{ padding: '24px 28px', minHeight: '100%' }}>
-      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}} @keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes shipBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+        @keyframes gateRing{0%{transform:scale(1);opacity:.65}100%{transform:scale(1.9);opacity:0}}
+      `}</style>
 
       {/* Breadcrumb — three-level when arriving from a project, single-level otherwise */}
       {projectCtx ? (
@@ -1495,9 +1950,15 @@ export function ShipmentDetailPage() {
       )}
 
       {/* Voyage stepper — full width */}
-      {!loading && <VoyageStepper steps={voyageSteps} eta={scData?.etaAt ?? scData?.podPredictiveEta} scheduleStatus={scData?.scheduleStatus} />}
-
       {/* Alerts banner — active tracking alerts from SafeCube */}
+      <VoyageProgressDocumentTracker
+        documents={documents}
+        loading={docsLoading}
+        gates={gates}
+        shipment={shipment}
+        scData={scData}
+      />
+
       {!scLoading && <AlertsBanner scData={scData} />}
 
       {/* Context strip */}

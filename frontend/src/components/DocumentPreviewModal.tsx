@@ -399,10 +399,10 @@ function DraftBoEDoc({ schema, resolve, resolveRow }: {
   return (
     <div>
       <DocHeader
-        title="Draft BOE"
+        title="Draft CBP FORM 7501"
         docNumber={`BOL: ${resolve('blOrAwbNumber')}`}
         date={resolve('summaryDate') !== 'â€”' ? resolve('summaryDate') : 'Pending'}
-        subtitle="Draft Bill of Entry / CBP Form 7501 working document"
+        subtitle="Draft CBP FORM 7501 working document"
       />
       {fieldSections.map(section => {
         const rows: [string, string | undefined][][] = [];
@@ -427,10 +427,10 @@ function DraftBoEDoc({ schema, resolve, resolveRow }: {
   return (
     <div>
       <DocHeader
-        title="Draft BOE"
+        title="Draft CBP FORM 7501"
         docNumber={`Master BOL: ${resolve('masterBol')}`}
         date={resolve('entryDate') !== '—' ? resolve('entryDate') : 'Pending'}
-        subtitle="CBP Form 7501 (Draft — Not for Official Use)"
+        subtitle="Draft CBP FORM 7501 (Not for Official Use)"
       />
 
       <SectionTitle>Entry Details</SectionTitle>

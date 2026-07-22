@@ -1,6 +1,7 @@
-import { SESSION_TOKEN_KEY } from '@/auth/api';
+import { REFRESH_TOKEN_KEY, SESSION_TOKEN_KEY } from '@/auth/api';
 
 let authToken: string | null = null;
+let refreshPromise: Promise<string | null> | null = null;
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
 
@@ -16,7 +17,51 @@ export function getAuthToken(): string | null {
   return authToken ?? window.localStorage.getItem(SESSION_TOKEN_KEY);
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY);
+  if (!refreshToken) return null;
+
+  if (!refreshPromise) {
+    refreshPromise = fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const data = await res.json().catch(() => null);
+        const accessToken = typeof data?.access_token === 'string' ? data.access_token : null;
+        if (!accessToken) return null;
+
+        authToken = accessToken;
+        window.localStorage.setItem(SESSION_TOKEN_KEY, accessToken);
+        if (typeof data?.refresh_token === 'string' && data.refresh_token.trim()) {
+          window.localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
+        }
+        return accessToken;
+      })
+      .catch(() => null)
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+
+  return refreshPromise;
+}
+
+function clearExpiredSession() {
+  clearAuthToken();
+  window.localStorage.removeItem(SESSION_TOKEN_KEY);
+  window.localStorage.removeItem(REFRESH_TOKEN_KEY);
+  if (!['/', '/login', '/forgot-password', '/reset-password'].includes(window.location.pathname)) {
+    window.location.replace('/login');
+  }
+}
+
+async function request<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
   const url = path.startsWith('http') || path.startsWith('/api/')
     ? path
     : `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
@@ -33,6 +78,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(url, { ...options, headers });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
+    if (res.status === 401 && retry) {
+      const nextAccessToken = await refreshAccessToken();
+      if (nextAccessToken) {
+        return request<T>(path, options, false);
+      }
+      clearExpiredSession();
+    }
     const detail = data && typeof data === 'object' && 'detail' in data ? String(data.detail) : `Request failed (${res.status})`;
     throw new Error(detail);
   }

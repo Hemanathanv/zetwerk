@@ -443,7 +443,7 @@ function SkuView({ skuSummary, warehouseId }: { skuSummary: any[]; warehouseId: 
   if (skuSummary.length === 0) {
     return (
       <div className="text-center py-16 text-muted-foreground text-[14.5px]">
-        No packing list data available for this warehouse.
+        No stock position rows found from Packing List or generated Packing List sources.
       </div>
     );
   }
@@ -567,7 +567,254 @@ function SkuView({ skuSummary, warehouseId }: { skuSummary: any[]; warehouseId: 
 }
 
 // ─── Main page ───────────────────────────────────────────────
+type StockPositionRow = {
+  id: string;
+  productCode: string;
+  description: string | null;
+  hsCode: string | null;
+  quantityOnHand: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  netWeightKg: number;
+  receivedAt: string | null;
+};
+
+type StockPaginationMeta = {
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  totalAvailable: number;
+  totalReserved: number;
+};
+
+function fmtStockNum(value: number | null | undefined, decimals = 0) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+  return Number(value).toLocaleString('en-US', { maximumFractionDigits: decimals });
+}
+
+async function readApiJson(response: Response) {
+  const text = await response.text();
+  let payload: any = {};
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = { ok: false, error: text };
+    }
+  }
+  if (!response.ok) {
+    throw new Error(payload.detail || payload.error || `Request failed (${response.status})`);
+  }
+  return payload;
+}
+
+function StockAvailability({ available, onHand }: { available: number; onHand: number }) {
+  const pct = onHand > 0 ? Math.max(0, Math.min(100, (available / onHand) * 100)) : 0;
+  return (
+    <div className="flex items-center gap-2 min-w-[110px]">
+      <div className="h-1.5 w-14 rounded-full bg-muted overflow-hidden">
+        <div className="h-full rounded-full bg-teal-500" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-[12px] text-muted-foreground">{Math.round(pct)}%</span>
+    </div>
+  );
+}
+
+function WarehouseStockPositionScreen() {
+  const [rows, setRows] = useState<StockPositionRow[]>([]);
+  const [meta, setMeta] = useState<StockPaginationMeta>({
+    total: 0,
+    page: 1,
+    pageSize: 10,
+    totalPages: 1,
+    totalAvailable: 0,
+    totalReserved: 0,
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    setLoading(true);
+    setError('');
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize),
+    });
+    if (search.trim()) params.set('search', search.trim());
+    fetch(`/api/warehouse/stock?${params.toString()}`, { headers: authHeaders() })
+      .then(async (r) => {
+        const payload = await readApiJson(r);
+        if (!payload.ok) throw new Error(payload.error || 'Failed to load stock position');
+        setRows(payload.data || []);
+        setMeta({
+          total: payload.meta?.total ?? 0,
+          page: payload.meta?.page ?? page,
+          pageSize: payload.meta?.pageSize ?? pageSize,
+          totalPages: payload.meta?.totalPages ?? 1,
+          totalAvailable: payload.meta?.totalAvailable ?? 0,
+          totalReserved: payload.meta?.totalReserved ?? 0,
+        });
+      })
+      .catch((err) => setError(err.message || 'Failed to load stock position'))
+      .finally(() => setLoading(false));
+  }, [page, pageSize, refreshKey, search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, pageSize]);
+
+  const firstShown = meta.total === 0 ? 0 : (meta.page - 1) * meta.pageSize + 1;
+  const lastShown = Math.min(meta.total, (meta.page - 1) * meta.pageSize + rows.length);
+
+  return (
+    <div className="p-6 max-w-6xl mx-auto">
+      <div className="text-[13px] text-muted-foreground mb-6">
+        <span>Warehouse</span>
+        <span className="mx-2">›</span>
+        <span className="font-medium text-foreground">Stock</span>
+      </div>
+
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Stock Position</h1>
+          <p className="text-[14.5px] text-muted-foreground mt-0.5">Current on-hand inventory at your warehouse</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link href="/documents/generate/outward-pl">
+            <button className="flex items-center gap-1.5 text-[13px] px-3 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors font-medium">
+              <ArrowRight className="w-3.5 h-3.5" />
+              Outward Dispatch
+            </button>
+          </Link>
+          <button
+            onClick={() => setRefreshKey(k => k + 1)}
+            disabled={loading}
+            className="flex items-center gap-1.5 text-[13px] px-3 py-2 rounded-lg border border-border bg-card hover:bg-muted transition-colors text-muted-foreground disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+        {[
+          ['Total SKUs', meta.total.toLocaleString(), 'product lines on hand'],
+          ['Available Units', fmtStockNum(meta.totalAvailable), 'free to dispatch'],
+          ['Reserved Units', fmtStockNum(meta.totalReserved), 'in pending dispatches'],
+        ].map(([label, value, sub]) => (
+          <div key={label} className="bg-card rounded-xl border border-border p-4">
+            <p className="text-[13px] font-medium text-muted-foreground uppercase tracking-wide mb-1">{label}</p>
+            <p className="text-2xl font-semibold text-foreground">{value}</p>
+            <p className="text-[13px] text-muted-foreground mt-0.5">{sub}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="relative mb-5">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by product code, description, or HS code..."
+          className="w-full pl-9 pr-4 py-2 text-[14.5px] border border-border rounded-xl bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+        />
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 text-[14.5px] text-red-600 bg-red-50 dark:bg-red-950/20 rounded-lg px-4 py-3 border border-red-200 dark:border-red-900 mb-5">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="space-y-2">
+          {[1, 2, 3, 4].map(i => <div key={i} className="h-16 rounded-xl bg-muted/40 animate-pulse" />)}
+        </div>
+      ) : (
+        <div className="bg-card rounded-xl border border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-[14.5px]">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  {['Product Code', 'Description', 'HS Code', 'On Hand', 'Reserved', 'Available', 'Net Wt (kg)', 'Availability', 'Received'].map(header => (
+                    <th key={header} className="text-left text-[13px] font-semibold text-muted-foreground uppercase tracking-wide px-4 py-3 whitespace-nowrap">
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-10 text-center text-[14.5px] text-muted-foreground">
+                      {search.trim() ? `No results matching "${search}".` : 'No approved Packing List stock lines found.'}
+                    </td>
+                  </tr>
+                ) : rows.map(row => (
+                  <tr key={row.id} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-3 font-mono font-semibold text-[13px] text-foreground whitespace-nowrap">{row.productCode}</td>
+                    <td className="px-4 py-3 text-[13px] text-foreground max-w-[260px] truncate">{row.description || '—'}</td>
+                    <td className="px-4 py-3 text-[13px] text-muted-foreground font-mono whitespace-nowrap">{row.hsCode || '—'}</td>
+                    <td className="px-4 py-3 text-[13px] font-semibold text-foreground text-right whitespace-nowrap">{fmtStockNum(row.quantityOnHand)}</td>
+                    <td className="px-4 py-3 text-[13px] text-amber-600 font-medium text-right whitespace-nowrap">{row.reservedQuantity > 0 ? fmtStockNum(row.reservedQuantity) : '—'}</td>
+                    <td className="px-4 py-3 text-[13px] font-semibold text-teal-600 text-right whitespace-nowrap">{fmtStockNum(row.availableQuantity)}</td>
+                    <td className="px-4 py-3 text-[13px] text-muted-foreground text-right whitespace-nowrap">{fmtStockNum(row.netWeightKg, 2)}</td>
+                    <td className="px-4 py-3"><StockAvailability available={row.availableQuantity} onHand={row.quantityOnHand} /></td>
+                    <td className="px-4 py-3 text-[13px] text-muted-foreground whitespace-nowrap">{fmtDate(row.receivedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-4 py-2.5 border-t border-border bg-muted/10 text-[13px] text-muted-foreground flex items-center justify-between gap-3 flex-wrap">
+            <span>
+              Showing {firstShown}-{lastShown} of {meta.total} stock line{meta.total !== 1 ? 's' : ''}
+            </span>
+            <div className="flex items-center gap-2">
+              <select
+                value={pageSize}
+                onChange={(event) => setPageSize(Number(event.target.value))}
+                className="h-8 rounded-lg border border-border bg-background px-2 text-[13px] text-foreground"
+              >
+                {[10, 25, 50, 100].map(size => <option key={size} value={size}>{size}/page</option>)}
+              </select>
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={loading || meta.page <= 1}
+                className="h-8 px-3 rounded-lg border border-border bg-background hover:bg-muted disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <span className="text-[13px] text-muted-foreground">
+                Page {meta.page} of {meta.totalPages}
+              </span>
+              <button
+                onClick={() => setPage(p => Math.min(meta.totalPages, p + 1))}
+                disabled={loading || meta.page >= meta.totalPages}
+                className="h-8 px-3 rounded-lg border border-border bg-background hover:bg-muted disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function WarehouseInventoryPage() {
+  return <WarehouseStockPositionScreen />;
+}
+
+function LegacyWarehouseInventoryPage() {
   const { user } = useAuth();
   const isAdmin = user?.role?.category === 'org_admin';
 
@@ -578,7 +825,7 @@ export function WarehouseInventoryPage() {
   const [skuSummary, setSkuSummary] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [warehouseLoading, setWarehouseLoading] = useState(true);
-  const [viewMode, setViewMode] = useState<'container' | 'sku'>('container');
+  const [viewMode, setViewMode] = useState<'container' | 'sku'>('sku');
   const [stageFilter, setStageFilter] = useState('all');
   const [slaFilter, setSlaFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -599,13 +846,10 @@ export function WarehouseInventoryPage() {
   useEffect(() => {
     if (!selectedWarehouseId) return;
     setLoading(true);
-    Promise.all([
-      fetch(`/api/inventory/warehouse/${selectedWarehouseId}/stock`, { headers: authHeaders() }).then((r) => r.json()),
-      fetch(`/api/warehouse/stock/sku-summary`, { headers: authHeaders() })
-        .then((r) => r.json())
-        .catch(() => ({ data: [] })),
-    ]).then(([stockRes, skuRes]) => {
-      setInventory(stockRes.data || []);
+    fetch(`/api/warehouse/stock/sku-summary`, { headers: authHeaders() })
+      .then((r) => r.json())
+      .catch(() => ({ data: [] }))
+      .then((skuRes) => {
       const skuRows: any[] = skuRes.data || [];
       setSkuSummary(skuRows.map((r: any) => ({
         productCode: r.productCode,
@@ -618,8 +862,7 @@ export function WarehouseInventoryPage() {
         shipments: r.shipmentCount ?? 0,
         dataSource: r.dataSource ?? null,
       })));
-      setLoading(false);
-    });
+    }).finally(() => setLoading(false));
   }, [selectedWarehouseId]);
 
   const selectedWarehouse = warehouses.find((w) => w.id === selectedWarehouseId);
@@ -670,7 +913,6 @@ export function WarehouseInventoryPage() {
     return (
       <div className="p-6">
         <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: '0 0 16px', lineHeight: 1.2 }}>Warehouse Inventory</h1>
-        {portWarehouses.length > 0 && <PortLocationsRow portWarehouses={portWarehouses} />}
         <div className="bg-card rounded-xl p-8 text-center">
           <Package className="w-10 h-10 mx-auto text-muted-foreground mb-3 opacity-50" />
           <p className="text-[14.5px] font-medium mb-1">No warehouses configured</p>
@@ -697,7 +939,7 @@ export function WarehouseInventoryPage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
         <div>
-          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Warehouse Inventory</h1>
+          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Stock Position</h1>
           <p className="text-[14.5px] text-muted-foreground mt-0.5">
             {selectedWarehouse ? selectedWarehouse.name : 'Select a warehouse'}
             {selectedWarehouse?.address && (
@@ -731,30 +973,8 @@ export function WarehouseInventoryPage() {
               <Settings className="w-4 h-4" />
             </a>
           )}
-
-          <div className="flex rounded-lg border overflow-hidden">
-            <button
-              onClick={() => setViewMode('container')}
-              className={`px-3 py-1.5 text-[13px] font-medium transition-colors ${
-                viewMode === 'container' ? 'bg-teal-600 text-white' : 'hover:bg-muted'
-              }`}
-            >
-              Container
-            </button>
-            <button
-              onClick={() => setViewMode('sku')}
-              className={`px-3 py-1.5 text-[13px] font-medium transition-colors ${
-                viewMode === 'sku' ? 'bg-teal-600 text-white' : 'hover:bg-muted'
-              }`}
-            >
-              By SKU
-            </button>
-          </div>
         </div>
       </div>
-
-      {/* Port locations row */}
-      <PortLocationsRow portWarehouses={portWarehouses} />
 
       {/* Stage summary cards */}
       {viewMode === 'container' && (

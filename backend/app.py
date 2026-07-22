@@ -4,10 +4,6 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.v1 import register_routes
-from api.v1.doc_generation.router import (
-    backfill_missing_packing_list_drafts,
-    reorder_existing_packing_list_drafts,
-)
 from cache import close_redis, get_redis
 from helpers.config import settings
 from db import close_prisma, get_prisma
@@ -37,19 +33,6 @@ async def lifespan(app: FastAPI):
     try:
         prisma=await get_prisma()
         print("PostgreSQL (Prisma) connected")
-        try:
-            backfill = await backfill_missing_packing_list_drafts(prisma)
-            print(
-                "Packing List draft backfill "
-                f"eligible={backfill['eligible']} created={backfill['created']} failed={backfill['failed']}"
-            )
-            reordered = await reorder_existing_packing_list_drafts(prisma)
-            print(
-                "Packing List draft order repair "
-                f"eligible={reordered['eligible']} updated={reordered['updated']} skipped={reordered['skipped']}"
-            )
-        except Exception as exc:
-            print(f"Warning: Packing List draft backfill failed: {exc}")
     except Exception as e:
         print(f"Warning: Could not connect to Prisma: {e}")
 

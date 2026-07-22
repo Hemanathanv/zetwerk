@@ -123,7 +123,7 @@ function ProductEditModal({ product, onClose, onSave }: {
             <div>
               <label style={LBL_S}>HTS Code</label>
               <input style={INP_S(MONO)} value={htsCode} onChange={e => setHtsCode(e.target.value)} placeholder="7308.90.9590" />
-              <span style={HELPER_S}>Harmonized Tariff Schedule code for US import (used in CBP FORM-7501)</span>
+              <span style={HELPER_S}>Harmonized Tariff Schedule code for US import (used in CBP FORM 7501)</span>
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -148,7 +148,7 @@ function ProductEditModal({ product, onClose, onSave }: {
                 style={{ width: 15, height: 15, accentColor: 'hsl(173 58% 39%)' }} />
               <span style={{ fontSize: 14.5 }}>Section 232 Applicable</span>
             </label>
-              <span style={HELPER_S}>Enable for steel products subject to Section 232 tariffs. Adds melt & pour declaration to Draft BOE.</span>
+              <span style={HELPER_S}>Enable for steel products subject to Section 232 tariffs. Adds melt & pour declaration to CBP FORM 7501.</span>
           </div>
           {s232 && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
@@ -165,7 +165,7 @@ function ProductEditModal({ product, onClose, onSave }: {
                 <input style={INP_S()} value={cast} onChange={e => setCast(e.target.value)} placeholder="India" />
               </div>
               <div style={{ gridColumn: '1 / -1' }}>
-                <span style={HELPER_S}>These defaults pre-populate the Draft BOE. The US Broker can override during review.</span>
+                <span style={HELPER_S}>These defaults pre-populate the CBP FORM 7501. The US Broker can override during review.</span>
               </div>
             </div>
           )}

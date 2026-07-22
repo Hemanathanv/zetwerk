@@ -49,7 +49,7 @@ export const ALL_OCR_OPTIONS: DocTypeOption[] = [
   { value: 'bill_of_lading',           label: 'Bill of Lading' },
   { value: 'shipping_bill',            label: 'Shipping Bill' },
   { value: 'packing_list',             label: 'Packing List' },
-  { value: 'entry_summary',            label: 'CBP FORM-7501' },
+  { value: 'entry_summary',            label: 'CBP FORM 7501' },
   { value: 'cha',                      label: 'CHA Bill' },
   { value: 'freight_forwarder_bill',   label: 'Freight Forwarder Bill' },
   { value: 'customer_broker_bill',     label: 'Customs Broker Bill' },

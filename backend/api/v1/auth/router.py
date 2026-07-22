@@ -2,12 +2,14 @@
 Keycloak-Only Authentication Router
 Pure Keycloak authentication without legacy session system
 """
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 
 from helpers.config import settings
-from helpers.rbac_data_access import doc_type_permissions_for_role
+from helpers.rbac_data_access import doc_type_permissions_for_role, role_document_scope_from_attrs
 from .keycloak_integration import (
     get_keycloak_user, get_keycloak_roles, check_role, check_any_role,
     get_keycloak_token, get_keycloak_auth_url, create_keycloak_user, get_keycloak_admin,
@@ -89,8 +91,10 @@ def _primary_role_name(role_names: list[str]) -> str:
 
 def _legacy_activity_codes(activities: list[str]) -> list[str]:
     codes = set(activities)
-    if "documents.generate_draft" in codes or "documents.approve_draft" in codes:
-        codes.add("DOC-003")
+    if "documents.view" in codes:
+        codes.add("documents.view_extracted")
+    for activity in list(codes):
+        codes.update(LEGACY_ACTIVITY_ALIASES.get(activity, set()))
     return sorted(codes)
 
 
@@ -100,10 +104,23 @@ def _permissions_from_role(role: dict) -> dict:
     role_category = _attr_value(attrs, "ewms.category", "org_internal")
     modules = _expand_modules(_attr_values(attrs, "ewms.modules"))
     activities = _legacy_activity_codes(_attr_values(attrs, "ewms.activities"))
+    activity_doc_types = {}
+    try:
+        parsed_scopes = json.loads(_attr_value(attrs, "ewms.docTypeScopes", "{}"))
+        if isinstance(parsed_scopes, dict):
+            activity_doc_types = {
+                str(activity): sorted({str(doc_type) for doc_type in doc_types if str(doc_type)})
+                for activity, doc_types in parsed_scopes.items()
+                if isinstance(doc_types, list)
+            }
+    except Exception:
+        activity_doc_types = {}
     return {
         "modules": modules,
         "gates": [],
-        "docTypes": doc_type_permissions_for_role(role_name),
+        "docTypes": doc_type_permissions_for_role(role_name, attrs),
+        "documentScope": sorted(role_document_scope_from_attrs(attrs) or []),
+        "activityDocTypes": activity_doc_types,
         "ticketCategories": [],
         "activities": activities,
         "dataScope": _normalize_data_scope(_attr_value(attrs, "ewms.dataScope", "TEAM")),
@@ -218,6 +235,10 @@ ACTIVITY_MIN_LEVELS = {
     "reports.export_report": "L2",
     "reports.schedule_auto": "L3",
     "tasks.view": "L1",
+    "tasks.update": "L2",
+    "tasks.assign": "L3",
+    "tasks.escalate": "L3",
+    "tasks.delegate": "L3",
     "admin.manage": "L3",
     "users.manage": "L3",
     "roles.view": "L2",
@@ -232,6 +253,21 @@ ACTIVITY_MIN_LEVELS = {
     "admin.manage_partners": "L3",
     "admin.view_audit_log": "L3",
     "admin.security_settings": "L4",
+    "SHP-001": "L1",
+    "SHP-002": "L2",
+    "SHP-003": "L2",
+    "SHP-005": "L4",
+    "GATE-001": "L1",
+    "GATE-002": "L2",
+    "DOC-003": "L2",
+    "ACC-001": "L1",
+    "ACC-003": "L2",
+    "ACC-004": "L2",
+    "TSK-001": "L1",
+    "TSK-002": "L2",
+    "TSK-003": "L3",
+    "TSK-004": "L3",
+    "TSK-007": "L3",
 }
 
 IMPLIED_ACTIVITY_CODES = {
@@ -258,6 +294,24 @@ IMPLIED_ACTIVITY_CODES = {
     },
 }
 
+LEGACY_ACTIVITY_ALIASES = {
+    "shipments.view": {"SHP-001"},
+    "shipments.create": {"SHP-002"},
+    "shipments.edit_metadata": {"SHP-003", "GATE-002"},
+    "shipments.override_blocked_stage": {"SHP-005"},
+    "inventory.view_timeline": {"GATE-001"},
+    "documents.generate_draft": {"DOC-003"},
+    "documents.approve_draft": {"DOC-003"},
+    "accounting.view_queue": {"ACC-001"},
+    "accounting.export_data": {"ACC-003"},
+    "accounting.review_ticket": {"ACC-004"},
+    "tasks.view": {"TSK-001"},
+    "tasks.update": {"TSK-002"},
+    "tasks.assign": {"TSK-003"},
+    "tasks.escalate": {"TSK-004"},
+    "tasks.delegate": {"TSK-007"},
+}
+
 
 def _level_at_least(user_level: str, required_level: str) -> bool:
     return LEVEL_ORDER.get(str(user_level or "L1").upper(), 0) >= LEVEL_ORDER.get(str(required_level or "L1").upper(), 0)
@@ -271,6 +325,8 @@ def _activities_for_level(activities: list[str], user_level: str) -> list[str]:
     expanded = set(activities)
     for activity in activities:
         expanded.update(IMPLIED_ACTIVITY_CODES.get(activity, set()))
+    for activity in list(expanded):
+        expanded.update(LEGACY_ACTIVITY_ALIASES.get(activity, set()))
     return [
         activity
         for activity in expanded

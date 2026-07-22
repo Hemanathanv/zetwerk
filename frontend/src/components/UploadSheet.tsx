@@ -30,7 +30,7 @@ const fallbackOcrTypes: OcrTypeOption[] = [
   { id: 'SALES_INVOICE', label: 'Sales Invoice' },
   { id: 'BILL_OF_LADING', label: 'Bill of Lading' },
   { id: 'SHIPPING_BILL', label: 'Shipping Bill' },
-  { id: 'ENTRY_SUMMARY', label: 'Entry Summary' },
+  { id: 'ENTRY_SUMMARY', label: 'CBP FORM 7501' },
   { id: 'OCEAN_FREIGHT', label: 'Ocean Freight' },
   { id: 'FREIGHT_FORWARDER_BILL', label: 'Freight Forwarder Bill' },
   { id: 'CHA_BILL', label: 'CHA Bill' },
@@ -212,7 +212,7 @@ export function UploadSheet() {
                 <UploadCloud className="w-7 h-7 text-primary" />
               </div>
               <p className="text-sm font-semibold text-foreground mb-1">Drop your document here</p>
-              <p className="text-xs text-muted-foreground mb-4">BOL, CBP FORM-7501, Invoice, Packing List, or any shipping document</p>
+              <p className="text-xs text-muted-foreground mb-4">BOL, CBP FORM 7501, Invoice, Packing List, or any shipping document</p>
               <span className="text-xs font-medium text-primary hover:underline">Or click to browse</span>
               <div className="flex items-center gap-1.5 mt-5 flex-wrap justify-center">
                 {['PDF', 'JPG', 'PNG', 'XLSX'].map((f) => (

@@ -8,7 +8,8 @@ import { useAuth } from '@/contexts/AuthContext';
 export interface ConfigRole {
   id: string; name: string; description?: string; roleCategory: string;
   isSystemDefault: boolean; color: string; allowedLevels: string[];
-  defaultModules: string[]; defaultDataScope: string;
+  defaultModules: string[]; defaultDataScope: string; documentScope?: string[];
+  docTypeScopes?: Record<string, string[]>;
   _count?: { users: number; roleActivities: number };
 }
 
@@ -59,6 +60,8 @@ export interface ConfigModule {
 
 export interface ConfigActivity {
   id: string; activityCode: string; name: string; category: string;
+  displayCode?: string; displayGroup?: string;
+  moduleCode?: string; subModule?: string; status?: string; scope?: string;
   minLevel: string; description?: string;
 }
 
@@ -206,8 +209,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    setState(initialState);
-  }, [isAuthenticated]);
+    if (!isAuthenticated) {
+      setState(initialState);
+      return;
+    }
+
+    refreshAll();
+  }, [isAuthenticated, refreshAll]);
 
   const getRoleById = useCallback((id: string) => state.roles.find(r => r.id === id), [state.roles]);
   const getOrgById = useCallback((id: string) => state.organisations.find(o => o.id === id), [state.organisations]);

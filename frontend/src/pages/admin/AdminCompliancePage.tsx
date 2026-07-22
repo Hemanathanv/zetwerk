@@ -172,9 +172,9 @@ export function AdminCompliancePage() {
   }, []);
 
   const checks: Array<{ title: string; description: string; run: () => Promise<ComplianceResult> }> = [
-    { title: 'Section 232 Declarations',     description: 'All steel shipments have complete melt & pour declarations on their CBP FORM-7501', run: placeholder },
+    { title: 'Section 232 Declarations',     description: 'All steel shipments have complete melt & pour declarations on their CBP FORM 7501', run: placeholder },
     { title: 'e-Invoice IRN Verification',   description: 'All Indian Sales Invoices have verified IRN (QR JWT check passed)',               run: placeholder },
-    { title: 'CBP FORM-7501 Filing Deadline', description: 'All CBP FORM-7501s filed within statutory deadline (15 days of vessel arrival)', run: placeholder },
+    { title: 'CBP FORM 7501 Filing Deadline', description: 'All CBP FORM 7501s filed within statutory deadline (15 days of vessel arrival)', run: placeholder },
     { title: 'Accounting Entry Posting SLA', description: 'All accounting tickets posted within their configured SLA',                       run: placeholder },
     { title: 'Override Justification',        description: 'All validation overrides have documented reasons (last 90 days)',                 run: check5 },
     { title: 'User Access Review',            description: 'All active users have logged in within the last 90 days',                         run: check6 },

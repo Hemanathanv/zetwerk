@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Building2, AlertTriangle, Download, ChevronDown, ChevronUp, Plus, Pencil, Trash2, Check, X } from 'lucide-react';
 import { PartnerWarehouseSection } from '../AdminWarehousesPage';
-import { getAuthToken } from '@/lib/api';
+import { apiGet, getAuthToken } from '@/lib/api';
 import { useConfig } from '@/contexts/ConfigContext';
 import {
   levelNum, getAuthorityLabel, getAuthorityColor,
@@ -10,7 +10,7 @@ import { AdminUsersPage } from '../AdminUsersPage';
 import { AdminRolesPage } from '../AdminRolesPage';
 import { AdminOrgsPage } from '../AdminOrgsPage';
 
-function authHeaders() {
+function authHeaders(): Record<string, string> {
   const t = getAuthToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
@@ -58,6 +58,21 @@ function StatPill({ label, value, warn = false }: { label: string; value: number
   );
 }
 
+function StatPillSkeleton() {
+  return (
+    <span
+      className="animate-pulse"
+      style={{
+        display: 'inline-flex',
+        width: 82,
+        height: 28,
+        borderRadius: 20,
+        background: 'hsl(var(--muted))',
+      }}
+    />
+  );
+}
+
 // ─── Section Bar ──────────────────────────────────────────────────────────────
 function SectionBar({
   title, open, onToggle, extra,
@@ -95,8 +110,8 @@ function AccessProfilesContent() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/admin/roles', { headers: authHeaders() })
-      .then(r => r.json()).then(d => { setRoles(d.data || []); setLoading(false); })
+    apiGet<any>('/api/admin/roles')
+      .then(d => { setRoles(d.data || []); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
 
@@ -188,8 +203,8 @@ function OrgsContent() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/admin/organisations', { headers: authHeaders() }).then(r => r.json()),
-      fetch('/api/admin/partners', { headers: authHeaders() }).then(r => r.json()),
+      apiGet<any>('/api/admin/organisations'),
+      apiGet<any>('/api/admin/partners'),
     ]).then(([orgData, partnerData]) => {
       setOrgs(orgData.data || []);
       setPartners(partnerData.data || []);
@@ -300,8 +315,8 @@ function AuditContent() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/admin/settings/access-audit', { headers: authHeaders() })
-      .then(r => r.json()).then(d => { setEntries(d.data || []); setLoading(false); })
+    apiGet<any>('/api/admin/settings/access-audit')
+      .then(d => { setEntries(d.data || []); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
 
@@ -368,8 +383,7 @@ function TeamsContent() {
 
   function load() {
     setLoading(true);
-    fetch('/api/admin/teams', { headers: authHeaders() })
-      .then(r => r.json())
+    apiGet<any>('/api/admin/teams')
       .then(d => { setTeams(d.data || []); })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -572,8 +586,8 @@ export default function TeamAccessSection() {
   const [advancedView, setAdvancedView] = useState<null | 'roles' | 'orgs'>(null);
 
   useEffect(() => {
-    fetch('/api/admin/settings/team-overview', { headers: authHeaders() })
-      .then(r => r.json()).then(d => setOverview(d.data))
+    apiGet<any>('/api/admin/settings/team-overview')
+      .then(d => setOverview(d.data))
       .catch(() => {});
   }, []);
 
@@ -606,8 +620,16 @@ export default function TeamAccessSection() {
             Manage who has access, what they can see, and what they can do.
           </p>
         </div>
-        {overview && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end', flexShrink: 0 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end', flexShrink: 0 }}>
+          {!overview ? (
+            <>
+              <StatPillSkeleton />
+              <StatPillSkeleton />
+              <StatPillSkeleton />
+              <StatPillSkeleton />
+            </>
+          ) : (
+            <>
             <StatPill label="active" value={overview.activeUsers} />
             <StatPill label="partners" value={overview.partnerUsers} />
             <StatPill label="admin" value={overview.adminUsers} />
@@ -615,8 +637,9 @@ export default function TeamAccessSection() {
             {overview.overrideUsers > 0 && (
               <StatPill label="override" value={overview.overrideUsers} warn={overview.overrideUsers > 3} />
             )}
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* People */}

@@ -37,7 +37,13 @@ from documents_ocr.Bill_of_lading.container_mapping import (
 )
 from helpers.config import settings
 from helpers.dependencies import get_current_user
-from helpers.rbac_data_access import document_prisma_where, document_sql_where, has_role_document_scope, user_id
+from helpers.rbac_data_access import (
+    document_module_sql_where,
+    document_prisma_where,
+    document_sql_where,
+    has_role_document_scope,
+    user_id,
+)
 from helpers.rbac import require_activity
 from helpers.shipment_operational import create_or_update_shipment_from_bol_document
 from objectstore import (
@@ -1337,14 +1343,17 @@ async def list_approved_documents_for_shipments(user=Depends(get_current_user)):
     """Read the automatically updated document-module SQL view."""
     prisma = await get_prisma()
     await ensure_document_module_views(prisma)
-    access_where, access_params, _ = document_sql_where("d", user)
+    access_where, access_params, _ = document_module_sql_where("d", user)
     projection = await prisma.query_raw(
         f"""
         SELECT v.document_id, v.doc_type, v.file_name, v.document_number,
                v.gate_number, v.gate_code, v.is_parallel, v.approved_at,
-               v.extracted_at, v.extracted_data, v.shipment_id
+               v.extracted_at, v.extracted_data, v.shipment_id,
+               COALESCE(dvs."status", d."validation_status") AS validation_status
         FROM document_module.v_shipment_gate_documents v
         JOIN public.documents d ON d.id = v.document_id
+        LEFT JOIN document_module.document_validation_status dvs
+          ON dvs."document_id"::text = v.document_id::text
         WHERE {access_where}
         ORDER BY v.approved_at DESC
         """,
@@ -1361,6 +1370,7 @@ async def list_approved_documents_for_shipments(user=Depends(get_current_user)):
             "status": "REVIEWED",
             "approvedAt": _to_iso(row.get("approved_at")),
             "extractedAt": _to_iso(row.get("extracted_at")),
+            "validationStatus": row.get("validation_status"),
             "extractedData": extracted_data,
             "shipmentId": row.get("shipment_id"),
             "gateNumber": row.get("gate_number"),
@@ -1422,8 +1432,10 @@ async def list_approved_documents_for_shipments(user=Depends(get_current_user)):
 @router.get("/documents/{document_id}/queue-item", response_model=DocumentListItem)
 async def get_document_queue_item(document_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
     row = await prisma.document.find_first(
-        where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
+        where=where,
     )
     if not row:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -1460,15 +1472,17 @@ async def get_document_queue_item(document_id: str, user=Depends(get_current_use
 @router.get("/documents/{document_id}", response_model=DocumentDetailItem)
 async def get_document(document_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
 
     try:
         row = await prisma.document.find_first(
-            where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
+            where=where,
             include={"pages": True},
         )
     except Exception:
         row = await prisma.document.find_first(
-            where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
+            where=where,
         )
     if not row:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -1533,8 +1547,10 @@ async def update_document_extraction(
     _authz=Depends(require_activity("documents.edit_extracted")),
 ):
     prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
     document = await prisma.document.find_first(
-        where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
+        where=where,
     )
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -1638,8 +1654,10 @@ async def retry_document_ocr(
     _authz=Depends(require_activity("documents.reprocess_ocr")),
 ):
     prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
     document = await prisma.document.find_first(
-        where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
+        where=where,
     )
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -1674,8 +1692,10 @@ async def reupload_document_for_validation(
     _authz=Depends(require_activity("documents.upload")),
 ):
     prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
     document = await prisma.document.find_first(
-        where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
+        where=where,
     )
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -1759,8 +1779,10 @@ async def stop_document_ocr(
     _authz=Depends(require_activity("documents.reprocess_ocr")),
 ):
     prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
     document = await prisma.document.find_first(
-        where={"id": document_id, "uploadedBy": user.id, "isDeleted": False},
+        where=where,
     )
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -2069,6 +2091,42 @@ def _validation_payload_from_serialized(extraction: DocumentExtractionItem | Non
     if extraction.lineItems and not payload.get("lineItems"):
         payload["lineItems"] = extraction.lineItems
     return payload
+
+
+def _non_empty_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _bol_container_mapping_approved(extraction: Any) -> bool:
+    raw_data = getattr(extraction, "rawData", None)
+    if not isinstance(raw_data, dict):
+        return False
+    return raw_data.get("containerMappingApproved") is True
+
+
+def _bol_has_tracking_reference(extraction: Any) -> bool:
+    return bool(
+        _non_empty_text(getattr(extraction, "mblNumber", None))
+        or _non_empty_text(getattr(extraction, "bookingReferenceNumber", None))
+    )
+
+
+def _bol_approval_blockers(extraction: Any) -> list[str]:
+    blockers: list[str] = []
+    if not _bol_container_mapping_approved(extraction):
+        blockers.append("approve the BOL container mapping")
+    if not _bol_has_tracking_reference(extraction):
+        blockers.append("enter either MBL number or booking reference number")
+    return blockers
+
+
+def _raise_bol_approval_blockers(extraction: Any) -> None:
+    blockers = _bol_approval_blockers(extraction)
+    if blockers:
+        raise HTTPException(
+            status_code=400,
+            detail="BOL approval blocked: " + "; ".join(blockers) + ".",
+        )
 
 
 def _sum_generated_line_item_numbers(line_items: list[dict[str, Any]], *keys: str) -> str | None:
@@ -2577,6 +2635,16 @@ async def _run_and_persist_document_validation(
         int(summary_dict.get("warnings") or 0),
         int(summary_dict.get("waiting") or 0),
     )
+    await _execute_raw(
+        prisma,
+        """
+        UPDATE "public"."documents"
+        SET "validation_status" = $2, "updated_at" = NOW()
+        WHERE "id"::text = $1::text
+        """,
+        document_id,
+        overall_status,
+    )
 
     if recheck_waiting_sources:
         waiting_sources = await _query_raw(
@@ -2637,6 +2705,9 @@ async def auto_review_and_validate_document(
     if not extraction:
         raise LookupError("Extraction data not found for this document")
 
+    if doc_type == "BILL_OF_LADING":
+        _raise_bol_approval_blockers(extraction)
+
     reviewed_at = datetime.now()
     await model_accessor.update(
         where={"documentId": document_id},
@@ -2691,6 +2762,9 @@ async def approve_document_extraction(
     extraction = await model_accessor.find_unique(where={"documentId": document_id})
     if not extraction:
         raise HTTPException(status_code=404, detail="Extraction data not found for this document")
+
+    if doc_type == "BILL_OF_LADING":
+        _raise_bol_approval_blockers(extraction)
 
     parent_model = DOC_TYPE_TO_PRISMA_PARENT_MODEL.get(doc_type)
     if not parent_model:
