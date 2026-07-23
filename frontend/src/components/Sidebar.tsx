@@ -38,7 +38,7 @@ const NAV_GROUPS: { items: NavItem[] }[] = [
       { icon: ClipboardList,   label: 'My Tasks',          href: '/tasks',                              module: 'tasks',      requiredAnyActivities: ['tasks.view', 'TSK-001'], badgeKey: 'tasks' },
       { icon: FileText,        label: 'Documents',         href: '/documents',                          module: 'documents',  requiredAnyActivities: ['documents.view', 'documents.view_extracted'] },
       { icon: ScanText,        label: 'Upload & Process',  href: '/documents/upload',                   module: 'documents',  requiredAnyActivities: ['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr'] },
-      { icon: Wand2,           label: 'Doc Generate',      href: '/documents/generate',                 module: 'documents',  requiredAnyActivities: ['documents.generate_draft', 'DOC-003'] },
+      { icon: Wand2,           label: 'Doc Generate',      href: '/documents/generate',                 module: 'documents',  requiredAnyActivities: ['documents.generate_draft', 'DOC-003', 'inventory.create_outward_grn_new_dispatch', 'inventory.update_milestone'] },
       { icon: Boxes,      label: 'Inventory',      href: '/inventory/containers', module: 'inventory', requiredAnyActivities: ['inventory.view_container', 'inventory.view_timeline', 'GATE-001'] },
       { icon: Warehouse,  label: 'Warehouse',      href: '/inventory/warehouse',  module: 'warehouse', requiredAnyActivities: ['inventory.view_container'] },
       { icon: DollarSign, label: 'D&D Management', href: '/inventory/dnd',        module: 'dnd',       requiredAnyActivities: ['inventory.acknowledge_dnd', 'inventory.update_milestone'] },
@@ -64,7 +64,6 @@ const NAV_GROUPS: { items: NavItem[] }[] = [
       { icon: FileText,   label: 'My Documents',     href: '/partner/documents',              module: 'partner', requiredAnyActivities: ['documents.view_extracted', 'documents.view'] },
       { icon: Warehouse,  label: 'Warehouse / QC',   href: '/partner/warehouse',              module: 'partner', requiredAnyActivities: ['inventory.view_container', 'inventory.view_timeline'] },
       { icon: Package,    label: 'Stock Position',   href: '/partner/warehouse/stock',        module: 'partner', requiredAnyActivities: ['inventory.view_container'] },
-      { icon: Send,       label: 'Outward Dispatch', href: '/documents/generate/outward-pl',  module: 'documents', requiredAnyActivities: ['inventory.update_milestone'] },
     ],
   },
   {

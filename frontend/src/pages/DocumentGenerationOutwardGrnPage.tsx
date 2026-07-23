@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { AlertCircle, ArrowLeft, Check, Loader2, Package, Plus, Send, Truck } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
-import { getAuthToken } from '@/lib/api';
-import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
+import { getAuthToken, apiUrl, readJsonResponse } from '@/lib/api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 function authHeaders(): Record<string, string> {
@@ -12,22 +12,6 @@ function authHeaders(): Record<string, string> {
 
 function fmtAvailable(value: number) {
   return Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 3 });
-}
-
-async function readApiJson(response: Response) {
-  const text = await response.text();
-  let payload: any = {};
-  if (text) {
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      payload = { ok: false, error: text };
-    }
-  }
-  if (!response.ok) {
-    throw new Error(payload.detail || payload.error || `Request failed (${response.status})`);
-  }
-  return payload;
 }
 
 type StockRow = {
@@ -56,6 +40,51 @@ type OutwardRecord = {
   id: string;
   status: 'DRAFT' | 'CONFIRMED' | 'DISPATCHED';
 };
+
+type ApiEnvelope<T> = {
+  ok: boolean;
+  data: T;
+  error?: string;
+  detail?: string;
+};
+
+type CreateOutwardDispatchPayload = {
+  warehouseId: string;
+  destinationName: string;
+  destinationAddress?: string;
+  truckNumber?: string;
+  driverName?: string;
+  notes?: string;
+  lines: Array<{
+    warehouseStockId: string;
+    quantityDispatched: number;
+    netWeightKg?: number;
+  }>;
+};
+
+const outwardGrnQueryKeys = {
+  stock: ['document-generation', 'outward-grn', 'warehouse-stock'] as const,
+};
+
+async function fetchWarehouseStock(): Promise<StockRow[]> {
+  const response = await fetch(apiUrl('/api/warehouse/stock?page=1&pageSize=500'), {
+    headers: authHeaders(),
+  });
+  const result = await readJsonResponse<ApiEnvelope<StockRow[]>>(response);
+  if (!result.ok) throw new Error(result.error || result.detail || 'Failed to load warehouse stock');
+  return result.data ?? [];
+}
+
+async function createOutwardDispatch(payload: CreateOutwardDispatchPayload): Promise<OutwardRecord> {
+  const response = await fetch(apiUrl('/api/warehouse/outward'), {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const result = await readJsonResponse<ApiEnvelope<OutwardRecord>>(response);
+  if (!result.ok) throw new Error(result.error || result.detail || 'Failed to create draft GRN');
+  return result.data;
+}
 
 function StockPickerRow({
   row,
@@ -118,13 +147,17 @@ function StockPickerRow({
 function NewDispatchForm({
   stock,
   stockLoading,
+  creating,
   onClose,
+  onCreate,
   onCreated,
 }: {
   stock: StockRow[];
   stockLoading: boolean;
+  creating: boolean;
   onClose: () => void;
-  onCreated: (record: OutwardRecord) => void;
+  onCreate: (payload: CreateOutwardDispatchPayload) => Promise<OutwardRecord>;
+  onCreated: () => void;
 }) {
   const [destinationName, setDestinationName] = useState('');
   const [destinationAddress, setDestinationAddress] = useState('');
@@ -132,7 +165,6 @@ function NewDispatchForm({
   const [driverName, setDriverName] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<DispatchLine[]>([]);
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   function toggleStock(row: StockRow) {
@@ -189,7 +221,6 @@ function NewDispatchForm({
       }
     }
 
-    setSubmitting(true);
     try {
       const warehouseId = stock.find((row) => row.warehouse?.id)?.warehouse?.id ?? 'all';
       const payload = {
@@ -206,24 +237,16 @@ function NewDispatchForm({
         })),
       };
 
-      const res = await fetch(`${API_BASE}/api/warehouse/outward`, {
-        method: 'POST',
-        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await readApiJson(res);
-      if (!data.ok) throw new Error(data.error || data.detail || 'Failed to create draft GRN');
+      await onCreate(payload);
       setDestinationName('');
       setDestinationAddress('');
       setTruckNumber('');
       setDriverName('');
       setNotes('');
       setLines([]);
-      onCreated(data.data);
+      onCreated();
     } catch (err: any) {
       setError(err.message || 'Failed to create draft GRN');
-    } finally {
-      setSubmitting(false);
     }
   }
 
@@ -332,35 +355,31 @@ function NewDispatchForm({
           <button onClick={onClose} className="text-[13px] text-muted-foreground hover:text-foreground transition-colors">
             Cancel
           </button>
-          <button onClick={handleSubmit} disabled={submitting || lines.length === 0} className="flex items-center gap-1.5 px-4 py-2 text-[14.5px] font-medium rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 transition-colors">
-            {submitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-            {submitting ? 'Creating...' : 'Create Draft GRN'}
+          <button onClick={handleSubmit} disabled={creating || lines.length === 0} className="flex items-center gap-1.5 px-4 py-2 text-[14.5px] font-medium rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 transition-colors">
+            {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+            {creating ? 'Creating...' : 'Create Draft GRN'}
           </button>
         </div>
     </div>
   );
 }
 
-export default function OutwardDispatchPage() {
+export default function DocumentGenerationOutwardGrnPage() {
   const [location, navigate] = useLocation();
   const fromDocGeneration = location.startsWith('/documents/generate');
-  const [stock, setStock] = useState<StockRow[]>([]);
-  const [stockLoading, setStockLoading] = useState(false);
-
-  const fetchStock = useCallback(() => {
-    setStockLoading(true);
-    fetch(`${API_BASE}/api/warehouse/stock?page=1&pageSize=500`, { headers: authHeaders() })
-      .then(async (res) => {
-        const data = await readApiJson(res);
-        if (data.ok) setStock(data.data ?? []);
-      })
-      .catch(() => {})
-      .finally(() => setStockLoading(false));
-  }, []);
-
-  useEffect(() => {
-    fetchStock();
-  }, [fetchStock]);
+  const queryClient = useQueryClient();
+  const stockQuery = useQuery({
+    queryKey: outwardGrnQueryKeys.stock,
+    queryFn: fetchWarehouseStock,
+    staleTime: 30_000,
+  });
+  const createDispatchMutation = useMutation({
+    mutationFn: createOutwardDispatch,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: outwardGrnQueryKeys.stock });
+    },
+  });
+  const stock = stockQuery.data ?? [];
 
   const backHref = fromDocGeneration ? '/documents/generate' : '/inventory/warehouse';
   const crumbRoot = fromDocGeneration ? 'Documents' : 'Warehouse';
@@ -377,10 +396,10 @@ export default function OutwardDispatchPage() {
           <div className="flex items-center gap-1 ml-4 p-1 rounded-lg bg-muted/60">
             {[
               { type: 'packing-list', label: 'Packing List' },
-              { type: 'outward-pl', label: 'Outward GRN' },
+              { type: 'outward-grn', label: 'Outward GRN' },
               { type: 'draft-boe', label: 'Draft CBP FORM 7501' },
             ].map((option) => {
-              const active = option.type === 'outward-pl';
+              const active = option.type === 'outward-grn';
               return (
                 <button
                   key={option.type}
@@ -419,11 +438,12 @@ export default function OutwardDispatchPage() {
 
       <NewDispatchForm
         stock={stock}
-        stockLoading={stockLoading}
+        stockLoading={stockQuery.isLoading}
+        creating={createDispatchMutation.isPending}
         onClose={() => navigate(backHref)}
+        onCreate={(payload) => createDispatchMutation.mutateAsync(payload)}
         onCreated={() => {
           toast.success('Draft Outward GRN created');
-          fetchStock();
           if (!fromDocGeneration) navigate('/inventory/warehouse');
         }}
       />

@@ -42,6 +42,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   audit: 'Audit Log',
   warehouses: 'Warehouses',
   products: 'Products',
+  'outward-grn': 'Outward GRN',
   'outward-pl': 'Outward GRN',
   'us-packing-list': 'Outward GRN',
   boe: 'Draft CBP FORM 7501',

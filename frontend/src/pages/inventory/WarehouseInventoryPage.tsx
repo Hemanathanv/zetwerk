@@ -727,7 +727,7 @@ function WarehouseStockPositionScreen() {
               <option key={option.id} value={option.id}>{option.name}</option>
             ))}
           </select>
-          <Link href="/documents/generate/outward-pl">
+          <Link href="/documents/generate/outward-grn">
             <button className="flex items-center gap-1.5 text-[13px] px-3 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors font-medium">
               <ArrowRight className="w-3.5 h-3.5" />
               Outward Dispatch

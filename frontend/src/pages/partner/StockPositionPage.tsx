@@ -106,7 +106,7 @@ export default function StockPositionPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/documents/generate/outward-pl">
+          <Link href="/documents/generate/outward-grn">
             <button className="flex items-center gap-1.5 text-[13px] px-3 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors font-medium">
               <ArrowRight className="w-3.5 h-3.5" />
               Outward Dispatch

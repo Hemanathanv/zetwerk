@@ -1791,14 +1791,14 @@ function draftToQueueItem(draft: DraftPayload, schema: DocGenSchema): GenQueueIt
 
 function routeTypeToGeneratedDocType(type: string | undefined): DraftPayload['generatedDocType'] {
   if (type === 'packing-list' || type === 'PACKING_LIST') return 'PACKING_LIST';
-  if (type === 'outward-pl' || type === 'us-packing-list' || type === 'US_PACKING_LIST') return 'US_PACKING_LIST';
+  if (type === 'outward-grn' || type === 'outward-pl' || type === 'us-packing-list' || type === 'US_PACKING_LIST') return 'US_PACKING_LIST';
   if (type === 'draft-boe' || type === 'entry-summary' || type === 'ENTRY_SUMMARY') return 'ENTRY_SUMMARY';
   return 'PACKING_LIST';
 }
 
 function generatedDocTypeToSchemaKey(type: DraftPayload['generatedDocType']): string {
   if (type === 'PACKING_LIST') return 'packing-list';
-  if (type === 'US_PACKING_LIST') return 'outward-pl';
+  if (type === 'US_PACKING_LIST') return 'outward-grn';
   return 'draft-boe';
 }
 
@@ -1810,7 +1810,7 @@ export function DocumentGeneratePage() {
   const routeType = params.type
     ?? (location.endsWith('/boe') ? 'draft-boe' : location.endsWith('/packing-list') ? 'packing-list' : undefined);
   const isOutwardDocGenerationRoute =
-    routeType === 'outward-pl' || routeType === 'us-packing-list' || routeType === 'US_PACKING_LIST';
+    routeType === 'outward-grn' || routeType === 'outward-pl' || routeType === 'us-packing-list' || routeType === 'US_PACKING_LIST';
   const [search,         setSearch]         = useState('');
   const [queueFilter,    setQueueFilter]     = useState<QueueFilter>('all');
   const [reviewingItem,  setReviewingItem]   = useState<GenQueueItem | null>(null);
@@ -2191,7 +2191,7 @@ export function DocumentGeneratePage() {
         }}>
           {[
             { type: 'packing-list', label: 'Packing List' },
-            { type: 'outward-pl', label: 'Outward GRN' },
+            { type: 'outward-grn', label: 'Outward GRN' },
             { type: 'draft-boe', label: 'Draft CBP FORM 7501' },
           ].map(option => {
             const activeType = generatedDocTypeToSchemaKey(routeTypeToGeneratedDocType(routeType));

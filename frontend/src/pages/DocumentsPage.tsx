@@ -725,7 +725,7 @@ function DocItem({ doc, isParallel, onNavigate }: {
   const path = doc.status === 'closed' && doc.docId
     ? `/documents/${doc.docId}`
     : (doc.status === 'gen-closed' || doc.status === 'gen-review') && doc.genType
-      ? (doc.genType === 'outward-pl' || doc.genType === 'us-packing-list' ? '/documents/generate/outward-pl' : `/documents/generate/${doc.genType}`)
+      ? (doc.genType === 'outward-pl' || doc.genType === 'us-packing-list' ? '/documents/generate/outward-grn' : `/documents/generate/${doc.genType}`)
       : doc.status === 'expected' || doc.status === 'failed-warn' || doc.status === 'failed-block' || doc.status === 'processing'
         ? '/documents/upload'
         : undefined;

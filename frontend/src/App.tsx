@@ -36,7 +36,7 @@ import PartnerUploadPage from '@/pages/partner/PartnerUploadPage';
 import PartnerDocumentsPage from '@/pages/partner/PartnerDocumentsPage';
 import ThreePlPage from '@/pages/partner/ThreePlPage';
 import StockPositionPage from '@/pages/partner/StockPositionPage';
-import OutwardDispatchPage from '@/pages/partner/OutwardDispatchPage';
+import DocumentGenerationOutwardGrnPage from '@/pages/DocumentGenerationOutwardGrnPage';
 import CustomerProjectsPage from '@/pages/portal/CustomerProjectsPage';
 import CustomerTrackingPage from '@/pages/portal/CustomerTrackingPage';
 import { DocumentGeneratePage } from '@/pages/DocumentGeneratePage';
@@ -197,15 +197,18 @@ function AppLayout() {
                 </RequireActivity>
               </RequireModule>
             </Route>
-            <Route path="/documents/generate/outward-pl">
+            <Route path="/documents/generate/outward-grn">
               <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
-                <RequireAnyActivity codes={['documents.generate_draft', 'DOC-003', 'inventory.create_outward_grn_new_dispatch']} fallback={<Redirect to="/unauthorized" />}>
-                  <OutwardDispatchPage />
+                <RequireAnyActivity codes={['documents.generate_draft', 'DOC-003', 'inventory.create_outward_grn_new_dispatch', 'inventory.update_milestone']} fallback={<Redirect to="/unauthorized" />}>
+                  <DocumentGenerationOutwardGrnPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
+            <Route path="/documents/generate/outward-pl">
+              <Redirect to="/documents/generate/outward-grn" />
+            </Route>
             <Route path="/documents/generate/us-packing-list">
-              <Redirect to="/documents/generate/outward-pl" />
+              <Redirect to="/documents/generate/outward-grn" />
             </Route>
             <Route path="/documents/generate/:type">
               <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
@@ -313,7 +316,7 @@ function AppLayout() {
               </RequireModule>
             </Route>
             <Route path="/partner/warehouse/outward">
-              <Redirect to="/documents/generate/outward-pl" />
+              <Redirect to="/documents/generate/outward-grn" />
             </Route>
             <Route path="/partner/warehouse">
               <RequireModule module="partner" fallback={<Redirect to="/unauthorized" />}>

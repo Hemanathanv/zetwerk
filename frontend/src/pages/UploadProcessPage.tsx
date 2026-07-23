@@ -1811,7 +1811,7 @@ function apiDraftToQueueCard(d: DraftPayload, validation?: GeneratedDraftValidat
     <span style={{ fontSize: 14.5, color: MUTED }}>Draft ready for review</span>
   );
   const generatedDraftHref = d.generatedDocType === 'US_PACKING_LIST'
-    ? '/documents/generate/outward-pl'
+    ? '/documents/generate/outward-grn'
     : `/documents/generate/${generatedDocTypeToRoute(d.generatedDocType)}`;
 
   return {
