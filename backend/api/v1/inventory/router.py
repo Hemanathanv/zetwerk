@@ -18,6 +18,19 @@ router = APIRouter(tags=["Inventory"])
 
 ALL_WAREHOUSE_ID = "all"
 
+DEFAULT_WAREHOUSE_LOCATIONS: list[dict[str, Any]] = [
+    {"id": "default-la-3pl", "name": "Los Angeles 3PL — Pacific Distribution Center", "location_type": "WAREHOUSE"},
+    {"id": "default-mundra-cfs", "name": "Mundra CFS — Adani Logistics", "location_type": "PORT"},
+    {"id": "default-nhava-sheva-icd", "name": "Nhava Sheva ICD — Gateway Terminals", "location_type": "PORT"},
+    {"id": "default-port-baltimore", "name": "Port: Baltimore", "location_type": "PORT"},
+    {"id": "default-port-chicago", "name": "Port: Chicago (via rail)", "location_type": "PORT"},
+    {"id": "default-port-houston", "name": "Port: Houston", "location_type": "PORT"},
+    {"id": "default-port-los-angeles", "name": "Port: Los Angeles", "location_type": "PORT"},
+    {"id": "default-port-savannah", "name": "Port: Savannah", "location_type": "PORT"},
+    {"id": "default-savannah-3pl", "name": "Savannah 3PL — Atlantic Steel Logistics", "location_type": "WAREHOUSE"},
+    {"id": "default-south-houston", "name": "South Houston Steel Receiving Hub", "location_type": "WAREHOUSE"},
+]
+
 
 async def _query_raw(prisma, sql: str, *params: Any) -> list[dict[str, Any]]:
     rows = await prisma.query_raw(sql, *params)
@@ -26,6 +39,42 @@ async def _query_raw(prisma, sql: str, *params: Any) -> list[dict[str, Any]]:
 
 async def _execute_raw(prisma, sql: str, *params: Any) -> Any:
     return await prisma.execute_raw(sql, *params)
+
+
+async def _ensure_warehouse_locations_table(prisma) -> None:
+    await _execute_raw(
+        prisma,
+        """
+        CREATE TABLE IF NOT EXISTS "public"."warehouse_locations" (
+          "id" TEXT PRIMARY KEY,
+          "name" TEXT NOT NULL,
+          "address" TEXT,
+          "firms_code" TEXT,
+          "partner_org_id" TEXT,
+          "inbound_sla_hrs" DOUBLE PRECISION,
+          "outbound_sla_hrs" DOUBLE PRECISION,
+          "is_active" BOOLEAN NOT NULL DEFAULT TRUE,
+          "qc_checklist" JSONB,
+          "location_type" TEXT NOT NULL DEFAULT 'WAREHOUSE',
+          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+    )
+    for item in DEFAULT_WAREHOUSE_LOCATIONS:
+        await _execute_raw(
+            prisma,
+            """
+            INSERT INTO "public"."warehouse_locations" (
+              "id", "name", "is_active", "location_type"
+            )
+            VALUES ($1, $2, TRUE, $3)
+            ON CONFLICT ("id") DO NOTHING
+            """,
+            item["id"],
+            item["name"],
+            item["location_type"],
+        )
 
 
 class OutwardDispatchLineRequest(BaseModel):
@@ -692,22 +741,64 @@ def _approved_packing_list_sku_summary_sql(access_where: str) -> str:
 
 @router.get("/api/inventory/warehouses")
 async def list_warehouses(user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    await _ensure_warehouse_locations_table(prisma)
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT
+          "id", "name", "address", "firms_code",
+          "inbound_sla_hrs", "outbound_sla_hrs"
+        FROM "public"."warehouse_locations"
+        WHERE "is_active" = TRUE AND "location_type" = 'WAREHOUSE'
+        ORDER BY "name"
+        """,
+    )
     return {
         "ok": True,
         "data": [
             {
-                "id": ALL_WAREHOUSE_ID,
-                "name": "All warehouses",
-                "address": "Packing list stock position",
-                "firmsCode": None,
+                "id": str(row.get("id") or ""),
+                "name": row.get("name") or "",
+                "address": row.get("address"),
+                "firmsCode": row.get("firms_code"),
+                "inboundSlaHrs": row.get("inbound_sla_hrs"),
+                "outboundSlaHrs": row.get("outbound_sla_hrs"),
             }
+            for row in rows
         ],
     }
 
 
 @router.get("/api/inventory/port-warehouses")
 async def list_port_warehouses(user=Depends(get_current_user)):
-    return {"ok": True, "data": []}
+    prisma = await get_prisma()
+    await _ensure_warehouse_locations_table(prisma)
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT
+          "id", "name", "address", "firms_code",
+          "inbound_sla_hrs", "outbound_sla_hrs"
+        FROM "public"."warehouse_locations"
+        WHERE "is_active" = TRUE AND "location_type" = 'PORT'
+        ORDER BY "name"
+        """,
+    )
+    return {
+        "ok": True,
+        "data": [
+            {
+                "id": str(row.get("id") or ""),
+                "name": row.get("name") or "",
+                "address": row.get("address"),
+                "firmsCode": row.get("firms_code"),
+                "inboundSlaHrs": row.get("inbound_sla_hrs"),
+                "outboundSlaHrs": row.get("outbound_sla_hrs"),
+            }
+            for row in rows
+        ],
+    }
 
 
 @router.get("/api/warehouse/stock")

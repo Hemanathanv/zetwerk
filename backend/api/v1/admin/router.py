@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -809,6 +810,34 @@ class UpdateValidationRuleRequest(BaseModel):
     tolerance: float | None = None
 
 
+class WarehouseRequest(BaseModel):
+    name: str = Field(min_length=1)
+    address: str | None = None
+    firmsCode: str | None = None
+    partnerOrgId: str | None = None
+    inboundSlaHrs: float | None = None
+    outboundSlaHrs: float | None = None
+    isActive: bool | None = True
+
+
+class WarehouseQcChecklistRequest(BaseModel):
+    items: list[dict[str, Any]] = Field(default_factory=list)
+
+
+DEFAULT_WAREHOUSE_LOCATIONS: list[dict[str, Any]] = [
+    {"id": "default-la-3pl", "name": "Los Angeles 3PL — Pacific Distribution Center", "location_type": "WAREHOUSE"},
+    {"id": "default-mundra-cfs", "name": "Mundra CFS — Adani Logistics", "location_type": "PORT"},
+    {"id": "default-nhava-sheva-icd", "name": "Nhava Sheva ICD — Gateway Terminals", "location_type": "PORT"},
+    {"id": "default-port-baltimore", "name": "Port: Baltimore", "location_type": "PORT"},
+    {"id": "default-port-chicago", "name": "Port: Chicago (via rail)", "location_type": "PORT"},
+    {"id": "default-port-houston", "name": "Port: Houston", "location_type": "PORT"},
+    {"id": "default-port-los-angeles", "name": "Port: Los Angeles", "location_type": "PORT"},
+    {"id": "default-port-savannah", "name": "Port: Savannah", "location_type": "PORT"},
+    {"id": "default-savannah-3pl", "name": "Savannah 3PL — Atlantic Steel Logistics", "location_type": "WAREHOUSE"},
+    {"id": "default-south-houston", "name": "South Houston Steel Receiving Hub", "location_type": "WAREHOUSE"},
+]
+
+
 VALIDATION_TEMPLATES: list[dict[str, Any]] = [
     {
         "id": "breakbulk-template",
@@ -1268,6 +1297,87 @@ async def _execute_raw(prisma, sql: str, *params) -> Any:
     return await execute_raw(sql, *params)
 
 
+async def _ensure_warehouse_locations_table(prisma) -> None:
+    await _execute_raw(
+        prisma,
+        """
+        CREATE TABLE IF NOT EXISTS "public"."warehouse_locations" (
+          "id" TEXT PRIMARY KEY,
+          "name" TEXT NOT NULL,
+          "address" TEXT,
+          "firms_code" TEXT,
+          "partner_org_id" TEXT,
+          "inbound_sla_hrs" DOUBLE PRECISION,
+          "outbound_sla_hrs" DOUBLE PRECISION,
+          "is_active" BOOLEAN NOT NULL DEFAULT TRUE,
+          "qc_checklist" JSONB,
+          "location_type" TEXT NOT NULL DEFAULT 'WAREHOUSE',
+          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+    )
+    await _execute_raw(
+        prisma,
+        """
+        CREATE INDEX IF NOT EXISTS "idx_warehouse_locations_active"
+        ON "public"."warehouse_locations" ("is_active", "location_type")
+        """,
+    )
+    for item in DEFAULT_WAREHOUSE_LOCATIONS:
+        await _execute_raw(
+            prisma,
+            """
+            INSERT INTO "public"."warehouse_locations" (
+              "id", "name", "is_active", "location_type"
+            )
+            VALUES ($1, $2, TRUE, $3)
+            ON CONFLICT ("id") DO NOTHING
+            """,
+            item["id"],
+            item["name"],
+            item["location_type"],
+        )
+
+
+def _warehouse_row(row: dict[str, Any]) -> dict[str, Any]:
+    qc = row.get("qc_checklist")
+    if isinstance(qc, str):
+        try:
+            qc = json.loads(qc)
+        except json.JSONDecodeError:
+            qc = None
+    return {
+        "id": str(row.get("id") or ""),
+        "name": row.get("name") or "",
+        "address": row.get("address"),
+        "firmsCode": row.get("firms_code"),
+        "partnerOrgId": row.get("partner_org_id"),
+        "inboundSlaHrs": row.get("inbound_sla_hrs"),
+        "outboundSlaHrs": row.get("outbound_sla_hrs"),
+        "isActive": bool(row.get("is_active")),
+        "locationType": row.get("location_type") or "WAREHOUSE",
+        "qcChecklist": qc,
+    }
+
+
+async def _list_warehouse_locations(prisma, *, active_only: bool = False) -> list[dict[str, Any]]:
+    await _ensure_warehouse_locations_table(prisma)
+    where = 'WHERE "is_active" = TRUE' if active_only else ''
+    rows = await _query_raw(
+        prisma,
+        f"""
+        SELECT
+          "id", "name", "address", "firms_code", "partner_org_id",
+          "inbound_sla_hrs", "outbound_sla_hrs", "is_active", "location_type", "qc_checklist"
+        FROM "public"."warehouse_locations"
+        {where}
+        ORDER BY "name"
+        """,
+    )
+    return [_warehouse_row(row) for row in rows]
+
+
 async def _ensure_escalation_config_table(prisma) -> None:
     await _execute_raw(
         prisma,
@@ -1571,6 +1681,131 @@ async def delete_admin_team(team_id: str, _user=Depends(get_admin_user)):
 @legacy_router.get("/activities")
 async def list_admin_activities(_user=Depends(get_admin_user)):
     return {"ok": True, "data": ACTIVITY_DEFINITIONS}
+
+
+@router.get("/warehouses")
+@legacy_router.get("/warehouses")
+async def list_admin_warehouses(_user=Depends(get_admin_user)):
+    prisma = await get_prisma()
+    return {"ok": True, "data": await _list_warehouse_locations(prisma)}
+
+
+@router.post("/warehouses")
+@legacy_router.post("/warehouses")
+async def create_admin_warehouse(request: WarehouseRequest, _user=Depends(get_admin_user)):
+    prisma = await get_prisma()
+    await _ensure_warehouse_locations_table(prisma)
+    warehouse_id = str(uuid4())
+    await _execute_raw(
+        prisma,
+        """
+        INSERT INTO "public"."warehouse_locations" (
+          "id", "name", "address", "firms_code", "partner_org_id",
+          "inbound_sla_hrs", "outbound_sla_hrs", "is_active", "location_type"
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'WAREHOUSE')
+        """,
+        warehouse_id,
+        request.name.strip(),
+        request.address,
+        request.firmsCode,
+        request.partnerOrgId,
+        request.inboundSlaHrs,
+        request.outboundSlaHrs,
+        request.isActive if request.isActive is not None else True,
+    )
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT
+          "id", "name", "address", "firms_code", "partner_org_id",
+          "inbound_sla_hrs", "outbound_sla_hrs", "is_active", "qc_checklist"
+        FROM "public"."warehouse_locations"
+        WHERE "id" = $1
+        """,
+        warehouse_id,
+    )
+    return {"ok": True, "data": _warehouse_row(rows[0])}
+
+
+@router.put("/warehouses/{warehouse_id}")
+@legacy_router.put("/warehouses/{warehouse_id}")
+async def update_admin_warehouse(warehouse_id: str, request: WarehouseRequest, _user=Depends(get_admin_user)):
+    prisma = await get_prisma()
+    await _ensure_warehouse_locations_table(prisma)
+    existing = await _query_raw(
+        prisma,
+        'SELECT "id" FROM "public"."warehouse_locations" WHERE "id" = $1',
+        warehouse_id,
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    await _execute_raw(
+        prisma,
+        """
+        UPDATE "public"."warehouse_locations"
+        SET
+          "name" = $2,
+          "address" = $3,
+          "firms_code" = $4,
+          "partner_org_id" = $5,
+          "inbound_sla_hrs" = $6,
+          "outbound_sla_hrs" = $7,
+          "is_active" = $8,
+          "updated_at" = NOW()
+        WHERE "id" = $1
+        """,
+        warehouse_id,
+        request.name.strip(),
+        request.address,
+        request.firmsCode,
+        request.partnerOrgId,
+        request.inboundSlaHrs,
+        request.outboundSlaHrs,
+        request.isActive if request.isActive is not None else True,
+    )
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT
+          "id", "name", "address", "firms_code", "partner_org_id",
+          "inbound_sla_hrs", "outbound_sla_hrs", "is_active", "qc_checklist"
+        FROM "public"."warehouse_locations"
+        WHERE "id" = $1
+        """,
+        warehouse_id,
+    )
+    return {"ok": True, "data": _warehouse_row(rows[0])}
+
+
+@router.put("/warehouses/{warehouse_id}/qc-checklist")
+@legacy_router.put("/warehouses/{warehouse_id}/qc-checklist")
+async def update_admin_warehouse_qc_checklist(
+    warehouse_id: str,
+    request: WarehouseQcChecklistRequest,
+    _user=Depends(get_admin_user),
+):
+    prisma = await get_prisma()
+    await _ensure_warehouse_locations_table(prisma)
+    existing = await _query_raw(
+        prisma,
+        'SELECT "id" FROM "public"."warehouse_locations" WHERE "id" = $1',
+        warehouse_id,
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    payload = {"warehouseId": warehouse_id, "items": request.items}
+    await _execute_raw(
+        prisma,
+        """
+        UPDATE "public"."warehouse_locations"
+        SET "qc_checklist" = $2::jsonb, "updated_at" = NOW()
+        WHERE "id" = $1
+        """,
+        warehouse_id,
+        json.dumps(payload),
+    )
+    return {"ok": True, "data": payload}
 
 
 @router.get("/escalation")

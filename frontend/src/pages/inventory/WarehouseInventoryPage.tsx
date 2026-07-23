@@ -6,7 +6,7 @@ import {
   ChevronRight, Anchor, Settings, MapPin, Clock, X, List,
   ArrowRight,
 } from 'lucide-react';
-import { getAuthToken } from '@/lib/api';
+import { apiUrl, getAuthToken, readJsonResponse } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 
 function authHeaders(): Record<string, string> {
@@ -240,8 +240,8 @@ function SkuMovementDrawer({
   useEffect(() => {
     setLoading(true);
     const url = `/api/inventory/warehouse/${warehouseId}/sku-movements?productCode=${encodeURIComponent(sku.productCode)}`;
-    fetch(url, { headers: authHeaders() })
-      .then(r => r.json())
+    fetch(apiUrl(url), { headers: authHeaders() })
+      .then(readJsonResponse)
       .then(res => setData(res.data ?? null))
       .catch(() => setData(null))
       .finally(() => setLoading(false));
@@ -588,25 +588,29 @@ type StockPaginationMeta = {
   totalReserved: number;
 };
 
+type InventoryLocationOption = {
+  id: string;
+  name: string;
+  address?: string | null;
+  firmsCode?: string | null;
+};
+
+const REFERENCE_WAREHOUSE_LOCATIONS: InventoryLocationOption[] = [
+  { id: 'ref-la-3pl', name: 'Los Angeles 3PL — Pacific Distribution Center' },
+  { id: 'ref-mundra-cfs', name: 'Mundra CFS — Adani Logistics' },
+  { id: 'ref-nhava-sheva-icd', name: 'Nhava Sheva ICD — Gateway Terminals' },
+  { id: 'ref-port-baltimore', name: 'Port: Baltimore' },
+  { id: 'ref-port-chicago', name: 'Port: Chicago (via rail)' },
+  { id: 'ref-port-houston', name: 'Port: Houston' },
+  { id: 'ref-port-los-angeles', name: 'Port: Los Angeles' },
+  { id: 'ref-port-savannah', name: 'Port: Savannah' },
+  { id: 'ref-savannah-3pl', name: 'Savannah 3PL — Atlantic Steel Logistics' },
+  { id: 'ref-south-houston', name: 'South Houston Steel Receiving Hub' },
+];
+
 function fmtStockNum(value: number | null | undefined, decimals = 0) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
   return Number(value).toLocaleString('en-US', { maximumFractionDigits: decimals });
-}
-
-async function readApiJson(response: Response) {
-  const text = await response.text();
-  let payload: any = {};
-  if (text) {
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      payload = { ok: false, error: text };
-    }
-  }
-  if (!response.ok) {
-    throw new Error(payload.detail || payload.error || `Request failed (${response.status})`);
-  }
-  return payload;
 }
 
 function StockAvailability({ available, onHand }: { available: number; onHand: number }) {
@@ -623,6 +627,8 @@ function StockAvailability({ available, onHand }: { available: number; onHand: n
 
 function WarehouseStockPositionScreen() {
   const [rows, setRows] = useState<StockPositionRow[]>([]);
+  const [locationOptions, setLocationOptions] = useState<InventoryLocationOption[]>(REFERENCE_WAREHOUSE_LOCATIONS);
+  const [selectedLocationId, setSelectedLocationId] = useState(REFERENCE_WAREHOUSE_LOCATIONS[0].id);
   const [meta, setMeta] = useState<StockPaginationMeta>({
     total: 0,
     page: 1,
@@ -639,6 +645,30 @@ function WarehouseStockPositionScreen() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
+    Promise.all([
+      fetch(apiUrl('/api/inventory/warehouses'), { headers: authHeaders() }).then(readJsonResponse).catch(() => ({ data: [] })),
+      fetch(apiUrl('/api/inventory/port-warehouses'), { headers: authHeaders() }).then(readJsonResponse).catch(() => ({ data: [] })),
+    ]).then(([warehouseRes, portRes]) => {
+      const warehouseRows = Array.isArray(warehouseRes.data) ? warehouseRes.data : [];
+      const portRows = Array.isArray(portRes.data) ? portRes.data : [];
+      const apiOptions = [...warehouseRows, ...portRows]
+        .filter((row: any) => row?.id && row?.name && row.name !== 'All warehouses')
+        .map((row: any) => ({
+          id: String(row.id),
+          name: String(row.name),
+          address: row.address ?? null,
+          firmsCode: row.firmsCode ?? null,
+        }));
+
+      const nextOptions = apiOptions.length > 0 ? apiOptions : REFERENCE_WAREHOUSE_LOCATIONS;
+      setLocationOptions(nextOptions);
+      setSelectedLocationId((current) => (
+        nextOptions.some((option) => option.id === current) ? current : nextOptions[0]?.id ?? ''
+      ));
+    });
+  }, []);
+
+  useEffect(() => {
     setLoading(true);
     setError('');
     const params = new URLSearchParams({
@@ -646,9 +676,9 @@ function WarehouseStockPositionScreen() {
       pageSize: String(pageSize),
     });
     if (search.trim()) params.set('search', search.trim());
-    fetch(`/api/warehouse/stock?${params.toString()}`, { headers: authHeaders() })
+    fetch(apiUrl(`/api/warehouse/stock?${params.toString()}`), { headers: authHeaders() })
       .then(async (r) => {
-        const payload = await readApiJson(r);
+        const payload = await readJsonResponse<any>(r);
         if (!payload.ok) throw new Error(payload.error || 'Failed to load stock position');
         setRows(payload.data || []);
         setMeta({
@@ -670,6 +700,7 @@ function WarehouseStockPositionScreen() {
 
   const firstShown = meta.total === 0 ? 0 : (meta.page - 1) * meta.pageSize + 1;
   const lastShown = Math.min(meta.total, (meta.page - 1) * meta.pageSize + rows.length);
+  const selectedLocation = locationOptions.find((option) => option.id === selectedLocationId);
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -685,6 +716,17 @@ function WarehouseStockPositionScreen() {
           <p className="text-[14.5px] text-muted-foreground mt-0.5">Current on-hand inventory at your warehouse</p>
         </div>
         <div className="flex items-center gap-2">
+          <select
+            value={selectedLocationId}
+            onChange={(event) => setSelectedLocationId(event.target.value)}
+            aria-label="Warehouse or port location"
+            title={selectedLocation?.name}
+            className="h-9 w-full min-w-[320px] max-w-[390px] rounded-lg border border-teal-500 bg-background px-3 text-[14.5px] text-foreground outline-none focus:ring-2 focus:ring-teal-500/30"
+          >
+            {locationOptions.map((option) => (
+              <option key={option.id} value={option.id}>{option.name}</option>
+            ))}
+          </select>
           <Link href="/documents/generate/outward-pl">
             <button className="flex items-center gap-1.5 text-[13px] px-3 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors font-medium">
               <ArrowRight className="w-3.5 h-3.5" />
@@ -833,8 +875,8 @@ function LegacyWarehouseInventoryPage() {
   useEffect(() => {
     setWarehouseLoading(true);
     Promise.all([
-      fetch('/api/inventory/warehouses', { headers: authHeaders() }).then(r => r.json()),
-      fetch('/api/inventory/port-warehouses', { headers: authHeaders() }).then(r => r.json()).catch(() => ({ data: [] })),
+      fetch(apiUrl('/api/inventory/warehouses'), { headers: authHeaders() }).then(readJsonResponse),
+      fetch(apiUrl('/api/inventory/port-warehouses'), { headers: authHeaders() }).then(readJsonResponse).catch(() => ({ data: [] })),
     ]).then(([warehouseRes, portRes]) => {
       const whs = warehouseRes.data || [];
       setWarehouses(whs);
@@ -846,8 +888,8 @@ function LegacyWarehouseInventoryPage() {
   useEffect(() => {
     if (!selectedWarehouseId) return;
     setLoading(true);
-    fetch(`/api/warehouse/stock/sku-summary`, { headers: authHeaders() })
-      .then((r) => r.json())
+    fetch(apiUrl(`/api/warehouse/stock/sku-summary`), { headers: authHeaders() })
+      .then(readJsonResponse)
       .catch(() => ({ data: [] }))
       .then((skuRes) => {
       const skuRows: any[] = skuRes.data || [];

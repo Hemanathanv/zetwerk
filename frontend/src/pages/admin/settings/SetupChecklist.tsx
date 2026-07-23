@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Check, AlertTriangle, ChevronRight } from 'lucide-react';
-import { getAuthToken } from '@/lib/api';
+import { apiUrl, getAuthToken, readJsonResponse } from '@/lib/api';
 
 function authHeaders(): Record<string, string> {
   const t = getAuthToken();
@@ -395,8 +395,8 @@ export default function SetupChecklist({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/api/admin/settings/setup-status', { headers: authHeaders() })
-      .then(r => r.json())
+    fetch(apiUrl('/api/admin/settings/setup-status'), { headers: authHeaders() })
+      .then(readJsonResponse)
       .then(d => { setChecks(d.data); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);

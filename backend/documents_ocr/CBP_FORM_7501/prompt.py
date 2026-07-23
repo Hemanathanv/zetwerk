@@ -102,6 +102,8 @@ CURATED_EXAMPLES: dict[str, str] = {
     "freightAmount": "1250.00",
     "fobCharges": "FOB MUMBAI",
     "totalPackages": "10",
+    "billQty": "66",
+    "billQtyUnit": "PKG",
     "totalContainers": "2",
     "numberOfOriginals": "3",
     "issuancePlace": "BANGALORE, INDIA",
@@ -122,6 +124,10 @@ CURATED_EXAMPLES: dict[str, str] = {
     "cargoWeightKg": "12450.500",
     "cargoNetWeightKg": "11890.000",
     "cargoGrossWeightKg": "12450.500",
+    "invoiceValueUsd": "5175.60",
+    "enteredValue": "5176.00",
+    "totalEnteredValueInvoice": "5176.00",
+    "totalEnteredValue": "5176.00",
 }
 
 
@@ -320,6 +326,15 @@ def _build_output_rules(model: type[BaseModel], document_type: str, extractor_la
         names = ", ".join(f"`{n}`" for n in arrays)
         rules.append(
             f"**Arrays ({names})**: emit one object per row visible in the PDF, with the same property set in each row. Fill every cell in each row; use `null` only for cells that are truly blank."
+        )
+
+    if extractor_label.upper() == "CBP FORM-7501":
+        rules.extend(
+            [
+                "CBP 7501 package quantity: when a standalone package token appears with no visible header, such as `66 PKG`, `34 PCS`, or `9 BDL`, extract the number into `billQty` and the uppercase unit into `billQtyUnit`. Valid package units for this rule are `PKG`, `PCS`, and `BDL`.",
+                "CBP 7501 invoice/value bracket: for every bracketed group like `[INV VAL US : 5,175.60, ENTVAL: 5,176.00]`, extract `INV VAL US` into `lineItems[].invoiceValueUsd` and `ENTVAL` into `lineItems[].totalEnteredValueInvoice` plus `lineItems[].enteredValue` when those fields exist. Preserve one value group per line item in document order; do not stop after the first group.",
+                "When only one `[INV VAL US ..., ENTVAL ...]` group is visible, also use the `ENTVAL` amount for `totalEnteredValue` if no clearer document total is printed.",
+            ]
         )
 
     numbered = [f"{index}. {rule}" for index, rule in enumerate(rules, start=1)]

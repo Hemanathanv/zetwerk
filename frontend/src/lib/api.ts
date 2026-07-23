@@ -6,6 +6,10 @@ let refreshPromise: Promise<string | null> | null = null;
 
 export { API_BASE_URL } from '@/lib/apiBase';
 
+export function apiUrl(path: string): string {
+  return resolveApiUrl(path);
+}
+
 export function setAuthToken(token: string): void {
   authToken = token;
 }
@@ -86,6 +90,30 @@ async function request<T>(path: string, options: RequestInit = {}, retry = true)
     }
     const detail = data && typeof data === 'object' && 'detail' in data ? String(data.detail) : `Request failed (${res.status})`;
     throw new Error(detail);
+  }
+  return data as T;
+}
+
+export async function readJsonResponse<T = any>(response: Response): Promise<T> {
+  const contentType = response.headers.get('content-type') ?? '';
+  const text = await response.text();
+  const data = contentType.includes('application/json') && text
+    ? JSON.parse(text)
+    : null;
+
+  if (!response.ok) {
+    const detail = data && typeof data === 'object' && 'detail' in data
+      ? String((data as any).detail)
+      : data && typeof data === 'object' && 'error' in data
+        ? String((data as any).error)
+        : text.trim().startsWith('<')
+          ? `API returned HTML instead of JSON (${response.status}). Check backend URL/proxy.`
+          : text.trim() || `Request failed (${response.status})`;
+    throw new Error(detail);
+  }
+
+  if (!data) {
+    throw new Error('API returned a non-JSON response. Check backend URL/proxy.');
   }
   return data as T;
 }

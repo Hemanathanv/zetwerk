@@ -5,8 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { StatusPill, FilterChips, ProgressBar, PageHeader } from '@/components/vs';
 import { ALERT_PILL, PHASE_LABELS, type StageVariant } from '@/data/mockShipments';
-import { getAuthToken } from '@/lib/api';
-import { BACKEND_API_BASE } from '@/lib/apiBase';
+import { apiUrl, getAuthToken, readJsonResponse } from '@/lib/api';
 import { ScheduleStatusBadge } from '@/components/SafeCubePanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -257,10 +256,10 @@ export function ShipmentsPage() {
         limit: String(PAGE_SIZE),
       });
       if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
-      const res   = await fetch(`${BACKEND_API_BASE}/api/shipments?${params.toString()}`, {
+      const res   = await fetch(apiUrl(`/api/shipments?${params.toString()}`), {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      const json = await res.json();
+      const json = await readJsonResponse<any>(res);
       if (!json.ok) throw new Error(json.error ?? 'Failed to load');
       const mapped: ShipmentListRow[] = (json.data ?? []).map(mapApiShipment);
       setRows(mapped);

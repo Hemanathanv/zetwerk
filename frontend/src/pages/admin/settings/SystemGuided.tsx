@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Activity, Cpu, Clock } from 'lucide-react';
-import { getAuthToken } from '@/lib/api';
+import { apiUrl, getAuthToken, readJsonResponse } from '@/lib/api';
 
-function authHeaders() {
+function authHeaders(): Record<string, string> {
   const t = getAuthToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
@@ -34,8 +34,8 @@ export default function SystemGuided() {
 
   useEffect(() => {
     Promise.all([
-      fetch('/api/admin/settings/access-audit?limit=20', { headers: authHeaders() }).then(r => r.json()),
-      fetch('/api/admin/settings/setup-status', { headers: authHeaders() }).then(r => r.json()),
+      fetch(apiUrl('/api/admin/settings/access-audit?limit=20'), { headers: authHeaders() }).then(readJsonResponse),
+      fetch(apiUrl('/api/admin/settings/setup-status'), { headers: authHeaders() }).then(readJsonResponse),
     ]).then(([auditData, statusData]) => {
       setEntries(auditData.data || []);
       setOcrConnected(statusData.data?.ocrConnected ?? false);

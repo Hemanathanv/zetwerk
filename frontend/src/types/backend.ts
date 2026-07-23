@@ -304,6 +304,17 @@ export type ContainerMappingResponse = {
   };
 };
 
+export type WarehouseMappingResponse = {
+  documentId: string;
+  shipmentId: string | null;
+  operationalShipmentId?: string | null;
+  warehouseId: string | null;
+  warehouseName: string | null;
+  mappedBy?: string | null;
+  mappedAt: string | null;
+  updatedAt: string | null;
+};
+
 export type AdminStorageFile = {
   key: string;
   name: string;

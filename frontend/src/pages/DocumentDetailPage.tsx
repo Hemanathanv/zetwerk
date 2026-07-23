@@ -9,6 +9,7 @@ import { PageHeader } from '@/components/vs/PageHeader';
 import { DocBadge } from '@/components/vs/DocBadge';
 import { useToast } from '@/hooks/use-toast';
 import type { ContainerMappingResponse, ContainerMappingRow } from '@/types/backend';
+import { apiUrl, getAuthToken, readJsonResponse } from '@/lib/api';
 
 const FG = 'hsl(var(--foreground))';
 const MUTED = 'hsl(var(--muted-foreground))';
@@ -164,6 +165,56 @@ function docCode(docType: string) {
   if (config?.shortCode) return config.shortCode;
   if (docType === 'BILL_OF_LADING') return 'BL';
   return docType.split('_').map((part) => part[0]).join('').slice(0, 2);
+}
+
+type WarehouseOption = {
+  id: string;
+  name: string;
+  address?: string | null;
+  firmsCode?: string | null;
+  locationType?: string | null;
+};
+
+function authHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function normalizeWarehouseOptions(rows: any[]): WarehouseOption[] {
+  const seen = new Set<string>();
+  return rows
+    .filter((row: any) => row?.id && row?.name && row.name !== 'All warehouses' && row.isActive !== false)
+    .map((row: any) => ({
+      id: String(row.id),
+      name: String(row.name),
+      address: row.address ?? null,
+      firmsCode: row.firmsCode ?? row.firms_code ?? null,
+      locationType: row.locationType ?? row.location_type ?? null,
+    }))
+    .filter((row: WarehouseOption) => {
+      if (seen.has(row.id)) return false;
+      seen.add(row.id);
+      return true;
+    });
+}
+
+async function loadSettingsWarehouses(): Promise<WarehouseOption[]> {
+  try {
+    const adminRes = await fetch(apiUrl('/api/admin/warehouses'), { headers: authHeaders() }).then(readJsonResponse);
+    const adminRows = Array.isArray((adminRes as any).data) ? (adminRes as any).data : [];
+    const options = normalizeWarehouseOptions(adminRows);
+    if (options.length) return options;
+  } catch {
+    // Fall back to inventory read endpoints for non-admin contexts.
+  }
+  const [warehouseRes, portRes] = await Promise.all([
+    fetch(apiUrl('/api/inventory/warehouses'), { headers: authHeaders() }).then(readJsonResponse).catch(() => ({ data: [] })),
+    fetch(apiUrl('/api/inventory/port-warehouses'), { headers: authHeaders() }).then(readJsonResponse).catch(() => ({ data: [] })),
+  ]);
+  return normalizeWarehouseOptions([
+    ...(Array.isArray((warehouseRes as any).data) ? (warehouseRes as any).data : []),
+    ...(Array.isArray((portRes as any).data) ? (portRes as any).data : []),
+  ]);
 }
 
 function labelFromKey(key: string): string {
@@ -540,6 +591,87 @@ function BolContainerMappingModal({
   );
 }
 
+function WarehouseMappingModal({
+  shipmentId,
+  warehouses,
+  selectedWarehouseId,
+  loading,
+  saving,
+  onSelectedWarehouseChange,
+  onClose,
+  onSave,
+}: {
+  shipmentId: string;
+  warehouses: WarehouseOption[];
+  selectedWarehouseId: string;
+  loading: boolean;
+  saving: boolean;
+  onSelectedWarehouseChange: (warehouseId: string) => void;
+  onClose: () => void;
+  onSave: () => Promise<void>;
+}) {
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'hsla(220,20%,10%,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div onClick={event => event.stopPropagation()} style={{ width: 'min(820px, 94vw)', maxHeight: '82vh', background: 'hsl(var(--background))', border: `1px solid ${BORDER}`, borderRadius: 12, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 18px', borderBottom: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 750, color: FG }}>Warehouse Mapping</div>
+            <div style={{ marginTop: 4, fontSize: 12, color: MUTED }}>Map this CBP shipment to one warehouse from Settings.</div>
+          </div>
+          <button onClick={onClose} style={{ border: 'none', background: 'transparent', color: MUTED, cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: 18, overflow: 'auto', flex: 1 }}>
+          {loading ? (
+            <div style={{ padding: 36, textAlign: 'center', color: MUTED }}>Loading warehouse mapping...</div>
+          ) : (
+            <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(280px, 1.4fr)', background: 'hsl(var(--muted) / 0.42)', borderBottom: `1px solid ${BORDER}` }}>
+                <div style={{ padding: '10px 12px', fontSize: 11, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Shipment ID</div>
+                <div style={{ padding: '10px 12px', fontSize: 11, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Warehouse</div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 1fr) minmax(280px, 1.4fr)', alignItems: 'center' }}>
+                <div className="vs-mono" style={{ padding: '13px 12px', fontSize: 12, color: FG, borderRight: `1px solid ${BORDER}`, overflowWrap: 'anywhere' }}>
+                  {shipmentId}
+                </div>
+                <div style={{ padding: 12 }}>
+                  <select
+                    value={selectedWarehouseId}
+                    disabled={saving}
+                    onChange={(event) => onSelectedWarehouseChange(event.target.value)}
+                    style={{
+                      width: '100%',
+                      height: 38,
+                      borderRadius: 6,
+                      border: `1px solid ${selectedWarehouseId ? TEAL : BORDER}`,
+                      background: 'hsl(var(--background))',
+                      color: FG,
+                      padding: '0 10px',
+                      fontSize: 13,
+                      outline: 'none',
+                      cursor: saving ? 'wait' : 'pointer',
+                    }}
+                  >
+                    <option value="">{warehouses.length ? 'Choose warehouse' : 'No warehouses found in Settings'}</option>
+                    {warehouses.map((warehouse) => (
+                      <option key={warehouse.id} value={warehouse.id}>
+                        {warehouse.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+        <div style={{ padding: 12, borderTop: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${BORDER}`, borderRadius: 6, background: 'transparent', color: FG, cursor: 'pointer' }}>Cancel</button>
+          <button disabled={loading || saving} onClick={() => void onSave()} style={{ padding: '8px 16px', border: 'none', borderRadius: 6, background: TEAL, color: '#fff', fontWeight: 700, cursor: loading || saving ? 'not-allowed' : 'pointer', opacity: loading || saving ? 0.65 : 1 }}>{saving ? 'Saving mapping...' : 'Save Mapping'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function DocumentDetailPage() {
   const params = useParams<{ id: string }>();
   const [currentPath, navigate] = useLocation();
@@ -554,6 +686,12 @@ export function DocumentDetailPage() {
   const [containerMappingSaving, setContainerMappingSaving] = useState(false);
   const [containerMapping, setContainerMapping] = useState<ContainerMappingResponse | null>(null);
   const [containerMappingUnmappedOnly, setContainerMappingUnmappedOnly] = useState(false);
+  const [warehouseMappingOpen, setWarehouseMappingOpen] = useState(false);
+  const [warehouseMappingLoading, setWarehouseMappingLoading] = useState(false);
+  const [warehouseMappingSaving, setWarehouseMappingSaving] = useState(false);
+  const [warehouseOptions, setWarehouseOptions] = useState<WarehouseOption[]>([]);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
+  const [warehouseMappingShipmentId, setWarehouseMappingShipmentId] = useState<string | null>(null);
   const isApprovalRoute = currentPath.endsWith('/approve');
 
   useEffect(() => {
@@ -680,6 +818,52 @@ export function DocumentDetailPage() {
     }
   }
 
+  async function openWarehouseMapping() {
+    setWarehouseMappingOpen(true);
+    setWarehouseMappingLoading(true);
+    setWarehouseMappingShipmentId(null);
+    try {
+      const [warehouses, mappingRes] = await Promise.all([
+        loadSettingsWarehouses(),
+        documentApi.getWarehouseMapping(documentId),
+      ]);
+      setWarehouseOptions(warehouses);
+      const mapping = (mappingRes as any).data?.data ?? {};
+      setSelectedWarehouseId(String(mapping.warehouseId ?? ''));
+      setWarehouseMappingShipmentId(typeof mapping.shipmentId === 'string' && mapping.shipmentId.trim() ? mapping.shipmentId : null);
+    } catch (err) {
+      toast({
+        title: 'Could not load warehouse mapping',
+        description: getApiErrorMessage(err, 'Unable to load warehouses from Settings.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setWarehouseMappingLoading(false);
+    }
+  }
+
+  async function saveWarehouseMapping() {
+    setWarehouseMappingSaving(true);
+    try {
+      const response = await documentApi.saveWarehouseMapping(documentId, selectedWarehouseId || null);
+      setSelectedWarehouseId(response.data.data.warehouseId ?? '');
+      setWarehouseMappingShipmentId(response.data.data.shipmentId ?? null);
+      toast({
+        title: selectedWarehouseId ? 'Warehouse mapping saved' : 'Warehouse mapping cleared',
+        description: response.data.data.warehouseName ?? undefined,
+      });
+      setWarehouseMappingOpen(false);
+    } catch (err) {
+      toast({
+        title: 'Could not save warehouse mapping',
+        description: getApiErrorMessage(err, 'Unable to map this CBP shipment to a warehouse.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setWarehouseMappingSaving(false);
+    }
+  }
+
   async function saveArrayRows(
     arrayName: string,
     rows: Array<Record<string, JsonValue>>,
@@ -749,6 +933,18 @@ export function DocumentDetailPage() {
           }}
         />
       )}
+      {warehouseMappingOpen && (
+        <WarehouseMappingModal
+          shipmentId={warehouseMappingShipmentId ?? 'Shipment not linked yet'}
+          warehouses={warehouseOptions}
+          selectedWarehouseId={selectedWarehouseId}
+          loading={warehouseMappingLoading}
+          saving={warehouseMappingSaving}
+          onSelectedWarehouseChange={setSelectedWarehouseId}
+          onClose={() => setWarehouseMappingOpen(false)}
+          onSave={saveWarehouseMapping}
+        />
+      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
         <button onClick={() => navigate('/documents/upload')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: TEAL, background: 'transparent', border: `1px solid ${TEAL}50`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
           <ArrowLeft size={14} /> Upload & Process
@@ -771,7 +967,7 @@ export function DocumentDetailPage() {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
         <DocBadge code={docCode(documentDetail.docType)} size="md" />
-        <span className="vs-mono" style={{ fontSize: 11, color: MUTED }}>{documentDetail.id}</span>
+        <span style={{ fontSize: 12, color: MUTED, fontWeight: 650, overflowWrap: 'anywhere' }}>{documentDetail.fileName}</span>
         {extraction?.extractedAt && (
           <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${GREEN}18`, color: GREEN }}>
             Extracted {formatDateTime(extraction.extractedAt)}
@@ -788,6 +984,14 @@ export function DocumentDetailPage() {
             style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: TEAL, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
           >
             {containerMappingApproved ? 'Mapping approved' : 'Container Mapping'}
+          </button>
+        )}
+        {documentDetail.docType === 'ENTRY_SUMMARY' && extraction && (
+          <button
+            onClick={() => void openWarehouseMapping()}
+            style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: TEAL, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+          >
+            Warehouse Mapping
           </button>
         )}
         {isApprovalRoute && (

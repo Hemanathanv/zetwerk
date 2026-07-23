@@ -45,7 +45,7 @@ from helpers.rbac_data_access import (
     user_id,
 )
 from helpers.rbac import require_activity
-from helpers.shipment_operational import create_or_update_shipment_from_bol_document
+from helpers.shipment_operational import create_or_update_shipment_from_bol_document, ensure_operational_shipment_tables
 from objectstore import (
     DEFAULT_BUCKET,
     S3_ENDPOINT,
@@ -268,6 +268,10 @@ class ContainerAssignment(BaseModel):
 
 class SaveContainerMappingRequest(BaseModel):
     assignments: list[ContainerAssignment]
+
+
+class SaveWarehouseMappingRequest(BaseModel):
+    warehouseId: str | None = None
 
 
 class ApproveDocumentResponse(BaseModel):
@@ -1054,6 +1058,30 @@ DOCUMENT_SECTION_STATUS_FILTERS: Final[dict[str, set[str]]] = {
     "draft-review": {"UPLOADED"},
     "done": {"ARCHIVED", "REVIEWED"},
 }
+_DOCUMENT_QUEUE_INDEXES_READY = False
+
+
+async def _ensure_document_queue_indexes(prisma) -> None:
+    global _DOCUMENT_QUEUE_INDEXES_READY
+    if _DOCUMENT_QUEUE_INDEXES_READY:
+        return
+    try:
+        await prisma.execute_raw(
+            """
+            CREATE INDEX IF NOT EXISTS "idx_documents_queue_user_created"
+            ON "public"."documents" ("uploaded_by", "is_deleted", "created_at" DESC)
+            """
+        )
+        await prisma.execute_raw(
+            """
+            CREATE INDEX IF NOT EXISTS "idx_documents_queue_status_created"
+            ON "public"."documents" ("status", "is_deleted", "created_at" DESC)
+            """
+        )
+        _DOCUMENT_QUEUE_INDEXES_READY = True
+    except Exception:
+        # Queue loading must still work if this DB user cannot create indexes.
+        _DOCUMENT_QUEUE_INDEXES_READY = True
 
 
 def _document_section_where(*, user: Any, section: str) -> dict[str, Any]:
@@ -1067,17 +1095,49 @@ def _document_section_where(*, user: Any, section: str) -> dict[str, Any]:
 async def _document_count(*, prisma, user: Any, section: str) -> int:
     if has_role_document_scope(user):
         try:
-            rows = await prisma.document.find_many(where=_document_section_where(user=user, section="all"))
-            validation_statuses = await _document_validation_statuses(prisma, [str(row.id) for row in rows])
-            return sum(
-                1
-                for row in rows
-                if _document_matches_section(
-                    str(row.status),
-                    validation_statuses.get(str(row.id)),
-                    section,
+            access_where, access_params, next_param = document_sql_where("d", user)
+            if section == "all":
+                rows = await prisma.query_raw(
+                    f'SELECT COUNT(*) AS count FROM "public"."documents" d WHERE {access_where}',
+                    *access_params,
                 )
+                return int((rows[0] if rows else {}).get("count") or 0)
+
+            if section in {"cross-validating", "done"}:
+                await _ensure_cross_validation_tables(prisma)
+                validation_done_clause = """
+                    EXISTS (
+                      SELECT 1
+                      FROM "document_module"."document_validation_status" dvs
+                      WHERE dvs."document_id" = d."id"::text
+                        AND dvs."status" IN ('PASSED', 'WARNING')
+                    )
+                """
+                if section == "done":
+                    section_clause = (
+                        f"""(d."status"::text = 'ARCHIVED'
+                        OR (d."status"::text = 'REVIEWED' AND {validation_done_clause}))"""
+                    )
+                else:
+                    section_clause = f"""d."status"::text = 'REVIEWED' AND NOT {validation_done_clause}"""
+                rows = await prisma.query_raw(
+                    f'SELECT COUNT(*) AS count FROM "public"."documents" d WHERE {access_where} AND {section_clause}',
+                    *access_params,
+                )
+                return int((rows[0] if rows else {}).get("count") or 0)
+
+            statuses = DOCUMENT_SECTION_STATUS_FILTERS.get(section) or set()
+            rows = await prisma.query_raw(
+                f"""
+                SELECT COUNT(*) AS count
+                FROM "public"."documents" d
+                WHERE {access_where}
+                  AND d."status"::text = ANY(${next_param}::text[])
+                """,
+                *access_params,
+                sorted(statuses),
             )
+            return int((rows[0] if rows else {}).get("count") or 0)
         except Exception:
             return 0
 
@@ -1266,6 +1326,7 @@ async def list_documents(
         raise HTTPException(status_code=400, detail=f"Unsupported document section: {section!r}")
 
     try:
+        await _ensure_document_queue_indexes(prisma)
         where = _document_section_where(user=user, section=normalized_section)
         total = int(await prisma.document.count(where=where))
         total_pages = max(1, (total + page_size - 1) // page_size)
@@ -1645,6 +1706,323 @@ async def update_bol_container_mapping(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+async def _ensure_document_warehouse_mapping_table(prisma) -> None:
+    await _execute_raw(prisma, 'CREATE SCHEMA IF NOT EXISTS "document_module"')
+    await _execute_raw(
+        prisma,
+        """
+        CREATE TABLE IF NOT EXISTS "document_module"."document_warehouse_mappings" (
+          "document_id" TEXT PRIMARY KEY,
+          "warehouse_id" TEXT NOT NULL,
+          "warehouse_name" TEXT NOT NULL,
+          "mapped_by" TEXT,
+          "mapped_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+    )
+
+
+async def _get_warehouse_mapping_row(prisma, document_id: str) -> dict[str, Any] | None:
+    await _ensure_document_warehouse_mapping_table(prisma)
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT
+          "document_id", "warehouse_id", "warehouse_name",
+          "mapped_by", "mapped_at", "updated_at"
+        FROM "document_module"."document_warehouse_mappings"
+        WHERE "document_id" = $1
+        LIMIT 1
+        """,
+        document_id,
+    )
+    return rows[0] if rows else None
+
+
+def _shipment_reference_candidates_from_payload(payload: Any) -> list[str]:
+    accepted_keys = {
+        "blorawbnumber",
+        "additionalbls",
+        "additionalbl",
+        "mblnumber",
+        "masterbl",
+        "masterblnumber",
+        "bolnumber",
+        "billofladingnumber",
+        "bookingnumber",
+        "bookingreferencenumber",
+        "shipmentnumber",
+        "shipmentid",
+    }
+    candidates: list[str] = []
+
+    def add_value(value: Any) -> None:
+        if value in (None, ""):
+            return
+        if isinstance(value, list):
+            for item in value:
+                add_value(item)
+            return
+        text = str(value).strip()
+        if not text:
+            return
+        for token in re.split(r"[,;/\n\r\t]+", text):
+            clean_token = token.strip()
+            if clean_token and clean_token not in candidates:
+                candidates.append(clean_token)
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                normalized_key = re.sub(r"[^a-z0-9]", "", str(key).lower())
+                if normalized_key in accepted_keys:
+                    add_value(item)
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(payload)
+    expanded = list(candidates)
+    for candidate in candidates:
+        normalized = re.sub(r"[^A-Za-z0-9]", "", candidate).upper()
+        if normalized and normalized not in expanded:
+            expanded.append(normalized)
+        if candidate.upper().startswith("BOL-"):
+            parts = [part for part in candidate.split("-") if part]
+            if len(parts) >= 2 and parts[1] not in expanded:
+                expanded.append(parts[1])
+    return expanded
+
+
+async def _resolve_operational_shipment_for_document(prisma, document_id: str) -> dict[str, Any] | None:
+    await ensure_operational_shipment_tables(prisma)
+    direct_rows = await _query_raw(
+        prisma,
+        """
+        SELECT s."id"::text AS "shipment_id", s."shipment_number"
+        FROM "public"."documents" d
+        JOIN "public"."shipments" s ON s."id" = d."shipment_id"
+        WHERE d."id"::text = $1::text
+        LIMIT 1
+        """,
+        document_id,
+    )
+    if direct_rows:
+        return direct_rows[0]
+
+    await _ensure_cross_validation_tables(prisma)
+    linked_bol_rows = await _query_raw(
+        prisma,
+        """
+        SELECT s."id"::text AS "shipment_id", s."shipment_number"
+        FROM "document_module"."validation_results" vr
+        JOIN "public"."documents" bol_doc ON bol_doc."id"::text = vr."target_document_id"::text
+        JOIN "public"."shipments" s ON s."id" = bol_doc."shipment_id"
+        WHERE vr."document_id"::text = $1::text
+          AND vr."target_doc_type" = 'BILL_OF_LADING'
+        ORDER BY vr."updated_at" DESC
+        LIMIT 1
+        """,
+        document_id,
+    )
+    if linked_bol_rows:
+        return linked_bol_rows[0]
+
+    detail_bol_rows = await _query_raw(
+        prisma,
+        """
+        SELECT s."id"::text AS "shipment_id", s."shipment_number"
+        FROM "document_ocr"."cross_validation_details" cvd
+        JOIN "public"."documents" bol_doc ON bol_doc."id"::text = cvd."target_document_id"::text
+        JOIN "public"."shipments" s ON s."id" = bol_doc."shipment_id"
+        WHERE cvd."document_id"::text = $1::text
+          AND cvd."target_doc_type" = 'BILL_OF_LADING'
+        ORDER BY cvd."updated_at" DESC
+        LIMIT 1
+        """,
+        document_id,
+    )
+    if detail_bol_rows:
+        return detail_bol_rows[0]
+
+    document_rows = await _query_raw(
+        prisma,
+        """
+        SELECT "doc_type"::text AS "doc_type"
+        FROM "public"."documents"
+        WHERE "id"::text = $1::text
+        LIMIT 1
+        """,
+        document_id,
+    )
+    if document_rows:
+        try:
+            payload = await _validation_payload_for_document(
+                prisma,
+                doc_type=str(document_rows[0].get("doc_type") or ""),
+                document_id=document_id,
+            )
+        except Exception:
+            payload = {}
+        reference_candidates = _shipment_reference_candidates_from_payload(payload)
+        if reference_candidates:
+            reference_rows = await _query_raw(
+                prisma,
+                """
+                SELECT "id"::text AS "shipment_id", "shipment_number"
+                FROM "public"."shipments"
+                WHERE "shipment_number" = ANY($1::text[])
+                   OR "mbl_number" = ANY($1::text[])
+                   OR "booking_number" = ANY($1::text[])
+                   OR "bol_number" = ANY($1::text[])
+                ORDER BY "updated_at" DESC
+                LIMIT 1
+                """,
+                reference_candidates,
+            )
+            if reference_rows:
+                return reference_rows[0]
+
+    validation_rows = await _query_raw(
+        prisma,
+        """
+        SELECT
+          COALESCE(s."id"::text, dvs."shipment_id") AS "shipment_id",
+          COALESCE(s."shipment_number", dvs."shipment_id") AS "shipment_number"
+        FROM "document_module"."document_validation_status" dvs
+        LEFT JOIN "public"."shipments" s
+          ON s."shipment_number" = dvs."shipment_id"
+          OR s."id"::text = dvs."shipment_id"
+        WHERE dvs."document_id"::text = $1::text
+        LIMIT 1
+        """,
+        document_id,
+    )
+    return validation_rows[0] if validation_rows else None
+
+
+async def _serialize_warehouse_mapping(prisma, document_id: str) -> dict[str, Any]:
+    row = await _get_warehouse_mapping_row(prisma, document_id)
+    shipment = await _resolve_operational_shipment_for_document(prisma, document_id)
+    shipment_number = shipment.get("shipment_number") if shipment else None
+    operational_shipment_id = shipment.get("shipment_id") if shipment else None
+    if not row:
+        return {
+            "documentId": document_id,
+            "shipmentId": shipment_number,
+            "operationalShipmentId": operational_shipment_id,
+            "warehouseId": None,
+            "warehouseName": None,
+            "mappedAt": None,
+            "updatedAt": None,
+        }
+    return {
+        "documentId": str(row.get("document_id") or document_id),
+        "shipmentId": shipment_number,
+        "operationalShipmentId": operational_shipment_id,
+        "warehouseId": row.get("warehouse_id"),
+        "warehouseName": row.get("warehouse_name"),
+        "mappedBy": row.get("mapped_by"),
+        "mappedAt": _to_iso(row.get("mapped_at")),
+        "updatedAt": _to_iso(row.get("updated_at")),
+    }
+
+
+@router.get("/documents/{document_id}/warehouse-mapping")
+async def get_document_warehouse_mapping(document_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
+    document = await prisma.document.find_first(where=where)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if str(document.docType) != "ENTRY_SUMMARY":
+        raise HTTPException(status_code=400, detail="Warehouse mapping is only available for CBP FORM 7501")
+    return {"ok": True, "data": await _serialize_warehouse_mapping(prisma, document_id)}
+
+
+@router.patch("/documents/{document_id}/warehouse-mapping")
+async def update_document_warehouse_mapping(
+    document_id: str,
+    payload: SaveWarehouseMappingRequest,
+    user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.approve_draft")),
+):
+    prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
+    document = await prisma.document.find_first(where=where)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if str(document.docType) != "ENTRY_SUMMARY":
+        raise HTTPException(status_code=400, detail="Warehouse mapping is only available for CBP FORM 7501")
+
+    await _ensure_document_warehouse_mapping_table(prisma)
+    warehouse_id = (payload.warehouseId or "").strip()
+    if not warehouse_id:
+        await _execute_raw(
+            prisma,
+            'DELETE FROM "document_module"."document_warehouse_mappings" WHERE "document_id" = $1',
+            document_id,
+        )
+        return {"ok": True, "data": await _serialize_warehouse_mapping(prisma, document_id)}
+
+    await _execute_raw(
+        prisma,
+        """
+        CREATE TABLE IF NOT EXISTS "public"."warehouse_locations" (
+          "id" TEXT PRIMARY KEY,
+          "name" TEXT NOT NULL,
+          "address" TEXT,
+          "firms_code" TEXT,
+          "port_locode" TEXT,
+          "inbound_sla_hrs" DOUBLE PRECISION,
+          "outbound_sla_hrs" DOUBLE PRECISION,
+          "is_active" BOOLEAN NOT NULL DEFAULT TRUE,
+          "location_type" TEXT NOT NULL DEFAULT 'WAREHOUSE',
+          "qc_checklist" JSONB NOT NULL DEFAULT '{"items":[]}'::jsonb,
+          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+    )
+    warehouse_rows = await _query_raw(
+        prisma,
+        """
+        SELECT "id", "name"
+        FROM "public"."warehouse_locations"
+        WHERE "id" = $1 AND "is_active" = TRUE
+        LIMIT 1
+        """,
+        warehouse_id,
+    )
+    if not warehouse_rows:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    warehouse_name = str(warehouse_rows[0].get("name") or warehouse_id)
+
+    await _execute_raw(
+        prisma,
+        """
+        INSERT INTO "document_module"."document_warehouse_mappings" (
+          "document_id", "warehouse_id", "warehouse_name", "mapped_by", "mapped_at", "updated_at"
+        )
+        VALUES ($1, $2, $3, $4, NOW(), NOW())
+        ON CONFLICT ("document_id") DO UPDATE SET
+          "warehouse_id" = EXCLUDED."warehouse_id",
+          "warehouse_name" = EXCLUDED."warehouse_name",
+          "mapped_by" = EXCLUDED."mapped_by",
+          "updated_at" = NOW()
+        """,
+        document_id,
+        warehouse_id,
+        warehouse_name,
+        str(user.id),
+    )
+    return {"ok": True, "data": await _serialize_warehouse_mapping(prisma, document_id)}
 
 
 @router.post("/documents/{document_id}/retry", response_model=RetryOcrResponse)

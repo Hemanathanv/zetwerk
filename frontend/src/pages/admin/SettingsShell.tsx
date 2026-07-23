@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   CheckSquare, Users, GitBranch, Shield, DollarSign, Activity,
   BookOpen, MessageCircle, ChevronsLeft, ChevronsRight, ClipboardCheck, Navigation,
+  Warehouse,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import SetupChecklist from './settings/SetupChecklist';
@@ -108,6 +109,7 @@ const sections = [
   { id: 'validation',  label: 'Validation Rules',      icon: Shield },
   { id: 'finance',     label: 'Finance & Cost',        icon: DollarSign },
   { id: 'compliance',  label: 'Compliance Checks',     icon: ClipboardCheck },
+  { id: 'warehouses',  label: 'Warehouses',            icon: Warehouse },
   { id: 'tracking',    label: 'Vessel Tracking',        icon: Navigation },
   { id: 'system',      label: 'Audit & System',        icon: Activity },
 ];
@@ -389,7 +391,7 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {activeSection !== 'overview' && activeSection !== 'team' && (
+            {activeSection !== 'overview' && activeSection !== 'team' && activeSection !== 'warehouses' && (
               <button
                 onClick={() => setShowAdvanced(a => !a)}
                 style={{
@@ -459,6 +461,9 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
           )}
           {activeSection === 'compliance' && (
             <AdminCompliancePage />
+          )}
+          {activeSection === 'warehouses' && (
+            <AdminWarehousesPage />
           )}
           {activeSection === 'tracking' && (
             <div>

@@ -14,6 +14,7 @@ import type {
   ContainerMappingResponse,
   DocumentListResponse,
   UserProfile,
+  WarehouseMappingResponse,
 } from '@/types/backend';
 
 const SESSION_TOKEN_KEY = 'session_token_fallback';
@@ -435,6 +436,10 @@ const documentApi = {
     documentId: string,
     assignments: Array<{ lineItemId: string; containerNo: string | null }>,
   ) => api.patch(`/uploads/documents/${documentId}/container-mapping`, { assignments }),
+  getWarehouseMapping: (documentId: string) =>
+    api.get<{ ok: boolean; data: WarehouseMappingResponse }>(`/uploads/documents/${documentId}/warehouse-mapping`),
+  saveWarehouseMapping: (documentId: string, warehouseId: string | null) =>
+    api.patch<{ ok: boolean; data: WarehouseMappingResponse }>(`/uploads/documents/${documentId}/warehouse-mapping`, { warehouseId }),
   retry: (documentId: string) => api.post(`/uploads/documents/${documentId}/retry`),
   reupload: (documentId: string, formData: FormData) =>
     api.post(`/uploads/documents/${documentId}/reupload`, formData, {

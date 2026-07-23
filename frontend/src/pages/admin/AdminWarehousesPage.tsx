@@ -23,6 +23,12 @@ export interface Warehouse {
   isActive: boolean; qcChecklist?: QcChecklist | null;
 }
 
+type AdminApiResponse<T> = {
+  ok: boolean;
+  data?: T;
+  error?: string;
+};
+
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const SEED_QC_ITEMS: QcChecklistItem[] = [
@@ -325,7 +331,7 @@ export function PartnerWarehouseSection({ partnerOrgId }: { partnerOrgId: string
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiGet('/api/admin/warehouses');
+      const res = await apiGet<AdminApiResponse<Warehouse[]>>('/api/admin/warehouses');
       if (res.ok) {
         const all: Warehouse[] = res.data ?? [];
         setWarehouses(all.filter(w => w.partnerOrgId === partnerOrgId));
@@ -337,18 +343,21 @@ export function PartnerWarehouseSection({ partnerOrgId }: { partnerOrgId: string
 
   async function saveWarehouse(data: Partial<Warehouse>) {
     if (editing?.id) {
-      const res = await apiPut(`/api/admin/warehouses/${editing.id}`, data);
+      const res = await apiPut<AdminApiResponse<Warehouse>>(`/api/admin/warehouses/${editing.id}`, data);
       if (res.ok) setWarehouses(prev => prev.map(w => w.id === editing.id ? { ...w, ...res.data } : w));
       else throw new Error();
     } else {
-      const res = await apiPost('/api/admin/warehouses', { ...data, partnerOrgId });
-      if (res.ok) setWarehouses(prev => [...prev, res.data]);
+      const res = await apiPost<AdminApiResponse<Warehouse>>('/api/admin/warehouses', { ...data, partnerOrgId });
+      if (res.ok && res.data) {
+        const created = res.data;
+        setWarehouses(prev => [...prev, created]);
+      }
       else throw new Error();
     }
   }
 
   async function saveQcChecklist(warehouseId: string, items: QcChecklistItem[]) {
-    const res = await apiPut(`/api/admin/warehouses/${warehouseId}/qc-checklist`, { items });
+    const res = await apiPut<AdminApiResponse<QcChecklist>>(`/api/admin/warehouses/${warehouseId}/qc-checklist`, { items });
     if (res.ok) {
       setWarehouses(prev => prev.map(w => w.id === warehouseId
         ? { ...w, qcChecklist: { ...w.qcChecklist, items, warehouseId } }
@@ -358,7 +367,7 @@ export function PartnerWarehouseSection({ partnerOrgId }: { partnerOrgId: string
   }
 
   async function toggleActive(w: Warehouse) {
-    const res = await apiPut(`/api/admin/warehouses/${w.id}`, { isActive: !w.isActive });
+    const res = await apiPut<AdminApiResponse<Warehouse>>(`/api/admin/warehouses/${w.id}`, { ...w, isActive: !w.isActive });
     if (res.ok) {
       setWarehouses(prev => prev.map(wh => wh.id === w.id ? { ...wh, ...res.data } : wh));
       toast({ title: w.isActive ? 'Warehouse deactivated' : 'Warehouse activated' });
@@ -432,8 +441,8 @@ export function PartnerWarehouseSection({ partnerOrgId }: { partnerOrgId: string
         description={`${deactivating?.isActive ? 'Deactivate' : 'Activate'} "${deactivating?.name ?? ''}"?`}
         confirmLabel={deactivating?.isActive ? 'Deactivate' : 'Activate'}
         confirmVariant="warning"
-        onConfirm={() => deactivating && toggleActive(deactivating)}
-        onCancel={() => setDeactivating(null)}
+        onConfirm={() => { if (deactivating) void toggleActive(deactivating); }}
+        onClose={() => setDeactivating(null)}
       />
     </div>
   );
@@ -453,7 +462,7 @@ export function AdminWarehousesPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiGet('/api/admin/warehouses');
+      const res = await apiGet<AdminApiResponse<Warehouse[]>>('/api/admin/warehouses');
       if (res.ok) setWarehouses(res.data ?? []);
     } finally { setLoading(false); }
   }, []);
@@ -462,18 +471,21 @@ export function AdminWarehousesPage() {
 
   async function saveWarehouse(data: Partial<Warehouse>) {
     if (editing?.id) {
-      const res = await apiPut(`/api/admin/warehouses/${editing.id}`, data);
+      const res = await apiPut<AdminApiResponse<Warehouse>>(`/api/admin/warehouses/${editing.id}`, data);
       if (res.ok) setWarehouses(prev => prev.map(w => w.id === editing.id ? { ...w, ...res.data } : w));
       else throw new Error();
     } else {
-      const res = await apiPost('/api/admin/warehouses', data);
-      if (res.ok) setWarehouses(prev => [...prev, res.data]);
+      const res = await apiPost<AdminApiResponse<Warehouse>>('/api/admin/warehouses', data);
+      if (res.ok && res.data) {
+        const created = res.data;
+        setWarehouses(prev => [...prev, created]);
+      }
       else throw new Error();
     }
   }
 
   async function saveQcChecklist(warehouseId: string, items: QcChecklistItem[]) {
-    const res = await apiPut(`/api/admin/warehouses/${warehouseId}/qc-checklist`, { items });
+    const res = await apiPut<AdminApiResponse<QcChecklist>>(`/api/admin/warehouses/${warehouseId}/qc-checklist`, { items });
     if (res.ok) {
       setWarehouses(prev => prev.map(w => w.id === warehouseId
         ? { ...w, qcChecklist: { ...w.qcChecklist, items, warehouseId } }
@@ -483,7 +495,7 @@ export function AdminWarehousesPage() {
   }
 
   async function toggleActive(w: Warehouse) {
-    const res = await apiPut(`/api/admin/warehouses/${w.id}`, { isActive: !w.isActive });
+    const res = await apiPut<AdminApiResponse<Warehouse>>(`/api/admin/warehouses/${w.id}`, { ...w, isActive: !w.isActive });
     if (res.ok) {
       setWarehouses(prev => prev.map(wh => wh.id === w.id ? { ...wh, ...res.data } : wh));
       toast({ title: w.isActive ? 'Warehouse deactivated' : 'Warehouse activated' });
@@ -549,8 +561,8 @@ export function AdminWarehousesPage() {
         description={`${deactivating?.isActive ? 'Deactivate' : 'Activate'} "${deactivating?.name ?? ''}"?`}
         confirmLabel={deactivating?.isActive ? 'Deactivate' : 'Activate'}
         confirmVariant={deactivating?.isActive ? 'warning' : 'warning'}
-        onConfirm={() => deactivating && toggleActive(deactivating)}
-        onCancel={() => setDeactivating(null)}
+        onConfirm={() => { if (deactivating) void toggleActive(deactivating); }}
+        onClose={() => setDeactivating(null)}
       />
     </div>
   );

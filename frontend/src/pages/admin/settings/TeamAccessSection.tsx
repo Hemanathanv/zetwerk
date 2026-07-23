@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Building2, AlertTriangle, Download, ChevronDown, ChevronUp, Plus, Pencil, Trash2, Check, X } from 'lucide-react';
 import { PartnerWarehouseSection } from '../AdminWarehousesPage';
-import { apiGet, getAuthToken } from '@/lib/api';
+import { apiGet, apiUrl, getAuthToken, readJsonResponse } from '@/lib/api';
 import { useConfig } from '@/contexts/ConfigContext';
 import {
   levelNum, getAuthorityLabel, getAuthorityColor,
@@ -411,12 +411,12 @@ function TeamsContent() {
     try {
       const isNew = editingId === 'new';
       const url = isNew ? '/api/admin/teams' : `/api/admin/teams/${editingId}`;
-      const r = await fetch(url, {
+      const r = await fetch(apiUrl(url), {
         method: isNew ? 'POST' : 'PUT',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ name: form.name, function: form.function, region: form.region }),
       });
-      const d = await r.json();
+      const d = await readJsonResponse<any>(r);
       if (!d.ok) { setError(d.error || 'Failed'); return; }
       setEditingId(null);
       load();
@@ -434,8 +434,8 @@ function TeamsContent() {
     if (!confirm(`Delete team "${team.name}"?`)) return;
     setSaving(true); setError('');
     try {
-      const r = await fetch(`/api/admin/teams/${team.id}`, { method: 'DELETE', headers: authHeaders() });
-      const d = await r.json();
+      const r = await fetch(apiUrl(`/api/admin/teams/${team.id}`), { method: 'DELETE', headers: authHeaders() });
+      const d = await readJsonResponse<any>(r);
       if (!d.ok) { setError(d.error || 'Failed'); return; }
       load();
       refreshTeams();

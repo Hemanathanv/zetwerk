@@ -13,6 +13,11 @@ _SCHEMA = load_extraction_schema(parent_model="EntrySummaryExtraction")
 SCALAR_FIELDS = _SCHEMA.scalar_fields
 ARRAY_FIELDS = _SCHEMA.array_fields
 ARRAY_ITEM_FIELDS = _SCHEMA.array_item_fields
+PACKAGE_TOKEN_RE = re.compile(r"\b(\d[\d,]*(?:\.\d+)?)\s*(PKG|PCS|BDL)\b", re.IGNORECASE)
+INV_ENTVAL_RE = re.compile(
+    r"\[\s*INV\s+VAL\s+US\s*:\s*([0-9][0-9,]*(?:\.\d+)?)\s*,\s*ENTVAL\s*:\s*([0-9][0-9,]*(?:\.\d+)?)\s*\]",
+    re.IGNORECASE,
+)
 
 
 def _section_for_field(field_name: str) -> str:
@@ -117,6 +122,119 @@ def _coerce_string(value: Any) -> str | None:
     return text or None
 
 
+def _iter_string_values(value: Any):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for nested in value.values():
+            yield from _iter_string_values(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            yield from _iter_string_values(nested)
+
+
+def _first_present(*containers: dict[str, Any], aliases: tuple[str, ...]) -> Any:
+    lowered_aliases = {alias.lower() for alias in aliases}
+    for container in containers:
+        for key, value in container.items():
+            if key.lower() in lowered_aliases and value not in (None, ""):
+                return value
+    return None
+
+
+def _set_if_blank(container: dict[str, Any], key: str, value: Any) -> None:
+    if key in container and container.get(key) not in (None, ""):
+        return
+    coerced = _coerce_string(value)
+    if coerced is not None:
+        container[key] = coerced
+
+
+def _extract_package_token(value: Any) -> tuple[str, str] | None:
+    for text in _iter_string_values(value):
+        match = PACKAGE_TOKEN_RE.search(text)
+        if match:
+            return match.group(1), match.group(2).upper()
+    return None
+
+
+def _extract_inv_entval_groups(value: Any) -> list[tuple[str, str]]:
+    groups: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for text in _iter_string_values(value):
+        for match in INV_ENTVAL_RE.finditer(text):
+            group = (match.group(1), match.group(2))
+            if group in seen:
+                continue
+            seen.add(group)
+            groups.append(group)
+    return groups
+
+
+def _apply_cbp_7501_aliases(normalized: dict[str, Any]) -> None:
+    package_source = _first_present(
+        normalized,
+        *(value for value in normalized.values() if isinstance(value, dict)),
+        aliases=("totalPackage", "totalPackages", "package", "packages"),
+    )
+    package = _extract_package_token(package_source) or _extract_package_token(normalized)
+    if package:
+        qty, unit = package
+        _set_if_blank(normalized, "billQty", qty)
+        _set_if_blank(normalized, "billQtyUnit", unit)
+
+    nested_sections = [value for value in normalized.values() if isinstance(value, dict)]
+    inv_val_us = _first_present(
+        normalized,
+        *nested_sections,
+        aliases=("invValUs", "invValUS", "invValUsd", "invoiceValueUsd"),
+    )
+    entval = _first_present(
+        normalized,
+        *nested_sections,
+        aliases=("entval", "entVal", "ENTVAL"),
+    )
+    if entval is not None:
+        _set_if_blank(normalized, "totalEnteredValue", entval)
+    elif inv_val_us is not None:
+        _set_if_blank(normalized, "totalEnteredValue", inv_val_us)
+
+    bracket_groups = _extract_inv_entval_groups(normalized)
+    line_items = normalized.get("lineItems")
+    if not isinstance(line_items, list):
+        line_items = []
+        normalized["lineItems"] = line_items
+
+    if bracket_groups and not line_items:
+        normalized["lineItems"] = [{} for _ in bracket_groups]
+        line_items = normalized["lineItems"]
+
+    for index, item in enumerate(line_items):
+        if not isinstance(item, dict):
+            continue
+        item_inv_val_us = _first_present(
+            item,
+            aliases=("invValUs", "invValUS", "invValUsd"),
+        )
+        item_entval = _first_present(
+            item,
+            aliases=("entval", "entVal", "ENTVAL"),
+        )
+        if index < len(bracket_groups):
+            bracket_inv_val_us, bracket_entval = bracket_groups[index]
+            if item_inv_val_us is None:
+                item_inv_val_us = bracket_inv_val_us
+            if item_entval is None:
+                item_entval = bracket_entval
+
+        _set_if_blank(item, "invoiceValueUsd", item_inv_val_us)
+        _set_if_blank(item, "totalEnteredValueInvoice", item_entval)
+        _set_if_blank(item, "enteredValue", item_entval)
+
+    if len(bracket_groups) == 1:
+        _set_if_blank(normalized, "totalEnteredValue", bracket_groups[0][1])
+
+
 def normalize_array_field_payload(*, value: Any, expected_fields: list[str]) -> list[dict[str, Any]]:
     if value is None:
         source_items: list[dict[str, Any]] = []
@@ -184,6 +302,8 @@ def normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
                     break
             if normalized.get(canonical_name):
                 break
+
+    _apply_cbp_7501_aliases(normalized)
 
     for section_name, field_names in SECTION_FIELD_MAP.items():
         section_payload = dict(normalized.get(section_name) or {})
