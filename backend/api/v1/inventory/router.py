@@ -179,7 +179,7 @@ def _outward_record_from_draft(row: dict[str, Any]) -> dict[str, Any]:
         "notes": dispatch.get("notes"),
         "createdAt": _iso(row.get("created_at")),
         "updatedAt": _iso(row.get("updated_at")),
-        "dispatchedAt": _iso(row.get("updated_at")) if row.get("status") in {"CONFIRMED", "DISPATCHED", "GENERATED"} else None,
+        "dispatchedAt": _iso(row.get("updated_at")) if row.get("status") in {"CONFIRMED", "GENERATED"} else None,
         "documentId": None,
         "lines": [
             {
@@ -205,7 +205,7 @@ async def _outward_reserved_quantities(prisma) -> dict[str, float]:
         SELECT rendered_payload
         FROM docgen.drafts
         WHERE generated_doc_type = 'US_PACKING_LIST'
-          AND status IN ('DRAFT', 'IN_REVIEW', 'CONFIRMED', 'GENERATED', 'DISPATCHED')
+          AND status IN ('DRAFT', 'IN_REVIEW', 'CONFIRMED', 'GENERATED')
         """
     )
     reserved: dict[str, float] = {}

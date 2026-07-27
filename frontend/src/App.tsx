@@ -57,7 +57,6 @@ import { AdminOrgsPage } from '@/pages/admin/AdminOrgsPage';
 import { AdminTemplatesPage } from '@/pages/admin/AdminTemplatesPage';
 import { AdminValidationPage } from '@/pages/admin/AdminValidationPage';
 import { AdminAccountingPage } from '@/pages/admin/AdminAccountingPage';
-import { AdminEscalationPage } from '@/pages/admin/AdminEscalationPage';
 import { AdminInventoryPage } from '@/pages/admin/AdminInventoryPage';
 import { AdminWarehousesPage } from '@/pages/admin/AdminWarehousesPage';
 import { AdminProductsPage } from '@/pages/admin/AdminProductsPage';
@@ -78,6 +77,17 @@ function UnauthorizedPage() {
           You don't have permission to access this page.
           Contact your administrator if you believe this is an error.
         </p>
+      </div>
+    </div>
+  );
+}
+
+export function UnderBuildPage({ title = 'Currently under build' }: { title?: string }) {
+  return (
+    <div className="flex items-center justify-center h-full min-h-[60vh] px-6">
+      <div className="text-center space-y-2">
+        <h1 className="text-2xl font-bold text-foreground">{title}</h1>
+        <p className="text-muted-foreground">Currently under build</p>
       </div>
     </div>
   );
@@ -245,6 +255,13 @@ function AppLayout() {
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
+            <Route path="/documents/upload/queue">
+              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+                <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
+                  <UploadProcessPage />
+                </RequireAnyActivity>
+              </RequireModule>
+            </Route>
             <Route path="/documents/upload/:id">
               <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
                 <RequireAnyActivity codes={['documents.view', 'documents.view_extracted']} fallback={<Redirect to="/unauthorized" />}>
@@ -301,6 +318,11 @@ function AppLayout() {
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
+            <Route path="/reports">
+              <RequireModule module="reports" fallback={<Redirect to="/dashboard" />}>
+                <UnderBuildPage title="Reports" />
+              </RequireModule>
+            </Route>
             <Route path="/partner/documents">
               <RequireModule module="partner" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['documents.view', 'documents.view_extracted']} fallback={<Redirect to="/unauthorized" />}>
@@ -340,10 +362,15 @@ function AppLayout() {
             </Route>
             <Route path="/invoices" component={InvoicesPage} />
             <Route path="/notifications" component={NotificationsPage} />
-            <Route path="/settings" component={SettingsShell} />
+            <Route path="/settings">
+              <SettingsShell />
+            </Route>
             <Route path="/platform"><PlatformGuard><PlatformShell /></PlatformGuard></Route>
             <Route path="/user-settings" component={SettingsPage} />
             <Route path="/schema" component={SchemaReferencePage} />
+            <Route>
+              <UnderBuildPage />
+            </Route>
           </Switch>
         </main>
       </div>
@@ -357,14 +384,16 @@ function AdminArea() {
     <AdminGuard>
       <AdminLayout>
         <Switch>
-          <Route path="/admin/users" component={AdminUsersPage} />
+          <Route path="/admin/users">
+            <AdminUsersPage />
+          </Route>
           <Route path="/admin/roles" component={AdminRolesPage} />
           <Route path="/admin/organisations" component={AdminOrgsPage} />
           <Route path="/admin/templates/:id" component={AdminTemplatesPage} />
           <Route path="/admin/templates" component={AdminTemplatesPage} />
           <Route path="/admin/validation-rules" component={AdminValidationPage} />
           <Route path="/admin/accounting" component={AdminAccountingPage} />
-          <Route path="/admin/escalation" component={AdminEscalationPage} />
+          <Route path="/admin/escalation"><Redirect to="/admin/roles" /></Route>
           <Route path="/admin/inventory" component={AdminInventoryPage} />
           <Route path="/admin/warehouses" component={AdminWarehousesPage} />
           <Route path="/admin/products" component={AdminProductsPage} />

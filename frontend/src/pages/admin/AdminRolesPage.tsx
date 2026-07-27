@@ -16,7 +16,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api';
-import { useConfig } from '@/contexts/ConfigContext';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Role {
@@ -37,6 +37,31 @@ interface DocType {
 }
 interface SysModule {
   id: string; moduleCode: string; displayName: string; icon: string; sortOrder: number;
+}
+interface EscalationConfig {
+  id: string;
+  activityType: string;
+  activityName?: string;
+  description?: string;
+  scope?: string;
+  baseDoc?: string;
+  baseSlaHours: string | number;
+  reminderPct: number;
+  warningPct: number;
+  escalationPct: number;
+  blockerPct: number;
+  channels?: Record<string, unknown> | null;
+  targets?: Record<string, unknown> | null;
+}
+interface RequiredSlaRow {
+  key: string;
+  activityCode: string;
+  activityType: string;
+  activityName: string;
+  description: string;
+  scopeCode: string;
+  scopeLabel: string;
+  baseDoc: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -84,6 +109,58 @@ const TICKET_CATS = [
 
 const SCOPE_ICON: Record<string, React.ElementType> = {
   docType: FileText, gate: Layers, ticketCategory: Receipt,
+};
+
+const SLA_LEVEL_COLORS = {
+  reminder:   { dot: '#3b82f6', cellBg: '#eff6ff22' },
+  warning:    { dot: '#d97706', cellBg: '#fffbeb33' },
+  escalation: { dot: '#dc2626', cellBg: '#fef2f222' },
+  blocker:    { dot: '#7f1d1d', cellBg: '#fee2e233' },
+};
+
+const SLA_ACTIVITY_CONFIG: Record<string, { activityType: string; activityName: string; description: string; baseDoc: string }> = {
+  'documents.upload': {
+    activityType: 'upload_document',
+    activityName: 'Upload Document',
+    description: 'SCOPE OF DOCS BASED - every doc to have a SLA',
+    baseDoc: 'Doc names',
+  },
+  'documents.fill_manual_fields': {
+    activityType: 'fill_manual_fields',
+    activityName: 'Fill Manual Fields',
+    description: 'Scope -3 docs',
+    baseDoc: 'Sales Invoice, Packing List, Bill of Lading',
+  },
+  'documents.submit_for_review': {
+    activityType: 'submit_for_review',
+    activityName: 'Submit for Review',
+    description: 'SCOPE OF DOCS BASED - every doc to have a SLA. Edge case: If the doc is rejected - the submit for review timer will start',
+    baseDoc: 'Sales Invoice, Packing List, Bill of Lading',
+  },
+  'documents.approve_generated_document': {
+    activityType: 'approve_generated_document',
+    activityName: 'Approve Generated Document',
+    description: '',
+    baseDoc: 'Sales Invoice, Packing List, Bill of Lading',
+  },
+  'documents.resolve_validation_failure': {
+    activityType: 'resolve_validation_failure',
+    activityName: 'Resolve Validation Failure',
+    description: 'SCOPE OF DOCS BASED - every doc to have a SLA',
+    baseDoc: 'Doc names',
+  },
+  'documents.map_container_to_sku': {
+    activityType: 'map_container_to_sku',
+    activityName: 'Map Container to SKU',
+    description: '',
+    baseDoc: '',
+  },
+  'documents.approve_container_mapping': {
+    activityType: 'approve_container_mapping',
+    activityName: 'Approve Container Mapping',
+    description: '',
+    baseDoc: '',
+  },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -136,6 +213,49 @@ function docScopeSummary(scope: string[] | undefined, docTypes: DocType[]) {
   if (selected.length === docTypes.length) return 'All documents';
   const labels = selected.map((code) => docTypes.find((dt) => dt.typeCode === code)?.displayName ?? code);
   return labels.length > 2 ? `${labels.slice(0, 2).join(', ')} +${labels.length - 2}` : labels.join(', ');
+}
+
+function docLabel(typeCode: string, docTypes: DocType[]) {
+  return docTypes.find((dt) => dt.typeCode === typeCode)?.displayName ?? typeCode;
+}
+
+function positiveHours(value: string | number | undefined): number {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function formatSlaHours(hours: number): string {
+  if (!hours) return '0h';
+  if (hours >= 24 && hours % 24 === 0) {
+    const days = hours / 24;
+    return `${days} day${days === 1 ? '' : 's'}`;
+  }
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    const rem = hours - days * 24;
+    return `${days}d ${formatSlaHoursShort(rem)}`;
+  }
+  return formatSlaHoursShort(hours);
+}
+
+function formatSlaHoursShort(hours: number): string {
+  if (hours >= 1) {
+    const wholeHours = Math.floor(hours);
+    const minutes = Math.round((hours - wholeHours) * 60);
+    return minutes === 0 ? `${wholeHours}h` : `${wholeHours}h ${minutes}m`;
+  }
+  return `${Math.round(hours * 60)}m`;
+}
+
+function displaySlaDays(hours: number): string {
+  const days = hours / 24;
+  const rounded = Math.round(days * 100) / 100;
+  return `${rounded} day${rounded === 1 ? '' : 's'}`;
+}
+
+function escalationMatches(row: EscalationConfig, required: RequiredSlaRow) {
+  return row.activityType === required.activityType
+    && String(row.scope ?? '').trim().toLowerCase() === required.scopeLabel.trim().toLowerCase();
 }
 
 function activityScopeSummary(activity: Activity, selected: string[] | undefined, docTypes: DocType[]) {
@@ -211,6 +331,7 @@ interface EditorProps {
 
 function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, onBack, onSaved }: EditorProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const isNew = roleId === 'new';
 
   const [roleName, setRoleName]               = useState('');
@@ -230,21 +351,77 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
   const [isSystem, setIsSystem]               = useState(false);
   const [systemCode, setSystemCode]           = useState('');
   const [userCount, setUserCount]             = useState(0);
-  const [saving, setSaving]                   = useState(false);
-  const [editorLoading, setEditorLoading]     = useState(!isNew);
   const [liveTeams, setLiveTeams]             = useState<{ id: string; name: string }[]>(teams);
   const [assignedLevelsByActivity, setAssignedLevelsByActivity] = useState<Record<string, string[]>>({});
+  const [escalationConfigs, setEscalationConfigs] = useState<EscalationConfig[]>([]);
+  const [slaHoursByKey, setSlaHoursByKey] = useState<Record<string, string>>({});
+  const [slaBaseDocByKey, setSlaBaseDocByKey] = useState<Record<string, string>>({});
+  const [slaThresholdsByKey, setSlaThresholdsByKey] = useState<Record<string, {
+    reminderPct: string;
+    warningPct: string;
+    escalationPct: string;
+    blockerPct: string;
+  }>>({});
+  const [editingSlaCell, setEditingSlaCell] = useState<{ rowKey: string; field: 'baseSlaHours' | 'reminderPct' | 'warningPct' | 'escalationPct' | 'blockerPct' } | null>(null);
+  const [baseDocPickerRow, setBaseDocPickerRow] = useState<RequiredSlaRow | null>(null);
+
+  const teamsQuery = useQuery({
+    queryKey: ['admin', 'teams'],
+    queryFn: () => apiGet<any>('/api/admin/teams'),
+    enabled: dataScope === 'TEAM',
+    staleTime: 60_000,
+  });
+
+  const escalationQuery = useQuery({
+    queryKey: ['admin', 'escalation'],
+    queryFn: () => apiGet<any>('/api/admin/escalation'),
+    staleTime: 60_000,
+  });
+
+  const roleDetailQuery = useQuery({
+    queryKey: ['admin', 'roles', roleId],
+    queryFn: () => apiGet<any>(`/api/admin/roles/${roleId}`),
+    enabled: !isNew,
+    staleTime: 30_000,
+  });
+
+  const comparisonRoleIds = useMemo(
+    () => roles
+      .map((role) => role.id)
+      .filter((id) => id && (isNew || id !== roleId)),
+    [roles, roleId, isNew],
+  );
+
+  const assignedRoleDetailsQuery = useQuery({
+    queryKey: ['admin', 'roles', 'activity-levels', comparisonRoleIds],
+    queryFn: () => Promise.all(
+      comparisonRoleIds.map((id) => apiGet<any>(`/api/admin/roles/${id}`).catch(() => null))
+    ),
+    enabled: comparisonRoleIds.length > 0,
+    staleTime: 30_000,
+  });
+
+  const saveRoleMutation = useMutation({
+    mutationFn: (payload: any) => isNew
+      ? apiPost<any>('/api/admin/roles', payload)
+      : apiPut<any>(`/api/admin/roles/${roleId}`, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'roles'] });
+      queryClient.invalidateQueries({ queryKey: ['admin', 'escalation'] });
+    },
+  });
 
   useEffect(() => {
-    if (dataScope !== 'TEAM') return;
-    apiGet<any>('/api/admin/teams').then(r => {
-      if (Array.isArray(r.data)) setLiveTeams(r.data);
-    }).catch(() => {});
-  }, [dataScope]);
+    if (Array.isArray(teamsQuery.data?.data)) setLiveTeams(teamsQuery.data.data);
+  }, [teamsQuery.data]);
 
   useEffect(() => {
-    if (isNew) { setEditorLoading(false); return; }
-    apiGet<any>(`/api/admin/roles/${roleId}`).then(({ data }: any) => {
+    if (escalationQuery.data?.ok) setEscalationConfigs(escalationQuery.data.data ?? []);
+  }, [escalationQuery.data]);
+
+  useEffect(() => {
+    if (isNew) return;
+    const data = roleDetailQuery.data?.data;
       if (!data) return;
       setRoleName(data.name ?? '');
       setDescription(data.description ?? '');
@@ -268,6 +445,37 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
       if (data.docTypeScopes && typeof data.docTypeScopes === 'object') {
         setDocTypeScopes(data.docTypeScopes);
       }
+      if (Array.isArray(data.activitySla)) {
+        const roleSlaConfigs: EscalationConfig[] = data.activitySla
+          .filter((item: any) => item && item.activityType && item.scope)
+          .map((item: any) => ({
+            id: `role-${item.activityCode ?? item.activityType}-${item.scope}`,
+            activityType: String(item.activityType),
+            activityName: item.activityName,
+            description: item.description,
+            scope: String(item.scope),
+            baseDoc: item.baseDoc,
+            baseSlaHours: item.baseSlaHours,
+            reminderPct: Number(item.reminderPct ?? 0),
+            warningPct: Number(item.warningPct ?? 50),
+            escalationPct: Number(item.escalationPct ?? 75),
+            blockerPct: Number(item.blockerPct ?? 100),
+            channels: null,
+            targets: null,
+          }));
+        setEscalationConfigs((prev) => {
+          const next = [...prev];
+          roleSlaConfigs.forEach((config) => {
+            const index = next.findIndex((item) =>
+              item.activityType === config.activityType
+              && String(item.scope ?? '').trim().toLowerCase() === String(config.scope ?? '').trim().toLowerCase()
+            );
+            if (index >= 0) next[index] = { ...next[index], ...config };
+            else next.push(config);
+          });
+          return next;
+        });
+      }
       const ts: Record<string, string[]> = {};
       (data.ticketPerms ?? []).forEach((p: any) => {
         if (!ts['accounting']) ts['accounting'] = [];
@@ -279,43 +487,30 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
         gs[g.gateConfigId] = { accessLevel: g.accessLevel, canEscalate: g.canEscalate, canOverride: g.canOverride };
       });
       setGateScopes(gs);
-      setEditorLoading(false);
-    });
-  }, [roleId, isNew]);
+  }, [roleDetailQuery.data, isNew]);
 
   useEffect(() => {
-    let cancelled = false;
-    const roleIds = roles
-      .map((role) => role.id)
-      .filter((id) => id && (isNew || id !== roleId));
-    if (!roleIds.length) {
+    const responses = assignedRoleDetailsQuery.data ?? [];
+    if (!comparisonRoleIds.length) {
       setAssignedLevelsByActivity({});
       return;
     }
-
-    Promise.all(
-      roleIds.map((id) => apiGet<any>(`/api/admin/roles/${id}`).catch(() => null))
-    ).then((responses) => {
-      if (cancelled) return;
-      const next: Record<string, Set<string>> = {};
-      responses.forEach((res) => {
-        const data = res?.data;
-        if (!data) return;
-        const levels = (data.allowedLevels ?? []).filter((level: string) => LEVELS.includes(level));
-        (data.roleActivities ?? []).forEach((ra: any) => {
-          const code = ra.activity?.activityCode;
-          if (!code) return;
-          if (!next[code]) next[code] = new Set();
-          levels.forEach((level: string) => next[code].add(level));
-        });
+    const next: Record<string, Set<string>> = {};
+    responses.forEach((res) => {
+      const data = res?.data;
+      if (!data) return;
+      const levels = (data.allowedLevels ?? []).filter((level: string) => LEVELS.includes(level));
+      (data.roleActivities ?? []).forEach((ra: any) => {
+        const code = ra.activity?.activityCode;
+        if (!code) return;
+        if (!next[code]) next[code] = new Set();
+        levels.forEach((level: string) => next[code].add(level));
       });
-      setAssignedLevelsByActivity(
-        Object.fromEntries(Object.entries(next).map(([code, levels]) => [code, [...levels].sort((a, b) => LEVELS.indexOf(a) - LEVELS.indexOf(b))]))
-      );
     });
-
-    return () => { cancelled = true; };
-  }, [roles, roleId, isNew]);
+    setAssignedLevelsByActivity(
+      Object.fromEntries(Object.entries(next).map(([code, levels]) => [code, [...levels].sort((a, b) => LEVELS.indexOf(a) - LEVELS.indexOf(b))]))
+    );
+  }, [assignedRoleDetailsQuery.data, comparisonRoleIds]);
 
   const grouped = useMemo(() => {
     const m: Record<string, Activity[]> = {};
@@ -336,6 +531,74 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
   const selectedCount = useMemo(() => {
     let n = 0; activities.forEach((a) => { if (selectedActs.has(a.activityCode)) n++; }); return n;
   }, [activities, selectedActs]);
+
+  const requiredSlaRows = useMemo<RequiredSlaRow[]>(() => {
+    return activities
+      .filter((act) => selectedActs.has(act.activityCode) && SLA_ACTIVITY_CONFIG[act.activityCode])
+      .flatMap((act) => {
+        const cfg = SLA_ACTIVITY_CONFIG[act.activityCode];
+        const scopedDocs = act.scopeType === 'docType' ? (docTypeScopes[act.activityCode] ?? []) : [];
+        const scopes = scopedDocs.length
+          ? scopedDocs.map((code) => ({ code, label: docLabel(code, docTypes) }))
+          : [{ code: 'general', label: act.scope || '-' }];
+        return scopes.map((scope) => ({
+          key: `${act.activityCode}::${scope.code}`,
+          activityCode: act.activityCode,
+          activityType: cfg.activityType,
+          activityName: cfg.activityName,
+          description: cfg.description,
+          scopeCode: scope.code,
+          scopeLabel: scope.label,
+          baseDoc: cfg.baseDoc || scope.label,
+        }));
+      });
+  }, [activities, selectedActs, docTypeScopes, docTypes]);
+
+  useEffect(() => {
+    setSlaHoursByKey((prev) => {
+      const next = { ...prev };
+      requiredSlaRows.forEach((row) => {
+        if (next[row.key] !== undefined) return;
+        const existing = escalationConfigs.find((cfg) => escalationMatches(cfg, row));
+        next[row.key] = existing ? String(existing.baseSlaHours) : '';
+      });
+      Object.keys(next).forEach((key) => {
+        if (!requiredSlaRows.some((row) => row.key === key)) delete next[key];
+      });
+      return next;
+    });
+
+    setSlaBaseDocByKey((prev) => {
+      const next = { ...prev };
+      requiredSlaRows.forEach((row) => {
+        if (next[row.key] !== undefined) return;
+        const existing = escalationConfigs.find((cfg) => escalationMatches(cfg, row));
+        next[row.key] = existing?.baseDoc || row.baseDoc || row.scopeLabel;
+      });
+      Object.keys(next).forEach((key) => {
+        if (!requiredSlaRows.some((row) => row.key === key)) delete next[key];
+      });
+      return next;
+    });
+
+    setSlaThresholdsByKey((prev) => {
+      const next = { ...prev };
+      requiredSlaRows.forEach((row) => {
+        if (next[row.key] !== undefined) return;
+        const existing = escalationConfigs.find((cfg) => escalationMatches(cfg, row));
+        next[row.key] = {
+          reminderPct: String(existing?.reminderPct ?? 0),
+          warningPct: String(existing?.warningPct ?? 50),
+          escalationPct: String(existing?.escalationPct ?? 75),
+          blockerPct: String(existing?.blockerPct ?? 100),
+        };
+      });
+      Object.keys(next).forEach((key) => {
+        if (!requiredSlaRows.some((row) => row.key === key)) delete next[key];
+      });
+      return next;
+    });
+  }, [requiredSlaRows, escalationConfigs]);
 
   function toggleModule(code: string) {
     setEnabledModules((p) => p.includes(code) ? p.filter((m) => m !== code) : [...p, code]);
@@ -388,8 +651,45 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
       toast({ title: `Select documents for ${missingDocScope.name}`, variant: 'destructive' });
       return;
     }
+    const missingSla = requiredSlaRows.find((row) => positiveHours(slaHoursByKey[row.key]) <= 0);
+    if (missingSla) {
+      toast({ title: `Enter SLA for ${missingSla.activityName} - ${missingSla.scopeLabel}`, variant: 'destructive' });
+      return;
+    }
+    const missingBaseDoc = requiredSlaRows.find((row) => !String(slaBaseDocByKey[row.key] ?? '').trim());
+    if (missingBaseDoc) {
+      toast({ title: `Select base doc for ${missingBaseDoc.activityName} - ${missingBaseDoc.scopeLabel}`, variant: 'destructive' });
+      return;
+    }
+    const invalidThreshold = requiredSlaRows.find((row) => {
+      const t = slaThresholdsByKey[row.key];
+      if (!t) return true;
+      return [t.reminderPct, t.warningPct, t.escalationPct, t.blockerPct].some((value) => {
+        const n = Number(value);
+        return !Number.isFinite(n) || n < 0 || n > 100;
+      });
+    });
+    if (invalidThreshold) {
+      toast({ title: `Enter 0-100 thresholds for ${invalidThreshold.activityName} - ${invalidThreshold.scopeLabel}`, variant: 'destructive' });
+      return;
+    }
     const derivedDocumentScope = [...new Set(Object.values(docTypeScopes).flat())].sort();
-    setSaving(true);
+    const activitySla = requiredSlaRows.map((row) => {
+      const thresholds = slaThresholdsByKey[row.key] ?? { reminderPct: '0', warningPct: '50', escalationPct: '75', blockerPct: '100' };
+      return {
+        activityCode: row.activityCode,
+        activityType: row.activityType,
+        activityName: row.activityName,
+        description: row.description,
+        scope: row.scopeLabel,
+        baseDoc: slaBaseDocByKey[row.key],
+        baseSlaHours: positiveHours(slaHoursByKey[row.key]),
+        reminderPct: Number(thresholds.reminderPct),
+        warningPct: Number(thresholds.warningPct),
+        escalationPct: Number(thresholds.escalationPct),
+        blockerPct: Number(thresholds.blockerPct),
+      };
+    });
     try {
       const payload = {
         name: roleName.trim(), description: description || null, roleCategory: category,
@@ -397,18 +697,18 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
         documentScope: derivedDocumentScope,
         docTypeScopes,
         activityCodes: Array.from(selectedActs),
+        activitySla,
       };
-      const res = isNew
-        ? await apiPost<any>('/api/admin/roles', payload)
-        : await apiPut<any>(`/api/admin/roles/${roleId}`, payload);
-      if (!res.ok) { toast({ title: res.error ?? 'Save failed', variant: 'destructive' }); setSaving(false); return; }
+      const res = await saveRoleMutation.mutateAsync(payload);
+      if (!res.ok) { toast({ title: res.error ?? 'Save failed', variant: 'destructive' }); return; }
       toast({ title: `Role ${isNew ? 'created' : 'saved'}` });
       onSaved();
     } catch { toast({ title: 'Network error', variant: 'destructive' }); }
-    setSaving(false);
   }
 
-  if (editorLoading) {
+  const saving = saveRoleMutation.isPending;
+
+  if (!isNew && roleDetailQuery.isLoading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 80 }}>
         <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: 'hsl(173 58% 39%)' }} />
@@ -623,7 +923,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
           </AdminFormSection>
 
           {/* Tier 2: Activity groups */}
-          <AdminFormSection title="Activity Permissions" defaultOpen isLast>
+          <AdminFormSection title="Activity Permissions" defaultOpen>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {groupOrder.map((groupCode) => {
                 const groupActs = grouped[groupCode] ?? [];
@@ -717,11 +1017,6 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
                             </span>
                             <span style={{ fontSize: 14.5, minWidth: 0, lineHeight: 1.3 }}>
                               <span>{act.name}</span>
-                              {act.status && (
-                                <span style={{ color: 'hsl(var(--muted-foreground))', fontSize: 12.5, marginLeft: 8 }}>
-                                  {act.status}
-                                </span>
-                              )}
                             </span>
                             <span style={{ minWidth: 0 }}>
                               {act.scopeType === 'docType' ? (
@@ -884,8 +1179,298 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
               })}
             </div>
           </AdminFormSection>
+
+          <AdminFormSection
+            title="Activity SLA"
+            description="Required SLA timers for the selected role activities and their scopes"
+            defaultOpen
+            isLast
+          >
+            {requiredSlaRows.length === 0 ? (
+              <div style={{
+                padding: 18,
+                borderRadius: 8,
+                border: '1px dashed hsl(var(--border))',
+                color: 'hsl(var(--muted-foreground))',
+                fontSize: 14.5,
+                background: 'hsl(var(--muted) / 0.18)',
+              }}>
+                Select an SLA-enabled activity to configure timers.
+              </div>
+            ) : (
+              <div style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, overflowX: 'auto', overflowY: 'hidden' }}>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: '230px 145px 120px 145px repeat(4, 104px)',
+                  minWidth: 1056,
+                  background: 'hsl(var(--muted) / 0.45)',
+                  color: 'hsl(var(--muted-foreground))',
+                  fontSize: 14.5,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  borderBottom: '1px solid hsl(var(--border))',
+                }}>
+                  {['Activity Type', 'Scope', 'Base SLA (Days)', 'Base Doc'].map((label) => (
+                    <div key={label} style={{ padding: '10px 10px', display: 'flex', alignItems: 'center' }}>{label}</div>
+                  ))}
+                  {([
+                    ['Reminder', SLA_LEVEL_COLORS.reminder.dot],
+                    ['Warning', SLA_LEVEL_COLORS.warning.dot],
+                    ['Escalation', SLA_LEVEL_COLORS.escalation.dot],
+                    ['Blocker', SLA_LEVEL_COLORS.blocker.dot],
+                  ] as const).map(([label, color]) => (
+                    <div key={label} style={{ padding: '10px 10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: color }} />
+                      {label}
+                    </div>
+                  ))}
+                </div>
+                {requiredSlaRows.map((row) => {
+                  const value = slaHoursByKey[row.key] ?? '';
+                  const invalid = positiveHours(value) <= 0;
+                  const baseH = positiveHours(value);
+                  const baseDocValue = slaBaseDocByKey[row.key] || row.baseDoc || row.scopeLabel;
+                  const thresholds = slaThresholdsByKey[row.key] ?? {
+                    reminderPct: '0',
+                    warningPct: '50',
+                    escalationPct: '75',
+                    blockerPct: '100',
+                  };
+                  const setThreshold = (field: keyof typeof thresholds, nextValue: string) => {
+                    setSlaThresholdsByKey((prev) => ({
+                      ...prev,
+                      [row.key]: {
+                        ...(prev[row.key] ?? thresholds),
+                        [field]: nextValue,
+                      },
+                    }));
+                  };
+                  const thresholdCells = [
+                    { field: 'reminderPct' as const, fallback: '0', color: SLA_LEVEL_COLORS.reminder.dot, bg: SLA_LEVEL_COLORS.reminder.cellBg },
+                    { field: 'warningPct' as const, fallback: '50', color: SLA_LEVEL_COLORS.warning.dot, bg: SLA_LEVEL_COLORS.warning.cellBg },
+                    { field: 'escalationPct' as const, fallback: '75', color: SLA_LEVEL_COLORS.escalation.dot, bg: SLA_LEVEL_COLORS.escalation.cellBg },
+                    { field: 'blockerPct' as const, fallback: '100', color: SLA_LEVEL_COLORS.blocker.dot, bg: SLA_LEVEL_COLORS.blocker.cellBg },
+                  ];
+                  return (
+                    <div
+                      key={row.key}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '230px 145px 120px 145px repeat(4, 104px)',
+                        minWidth: 1056,
+                        alignItems: 'center',
+                        borderBottom: '1px solid hsl(var(--border))',
+                        background: invalid ? 'hsl(38 92% 50% / 0.05)' : 'hsl(var(--card))',
+                      }}
+                    >
+                      <div style={{ minWidth: 0, padding: '12px 10px' }}>
+                        <div style={{ fontSize: 14.5, fontWeight: 600, color: 'hsl(var(--foreground))' }}>{row.activityName}</div>
+                      </div>
+                      <span style={{ padding: '12px 10px', fontSize: 14, color: 'hsl(var(--foreground))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                        {row.scopeLabel}
+                      </span>
+                      <div style={{ padding: '12px 10px', textAlign: 'center' }}>
+                        {editingSlaCell?.rowKey === row.key && editingSlaCell.field === 'baseSlaHours' ? (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <Input
+                              autoFocus
+                              type="number"
+                              min="0.1"
+                              step="0.25"
+                              value={baseH ? String(Math.round((baseH / 24) * 100) / 100) : ''}
+                              onChange={(e) => {
+                                const days = Number(e.target.value);
+                                setSlaHoursByKey((prev) => ({
+                                  ...prev,
+                                  [row.key]: Number.isFinite(days) ? String(days * 24) : '',
+                                }));
+                              }}
+                              onBlur={() => setEditingSlaCell(null)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === 'Escape') setEditingSlaCell(null);
+                              }}
+                              style={{ height: 30, width: 58, fontSize: 14, textAlign: 'center', borderColor: invalid ? '#d97706' : undefined }}
+                            />
+                            <span style={{ fontSize: 12.5, color: 'hsl(var(--muted-foreground))' }}>days</span>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setEditingSlaCell({ rowKey: row.key, field: 'baseSlaHours' })}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'hsl(var(--foreground))' }}
+                            title="Click to edit"
+                          >
+                            <span style={{ fontFamily: 'monospace', fontSize: 14 }}>{baseH ? displaySlaDays(baseH) : 'Set SLA'}</span>
+                          </button>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setBaseDocPickerRow(row)}
+                        title={baseDocValue}
+                        style={{
+                          height: 32,
+                          minWidth: 0,
+                          width: 'calc(100% - 20px)',
+                          margin: '12px 10px',
+                          padding: '0 10px',
+                          borderRadius: 6,
+                          border: '1px solid hsl(var(--border))',
+                          background: 'hsl(var(--background))',
+                          color: baseDocValue ? 'hsl(var(--foreground))' : 'hsl(var(--muted-foreground))',
+                          fontSize: 14,
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {baseDocValue || 'Choose doc'}
+                      </button>
+                      {thresholdCells.map(({ field, fallback, color, bg }) => {
+                        const thresholdValue = thresholds[field] ?? fallback;
+                        const n = Number(thresholdValue);
+                        const thresholdInvalid = !Number.isFinite(n) || n < 0 || n > 100;
+                        const isEditing = editingSlaCell?.rowKey === row.key && editingSlaCell.field === field;
+                        const computed = formatSlaHours((baseH * (Number.isFinite(n) ? n : 0)) / 100);
+                        return (
+                          <div key={field} style={{ padding: '12px 10px', background: bg, textAlign: 'center', minHeight: 56, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {isEditing ? (
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <Input
+                                  autoFocus
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  step="1"
+                                  value={thresholdValue}
+                                  onChange={(e) => setThreshold(field, e.target.value)}
+                                  onBlur={() => setEditingSlaCell(null)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === 'Escape') setEditingSlaCell(null);
+                                  }}
+                                  style={{ height: 30, width: 54, fontSize: 13.5, textAlign: 'center', borderColor: thresholdInvalid ? '#d97706' : color }}
+                                />
+                                <span style={{ fontSize: 12.5, color: 'hsl(var(--muted-foreground))' }}>%</span>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setEditingSlaCell({ rowKey: row.key, field })}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  padding: '2px 4px',
+                                  borderRadius: 4,
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  gap: 1,
+                                }}
+                                title="Click to edit"
+                              >
+                                <span style={{ fontFamily: 'monospace', fontSize: 13.5, color, fontWeight: 700 }}>{thresholdValue}%</span>
+                                <span style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>{computed}</span>
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </AdminFormSection>
         </div>
       </div>
+      {baseDocPickerRow && (
+        <div
+          onClick={() => setBaseDocPickerRow(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 90,
+            background: 'rgba(15, 23, 42, 0.38)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(560px, 100%)',
+              maxHeight: '78vh',
+              background: 'hsl(var(--card))',
+              border: '1px solid hsl(var(--border))',
+              borderRadius: 8,
+              boxShadow: '0 22px 60px rgba(15, 23, 42, 0.25)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <div style={{ padding: '16px 18px', borderBottom: '1px solid hsl(var(--border))', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>Base Doc</div>
+                <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {baseDocPickerRow.activityName} · {baseDocPickerRow.scopeLabel}
+                </div>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setBaseDocPickerRow(null)}>Cancel</Button>
+            </div>
+            <div style={{ padding: 18, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {['INDIA', 'US', 'GLOBAL'].map((geo) => {
+                const geoTypes = docTypes.filter((dt) => dt.geography === geo);
+                if (!geoTypes.length) return null;
+                return (
+                  <div key={geo} style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--muted-foreground))', marginBottom: 8 }}>{geo}</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 7 }}>
+                      {geoTypes.map((dt) => {
+                        const selected = (slaBaseDocByKey[baseDocPickerRow.key] || baseDocPickerRow.baseDoc || baseDocPickerRow.scopeLabel) === dt.displayName;
+                        return (
+                          <button
+                            key={dt.typeCode}
+                            type="button"
+                            onClick={() => {
+                              setSlaBaseDocByKey((prev) => ({ ...prev, [baseDocPickerRow.key]: dt.displayName }));
+                              setBaseDocPickerRow(null);
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 10,
+                              minWidth: 0,
+                              padding: '8px 10px',
+                              borderRadius: 6,
+                              border: `1px solid ${selected ? 'hsl(173 58% 39%)' : 'hsl(var(--border))'}`,
+                              background: selected ? 'hsl(173 58% 39% / 0.08)' : 'hsl(var(--background))',
+                              color: 'hsl(var(--foreground))',
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                              fontSize: 14.5,
+                            }}
+                          >
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dt.displayName}</span>
+                            {selected && <Check size={13} style={{ color: 'hsl(173 58% 39%)', flexShrink: 0 }} />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
       {scopeDialogActivity && (
         <div
           onClick={() => setScopeDialogActivity(null)}
@@ -986,32 +1571,90 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
 // ─── Main page ────────────────────────────────────────────────────────────────
 export function AdminRolesPage() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
-  const { roles, docTypes: configDocTypes, modules: sysModules, teams: configTeams, refreshRoles } = useConfig();
-  const docTypes = configDocTypes.map(d => ({ ...d, geography: d.geography ?? '' }));
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [loading, setLoading]       = useState(true);
   const [deletingRole, setDeletingRole] = useState<Role | null>(null);
-  const [deleting, setDeleting]     = useState(false);
 
-  useEffect(() => {
-    apiGet<any>('/api/admin/activities').then(a => {
-      setActivities(a.data ?? []);
-      setLoading(false);
-    }).catch(() => setLoading(false));
-  }, []);
+  const rolesQuery = useQuery({
+    queryKey: ['admin', 'roles'],
+    queryFn: () => apiGet<any>('/api/admin/roles'),
+    staleTime: 30_000,
+  });
+
+  const docTypesQuery = useQuery({
+    queryKey: ['admin', 'registries', 'doc-types'],
+    queryFn: () => apiGet<any>('/api/admin/registries/doc-types'),
+    staleTime: 5 * 60_000,
+  });
+
+  const modulesQuery = useQuery({
+    queryKey: ['admin', 'registries', 'modules'],
+    queryFn: () => apiGet<any>('/api/admin/registries/modules'),
+    staleTime: 5 * 60_000,
+  });
+
+  const teamsQuery = useQuery({
+    queryKey: ['admin', 'teams'],
+    queryFn: () => apiGet<any>('/api/admin/teams'),
+    staleTime: 60_000,
+  });
+
+  const activitiesQuery = useQuery({
+    queryKey: ['admin', 'activities'],
+    queryFn: () => apiGet<any>('/api/admin/activities'),
+    staleTime: 5 * 60_000,
+  });
+  const roles = (rolesQuery.data?.data ?? []) as Role[];
+  const docTypes = ((docTypesQuery.data?.data ?? []) as DocType[]).map(d => ({ ...d, geography: d.geography ?? '' }));
+  const sysModules = (modulesQuery.data?.data ?? []) as SysModule[];
+  const configTeams = (teamsQuery.data?.data ?? []) as { id: string; name: string }[];
+  const activities = (activitiesQuery.data?.data ?? []) as Activity[];
+  const pageLoading = rolesQuery.isLoading || docTypesQuery.isLoading || modulesQuery.isLoading || activitiesQuery.isLoading;
+
+  const deleteRoleMutation = useMutation({
+    mutationFn: (roleId: string) => apiDelete<any>(`/api/admin/roles/${roleId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'roles'] });
+    },
+  });
+
+  const cloneRoleMutation = useMutation({
+    mutationFn: async (role: Role) => {
+      const detail = await apiGet<any>(`/api/admin/roles/${role.id}`);
+      const src = detail.data;
+      const res = await apiPost<any>('/api/admin/roles', {
+        name: `${src.name} (copy)`, description: src.description,
+        roleCategory: src.roleCategory, color: src.color,
+        allowedLevels: src.allowedLevels, defaultDataScope: src.defaultDataScope,
+        defaultModules: src.defaultModules,
+        documentScope: src.documentScope ?? [],
+        docTypeScopes: src.docTypeScopes ?? {},
+        activityCodes: (src.roleActivities ?? []).map((ra: any) => ra.activity?.activityCode).filter(Boolean),
+        activitySla: src.activitySla ?? [],
+      });
+      return { res, sourceName: src.name };
+    },
+    onSuccess: ({ res, sourceName }) => {
+      if (res.ok) {
+        toast({ title: `Cloned as "${sourceName} (copy)"` });
+        queryClient.invalidateQueries({ queryKey: ['admin', 'roles'] });
+      } else {
+        toast({ title: res.error ?? 'Clone failed', variant: 'destructive' });
+      }
+    },
+    onError: () => {
+      toast({ title: 'Network error', variant: 'destructive' });
+    },
+  });
 
   async function handleDelete() {
     if (!deletingRole) return;
-    setDeleting(true);
     try {
-      const res = await apiDelete<any>(`/api/admin/roles/${deletingRole.id}`);
+      const res = await deleteRoleMutation.mutateAsync(deletingRole.id);
       if (!res.ok) { toast({ title: res.error ?? 'Delete failed', variant: 'destructive' }); return; }
       toast({ title: `"${deletingRole.name}" deleted` });
       setDeletingRole(null);
-      refreshRoles();
     } catch { toast({ title: 'Network error', variant: 'destructive' }); }
-    setDeleting(false);
   }
 
   const systemRoles = roles.filter((r) => r.isSystemDefault).length;
@@ -1075,26 +1718,10 @@ export function AdminRolesPage() {
       render: (r) => (
         <div style={{ display: 'flex', gap: 2 }} onClick={(e) => e.stopPropagation()}>
           <IconBtn title="Edit" onClick={() => setEditingRoleId(r.id)}><Pencil size={14} /></IconBtn>
-          <IconBtn title="Clone" onClick={async () => {
-            try {
-              const detail = await apiGet<any>(`/api/admin/roles/${r.id}`);
-              const src = detail.data;
-              const res = await apiPost<any>('/api/admin/roles', {
-                name: `${src.name} (copy)`, description: src.description,
-                roleCategory: src.roleCategory, color: src.color,
-                allowedLevels: src.allowedLevels, defaultDataScope: src.defaultDataScope,
-                defaultModules: src.defaultModules,
-                documentScope: src.documentScope ?? [],
-                docTypeScopes: src.docTypeScopes ?? {},
-                activityCodes: (src.roleActivities ?? []).map((ra: any) => ra.activity?.activityCode).filter(Boolean),
-              });
-              if (res.ok) { toast({ title: `Cloned as "${src.name} (copy)"` }); refreshRoles(); }
-              else toast({ title: res.error ?? 'Clone failed', variant: 'destructive' });
-            } catch { toast({ title: 'Network error', variant: 'destructive' }); }
-          }}><Copy size={14} /></IconBtn>
+          <IconBtn title="Clone" disabled={cloneRoleMutation.isPending} onClick={() => cloneRoleMutation.mutate(r)}><Copy size={14} /></IconBtn>
           <IconBtn
             title={r.isSystemDefault ? 'System roles cannot be deleted' : 'Delete'}
-            disabled={r.isSystemDefault}
+            disabled={r.isSystemDefault || deleteRoleMutation.isPending}
             danger={!r.isSystemDefault}
             onClick={() => setDeletingRole(r)}
           ><Trash2 size={14} /></IconBtn>
@@ -1113,7 +1740,7 @@ export function AdminRolesPage() {
         sysModules={sysModules}
         teams={configTeams}
         onBack={() => setEditingRoleId(null)}
-        onSaved={() => { setEditingRoleId(null); refreshRoles(); }}
+        onSaved={() => { setEditingRoleId(null); }}
       />
     );
   }
@@ -1138,7 +1765,7 @@ export function AdminRolesPage() {
         columns={columns}
         data={roles}
         keyField="id"
-        loading={loading}
+        loading={pageLoading}
         onRowClick={(r) => setEditingRoleId(r.id)}
         searchable
         searchPlaceholder="Search roles…"

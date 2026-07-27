@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Bell, CheckCheck } from 'lucide-react';
 import { useNotifications } from '@/hooks/useOperationalData';
 
@@ -14,10 +14,12 @@ function formatTimeAgo(date: Date): string {
 }
 
 const TYPE_ICON: Record<string, string> = {
-  info:       '📋',
-  warning:    '⚠️',
-  escalation: '🔺',
-  blocker:    '🛑',
+  info: 'i',
+  success: 'OK',
+  warning: '!',
+  alert: '!',
+  escalation: '^',
+  blocker: '!',
 };
 
 export function NotificationCenter() {
@@ -50,8 +52,10 @@ export function NotificationCenter() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-10 w-[420px] bg-card border rounded-xl shadow-xl z-50 overflow-hidden"
-          style={{ borderColor: 'hsl(var(--border))' }}>
+        <div
+          className="absolute right-0 top-10 w-[420px] bg-card border rounded-xl shadow-xl z-50 overflow-hidden"
+          style={{ borderColor: 'hsl(var(--border))' }}
+        >
           <div className="flex items-center justify-between px-4 py-3.5 border-b" style={{ borderColor: 'hsl(var(--border))' }}>
             <span className="text-[15px] font-semibold">Notifications</span>
             {unreadCount > 0 && (
@@ -78,8 +82,8 @@ export function NotificationCenter() {
                   className={`flex gap-3 px-4 py-4 border-b hover:bg-muted/50 transition-colors cursor-pointer ${!n.read ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}`}
                   style={{ borderColor: 'hsl(var(--border))' }}
                 >
-                  <div className="shrink-0 mt-0.5 text-base">
-                    {TYPE_ICON[n.type] ?? '📋'}
+                  <div className="shrink-0 mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[11px] font-bold text-muted-foreground">
+                    {TYPE_ICON[n.type] ?? 'i'}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className={`text-[14px] leading-tight ${!n.read ? 'font-semibold' : ''}`}>

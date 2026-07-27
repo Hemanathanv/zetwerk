@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation } from 'wouter';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getAuthToken } from '@/lib/api';
 import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
 import { useConfig } from '@/contexts/ConfigContext';
@@ -286,57 +287,43 @@ export interface TaskFilters {
 }
 
 export function useTasks(filters: TaskFilters = {}) {
-  const [data, setData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const query = useQuery({
+    queryKey: ['tasks', 'legacy-list', filters.status ?? '', filters.urgency ?? '', filters.shipmentId ?? ''],
+    queryFn: async () => {
       const params = new URLSearchParams();
       if (filters.status)     params.set('status',     filters.status);
       if (filters.urgency)    params.set('urgency',    filters.urgency);
       if (filters.shipmentId) params.set('shipmentId', filters.shipmentId);
       const qs = params.toString();
       const result = await apiFetch<{ ok: boolean; data: any[] }>(`/api/tasks${qs ? `?${qs}` : ''}`);
-      setData(result.data ?? []);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [filters.status, filters.urgency, filters.shipmentId]);
+      return result.data ?? [];
+    },
+  });
 
-  useEffect(() => { fetch(); }, [fetch]);
-
-  return { tasks: data, loading, error, refetch: fetch };
+  return {
+    tasks: query.data ?? [],
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+  };
 }
 
 export function useTaskCount() {
-  const [count, setCount] = useState<{ total: number; blockers: number }>({ total: 0, blockers: 0 });
-  const [loading, setLoading] = useState(true);
-
-  const fetch = useCallback(async () => {
-    try {
+  const query = useQuery({
+    queryKey: ['tasks', 'count'],
+    queryFn: async () => {
       const result = await apiFetch<{ ok: boolean; data: { total: number; blockers: number } }>('/api/tasks/count');
-      setCount(result.data ?? { total: 0, blockers: 0 });
-    } catch {
-      // non-critical — keep previous count
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return result.data ?? { total: 0, blockers: 0 };
+    },
+    refetchInterval: 60_000,
+  });
 
-  useEffect(() => {
-    fetch();
-    const interval = setInterval(fetch, 60_000);
-    return () => clearInterval(interval);
-  }, [fetch]);
-
-  return { count, loading, refetch: fetch };
+  return {
+    count: query.data ?? { total: 0, blockers: 0 },
+    loading: query.isLoading,
+    refetch: query.refetch,
+  };
 }
-
 // ─── Task V2 hooks ───────────────────────────────────────────────────────────
 
 export type TaskScope = 'mine' | 'team' | 'all';
@@ -344,38 +331,55 @@ export type TaskScope = 'mine' | 'team' | 'all';
 export interface TaskListFilters {
   urgency?: string;
   status?: string;
+  search?: string;
   shipmentId?: string;
   assignedRoleId?: string;
+  page?: number;
+  pageSize?: number;
 }
 
-export function useTaskList(scope: TaskScope = 'mine', filters: TaskListFilters = {}) {
-  const [data, setData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export interface PaginationMeta {
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+}
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+const DEFAULT_PAGINATION: PaginationMeta = {
+  total: 0,
+  page: 1,
+  pageSize: 20,
+  totalPages: 1,
+  hasNext: false,
+  hasPrev: false,
+};
+
+export function useTaskList(scope: TaskScope = 'mine', filters: TaskListFilters = {}) {
+  const query = useQuery({
+    queryKey: ['tasks', 'list', scope, filters.urgency ?? '', filters.status ?? '', filters.search ?? '', filters.shipmentId ?? '', filters.assignedRoleId ?? '', filters.page ?? 1, filters.pageSize ?? 20],
+    queryFn: async () => {
       const params = new URLSearchParams({ scope });
       if (filters.urgency)        params.set('urgency',        filters.urgency);
       if (filters.status)         params.set('status',         filters.status);
+      if (filters.search)         params.set('search',         filters.search);
       if (filters.shipmentId)     params.set('shipmentId',     filters.shipmentId);
       if (filters.assignedRoleId) params.set('assignedRoleId', filters.assignedRoleId);
-      const result = await apiFetch<{ ok: boolean; data: any[] }>(`/api/tasks?${params.toString()}`);
-      setData(result.data ?? []);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [scope, filters.urgency, filters.status, filters.shipmentId, filters.assignedRoleId]);
+      if (filters.page)           params.set('page',           String(filters.page));
+      if (filters.pageSize)       params.set('pageSize',       String(filters.pageSize));
+      return apiFetch<{ ok: boolean; data: any[]; meta?: PaginationMeta }>(`/api/tasks?${params.toString()}`);
+    },
+  });
 
-  useEffect(() => { fetch(); }, [fetch]);
-
-  return { tasks: data, loading, error, refetch: fetch };
+  return {
+    tasks: query.data?.data ?? [],
+    meta: query.data?.meta ?? DEFAULT_PAGINATION,
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+  };
 }
-
 export interface TaskSummary {
   total: number;
   blockers: number;
@@ -387,49 +391,37 @@ export interface TaskSummary {
 }
 
 export function useTaskSummary() {
-  const [summary, setSummary] = useState<TaskSummary>({ total: 0, blockers: 0, warnings: 0, normal: 0, escalated: 0, myCount: 0, teamCount: 0 });
-  const [loading, setLoading] = useState(true);
-
-  const fetch = useCallback(async () => {
-    try {
+  const query = useQuery({
+    queryKey: ['tasks', 'summary'],
+    queryFn: async () => {
       const result = await apiFetch<{ ok: boolean; data: TaskSummary }>('/api/tasks/summary');
-      setSummary(result.data ?? { total: 0, blockers: 0, warnings: 0, normal: 0, escalated: 0, myCount: 0, teamCount: 0 });
-    } catch {
-      // non-critical
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      return result.data ?? { total: 0, blockers: 0, warnings: 0, normal: 0, escalated: 0, myCount: 0, teamCount: 0 };
+    },
+  });
 
-  useEffect(() => { fetch(); }, [fetch]);
-
-  return { summary, loading, refetch: fetch };
+  return {
+    summary: query.data ?? { total: 0, blockers: 0, warnings: 0, normal: 0, escalated: 0, myCount: 0, teamCount: 0 },
+    loading: query.isLoading,
+    refetch: query.refetch,
+  };
 }
-
 export function useTaskDetail(taskId: string | null) {
-  const [task, setTask] = useState<any | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetch = useCallback(async () => {
-    if (!taskId) { setTask(null); return; }
-    setLoading(true);
-    setError(null);
-    try {
+  const query = useQuery({
+    queryKey: ['tasks', 'detail', taskId],
+    enabled: !!taskId,
+    queryFn: async () => {
       const result = await apiFetch<{ ok: boolean; data: any }>(`/api/tasks/${taskId}`);
-      setTask(result.data ?? null);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [taskId]);
+      return result.data ?? null;
+    },
+  });
 
-  useEffect(() => { fetch(); }, [fetch]);
-
-  return { task, loading, error, refetch: fetch };
+  return {
+    task: query.data ?? null,
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+  };
 }
-
 // ─── Accounting tickets ──────────────────────────────────────────────────────
 
 export interface TicketFilters {
@@ -489,52 +481,71 @@ export function useDndRates(shipment: any | null | undefined): DndRate[] {
 
 // ─── Notifications ───────────────────────────────────────────────────────────
 
-export function useNotifications() {
-  const [data, setData] = useState<any[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(true);
-
-  const fetch = useCallback(async () => {
-    try {
-      const result = await apiFetch<{ ok: boolean; data: any[]; meta?: { unreadCount: number } }>('/api/notifications');
-      setData(result.data ?? []);
-      setUnreadCount(result.meta?.unreadCount ?? 0);
-    } catch {
-      // non-critical
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const markRead = useCallback(async (id: string) => {
-    try {
-      await apiFetch(`/api/notifications/${id}/read`, { method: 'PATCH' });
-      setData(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
-      setUnreadCount(prev => Math.max(0, prev - 1));
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
-    fetch();
-    const interval = setInterval(fetch, 30_000);
-    return () => clearInterval(interval);
-  }, [fetch]);
-
-  const markAllAsRead = useCallback(async () => {
-    try {
-      await apiFetch('/api/notifications/mark-all-read', { method: 'POST' });
-      setData(prev => prev.map(n => ({ ...n, read: true })));
-      setUnreadCount(0);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  return { notifications: data, unreadCount, loading, refetch: fetch, markRead, markAllAsRead };
+export interface NotificationFilters {
+  type?: string;
+  unreadOnly?: boolean;
+  page?: number;
+  pageSize?: number;
 }
 
+export interface NotificationMeta extends PaginationMeta {
+  unreadCount: number;
+  typeCounts: Record<string, number>;
+}
+
+const DEFAULT_NOTIFICATION_META: NotificationMeta = {
+  ...DEFAULT_PAGINATION,
+  pageSize: 20,
+  unreadCount: 0,
+  typeCounts: {},
+};
+
+export function useNotifications(filters: NotificationFilters = {}) {
+  const queryClient = useQueryClient();
+  const queryKey = ['notifications', filters.type ?? '', filters.unreadOnly ?? false, filters.page ?? 1, filters.pageSize ?? 20] as const;
+  const query = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.type)       params.set('type',       filters.type);
+      if (filters.unreadOnly) params.set('unreadOnly', 'true');
+      if (filters.page)       params.set('page',       String(filters.page));
+      if (filters.pageSize)   params.set('pageSize',   String(filters.pageSize));
+      const qs = params.toString();
+      return apiFetch<{ ok: boolean; data: any[]; meta?: NotificationMeta }>(`/api/notifications${qs ? `?${qs}` : ''}`);
+    },
+    refetchInterval: 30_000,
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: (id: string) => apiFetch(`/api/notifications/${id}/read`, { method: 'PATCH' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['navigation', 'badges'] });
+    },
+  });
+
+  const markAllReadMutation = useMutation({
+    mutationFn: () => apiFetch('/api/notifications/mark-all-read', { method: 'POST' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['navigation', 'badges'] });
+    },
+  });
+
+  const data = query.data?.data ?? [];
+  const meta = query.data?.meta ?? DEFAULT_NOTIFICATION_META;
+
+  return {
+    notifications: data,
+    unreadCount: meta.unreadCount ?? 0,
+    meta,
+    loading: query.isLoading,
+    refetch: query.refetch,
+    markRead: (id: string) => markReadMutation.mutate(id),
+    markAllAsRead: () => markAllReadMutation.mutate(),
+  };
+}
 // ─── Part 3: Admin exit refresh ──────────────────────────────────────────────
 
 export function useAdminExitRefresh() {

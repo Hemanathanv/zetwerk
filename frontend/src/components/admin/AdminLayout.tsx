@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLocation, Link } from 'wouter';
 import {
   Users, Shield, Building2, GitBranch, ShieldCheck,
-  Calculator, Bell, Container, Warehouse, PackageSearch,
+  Calculator, Container, Warehouse, PackageSearch,
   ScrollText, Settings, ArrowLeft, ClipboardCheck,
 } from 'lucide-react';
 
@@ -37,7 +37,6 @@ const ADMIN_NAV: NavGroup[] = [
     group: 'Finance',
     items: [
       { label: 'Accounting Config',   icon: Calculator,  href: '/admin/accounting'       },
-      { label: 'Escalation Config',   icon: Bell,        href: '/admin/escalation'       },
     ],
   },
   {

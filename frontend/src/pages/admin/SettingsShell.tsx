@@ -7,19 +7,14 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import SetupChecklist from './settings/SetupChecklist';
 import TeamAccessSection from './settings/TeamAccessSection';
-import WorkflowGuided from './settings/WorkflowGuided';
 import ValidationGuided from './settings/ValidationGuided';
 import FinanceGuided from './settings/FinanceGuided';
 import SystemGuided from './settings/SystemGuided';
-import { AdminTemplatesPage } from './AdminTemplatesPage';
-import { AdminInventoryPage } from './AdminInventoryPage';
 import { AdminValidationPage } from './AdminValidationPage';
 import { AdminAccountingPage } from './AdminAccountingPage';
-import { AdminEscalationPage } from './AdminEscalationPage';
 import { AdminAuditPage } from './AdminAuditPage';
 import { AdminCompliancePage } from './AdminCompliancePage';
 import { AdminWarehousesPage } from './AdminWarehousesPage';
-import { AdminProductsPage } from './AdminProductsPage';
 import { SafeCubeSettingsCard } from '../settings/SafeCubeSettingsCard';
 
 const T = {
@@ -145,31 +140,38 @@ function SettingsPanel({
   );
 }
 
-function WorkflowAdvanced() {
-  const [tab, setTab] = useState<'templates' | 'inventory' | 'products'>('templates');
-  const TAB_LABELS: Record<string, string> = {
-    templates: 'Workflow Templates',
-    inventory: 'Milestones & D&D',
-    products:  'Product SKUs',
-  };
+function UnderBuildPanel({ title }: { title: string }) {
   return (
-    <div>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${T.border}` }}>
-        {(['templates', 'inventory', 'products'] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)} style={{
-            padding: '8px 16px', fontSize: 14, fontWeight: 500, border: 'none',
-            background: 'transparent', cursor: 'pointer',
-            borderBottom: tab === t ? `2px solid ${T.teal}` : '2px solid transparent',
-            color: tab === t ? T.teal : T.slate500,
-            fontFamily: "'Instrument Sans', sans-serif",
-          }}>
-            {TAB_LABELS[t]}
-          </button>
-        ))}
+    <div style={{
+      minHeight: 360,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      border: `1px solid ${T.border}`,
+      borderRadius: 10,
+      background: T.surface,
+      textAlign: 'center',
+      padding: 24,
+    }}>
+      <div>
+        <h3 style={{
+          margin: 0,
+          fontSize: 22,
+          fontWeight: 700,
+          color: T.slate900,
+          fontFamily: "'BricolageGrotesque', sans-serif",
+        }}>
+          {title}
+        </h3>
+        <p style={{
+          margin: '8px 0 0',
+          fontSize: 14.5,
+          color: T.slate500,
+          fontFamily: "'Instrument Sans', sans-serif",
+        }}>
+          Currently under build
+        </p>
       </div>
-      {tab === 'templates' && <AdminTemplatesPage />}
-      {tab === 'inventory' && <AdminInventoryPage />}
-      {tab === 'products'  && <AdminProductsPage />}
     </div>
   );
 }
@@ -179,23 +181,9 @@ function FinanceAdvanced() {
 }
 
 function SystemAdvanced() {
-  const [tab, setTab] = useState<'audit' | 'escalation'>('audit');
   return (
     <div>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${T.border}` }}>
-        {(['audit', 'escalation'] as const).map(t => (
-          <button key={t} onClick={() => setTab(t)} style={{
-            padding: '8px 16px', fontSize: 14, fontWeight: 500, border: 'none',
-            background: 'transparent', cursor: 'pointer',
-            borderBottom: tab === t ? `2px solid ${T.teal}` : '2px solid transparent',
-            color: tab === t ? T.teal : T.slate500,
-            fontFamily: "'Instrument Sans', sans-serif",
-          }}>
-            {t === 'audit' ? 'Audit Log' : 'Escalation Config'}
-          </button>
-        ))}
-      </div>
-      {tab === 'audit' ? <AdminAuditPage /> : <AdminEscalationPage />}
+      <AdminAuditPage />
     </div>
   );
 }
@@ -436,8 +424,8 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
             <SettingsPanel
               title="Workflow & Documents"
               description="Configure how shipments flow and which documents are required."
-              guidedContent={<WorkflowGuided onSwitchToAdvanced={() => setShowAdvanced(true)} />}
-              advancedContent={<WorkflowAdvanced />}
+              guidedContent={<UnderBuildPanel title="Workflow & Documents" />}
+              advancedContent={<UnderBuildPanel title="Workflow & Documents" />}
               showAdvanced={showAdvanced}
             />
           )}

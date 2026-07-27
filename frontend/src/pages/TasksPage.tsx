@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionContext';
@@ -73,6 +74,27 @@ const ESCALATION_REASONS = [
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();
   return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
+}
+
+async function taskApi<T = any>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      ...authHeaders(),
+      ...((init?.headers as Record<string, string> | undefined) ?? {}),
+    },
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || data?.ok === false) {
+    throw new Error(data?.error || `Task API request failed: ${path}`);
+  }
+  return data as T;
+}
+
+function invalidateTaskQueries(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ['tasks'] });
+  queryClient.invalidateQueries({ queryKey: ['notifications'] });
+  queryClient.invalidateQueries({ queryKey: ['navigation', 'badges'] });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -334,14 +356,12 @@ function BulkRolePickerModal({ count, onClose, onConfirm }: {
   count: number; onClose: () => void;
   onConfirm: (roleId: string) => void;
 }) {
-  const [roles, setRoles] = useState<any[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState('');
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    fetch(`${API_BASE}/api/tasks/roles`, { headers: authHeaders() })
-      .then(r => r.json()).then(d => setRoles(d.data ?? [])).catch(() => {});
-  }, []);
+  const { data: roles = [] } = useQuery({
+    queryKey: ['tasks', 'roles'],
+    queryFn: async () => (await taskApi<{ ok: boolean; data: any[] }>('/api/tasks/roles')).data ?? [],
+  });
 
   async function handleSubmit() {
     if (!selectedRoleId) return;
@@ -379,36 +399,32 @@ function BulkRolePickerModal({ count, onClose, onConfirm }: {
 function EscalationDialog({ taskId, onClose, onSuccess }: {
   taskId: string; onClose: () => void; onSuccess: () => void;
 }) {
+  const queryClient = useQueryClient();
   const [reason, setReason] = useState('');
   const [note, setNote] = useState('');
-  const [roles, setRoles] = useState<any[]>([]);
   const [targetRoleId, setTargetRoleId] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    fetch(`${API_BASE}/api/tasks/roles?minLevel=3`, { headers: authHeaders() })
-      .then(r => r.json()).then(d => setRoles(d.data ?? [])).catch(() => {});
-  }, []);
+  const { data: roles = [] } = useQuery({
+    queryKey: ['tasks', 'roles', 'minLevel', 3],
+    queryFn: async () => (await taskApi<{ ok: boolean; data: any[] }>('/api/tasks/roles?minLevel=3')).data ?? [],
+  });
+  const escalateMutation = useMutation({
+    mutationFn: () => taskApi(`/api/tasks/${taskId}/escalate`, {
+      method: 'POST',
+      body: JSON.stringify({ reason, note: note || undefined, targetRoleId: targetRoleId || undefined }),
+    }),
+    onSuccess: () => {
+      invalidateTaskQueries(queryClient);
+      onSuccess();
+      onClose();
+    },
+    onError: (err: Error) => setError(err.message || 'Failed to escalate'),
+  });
 
   async function handleSubmit() {
     if (!reason) return;
-    setSubmitting(true);
     setError('');
-    try {
-      const res = await fetch(`${API_BASE}/api/tasks/${taskId}/escalate`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ reason, note: note || undefined, targetRoleId: targetRoleId || undefined }),
-      });
-      const data = await res.json();
-      if (!data.ok) { setError(data.error || 'Failed to escalate'); setSubmitting(false); return; }
-      onSuccess();
-      onClose();
-    } catch {
-      setError('Network error');
-      setSubmitting(false);
-    }
+    escalateMutation.mutate();
   }
 
   return (
@@ -455,8 +471,8 @@ function EscalationDialog({ taskId, onClose, onSuccess }: {
 
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onClose} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={handleSubmit} disabled={!reason || submitting} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: 'none', backgroundColor: AMBER, color: '#fff', fontSize: 13, fontWeight: 600, cursor: !reason || submitting ? 'not-allowed' : 'pointer', opacity: !reason || submitting ? 0.6 : 1 }}>
-            {submitting ? 'Escalating…' : 'Escalate & create child task'}
+          <button onClick={handleSubmit} disabled={!reason || escalateMutation.isPending} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: 'none', backgroundColor: AMBER, color: '#fff', fontSize: 13, fontWeight: 600, cursor: !reason || escalateMutation.isPending ? 'not-allowed' : 'pointer', opacity: !reason || escalateMutation.isPending ? 0.6 : 1 }}>
+            {escalateMutation.isPending ? 'Escalating…' : 'Escalate & create child task'}
           </button>
         </div>
       </div>
@@ -469,53 +485,46 @@ function EscalationDialog({ taskId, onClose, onSuccess }: {
 function ReassignDialog({ taskId, onClose, onSuccess }: {
   taskId: string; onClose: () => void; onSuccess: () => void;
 }) {
-  const [roles, setRoles] = useState<any[]>([]);
+  const queryClient = useQueryClient();
   const [selectedRoleId, setSelectedRoleId] = useState('');
   const [userSearch, setUserSearch] = useState('');
   const [users, setUsers] = useState<any[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [note, setNote] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const debouncedSearch = useDebounce(userSearch, 300);
-
-  useEffect(() => {
-    fetch(`${API_BASE}/api/tasks/roles`, { headers: authHeaders() })
-      .then(r => r.json()).then(d => setRoles(d.data ?? [])).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (debouncedSearch.length >= 2) {
+  const { data: roles = [] } = useQuery({
+    queryKey: ['tasks', 'roles'],
+    queryFn: async () => (await taskApi<{ ok: boolean; data: any[] }>('/api/tasks/roles')).data ?? [],
+  });
+  const userQuery = useQuery({
+    queryKey: ['tasks', 'users', selectedRoleId, debouncedSearch],
+    enabled: debouncedSearch.length >= 2 || !!selectedRoleId,
+    queryFn: async () => {
       const params = new URLSearchParams({ search: debouncedSearch });
       if (selectedRoleId) params.set('roleId', selectedRoleId);
-      fetch(`${API_BASE}/api/tasks/users?${params}`, { headers: authHeaders() })
-        .then(r => r.json()).then(d => setUsers(d.data ?? [])).catch(() => {});
-    } else if (selectedRoleId) {
-      fetch(`${API_BASE}/api/tasks/users?roleId=${selectedRoleId}`, { headers: authHeaders() })
-        .then(r => r.json()).then(d => setUsers(d.data ?? [])).catch(() => {});
-    } else {
-      setUsers([]);
-    }
-  }, [debouncedSearch, selectedRoleId]);
+      return (await taskApi<{ ok: boolean; data: any[] }>(`/api/tasks/users?${params.toString()}`)).data ?? [];
+    },
+  });
+  const reassignMutation = useMutation({
+    mutationFn: () => taskApi(`/api/tasks/${taskId}/reassign`, {
+      method: 'POST',
+      body: JSON.stringify({ assignedRoleId: selectedRoleId, assignedToId: selectedUserId || undefined, note: note || undefined }),
+    }),
+    onSuccess: () => {
+      invalidateTaskQueries(queryClient);
+      onSuccess();
+      onClose();
+    },
+    onError: (err: Error) => setError(err.message || 'Failed to reassign'),
+  });
+
+  useEffect(() => { setUsers(userQuery.data ?? []); }, [userQuery.data]);
 
   async function handleSubmit() {
     if (!selectedRoleId) return;
-    setSubmitting(true);
     setError('');
-    try {
-      const res = await fetch(`${API_BASE}/api/tasks/${taskId}/reassign`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ assignedRoleId: selectedRoleId, assignedToId: selectedUserId || undefined, note: note || undefined }),
-      });
-      const data = await res.json();
-      if (!data.ok) { setError(data.error || 'Failed to reassign'); setSubmitting(false); return; }
-      onSuccess();
-      onClose();
-    } catch {
-      setError('Network error');
-      setSubmitting(false);
-    }
+    reassignMutation.mutate();
   }
 
   return (
@@ -572,8 +581,8 @@ function ReassignDialog({ taskId, onClose, onSuccess }: {
 
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onClose} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={handleSubmit} disabled={!selectedRoleId || submitting} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: 'none', backgroundColor: INDIGO, color: '#fff', fontSize: 13, fontWeight: 600, cursor: !selectedRoleId || submitting ? 'not-allowed' : 'pointer', opacity: !selectedRoleId || submitting ? 0.6 : 1 }}>
-            {submitting ? 'Reassigning…' : 'Reassign'}
+          <button onClick={handleSubmit} disabled={!selectedRoleId || reassignMutation.isPending} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: 'none', backgroundColor: INDIGO, color: '#fff', fontSize: 13, fontWeight: 600, cursor: !selectedRoleId || reassignMutation.isPending ? 'not-allowed' : 'pointer', opacity: !selectedRoleId || reassignMutation.isPending ? 0.6 : 1 }}>
+            {reassignMutation.isPending ? 'Reassigning…' : 'Reassign'}
           </button>
         </div>
       </div>
@@ -586,41 +595,37 @@ function ReassignDialog({ taskId, onClose, onSuccess }: {
 function DelegationDialog({ taskId, onClose, onSuccess }: {
   taskId: string; onClose: () => void; onSuccess: () => void;
 }) {
+  const queryClient = useQueryClient();
   const [userSearch, setUserSearch] = useState('');
   const [users, setUsers] = useState<any[]>([]);
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [note, setNote] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const debouncedSearch = useDebounce(userSearch, 300);
+  const userQuery = useQuery({
+    queryKey: ['tasks', 'users', 'delegate', debouncedSearch],
+    enabled: debouncedSearch.length >= 2,
+    queryFn: async () => (await taskApi<{ ok: boolean; data: any[] }>(`/api/tasks/users?search=${encodeURIComponent(debouncedSearch)}`)).data ?? [],
+  });
+  const delegateMutation = useMutation({
+    mutationFn: () => taskApi(`/api/tasks/${taskId}/delegate`, {
+      method: 'POST',
+      body: JSON.stringify({ targetUserId: selectedUser?.id, note: note || undefined }),
+    }),
+    onSuccess: () => {
+      invalidateTaskQueries(queryClient);
+      onSuccess();
+      onClose();
+    },
+    onError: (err: Error) => setError(err.message || 'Failed to delegate'),
+  });
 
-  useEffect(() => {
-    if (debouncedSearch.length >= 2) {
-      fetch(`${API_BASE}/api/tasks/users?search=${encodeURIComponent(debouncedSearch)}`, { headers: authHeaders() })
-        .then(r => r.json()).then(d => setUsers(d.data ?? [])).catch(() => {});
-    } else {
-      setUsers([]);
-    }
-  }, [debouncedSearch]);
+  useEffect(() => { setUsers(userQuery.data ?? []); }, [userQuery.data]);
 
   async function handleSubmit() {
     if (!selectedUser) return;
-    setSubmitting(true);
     setError('');
-    try {
-      const res = await fetch(`${API_BASE}/api/tasks/${taskId}/delegate`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ targetUserId: selectedUser.id, note: note || undefined }),
-      });
-      const data = await res.json();
-      if (!data.ok) { setError(data.error || 'Failed to delegate'); setSubmitting(false); return; }
-      onSuccess();
-      onClose();
-    } catch {
-      setError('Network error');
-      setSubmitting(false);
-    }
+    delegateMutation.mutate();
   }
 
   return (
@@ -683,8 +688,8 @@ function DelegationDialog({ taskId, onClose, onSuccess }: {
 
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onClose} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-          <button onClick={handleSubmit} disabled={!selectedUser || submitting} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: 'none', backgroundColor: TEAL, color: '#fff', fontSize: 13, fontWeight: 600, cursor: !selectedUser || submitting ? 'not-allowed' : 'pointer', opacity: !selectedUser || submitting ? 0.6 : 1 }}>
-            {submitting ? 'Delegating…' : 'Delegate'}
+          <button onClick={handleSubmit} disabled={!selectedUser || delegateMutation.isPending} style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: 'none', backgroundColor: TEAL, color: '#fff', fontSize: 13, fontWeight: 600, cursor: !selectedUser || delegateMutation.isPending ? 'not-allowed' : 'pointer', opacity: !selectedUser || delegateMutation.isPending ? 0.6 : 1 }}>
+            {delegateMutation.isPending ? 'Delegating…' : 'Delegate'}
           </button>
         </div>
       </div>
@@ -697,6 +702,7 @@ function DelegationDialog({ taskId, onClose, onSuccess }: {
 function TaskCreationDrawer({ onClose, onCreated }: {
   onClose: () => void; onCreated: () => void;
 }) {
+  const queryClient = useQueryClient();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState<TaskCategory>('General');
@@ -706,10 +712,37 @@ function TaskCreationDrawer({ onClose, onCreated }: {
   const [shipmentSearch, setShipmentSearch] = useState('');
   const [shipments, setShipments] = useState<any[]>([]);
   const [selectedShipment, setSelectedShipment] = useState<any | null>(null);
-  const [roles, setRoles] = useState<any[]>([]);
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const debouncedShipmentSearch = useDebounce(shipmentSearch, 300);
+  const { data: roles = [] } = useQuery({
+    queryKey: ['tasks', 'roles'],
+    queryFn: async () => (await taskApi<{ ok: boolean; data: any[] }>('/api/tasks/roles')).data ?? [],
+  });
+  const shipmentQuery = useQuery({
+    queryKey: ['shipments', 'task-search', debouncedShipmentSearch],
+    enabled: debouncedShipmentSearch.length >= 2,
+    queryFn: async () => (await taskApi<{ ok: boolean; data: any[] }>(`/api/shipments?search=${encodeURIComponent(debouncedShipmentSearch)}&limit=8`)).data ?? [],
+  });
+  const createMutation = useMutation({
+    mutationFn: () => taskApi('/api/tasks', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: title.trim(),
+        description: description.trim() || undefined,
+        category,
+        assignedRole,
+        urgency,
+        shipmentId: selectedShipment?.id || undefined,
+        slaDeadline: slaDeadline || undefined,
+      }),
+    }),
+    onSuccess: () => {
+      invalidateTaskQueries(queryClient);
+      onCreated();
+      onClose();
+    },
+    onError: (err: Error) => setError(err.message || 'Failed to create task'),
+  });
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
@@ -717,46 +750,12 @@ function TaskCreationDrawer({ onClose, onCreated }: {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  useEffect(() => {
-    fetch(`${API_BASE}/api/tasks/roles`, { headers: authHeaders() })
-      .then(r => r.json()).then(d => setRoles(d.data ?? [])).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (debouncedShipmentSearch.length >= 2) {
-      fetch(`${API_BASE}/api/shipments?search=${encodeURIComponent(debouncedShipmentSearch)}&limit=8`, { headers: authHeaders() })
-        .then(r => r.json()).then(d => setShipments(d.data ?? [])).catch(() => {});
-    } else {
-      setShipments([]);
-    }
-  }, [debouncedShipmentSearch]);
+  useEffect(() => { setShipments(shipmentQuery.data ?? []); }, [shipmentQuery.data]);
 
   async function handleSubmit() {
     if (!title.trim() || !assignedRole) { setError('Title and role are required'); return; }
-    setSubmitting(true);
     setError('');
-    try {
-      const res = await fetch(`${API_BASE}/api/tasks`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({
-          title: title.trim(),
-          description: description.trim() || undefined,
-          category,
-          assignedRole,
-          urgency,
-          shipmentId: selectedShipment?.id || undefined,
-          slaDeadline: slaDeadline || undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!data.ok) { setError(data.error || 'Failed to create task'); setSubmitting(false); return; }
-      onCreated();
-      onClose();
-    } catch {
-      setError('Network error');
-      setSubmitting(false);
-    }
+    createMutation.mutate();
   }
 
   const inputStyle: React.CSSProperties = {
@@ -940,11 +939,11 @@ function TaskCreationDrawer({ onClose, onCreated }: {
             <button onClick={onClose} style={{ flex: 1, padding: '10px 0', borderRadius: 7, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, fontSize: 13, cursor: 'pointer' }}>Cancel</button>
             <button
               onClick={handleSubmit}
-              disabled={submitting}
-              style={{ flex: 2, padding: '10px 0', borderRadius: 7, border: 'none', backgroundColor: TEAL, color: '#fff', fontSize: 13.5, fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              disabled={createMutation.isPending}
+              style={{ flex: 2, padding: '10px 0', borderRadius: 7, border: 'none', backgroundColor: TEAL, color: '#fff', fontSize: 13.5, fontWeight: 700, cursor: createMutation.isPending ? 'not-allowed' : 'pointer', opacity: createMutation.isPending ? 0.6 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
             >
-              {submitting ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />}
-              {submitting ? 'Creating…' : 'Create Task'}
+              {createMutation.isPending ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />}
+              {createMutation.isPending ? 'Creating…' : 'Create Task'}
             </button>
           </div>
         </div>
@@ -1249,57 +1248,45 @@ function DetailPanel({
   taskId: string; onClose: () => void; onRefresh: () => void;
 }) {
   const [, navigate] = useLocation();
+  const queryClient = useQueryClient();
   const { task, loading, refetch: refetchDetail } = useTaskDetail(taskId);
-  const [actionLoading, setActionLoading] = useState(false);
   const [showEscalation, setShowEscalation] = useState(false);
   const [showReassign, setShowReassign] = useState(false);
   const [showDelegate, setShowDelegate] = useState(false);
 
   const slaBar = task ? computeSlaBar(task) : null;
 
-  function refreshAll() { onRefresh(); refetchDetail(); }
+  function refreshAll() {
+    invalidateTaskQueries(queryClient);
+    onRefresh();
+    refetchDetail();
+  }
+
+  const completeMutation = useMutation({
+    mutationFn: (id: string) => taskApi(`/api/tasks/${id}/complete`, { method: 'POST' }),
+    onSuccess: () => refreshAll(),
+  });
+  const startMutation = useMutation({
+    mutationFn: (id: string) => taskApi(`/api/tasks/${id}/start`, { method: 'POST' }),
+    onSuccess: () => refreshAll(),
+  });
+  const actionLoading = completeMutation.isPending || startMutation.isPending;
 
   async function handleComplete() {
     if (!task) return;
     if (!window.confirm(`Mark "${task.title}" as complete?`)) return;
-    setActionLoading(true);
-    try {
-      await fetch(`${API_BASE}/api/tasks/${task.id}/complete`, {
-        method: 'POST', headers: authHeaders(),
-      });
-      refreshAll();
-      onClose();
-    } finally {
-      setActionLoading(false);
-    }
+    completeMutation.mutate(task.id, { onSuccess: onClose });
   }
 
   async function handleStart() {
     if (!task) return;
-    setActionLoading(true);
-    try {
-      await fetch(`${API_BASE}/api/tasks/${task.id}/start`, {
-        method: 'POST', headers: authHeaders(),
-      });
-      refreshAll();
-    } finally {
-      setActionLoading(false);
-    }
+    startMutation.mutate(task.id);
   }
 
   async function handleResolveEscalation() {
     if (!task) return;
     if (!window.confirm(`Resolve escalation for "${task.title}"?`)) return;
-    setActionLoading(true);
-    try {
-      await fetch(`${API_BASE}/api/tasks/${task.id}/complete`, {
-        method: 'POST', headers: authHeaders(),
-      });
-      refreshAll();
-      onClose();
-    } finally {
-      setActionLoading(false);
-    }
+    completeMutation.mutate(task.id, { onSuccess: onClose });
   }
 
   const isTerminal = task?.status === 'COMPLETED' || task?.status === 'CANCELLED';
@@ -1326,13 +1313,29 @@ function DetailPanel({
           borderBottom: `1px solid ${BORDER}`,
           flexShrink: 0,
           backgroundColor: 'hsl(var(--muted)/0.2)',
+          position: 'sticky',
+          top: 0,
+          zIndex: 2,
         }}>
-          <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: MUTED }}>
+          <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: MUTED, lineHeight: 1 }}>
             Task Detail
           </span>
           <button
             onClick={onClose}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 5, background: 'none', border: 'none', cursor: 'pointer', color: MUTED }}
+            title="Close task detail"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 32,
+              height: 32,
+              borderRadius: 6,
+              backgroundColor: 'hsl(var(--background))',
+              border: `1px solid ${BORDER}`,
+              cursor: 'pointer',
+              color: MUTED,
+              flexShrink: 0,
+            }}
           >
             <X size={14} />
           </button>
@@ -1642,27 +1645,17 @@ interface AnalyticsData {
 }
 
 function useTaskAnalytics() {
-  const [data, setData] = useState<AnalyticsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const query = useQuery({
+    queryKey: ['tasks', 'analytics'],
+    queryFn: async () => (await taskApi<{ ok: boolean; data: AnalyticsData }>('/api/tasks/analytics')).data,
+  });
 
-  const doFetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await window.fetch(`${API_BASE}/api/tasks/analytics`, { headers: authHeaders() });
-      const json = await res.json();
-      if (!json.ok) throw new Error(json.error ?? 'Failed');
-      setData(json.data);
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to load analytics');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { doFetch(); }, [doFetch]);
-  return { data, loading, error, refetch: doFetch };
+  return {
+    data: query.data ?? null,
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+  };
 }
 
 // ── Skeleton ──────────────────────────────────────────────────────────────────
@@ -2047,6 +2040,8 @@ type SortField = 'urgency' | 'slaDeadline' | 'createdAt' | 'status' | 'title';
 export function TasksPage() {
   const { user } = useAuth();
   const { activities } = usePermissions();
+  const [location] = useLocation();
+  const queryClient = useQueryClient();
   const isExternal = !!(user?.role?.category?.includes('external'));
   const isL3Plus = ['L3', 'L4'].includes((user as any)?.level ?? '');
   const canSeeOverview = isL3Plus && !isExternal && activities.includes('TSK-001');
@@ -2064,6 +2059,9 @@ export function TasksPage() {
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [sort, setSort]                 = useState<{ field: SortField; dir: 'asc' | 'desc' }>({ field: 'urgency', dir: 'asc' });
   const [refreshing, setRefreshing]     = useState(false);
+  const [page, setPage]                 = useState(1);
+  const pageSize = 20;
+  const debouncedSearch = useDebounce(search, 300);
 
   // Bulk selection
   const [selectedIds, setSelectedIds]     = useState<Set<string>>(new Set());
@@ -2076,8 +2074,47 @@ export function TasksPage() {
 
   const effectiveScope: TaskScope = isExternal ? 'mine' : scope;
 
-  const { tasks, loading, error, refetch } = useTaskList(effectiveScope, { assignedRoleId: assigneeRoleId });
+  const { tasks, meta, loading, error, refetch } = useTaskList(effectiveScope, {
+    assignedRoleId: assigneeRoleId,
+    urgency: urgencyFilter || undefined,
+    status: statusFilter.length ? statusFilter.join(',') : undefined,
+    search: debouncedSearch || undefined,
+    page,
+    pageSize,
+  });
   const { summary, refetch: refetchSummary } = useTaskSummary();
+  const completeTaskMutation = useMutation({
+    mutationFn: (id: string) => taskApi(`/api/tasks/${id}/complete`, { method: 'POST' }),
+    onSuccess: () => invalidateTaskQueries(queryClient),
+  });
+  const escalateTaskMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => taskApi(`/api/tasks/${id}/escalate`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+    onSuccess: () => invalidateTaskQueries(queryClient),
+  });
+  const reassignTaskMutation = useMutation({
+    mutationFn: ({ id, roleId }: { id: string; roleId: string }) => taskApi(`/api/tasks/${id}/reassign`, {
+      method: 'POST',
+      body: JSON.stringify({ assignedRoleId: roleId }),
+    }),
+    onSuccess: () => invalidateTaskQueries(queryClient),
+  });
+
+  useEffect(() => {
+    setPage(1);
+  }, [effectiveScope, assigneeRoleId, urgencyFilter, statusFilter, debouncedSearch]);
+
+  useEffect(() => {
+    const query = location.split('?')[1];
+    if (!query) return;
+    const taskId = new URLSearchParams(query).get('taskId');
+    if (taskId) {
+      setActiveTab('tasks');
+      setSelectedId(taskId);
+    }
+  }, [location]);
 
   // filter-by-role custom event: role bar click → switch to All Tasks with role pre-filtered
   useEffect(() => {
@@ -2119,7 +2156,7 @@ export function TasksPage() {
   async function handleBulkComplete() {
     setBulkActionLoading(true);
     await Promise.allSettled([...selectedIds].map(id =>
-      fetch(`${API_BASE}/api/tasks/${id}/complete`, { method: 'POST', headers: authHeaders() })
+      completeTaskMutation.mutateAsync(id)
     ));
     clearSelection();
     handleRefresh();
@@ -2129,10 +2166,7 @@ export function TasksPage() {
   async function handleBulkEscalate(reason: string) {
     setBulkActionLoading(true);
     await Promise.allSettled([...selectedIds].map(id =>
-      fetch(`${API_BASE}/api/tasks/${id}/escalate`, {
-        method: 'POST', headers: authHeaders(),
-        body: JSON.stringify({ reason }),
-      })
+      escalateTaskMutation.mutateAsync({ id, reason })
     ));
     setShowBulkEscalation(false);
     clearSelection();
@@ -2143,10 +2177,7 @@ export function TasksPage() {
   async function handleBulkReassign(roleId: string) {
     setBulkActionLoading(true);
     await Promise.allSettled([...selectedIds].map(id =>
-      fetch(`${API_BASE}/api/tasks/${id}/reassign`, {
-        method: 'POST', headers: authHeaders(),
-        body: JSON.stringify({ assignedRoleId: roleId }),
-      })
+      reassignTaskMutation.mutateAsync({ id, roleId })
     ));
     setShowBulkReassign(false);
     clearSelection();
@@ -2157,20 +2188,7 @@ export function TasksPage() {
   const filteredAndSorted = useMemo(() => {
     let list = [...tasks];
 
-    // Client-side filters
-    if (search) {
-      const q = search.toLowerCase();
-      list = list.filter(t =>
-        t.title.toLowerCase().includes(q) ||
-        (t.shipment?.shipmentNumber ?? '').toLowerCase().includes(q) ||
-        t.activityCode.toLowerCase().includes(q) ||
-        (t.description ?? '').toLowerCase().includes(q)
-      );
-    }
-    if (urgencyFilter) list = list.filter(t => t.urgency === urgencyFilter);
-    if (statusFilter.length > 0) list = list.filter(t => statusFilter.includes(t.status));
-
-    // Sort
+    // Sort current DB page
     list.sort((a, b) => {
       const dir = sort.dir === 'asc' ? 1 : -1;
       if (sort.field === 'urgency') {
@@ -2194,7 +2212,7 @@ export function TasksPage() {
     });
 
     return list;
-  }, [tasks, search, urgencyFilter, statusFilter, sort]);
+  }, [tasks, sort]);
 
   const activeFilters = (urgencyFilter ? 1 : 0) + statusFilter.length + (search ? 1 : 0);
 
@@ -2523,6 +2541,57 @@ export function TasksPage() {
 
             {/* Bottom padding */}
             <div style={{ height: 32 }} />
+          </div>
+          <div style={{
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            padding: '8px 16px',
+            borderTop: `1px solid ${BORDER}`,
+            backgroundColor: CARD,
+          }}>
+            <span style={{ fontSize: 12.5, color: MUTED }}>
+              Showing {meta.total === 0 ? 0 : ((meta.page - 1) * meta.pageSize) + 1}-{Math.min(meta.page * meta.pageSize, meta.total)} of {meta.total}
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={!meta.hasPrev || loading}
+                style={{
+                  fontSize: 12.5,
+                  padding: '5px 10px',
+                  borderRadius: 6,
+                  border: `1px solid ${BORDER}`,
+                  backgroundColor: 'hsl(var(--background))',
+                  color: (!meta.hasPrev || loading) ? MUTED : FG,
+                  opacity: (!meta.hasPrev || loading) ? 0.55 : 1,
+                  cursor: (!meta.hasPrev || loading) ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Previous
+              </button>
+              <span className="vs-mono" style={{ fontSize: 12, color: MUTED }}>
+                Page {meta.page} / {meta.totalPages}
+              </span>
+              <button
+                onClick={() => setPage(p => p + 1)}
+                disabled={!meta.hasNext || loading}
+                style={{
+                  fontSize: 12.5,
+                  padding: '5px 10px',
+                  borderRadius: 6,
+                  border: `1px solid ${BORDER}`,
+                  backgroundColor: 'hsl(var(--background))',
+                  color: (!meta.hasNext || loading) ? MUTED : FG,
+                  opacity: (!meta.hasNext || loading) ? 0.55 : 1,
+                  cursor: (!meta.hasNext || loading) ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>}
 

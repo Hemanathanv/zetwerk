@@ -1,11 +1,13 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useLocation } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
 import { Search, Plus, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { StatusPill, FilterChips, ProgressBar, PageHeader } from '@/components/vs';
+import { StatusPill, FilterChips, PageHeader } from '@/components/vs';
 import { ALERT_PILL, PHASE_LABELS, type StageVariant } from '@/data/mockShipments';
-import { apiUrl, getAuthToken, readJsonResponse } from '@/lib/api';
+import { getAuthToken, readJsonResponse } from '@/lib/api';
+import { BACKEND_API_BASE } from '@/lib/apiBase';
 import { ScheduleStatusBadge } from '@/components/SafeCubePanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -19,6 +21,7 @@ interface ShipmentListRow {
   route: string;
   stage: string;
   stageVariant: StageVariant;
+  listStatus: 'in_progress' | 'hold' | 'cancelled' | 'closed';
   journeyPhase: number;
   loadMode: string | null;
   incoterm: string | null;
@@ -43,14 +46,21 @@ interface ShipmentListRow {
   safecubeAlertCount: number;
 }
 
-type SortKey = 'id' | 'vessel' | 'projectCode' | 'stage' | 'loadMode' | 'docs' | 'eta' | 'alerts';
+type SortKey = 'id' | 'vessel' | 'projectCode' | 'status' | 'stage' | 'loadMode' | 'docs' | 'eta' | 'alerts';
 type SortDir = 'asc' | 'desc';
 const PAGE_SIZE = 20;
+
+type ShipmentsQueryData = {
+  rows: ShipmentListRow[];
+  total: number;
+  fetchedAt: Date;
+};
 
 const COLUMNS: { label: string; key: SortKey }[] = [
   { label: 'Shipment ID / MBL', key: 'id'        },
   { label: 'Vessel · Route',  key: 'vessel'       },
   { label: 'Project',         key: 'projectCode'  },
+  { label: 'Status',          key: 'status'       },
   { label: 'Stage · Phase',   key: 'stage'        },
   { label: 'Load / Incoterm', key: 'loadMode'     },
   { label: 'Documents',       key: 'docs'         },
@@ -69,6 +79,24 @@ function stageVariantFromName(name: string, isBlocked: boolean): StageVariant {
   if (n.includes('complete') || n.includes('delivered')) return 'validated';
   if (n.includes('book') || n.includes('india') || n.includes('pre-')) return 'info';
   return 'pending';
+}
+
+function normalizeListStatus(value: unknown): ShipmentListRow['listStatus'] {
+  const status = String(value ?? '').toLowerCase();
+  if (status === 'hold' || status === 'on_hold' || status === 'held') return 'hold';
+  if (status === 'cancelled' || status === 'canceled') return 'cancelled';
+  if (status === 'closed') return 'closed';
+  return 'in_progress';
+}
+
+function shipmentStatusMeta(status: ShipmentListRow['listStatus']) {
+  const map: Record<ShipmentListRow['listStatus'], { label: string; color: string; bg: string; border: string }> = {
+    in_progress: { label: 'In progress', color: '#0f766e', bg: 'rgba(13,148,136,0.10)', border: 'rgba(13,148,136,0.25)' },
+    hold:        { label: 'Hold',        color: '#b45309', bg: 'rgba(217,119,6,0.12)',  border: 'rgba(217,119,6,0.28)' },
+    cancelled:   { label: 'Cancelled',   color: '#dc2626', bg: 'rgba(220,38,38,0.10)',  border: 'rgba(220,38,38,0.25)' },
+    closed:      { label: 'Closed',      color: '#166534', bg: 'rgba(22,101,52,0.10)',  border: 'rgba(22,101,52,0.25)' },
+  };
+  return map[status];
 }
 
 function mapApiShipment(s: any): ShipmentListRow {
@@ -90,12 +118,23 @@ function mapApiShipment(s: any): ShipmentListRow {
   const stageName = currentGate?.gateConfig?.gateName
     ?? (passedCount === totalGates && totalGates > 0 ? 'Complete' : 'Pending');
   const stageVariant = stageVariantFromName(stageName, isBlocked);
+  const listStatus = normalizeListStatus(s.listStatus ?? s.shipmentListStatus ?? s.status);
 
   // Docs
   const docs = s.documents ?? [];
-  const docsComplete = docs.filter((d: any) => d.approvedAt !== null).length;
-  const docsTotal    = docs.length;
-  const pendingCount = docs.filter((d: any) => d.approvedAt === null && d.ocrStatus && d.ocrStatus !== 'pending').length;
+  const countData = s._count ?? {};
+  const docsTotalFromCount = Number(countData.documents ?? s.documentsTotal);
+  const docsApprovedFromCount = Number(countData.documentsApproved ?? s.documentsApproved);
+  const isApprovedDoc = (d: any) => Boolean(d.approvedAt)
+    || String(d.status ?? '').toUpperCase() === 'REVIEWED'
+    || String(d.ocrStatus ?? '').toUpperCase() === 'REVIEWED';
+  const docsComplete = Number.isFinite(docsApprovedFromCount)
+    ? docsApprovedFromCount
+    : docs.filter(isApprovedDoc).length;
+  const docsTotal = Number.isFinite(docsTotalFromCount)
+    ? docsTotalFromCount
+    : docs.length;
+  const pendingCount = docs.filter((d: any) => !isApprovedDoc(d) && d.ocrStatus && String(d.ocrStatus).toLowerCase() !== 'pending').length;
   let docNote = '';
   if (docsTotal === 0)            docNote = 'No documents';
   else if (docsComplete === docsTotal) docNote = 'All docs approved';
@@ -144,6 +183,7 @@ function mapApiShipment(s: any): ShipmentListRow {
     route:       [s.portOfLoading, s.portOfDischarge].filter(Boolean).join(' → ') || '—',
     stage:       stageName,
     stageVariant,
+    listStatus,
     journeyPhase,
     loadMode,
     incoterm:    s.incoterms ?? null,
@@ -225,12 +265,7 @@ function SortIcon({ colKey, sortKey, sortDir }: { colKey: SortKey; sortKey: Sort
 export function ShipmentsPage() {
   const [, navigate] = useLocation();
 
-  const [rows,    setRows]    = useState<ShipmentListRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
-  const [total,   setTotal]   = useState(0);
   const [page,    setPage]    = useState(1);
-  const [lastFetch, setLastFetch] = useState<Date | null>(null);
 
   const [activeChip,     setActiveChip]     = useState(0);
   const [projectFilter,  setProjectFilter]  = useState('All Projects');
@@ -246,31 +281,41 @@ export function ShipmentsPage() {
   const [phaseFilter, setPhaseFilter] = useState<number | null>(urlPhase);
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
-  async function fetchShipments() {
-    setLoading(true);
-    setError(null);
-    try {
+  const shipmentsQuery = useQuery<ShipmentsQueryData>({
+    queryKey: ['shipments', 'list', 'v2', page, debouncedSearch],
+    queryFn: async () => {
       const token = getAuthToken();
       const params = new URLSearchParams({
         page: String(page),
         limit: String(PAGE_SIZE),
       });
       if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim());
-      const res   = await fetch(apiUrl(`/api/shipments?${params.toString()}`), {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const requestPath = `/api/shipments?${params.toString()}`;
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      let res: Response;
+      try {
+        res = await fetch(requestPath, { headers });
+      } catch (error) {
+        if (!BACKEND_API_BASE) throw error;
+        res = await fetch(`${BACKEND_API_BASE}${requestPath}`, { headers });
+      }
       const json = await readJsonResponse<any>(res);
       if (!json.ok) throw new Error(json.error ?? 'Failed to load');
       const mapped: ShipmentListRow[] = (json.data ?? []).map(mapApiShipment);
-      setRows(mapped);
-      setTotal(json.meta?.total ?? mapped.length);
-      setLastFetch(new Date());
-    } catch (e: any) {
-      setError(e.message ?? 'Unknown error');
-    } finally {
-      setLoading(false);
-    }
-  }
+      return {
+        rows: mapped,
+        total: json.meta?.total ?? mapped.length,
+        fetchedAt: new Date(),
+      };
+    },
+    refetchOnWindowFocus: true,
+  });
+
+  const rows = shipmentsQuery.data?.rows ?? [];
+  const total = shipmentsQuery.data?.total ?? rows.length;
+  const lastFetch = shipmentsQuery.data?.fetchedAt ?? null;
+  const loading = shipmentsQuery.isLoading || shipmentsQuery.isFetching;
+  const error = shipmentsQuery.error instanceof Error ? shipmentsQuery.error.message : null;
 
   useEffect(() => {
     const handle = window.setTimeout(() => setDebouncedSearch(search), 300);
@@ -287,8 +332,6 @@ export function ShipmentsPage() {
     window.addEventListener('ewms-module-search', handleModuleSearch);
     return () => window.removeEventListener('ewms-module-search', handleModuleSearch);
   }, []);
-
-  useEffect(() => { fetchShipments(); }, [page, debouncedSearch]);
 
   // ── Derived filter counts ──────────────────────────────────────────────────
   const filterChips = useMemo(() => [
@@ -340,6 +383,7 @@ export function ShipmentsPage() {
         case 'id':          cmp = a.id.localeCompare(b.id); break;
         case 'vessel':      cmp = a.vessel.localeCompare(b.vessel); break;
         case 'projectCode': cmp = (a.projectCode ?? '').localeCompare(b.projectCode ?? ''); break;
+        case 'status':      cmp = a.listStatus.localeCompare(b.listStatus); break;
         case 'stage':       cmp = a.journeyPhase - b.journeyPhase; break;
         case 'loadMode':    cmp = (a.loadMode ?? '').localeCompare(b.loadMode ?? ''); break;
         case 'docs':        cmp = (a.docsTotal > 0 ? a.docsComplete / a.docsTotal : 0) - (b.docsTotal > 0 ? b.docsComplete / b.docsTotal : 0); break;
@@ -374,7 +418,7 @@ export function ShipmentsPage() {
         subtitle={subtitle}
         actions={
           <>
-            <Button variant="outline" size="sm" onClick={fetchShipments} disabled={loading} className="flex items-center gap-1.5">
+            <Button variant="outline" size="sm" onClick={() => shipmentsQuery.refetch()} disabled={loading} className="flex items-center gap-1.5">
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
@@ -409,7 +453,7 @@ export function ShipmentsPage() {
       {error && (
         <div style={{ padding: '10px 16px', borderRadius: 8, marginBottom: 12, background: 'hsl(0 84% 60% / 0.08)', border: '1px solid hsl(0 84% 60% / 0.2)', fontSize: 14.5, color: 'hsl(0 84% 45%)' }}>
           Failed to load shipments: {error} —{' '}
-          <button onClick={fetchShipments} style={{ textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 'inherit' }}>retry</button>
+          <button onClick={() => shipmentsQuery.refetch()} style={{ textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 'inherit' }}>retry</button>
         </div>
       )}
 
@@ -456,15 +500,16 @@ export function ShipmentsPage() {
 
       {/* Table */}
       <div className="overflow-x-auto rounded-xl" style={{ boxShadow: 'var(--vs-shadow-card)' }}>
-        <table className="w-full bg-card" style={{ minWidth: 920, borderCollapse: 'collapse' }}>
+        <table className="w-full bg-card" style={{ minWidth: 1040, borderCollapse: 'collapse' }}>
           <colgroup>
-            <col style={{ width: '14%' }} />
-            <col style={{ width: '20%' }} />
             <col style={{ width: '13%' }} />
-            <col style={{ width: '14%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '11%' }} />
             <col style={{ width: '10%' }} />
-            <col style={{ width: '15%' }} />
+            <col style={{ width: '13%' }} />
             <col style={{ width: '10%' }} />
+            <col style={{ width: '13%' }} />
+            <col style={{ width: '8%' }} />
             <col style={{ width: '6%'  }} />
           </colgroup>
           <thead>
@@ -495,7 +540,7 @@ export function ShipmentsPage() {
               ))
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ padding: 48, textAlign: 'center', color: 'hsl(var(--muted-foreground))', fontSize: 14.5 }}>
+                <td colSpan={9} style={{ padding: 48, textAlign: 'center', color: 'hsl(var(--muted-foreground))', fontSize: 14.5 }}>
                   {rows.length === 0 ? 'No shipments found.' : 'No shipments match your filters.'}
                 </td>
               </tr>
@@ -533,6 +578,29 @@ export function ShipmentsPage() {
                   <div style={{ fontSize: 14, color: 'hsl(var(--foreground))' }}>{s.projectCode || '—'}</div>
                 </td>
 
+                {/* Status */}
+                <td style={{ padding: 16 }}>
+                  {(() => {
+                    const meta = shipmentStatusMeta(s.listStatus);
+                    return (
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        padding: '3px 9px',
+                        borderRadius: 999,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: meta.color,
+                        background: meta.bg,
+                        border: `1px solid ${meta.border}`,
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {meta.label}
+                      </span>
+                    );
+                  })()}
+                </td>
+
                 {/* Stage + phase dots */}
                 <td style={{ padding: 16 }}>
                   <StatusPill status={s.stage} variant={s.stageVariant} />
@@ -555,7 +623,9 @@ export function ShipmentsPage() {
 
                 {/* Documents */}
                 <td style={{ padding: 16 }}>
-                  <ProgressBar current={s.docsComplete} total={s.docsTotal} variant={s.docDanger ? 'danger' : 'default'} />
+                  <div className="vs-mono" style={{ fontSize: 14.5, fontWeight: 600, color: 'hsl(var(--foreground))' }}>
+                    {s.docsComplete}/{s.docsTotal}
+                  </div>
                   <div style={{ fontSize: 14, marginTop: 4, color: s.docDanger ? 'hsl(var(--vs-danger))' : 'hsl(var(--muted-foreground))' }}>{s.docNote}</div>
                 </td>
 

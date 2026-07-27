@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from io import BytesIO
+import asyncio
 import json
 from pathlib import Path
 import re
@@ -1375,13 +1376,28 @@ async def list_documents(
                     ocrConfidence=_extract_ocr_confidence(extraction),
                 )
             )
+        (
+            total_count,
+            needs_approval_count,
+            processing_count,
+            cross_validating_count,
+            draft_review_count,
+            done_count,
+        ) = await asyncio.gather(
+            _document_count(prisma=prisma, user=user, section="all"),
+            _document_count(prisma=prisma, user=user, section="needs-approval"),
+            _document_count(prisma=prisma, user=user, section="processing"),
+            _document_count(prisma=prisma, user=user, section="cross-validating"),
+            _document_count(prisma=prisma, user=user, section="draft-review"),
+            _document_count(prisma=prisma, user=user, section="done"),
+        )
         counts = DocumentListCounts(
-            total=await _document_count(prisma=prisma, user=user, section="all"),
-            needsApproval=await _document_count(prisma=prisma, user=user, section="needs-approval"),
-            processing=await _document_count(prisma=prisma, user=user, section="processing"),
-            crossValidating=await _document_count(prisma=prisma, user=user, section="cross-validating"),
-            draftReview=await _document_count(prisma=prisma, user=user, section="draft-review"),
-            done=await _document_count(prisma=prisma, user=user, section="done"),
+            total=total_count,
+            needsApproval=needs_approval_count,
+            processing=processing_count,
+            crossValidating=cross_validating_count,
+            draftReview=draft_review_count,
+            done=done_count,
         )
         return DocumentListResponse(
             documents=documents,
@@ -1940,8 +1956,8 @@ async def get_document_warehouse_mapping(document_id: str, user=Depends(get_curr
     document = await prisma.document.find_first(where=where)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    if str(document.docType) != "ENTRY_SUMMARY":
-        raise HTTPException(status_code=400, detail="Warehouse mapping is only available for CBP FORM 7501")
+    if str(document.docType) != "US_CARGO_RELEASE_ORDER":
+        raise HTTPException(status_code=400, detail="Warehouse mapping is only available for US Cargo Release Order")
     return {"ok": True, "data": await _serialize_warehouse_mapping(prisma, document_id)}
 
 
@@ -1958,8 +1974,8 @@ async def update_document_warehouse_mapping(
     document = await prisma.document.find_first(where=where)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    if str(document.docType) != "ENTRY_SUMMARY":
-        raise HTTPException(status_code=400, detail="Warehouse mapping is only available for CBP FORM 7501")
+    if str(document.docType) != "US_CARGO_RELEASE_ORDER":
+        raise HTTPException(status_code=400, detail="Warehouse mapping is only available for US Cargo Release Order")
 
     await _ensure_document_warehouse_mapping_table(prisma)
     warehouse_id = (payload.warehouseId or "").strip()

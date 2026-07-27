@@ -743,6 +743,7 @@ def _public_shipment_payload(row: dict[str, Any]) -> dict[str, Any]:
         "id": str(row["id"]),
         "shipmentNumber": row.get("shipment_number"),
         "status": row.get("status"),
+        "listStatus": row.get("shipment_list_status") or "in_progress",
         "blockedReason": row.get("blocked_reason"),
         "currentStage": row.get("current_stage") or 1,
         "currentStageName": row.get("current_stage_name"),
@@ -785,6 +786,7 @@ def _view_shipment_payload(row: dict[str, Any], *, include_containers: bool = Fa
         "id": str(row["id"]),
         "shipmentNumber": row.get("shipment_number"),
         "status": row.get("status"),
+        "listStatus": row.get("shipment_list_status") or "in_progress",
         "blockedReason": row.get("blocked_reason"),
         "currentStage": row.get("current_stage") or 1,
         "currentStageName": row.get("current_stage_name"),
@@ -1443,6 +1445,53 @@ async def list_shipment_gates(shipment_id: str, user=Depends(get_current_user)):
             for row in visible_rows
         ],
     }
+
+
+async def _update_shipment_status(prisma, shipment_id: str, status: str) -> dict[str, Any]:
+    rows = await _query_raw(
+        prisma,
+        """
+        UPDATE "public"."shipments"
+        SET "status" = $2, "updated_at" = NOW()
+        WHERE "id" = $1::uuid
+        RETURNING "id"::text, "shipment_number", "status"
+        """,
+        shipment_id,
+        status,
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Shipment not found")
+    return rows[0]
+
+
+@router.post(settings.API_SLUG + "/shipments/{shipment_id}/hold")
+@router.post("/api/shipments/{shipment_id}/hold")
+async def hold_shipment(shipment_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    await ensure_operational_shipment_tables(prisma)
+    row = await _update_shipment_status(prisma, shipment_id, "on_hold")
+    return {"ok": True, "data": {"shipmentId": row["id"], "status": row["status"]}}
+
+
+@router.post(settings.API_SLUG + "/shipments/{shipment_id}/resume")
+@router.post("/api/shipments/{shipment_id}/resume")
+async def resume_shipment(shipment_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    await ensure_operational_shipment_tables(prisma)
+    current = await _public_shipment_row(prisma, shipment_id)
+    if str(current.get("status") or "").lower() in {"cancelled", "canceled"}:
+        raise HTTPException(status_code=409, detail="Cancelled shipments cannot be resumed")
+    row = await _update_shipment_status(prisma, shipment_id, "active")
+    return {"ok": True, "data": {"shipmentId": row["id"], "status": row["status"]}}
+
+
+@router.post(settings.API_SLUG + "/shipments/{shipment_id}/cancel")
+@router.post("/api/shipments/{shipment_id}/cancel")
+async def cancel_shipment(shipment_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    await ensure_operational_shipment_tables(prisma)
+    row = await _update_shipment_status(prisma, shipment_id, "cancelled")
+    return {"ok": True, "data": {"shipmentId": row["id"], "status": row["status"]}}
 
 
 @router.post(settings.API_SLUG + "/shipments/{shipment_id}/pass")

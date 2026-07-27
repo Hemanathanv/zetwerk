@@ -5,6 +5,7 @@ import { useConfig } from '@/contexts/ConfigContext';
 import { buildDocTypeOptions } from '@/utils/docTypeDropdown';
 import { useLocation } from 'wouter';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   UploadCloud, ChevronDown, ChevronRight,
   Sparkles, X, CheckCircle2, Search, Pencil,
@@ -18,7 +19,7 @@ import { DocBadge }      from '@/components/vs/DocBadge';
 import { ConfidenceBar } from '@/components/vs/ConfidenceBar';
 import { FilterChips }   from '@/components/vs/FilterChips';
 import { useToast } from '@/hooks/use-toast';
-import type { ContainerMappingResponse, ContainerMappingRow, DocumentListPagination } from '@/types/backend';
+import type { ContainerMappingResponse, ContainerMappingRow } from '@/types/backend';
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const TEAL   = 'hsl(173 58% 39%)';
@@ -35,6 +36,15 @@ const GOLD_BG = 'hsla(43,96%,56%,0.10)';
 const QUEUE_ROW_GRID = '3px 32px minmax(190px, 220px) minmax(320px, 1fr) 88px 72px 150px 104px';
 const QUEUE_ROW_GAP = 14;
 const QUEUE_PAGE_SIZE = 20;
+const QUEUE_SECTION_BY_CHIP = [
+  'all',
+  'needs-approval',
+  'needs-approval',
+  'processing',
+  'cross-validating',
+  'draft-review',
+  'done',
+] as const;
 
 type StatusCategory = 'needs-approval' | 'needs-reapproval' | 'processing' | 'cross-validating' | 'draft-review' | 'done';
 
@@ -516,12 +526,13 @@ function formatDocTypeLabel(value?: string | null) {
   return text.replace(/\b\w/g, char => char.toUpperCase());
 }
 
-function QueueCardEl({ card, onApproveClick, onStopClick, onRetryClick, onCardClick, slaConfig }: {
+function QueueCardEl({ card, onApproveClick, onStopClick, onRetryClick, onCardClick, onDetailsClick, slaConfig }: {
   card: QueueCard;
   onApproveClick?: () => void;
   onStopClick?: () => void;
   onRetryClick?: () => void;
   onCardClick?: () => void;
+  onDetailsClick?: () => void;
   slaConfig?: EscalationConfig | null;
 }) {
   const [, navigate] = useLocation();
@@ -728,7 +739,7 @@ function QueueCardEl({ card, onApproveClick, onStopClick, onRetryClick, onCardCl
           <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             {card.action.label === 'View details →' ? (
               <button
-                onClick={(e) => { e.stopPropagation(); onCardClick?.(); }}
+                onClick={(e) => { e.stopPropagation(); onDetailsClick?.(); }}
                 style={{
                   fontSize: 14.5, fontWeight: 500, color: TEAL,
                   background: 'none', border: `1px solid ${TEAL}40`, borderRadius: 6,
@@ -852,12 +863,13 @@ function MiniPipeline({ dots, gold }: { dots: DotState[]; gold?: boolean }) {
   );
 }
 
-function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClick, slaConfig, style }: {
+function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClick, onDetailsClick, slaConfig, style }: {
   card: QueueCard;
   onApproveClick?: () => void;
   onStopClick?: () => void;
   onRetryClick?: () => void;
   onRowClick?: () => void;
+  onDetailsClick?: () => void;
   slaConfig?: EscalationConfig | null;
   style?: React.CSSProperties;
 }) {
@@ -1098,7 +1110,7 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
             </button>
           ) : (
             <button
-              onClick={(e) => { e.stopPropagation(); onRowClick?.(); }}
+              onClick={(e) => { e.stopPropagation(); onDetailsClick?.(); }}
               style={{
                 fontSize: 14, color: TEAL, background: 'none',
                 border: `1px solid ${TEAL}40`, borderRadius: 6,
@@ -1127,6 +1139,9 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
 type ReuploadAction = 'document' | 'source';
 
 const WAITING_FOR_BOL_CHIP_INDEX = 7;
+const UPLOAD_PROCESS_ROUTE = '/documents/upload';
+const PROCESSING_QUEUE_ROUTE = '/documents/upload/queue';
+const UPLOAD_PROCESS_RETURN_PATH_KEY = 'ewms-upload-process-return-path';
 
 function needsReviewApproval(card: Pick<QueueCard, 'statusCategory'>) {
   return card.statusCategory === 'needs-approval' || card.statusCategory === 'needs-reapproval';
@@ -1444,6 +1459,7 @@ function VirtualList({
   onStopClick,
   onRetryClick,
   onRowClick,
+  onDetailsClick,
   escalationConfigs,
 }: {
   cards: QueueCard[];
@@ -1451,6 +1467,7 @@ function VirtualList({
   onStopClick: (card: QueueCard) => (() => void) | undefined;
   onRetryClick: (card: QueueCard) => (() => void) | undefined;
   onRowClick: (card: QueueCard) => void;
+  onDetailsClick: (card: QueueCard) => void;
   escalationConfigs: EscalationConfig[];
 }) {
   const ROW_H = 60;
@@ -1480,6 +1497,7 @@ function VirtualList({
               onStopClick={onStopClick(card)}
               onRetryClick={onRetryClick(card)}
               onRowClick={() => onRowClick(card)}
+              onDetailsClick={() => onDetailsClick(card)}
               slaConfig={escalationConfigForCard(card, escalationConfigs)}
               style={{
                 position: 'absolute',
@@ -1929,6 +1947,7 @@ export function UploadProcessPage() {
   const { templates, docTypes, loading: configLoading } = useConfig();
   const [location, navigate] = useLocation();
   const { toast }          = useToast();
+  const queryClient = useQueryClient();
   const fileInputRef       = useRef<HTMLInputElement>(null);
   const [isDragOver,    setIsDragOver]    = useState(false);
   const [selectedFile,  setSelectedFile]  = useState<File | null>(null);
@@ -1945,38 +1964,30 @@ export function UploadProcessPage() {
   );
   const [docType,       setDocType]       = useState('auto');
   const [shipmentVal,   setShipmentVal]   = useState('');
-  const [shipmentOpts,  setShipmentOpts]  = useState<{ id: string; label: string }[]>([]);
   const [activeChip,    setActiveChip]    = useState(0);
   const [queueSearch,   setQueueSearch]   = useState('');
-  const [liveDocs,          setLiveDocs]          = useState<QueueCard[]>([]);
-  const [escalationConfigs, setEscalationConfigs] = useState<EscalationConfig[]>([]);
-  const [queuePagination,   setQueuePagination]   = useState<DocumentListPagination | null>(null);
   const [queuePage,         setQueuePage]         = useState(1);
-  const [queueLoading,      setQueueLoading]      = useState(true);
-  const [queueError,        setQueueError]        = useState<string | null>(null);
-  const [liveGeneratedDocs, setLiveGeneratedDocs] = useState<QueueCard[]>([]);
   const [detailCard,        setDetailCard]        = useState<QueueCard | null>(null);
   const [waitingDocs,       setWaitingDocs]       = useState<WaitingDoc[]>([]);
   const [bolInboxDocs,      setBolInboxDocs]      = useState<WaitingDoc[]>([]);
   const [containerMappingOpen, setContainerMappingOpen] = useState(false);
-  const [containerMapping, setContainerMapping] = useState<ContainerMappingResponse | null>(null);
-  const [containerMappingLoading, setContainerMappingLoading] = useState(false);
-  const [containerMappingSaving, setContainerMappingSaving] = useState(false);
   const [containerMappingDocumentId, setContainerMappingDocumentId] = useState<string | null>(null);
-  const liveDocsFetchInFlightRef = useRef(false);
   const now = useNow();
   const routedDetail = useMemo(() => parseValidationDetailsRoute(location), [location]);
+  const queueSection = activeChip === WAITING_FOR_BOL_CHIP_INDEX
+    ? 'all'
+    : QUEUE_SECTION_BY_CHIP[activeChip] ?? 'all';
 
   useEffect(() => {
     const handleModuleSearch = (event: Event) => {
       const detail = (event as CustomEvent<{ scope: string; value: string }>).detail;
       if (detail.scope !== 'upload-process' && detail.scope !== 'all') return;
       setQueueSearch(detail.value);
-      if (detail.value) setPageTab('queue');
+      if (detail.value) navigate(PROCESSING_QUEUE_ROUTE);
     };
     window.addEventListener('ewms-module-search', handleModuleSearch);
     return () => window.removeEventListener('ewms-module-search', handleModuleSearch);
-  }, []);
+  }, [navigate]);
 
   // Derive distinct corridors from config templates for the upload corridor selector
   const corridors = useMemo(() => {
@@ -2000,31 +2011,33 @@ export function UploadProcessPage() {
     if (corridors.length === 1) setCorridorVal(corridors[0]);
   }, [corridors]);
 
-  const fetchLiveDocs = useCallback(async (silent = false, page = queuePage) => {
-    if (liveDocsFetchInFlightRef.current) return;
-    liveDocsFetchInFlightRef.current = true;
-    if (!silent) {
-      setQueueLoading(true);
-      setQueueError(null);
-    }
-    try {
-      const response = await documentApi.list({ page, pageSize: QUEUE_PAGE_SIZE, section: 'all' });
-      const documents = response.data.documents;
-      setQueuePagination(response.data.pagination);
-      setLiveDocs(documents.map(apiDocToQueueCard));
-    } catch {
-      if (!silent) {
-        setLiveDocs([]);
-        setQueueError('Could not load documents from the backend.');
-      }
-    } finally {
-      liveDocsFetchInFlightRef.current = false;
-      if (!silent) setQueueLoading(false);
-    }
-  }, [queuePage]);
+  const documentsQuery = useQuery({
+    queryKey: ['upload-process', 'documents', queueSection, queuePage, QUEUE_PAGE_SIZE],
+    queryFn: async () => {
+      const response = await documentApi.list({ page: queuePage, pageSize: QUEUE_PAGE_SIZE, section: queueSection });
+      return response.data;
+    },
+    enabled: activeChip !== WAITING_FOR_BOL_CHIP_INDEX && (!routedDetail || !routedDetail.isGenerated),
+    placeholderData: (previousData) => previousData,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
 
-  const fetchGeneratedDocs = useCallback(async () => {
-    try {
+  const liveDocs = useMemo(
+    () => (documentsQuery.data?.documents ?? []).map(apiDocToQueueCard),
+    [documentsQuery.data],
+  );
+  const queuePagination = documentsQuery.data?.pagination ?? null;
+  const queueLoading = documentsQuery.isLoading || (documentsQuery.isFetching && !documentsQuery.data);
+  const queueError = documentsQuery.isError ? 'Could not load documents from the backend.' : null;
+
+  useEffect(() => {
+    setQueuePage(1);
+  }, [activeChip, queueSearch]);
+
+  const generatedDocsQuery = useQuery({
+    queryKey: ['upload-process', 'generated-drafts'],
+    queryFn: async () => {
       const generatedTypes: GeneratedDocType[] = ['PACKING_LIST', 'US_PACKING_LIST', 'ENTRY_SUMMARY'];
       const draftGroups = await Promise.all(
         generatedTypes.map(async (generatedDocType) => {
@@ -2046,50 +2059,49 @@ export function UploadProcessPage() {
           }
         }),
       );
-      setLiveGeneratedDocs(
-        drafts
-          .map((draft, index) => apiDraftToQueueCard(draft, validations[index]))
-          .sort((a, b) => Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? '')),
-      );
-    } catch {
-      setLiveGeneratedDocs([]);
-    }
-  }, []);
+      return drafts
+        .map((draft, index) => apiDraftToQueueCard(draft, validations[index]))
+        .sort((a, b) => Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? ''));
+    },
+    enabled: !routedDetail || routedDetail.isGenerated,
+    placeholderData: (previousData) => previousData,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+
+  const liveGeneratedDocs = generatedDocsQuery.data ?? [];
+  const routedDetailCard = useMemo(
+    () => routedDetail
+      ? (routedDetail.isGenerated ? liveGeneratedDocs : liveDocs).find(item => item.docId === routedDetail.id) ?? null
+      : null,
+    [liveDocs, liveGeneratedDocs, routedDetail],
+  );
+  const routedQueueItemQuery = useQuery({
+    queryKey: ['upload-process', 'queue-item', routedDetail?.id],
+    queryFn: async () => {
+      const response = await documentApi.getQueueItem(routedDetail!.id);
+      return apiDocToQueueCard(response.data);
+    },
+    enabled: Boolean(routedDetail && !routedDetail.isGenerated && !routedDetailCard),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+  const hasActiveOcr = liveDocs.some(doc => {
+    const status = String(doc.status ?? '').toUpperCase();
+    if (['QUEUED', 'PROCESSING', 'REPROCESSING'].includes(status)) return true;
+    return status === 'UPLOADED'
+      && Date.now() - new Date(String(doc.createdAt ?? '')).getTime() < 15 * 60_000;
+  });
 
   useEffect(() => {
-    if (routedDetail) {
-      setQueueLoading(false);
-      return;
-    }
-    void fetchLiveDocs();
-  }, [fetchLiveDocs, routedDetail]);
-
-  useEffect(() => {
-    const hasActiveOcr = liveDocs.some(doc => {
-      const status = String(doc.status ?? '').toUpperCase();
-      if (['QUEUED', 'PROCESSING', 'REPROCESSING'].includes(status)) return true;
-      // A new upload briefly remains UPLOADED while the page worker prepares
-      // PDF images. Poll only recent rows so old failed/unsupported uploads do
-      // not keep the request loop alive forever.
-      return status === 'UPLOADED'
-        && Date.now() - new Date(String(doc.createdAt ?? '')).getTime() < 15 * 60_000;
-    });
     if (!hasActiveOcr) return;
-
     const poll = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
-        void fetchLiveDocs(true);
+        void queryClient.invalidateQueries({ queryKey: ['upload-process', 'documents'] });
       }
     }, 3_000);
     return () => window.clearInterval(poll);
-  }, [fetchLiveDocs, liveDocs]);
-
-  useEffect(() => {
-    if (routedDetail && !routedDetail.isGenerated) {
-      return;
-    }
-    fetchGeneratedDocs();
-  }, [fetchGeneratedDocs, routedDetail]);
+  }, [hasActiveOcr, queryClient]);
 
   useEffect(() => {
     if (!routedDetail) {
@@ -2097,40 +2109,21 @@ export function UploadProcessPage() {
     }
 
     setPageTab('queue');
-    const card = (routedDetail.isGenerated ? liveGeneratedDocs : liveDocs)
-      .find(item => item.docId === routedDetail.id);
-    if (card) {
-      setDetailCard(card);
+    if (routedDetailCard) {
+      setDetailCard(routedDetailCard);
       return;
     }
-
-    if (routedDetail.isGenerated) {
-      return;
+    if (routedQueueItemQuery.data) {
+      setDetailCard(routedQueueItemQuery.data);
+    } else if (routedQueueItemQuery.isError) {
+      toast({
+        title: 'Could not load details',
+        description: routedQueueItemQuery.error instanceof Error ? routedQueueItemQuery.error.message : 'The stored validation details could not be loaded.',
+        variant: 'destructive',
+      });
+      navigate(PROCESSING_QUEUE_ROUTE);
     }
-
-    let cancelled = false;
-    const routedDocumentId = routedDetail.id;
-    async function loadSingleDocumentDetail() {
-      try {
-        const response = await documentApi.getQueueItem(routedDocumentId);
-        if (!cancelled) setDetailCard(apiDocToQueueCard(response.data));
-      } catch (error) {
-        if (!cancelled) {
-          toast({
-            title: 'Could not load details',
-            description: error instanceof Error ? error.message : 'The stored validation details could not be loaded.',
-            variant: 'destructive',
-          });
-          navigate('/documents/upload');
-        }
-      }
-    }
-
-    void loadSingleDocumentDetail();
-    return () => {
-      cancelled = true;
-    };
-  }, [liveDocs, liveGeneratedDocs, navigate, routedDetail, toast]);
+  }, [navigate, routedDetail, routedDetailCard, routedQueueItemQuery.data, routedQueueItemQuery.error, routedQueueItemQuery.isError, toast]);
 
   const fetchWaitingList = useCallback(() => {
     setWaitingDocs([]);
@@ -2148,44 +2141,50 @@ export function UploadProcessPage() {
     fetchBolInboxDocs();
   }, [fetchBolInboxDocs]);
 
-  // Load real shipments for the assign-to dropdown
-  useEffect(() => {
-    const token = getAuthToken();
-    fetch('/api/v1/shipments', { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(json => {
-        const opts = (json.data ?? []).map((s: { id: string; shipmentNumber?: string }) => ({
-          id: s.id, label: s.shipmentNumber ?? s.id,
-        }));
-        setShipmentOpts(opts);
-      })
-      .catch(() => {});
-  }, []);
+  const shipmentsQuery = useQuery({
+    queryKey: ['upload-process', 'shipments'],
+    queryFn: async () => {
+      const token = getAuthToken();
+      const response = await fetch('/api/v1/shipments', { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      if (!response.ok) throw new Error('Could not load shipments.');
+      return response.json() as Promise<{ data?: Array<{ id: string; shipmentNumber?: string }> }>;
+    },
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const shipmentOpts = useMemo(
+    () => (shipmentsQuery.data?.data ?? []).map((s) => ({
+      id: s.id,
+      label: s.shipmentNumber ?? s.id,
+    })),
+    [shipmentsQuery.data],
+  );
 
-  // Fetch escalation config to drive SLA urgency badges on queue cards.
-  useEffect(() => {
-    let cancelled = false;
-    apiGet<any>('/api/admin/escalation')
-      .then(res => {
-        if (!cancelled && res?.ok) setEscalationConfigs(Array.isArray(res.data) ? res.data : []);
-      })
-      .catch(() => {
-        if (!cancelled) setEscalationConfigs([]);
-      });
-    return () => { cancelled = true; };
-  }, []);
+  const escalationQuery = useQuery({
+    queryKey: ['upload-process', 'escalation-configs'],
+    queryFn: async () => {
+      const response = await apiGet<{ ok: boolean; data: EscalationConfig[] }>('/api/admin/escalation');
+      return response.ok && Array.isArray(response.data) ? response.data : [];
+    },
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const escalationConfigs = escalationQuery.data ?? [];
 
-  // Check OCR service health when the page opens.
-  const [ocrHealth, setOcrHealth] = useState<'unknown' | 'connected' | 'degraded' | 'offline'>('unknown');
-  const fetchOcrHealth = useCallback(() => {
-    documentApi.list({ page: 1, pageSize: 1, section: 'all' })
-      .then(() => setOcrHealth('connected'))
-      .catch(() => setOcrHealth('offline'));
-  }, []);
-  useEffect(() => {
-    if (routedDetail) return;
-    fetchOcrHealth();
-  }, [fetchOcrHealth, routedDetail]);
+  const ocrHealthQuery = useQuery({
+    queryKey: ['upload-process', 'ocr-health'],
+    queryFn: async () => {
+      await documentApi.list({ page: 1, pageSize: 1, section: 'all' });
+      return 'connected' as const;
+    },
+    enabled: !routedDetail,
+    retry: 0,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const ocrHealth = (
+    ocrHealthQuery.isLoading ? 'unknown' : ocrHealthQuery.isError ? 'offline' : ocrHealthQuery.data ?? 'unknown'
+  ) as 'unknown' | 'connected' | 'degraded' | 'offline';
 
   const backendDocTypes: Record<string, string> = {
     sales_invoices: 'SALES_INVOICE',
@@ -2208,13 +2207,75 @@ export function UploadProcessPage() {
     isf: 'ISF',
   };
 
+  const classifyDocumentMutation = useMutation({
+    mutationFn: (form: FormData) => documentApi.classify(form),
+  });
+  const uploadDocumentMutation = useMutation({
+    mutationFn: (form: FormData) => documentApi.upload(form),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['upload-process', 'documents'] });
+    },
+  });
+  const stopDocumentMutation = useMutation({
+    mutationFn: (documentId: string) => documentApi.stop(documentId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['upload-process', 'documents'] });
+    },
+  });
+  const retryDocumentMutation = useMutation({
+    mutationFn: (documentId: string) => documentApi.retry(documentId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['upload-process', 'documents'] });
+    },
+  });
+  const reuploadDocumentMutation = useMutation({
+    mutationFn: ({ documentId, form }: { documentId: string; form: FormData }) => documentApi.reupload(documentId, form),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['upload-process', 'documents'] }),
+        queryClient.invalidateQueries({ queryKey: ['upload-process', 'generated-drafts'] }),
+      ]);
+    },
+  });
+  const containerMappingQuery = useQuery({
+    queryKey: ['upload-process', 'container-mapping', containerMappingDocumentId],
+    queryFn: async () => {
+      const response = await documentApi.getContainerMapping(containerMappingDocumentId!);
+      return response.data;
+    },
+    enabled: containerMappingOpen && Boolean(containerMappingDocumentId),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+  const saveContainerMappingMutation = useMutation({
+    mutationFn: ({ documentId, rows }: { documentId: string; rows: ContainerMappingRow[] }) =>
+      documentApi.saveContainerMapping(
+        documentId,
+        rows.map(row => ({ lineItemId: row.lineItemId, containerNo: row.containerNo })),
+      ),
+    onSuccess: async (_response, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ['upload-process', 'container-mapping', variables.documentId] });
+    },
+  });
+  const containerMapping = containerMappingQuery.data ?? null;
+  const containerMappingLoading = containerMappingQuery.isLoading || (containerMappingQuery.isFetching && !containerMappingQuery.data);
+  const containerMappingSaving = saveContainerMappingMutation.isPending;
+  useEffect(() => {
+    if (!containerMappingQuery.isError) return;
+    toast({
+      title: 'Could not load container mapping',
+      description: containerMappingQuery.error instanceof Error ? containerMappingQuery.error.message : 'The BOL could not be matched to Packing Lists.',
+      variant: 'destructive',
+    });
+  }, [containerMappingQuery.error, containerMappingQuery.isError, toast]);
+
   async function runAutoDetect() {
     if (!selectedFile || isClassifying || isUploading) return;
     setIsClassifying(true);
     try {
       const form = new FormData();
       form.append('file', selectedFile);
-      const { data } = await documentApi.classify(form);
+      const { data } = await classifyDocumentMutation.mutateAsync(form);
       const resolvedDocType = String(data.docType ?? '').toUpperCase();
       if (!resolvedDocType) throw new Error('Document type could not be detected.');
       setClassification({
@@ -2247,7 +2308,7 @@ export function UploadProcessPage() {
     form.append('file', selectedFile);
     form.append('docType', resolvedDocType);
     try {
-      const uploadResponse = await documentApi.upload(form);
+      const uploadResponse = await uploadDocumentMutation.mutateAsync(form);
       const uploadedDocument = uploadResponse.data?.documents?.[0];
       toast({ title: 'Uploaded successfully', description: `${selectedFile.name} is queued for OCR processing.` });
       setUploadSuccess({
@@ -2256,7 +2317,6 @@ export function UploadProcessPage() {
       });
       chooseFile(null);
       setQueuePage(1);
-      fetchLiveDocs(false, 1);
     } catch (err) {
       toast({ title: 'Upload failed', description: err instanceof Error ? err.message : 'Unable to upload right now.', variant: 'destructive' });
     } finally {
@@ -2270,8 +2330,25 @@ export function UploadProcessPage() {
   );
   const [ocrTooltipOpen,   setOcrTooltipOpen]   = useState(false);
   const [attentionDismissed, setAttentionDismissed] = useState(false);
-  const [pageTab, setPageTab] = useState<'upload' | 'queue'>('upload');
+  const [pageTab, setPageTab] = useState<'upload' | 'queue'>(() => (
+    location === PROCESSING_QUEUE_ROUTE ? 'queue' : 'upload'
+  ));
   const [uploadSuccess, setUploadSuccess] = useState<{ id: string | null; name: string } | null>(null);
+
+  useEffect(() => {
+    if (location === PROCESSING_QUEUE_ROUTE || routedDetail) {
+      setPageTab('queue');
+    } else if (location === UPLOAD_PROCESS_ROUTE) {
+      setPageTab('upload');
+    }
+  }, [location, routedDetail]);
+
+  useEffect(() => {
+    if (sessionStorage.getItem(UPLOAD_PROCESS_RETURN_PATH_KEY) === PROCESSING_QUEUE_ROUTE) {
+      sessionStorage.removeItem(UPLOAD_PROCESS_RETURN_PATH_KEY);
+      setPageTab('queue');
+    }
+  }, []);
 
   // Queue and completed sections are derived exclusively from backend records.
   const QUEUE_CARDS: QueueCard[] = [...liveDocs, ...liveGeneratedDocs];
@@ -2310,9 +2387,8 @@ export function UploadProcessPage() {
   async function stopExtraction(card: QueueCard) {
     if (!card.docId) return;
     try {
-      await documentApi.stop(card.docId);
+      await stopDocumentMutation.mutateAsync(card.docId);
       toast({ title: 'Extraction stopped', description: `${card.docNumber} returned to the upload state.` });
-      await fetchLiveDocs();
     } catch (error) {
       toast({
         title: 'Could not stop extraction',
@@ -2325,9 +2401,8 @@ export function UploadProcessPage() {
   async function retryExtraction(card: QueueCard) {
     if (!card.docId) return;
     try {
-      await documentApi.retry(card.docId);
+      await retryDocumentMutation.mutateAsync(card.docId);
       toast({ title: 'Extraction queued again', description: card.docNumber });
-      await fetchLiveDocs();
     } catch (error) {
       toast({
         title: 'Could not retry extraction',
@@ -2351,15 +2426,13 @@ export function UploadProcessPage() {
     form.append('file', file);
     form.append('refreshGeneratedDrafts', String(action === 'source'));
     try {
-      await documentApi.reupload(targetDocumentId, form);
+      await reuploadDocumentMutation.mutateAsync({ documentId: targetDocumentId, form });
       toast({
         title: action === 'source' ? 'Source document re-upload queued' : 'Document re-upload queued',
         description: action === 'source'
           ? 'OCR will rerun, generated drafts will be replaced, and validation will refresh after re-approval.'
           : 'OCR will rerun and cross-validation will be overridden after re-approval.',
       });
-      await fetchLiveDocs();
-      await fetchGeneratedDocs();
     } catch (error) {
       toast({
         title: 'Re-upload failed',
@@ -2371,64 +2444,50 @@ export function UploadProcessPage() {
   }
 
   async function handleRowClick(card: QueueCard) {
-    if (card.statusCategory === 'cross-validating' || card.statusCategory === 'done' || card.action?.label === 'View details →') {
-      setDetailCard(card);
-      navigate(validationDetailsPath(card));
-      return;
-    }
     if (card.statusCategory === 'draft-review' && card.action?.href) {
       navigate(card.action.href);
       return;
     }
     if (card.docId) {
+      sessionStorage.setItem(UPLOAD_PROCESS_RETURN_PATH_KEY, PROCESSING_QUEUE_ROUTE);
       navigate(`/documents/upload/${card.docId}`);
       return;
     }
   }
 
+  function handleDetailsClick(card: QueueCard) {
+    setDetailCard(card);
+    navigate(validationDetailsPath(card));
+  }
+
   // ── Derived stats & filter ──────────────────────────────────────────────────
-  async function openContainerMapping(documentId: string) {
+  function openContainerMapping(documentId: string) {
     setContainerMappingDocumentId(documentId);
-    setContainerMapping(null);
     setContainerMappingOpen(true);
-    setContainerMappingLoading(true);
-    try {
-      const response = await documentApi.getContainerMapping(documentId);
-      setContainerMapping(response.data);
-    } catch (error) {
-      toast({ title: 'Could not load container mapping', description: error instanceof Error ? error.message : 'The BOL could not be matched to Packing Lists.', variant: 'destructive' });
-    } finally {
-      setContainerMappingLoading(false);
-    }
   }
 
   async function saveContainerMappingRows(rows: ContainerMappingRow[]) {
     if (!containerMappingDocumentId) return;
-    setContainerMappingSaving(true);
     try {
-      await documentApi.saveContainerMapping(
-        containerMappingDocumentId,
-        rows.map(row => ({ lineItemId: row.lineItemId, containerNo: row.containerNo })),
-      );
+      await saveContainerMappingMutation.mutateAsync({ documentId: containerMappingDocumentId, rows });
       toast({ title: 'Container mapping saved', description: `${rows.length} Packing List rows updated.` });
       setContainerMappingOpen(false);
     } catch (error) {
       toast({ title: 'Could not save container mapping', description: error instanceof Error ? error.message : 'Container assignments were not saved.', variant: 'destructive' });
-    } finally {
-      setContainerMappingSaving(false);
     }
   }
 
   const visibleCards: QueueCard[] = QUEUE_CARDS;
 
+  const backendCounts = documentsQuery.data?.counts;
   const statsCount = {
-    total:           visibleCards.length,
-    needsApproval:   visibleCards.filter((c) => c.statusCategory === 'needs-approval').length,
+    total:           backendCounts?.total ?? visibleCards.length,
+    needsApproval:   backendCounts?.needsApproval ?? visibleCards.filter((c) => c.statusCategory === 'needs-approval').length,
     needsReapproval: visibleCards.filter((c) => c.statusCategory === 'needs-reapproval').length,
-    processing:      visibleCards.filter((c) => c.statusCategory === 'processing').length,
-    crossValidating: visibleCards.filter((c) => c.statusCategory === 'cross-validating').length,
-    draftReview:     visibleCards.filter((c) => c.statusCategory === 'draft-review').length,
-    done:            visibleCards.filter((c) => c.statusCategory === 'done').length,
+    processing:      backendCounts?.processing ?? visibleCards.filter((c) => c.statusCategory === 'processing').length,
+    crossValidating: backendCounts?.crossValidating ?? visibleCards.filter((c) => c.statusCategory === 'cross-validating').length,
+    draftReview:     backendCounts?.draftReview ?? visibleCards.filter((c) => c.statusCategory === 'draft-review').length,
+    done:            backendCounts?.done ?? visibleCards.filter((c) => c.statusCategory === 'done').length,
   };
 
   const unattachedCount = waitingDocs.length;
@@ -2447,7 +2506,7 @@ export function UploadProcessPage() {
     : visibleCards;
 
   const filteredCards = activeChip === 0
-    ? searchedCards.slice(0, QUEUE_PAGE_SIZE)
+    ? searchedCards
     : activeChip === WAITING_FOR_BOL_CHIP_INDEX
       ? []
       : searchedCards.filter((c) => c.statusCategory === CHIP_CATEGORIES[activeChip]);
@@ -2488,7 +2547,7 @@ export function UploadProcessPage() {
         onOpenChange={(open) => {
           if (!open) {
             setDetailCard(null);
-            if (routedDetail) navigate('/documents/upload');
+            if (routedDetail) navigate(PROCESSING_QUEUE_ROUTE);
           }
         }}
         onReupload={reuploadBlockedDocument}
@@ -2502,7 +2561,7 @@ export function UploadProcessPage() {
       {/* ── Tab navigation ── */}
       <div style={{ display: 'flex', alignItems: 'center', borderBottom: `1px solid ${BORDER}`, marginBottom: 28 }}>
         <button
-          onClick={() => { setPageTab('upload'); setAttentionDismissed(false); }}
+          onClick={() => { setAttentionDismissed(false); navigate(UPLOAD_PROCESS_ROUTE); }}
           style={{
             fontSize: 14.5, fontWeight: pageTab === 'upload' ? 700 : 500,
             color: pageTab === 'upload' ? TEAL : MUTED,
@@ -2514,7 +2573,7 @@ export function UploadProcessPage() {
           Upload
         </button>
         <button
-          onClick={() => setPageTab('queue')}
+          onClick={() => navigate(PROCESSING_QUEUE_ROUTE)}
           style={{
             fontSize: 14.5, fontWeight: pageTab === 'queue' ? 700 : 500,
             color: pageTab === 'queue' ? TEAL : MUTED,
@@ -2557,7 +2616,7 @@ export function UploadProcessPage() {
               </div>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
                 <button
-                  onClick={() => { setUploadSuccess(null); setPageTab('queue'); }}
+                  onClick={() => { setUploadSuccess(null); navigate(PROCESSING_QUEUE_ROUTE); }}
                   style={{ fontSize: 14.5, fontWeight: 700, color: '#fff', backgroundColor: TEAL, border: 'none', borderRadius: 8, padding: '10px 22px', cursor: 'pointer' }}
                 >
                   View in queue →
@@ -2751,7 +2810,7 @@ export function UploadProcessPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <span style={{ fontSize: 16, fontWeight: 700, color: FG }}>My recent uploads</span>
               {liveUnattachedCount > 0 && (
-                <button onClick={() => setPageTab('queue')} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 14.5, fontWeight: 600, padding: '3px 10px', borderRadius: 999, backgroundColor: 'hsla(38,92%,50%,0.10)', color: AMBER, border: `1px solid hsla(38,92%,50%,0.25)`, cursor: 'pointer' }}>
+                <button onClick={() => navigate(PROCESSING_QUEUE_ROUTE)} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 14.5, fontWeight: 600, padding: '3px 10px', borderRadius: 999, backgroundColor: 'hsla(38,92%,50%,0.10)', color: AMBER, border: `1px solid hsla(38,92%,50%,0.25)`, cursor: 'pointer' }}>
                   ⚠ {liveUnattachedCount} waiting for BOL
                 </button>
               )}
@@ -2825,7 +2884,7 @@ export function UploadProcessPage() {
 
           {/* View full queue link */}
           <div style={{ textAlign: 'center', marginTop: 32, paddingBottom: 8 }}>
-            <button onClick={() => setPageTab('queue')} style={{ fontSize: 14, fontWeight: 500, color: TEAL, background: 'none', border: `1px solid ${TEAL}40`, borderRadius: 8, padding: '8px 22px', cursor: 'pointer' }}>
+            <button onClick={() => navigate(PROCESSING_QUEUE_ROUTE)} style={{ fontSize: 14, fontWeight: 500, color: TEAL, background: 'none', border: `1px solid ${TEAL}40`, borderRadius: 8, padding: '8px 22px', cursor: 'pointer' }}>
               View full processing queue ({statsCount.total} docs) →
             </button>
           </div>
@@ -3057,6 +3116,7 @@ export function UploadProcessPage() {
                             ? () => retryExtraction(card)
                             : undefined}
                           onRowClick={() => handleRowClick(card)}
+                          onDetailsClick={() => handleDetailsClick(card)}
                           slaConfig={escalationConfigForCard(card, escalationConfigs)}
                         />
                       ))}
@@ -3075,6 +3135,7 @@ export function UploadProcessPage() {
                   onStopClick={card.statusCategory === 'processing' ? () => stopExtraction(card) : undefined}
                   onRetryClick={card.status === 'Extraction stopped' ? () => retryExtraction(card) : undefined}
                   onCardClick={() => handleRowClick(card)}
+                  onDetailsClick={() => handleDetailsClick(card)}
                   slaConfig={escalationConfigForCard(card, escalationConfigs)}
                 />
               ))}
@@ -3093,12 +3154,13 @@ export function UploadProcessPage() {
                 onStopClick={(card) => card.statusCategory === 'processing' ? () => stopExtraction(card) : undefined}
                 onRetryClick={(card) => card.status === 'Extraction stopped' ? () => retryExtraction(card) : undefined}
                 onRowClick={handleRowClick}
+                onDetailsClick={handleDetailsClick}
                 escalationConfigs={escalationConfigs}
               />
             </div>
           )}
 
-          {activeChip === 0 && queuePagination && queueTotalPages > 1 && (
+          {activeChip !== WAITING_FOR_BOL_CHIP_INDEX && queuePagination && queueTotalPages > 1 && (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, padding: '14px 0 2px', flexWrap: 'wrap' }}>
               <button
                 onClick={() => goToQueuePage((queuePagination.page ?? queuePage) - 1)}

@@ -762,6 +762,20 @@ class AdminUserRequest(BaseModel):
     status: str | None = None
 
 
+class RoleActivitySlaRequest(BaseModel):
+    activityCode: str
+    activityType: str
+    activityName: str
+    scope: str
+    baseDoc: str
+    baseSlaHours: float
+    reminderPct: int = 0
+    warningPct: int = 50
+    escalationPct: int = 75
+    blockerPct: int = 100
+    description: str | None = None
+
+
 class RoleProfileRequest(BaseModel):
     name: str
     description: str | None = None
@@ -773,6 +787,7 @@ class RoleProfileRequest(BaseModel):
     docTypeScopes: dict[str, list[str]] = Field(default_factory=dict)
     defaultModules: list[str] = []
     activityCodes: list[str] = []
+    activitySla: list[RoleActivitySlaRequest] = Field(default_factory=list)
 
 
 class TeamRequest(BaseModel):
@@ -884,6 +899,51 @@ DEFAULT_ESCALATION_CHANNELS: dict[str, Any] = {
 }
 
 GENERATED_DOCUMENT_SOURCE_DOCS = "Sales Invoice, Packing List, Bill of Lading"
+
+SLA_ACTIVITY_CONFIG_BY_CODE: dict[str, dict[str, str]] = {
+    "documents.upload": {
+        "activityType": "upload_document",
+        "activityName": "Upload Document",
+        "description": "SCOPE OF DOCS BASED - every doc to have a SLA",
+        "baseDoc": "Doc names",
+    },
+    "documents.fill_manual_fields": {
+        "activityType": "fill_manual_fields",
+        "activityName": "Fill Manual Fields",
+        "description": "Scope -3 docs",
+        "baseDoc": GENERATED_DOCUMENT_SOURCE_DOCS,
+    },
+    "documents.submit_for_review": {
+        "activityType": "submit_for_review",
+        "activityName": "Submit for Review",
+        "description": "SCOPE OF DOCS BASED - every doc to have a SLA. Edge case: If the doc is rejected - the submit for review timer will start",
+        "baseDoc": GENERATED_DOCUMENT_SOURCE_DOCS,
+    },
+    "documents.approve_generated_document": {
+        "activityType": "approve_generated_document",
+        "activityName": "Approve Generated Document",
+        "description": "",
+        "baseDoc": GENERATED_DOCUMENT_SOURCE_DOCS,
+    },
+    "documents.resolve_validation_failure": {
+        "activityType": "resolve_validation_failure",
+        "activityName": "Resolve Validation Failure",
+        "description": "SCOPE OF DOCS BASED - every doc to have a SLA",
+        "baseDoc": "Doc names",
+    },
+    "documents.map_container_to_sku": {
+        "activityType": "map_container_to_sku",
+        "activityName": "Map Container to SKU",
+        "description": "",
+        "baseDoc": "",
+    },
+    "documents.approve_container_mapping": {
+        "activityType": "approve_container_mapping",
+        "activityName": "Approve Container Mapping",
+        "description": "",
+        "baseDoc": "",
+    },
+}
 
 SLA_ELIGIBLE_ACTIVITY_ROWS: list[tuple[str, str, str, str]] = [
     ("Document", "Upload Document", "SCOPE OF DOCS BASED - every doc to have a SLA", "Doc names"),
@@ -1064,6 +1124,107 @@ def _parse_doc_type_scopes(attrs: dict | None) -> dict[str, list[str]]:
     return scopes
 
 
+def _parse_activity_sla(attrs: dict | None) -> list[dict[str, Any]]:
+    raw = _attr_value(attrs, "ewms.activitySla", "")
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [
+        item for item in parsed
+        if isinstance(item, dict)
+        and str(item.get("activityCode") or "").strip()
+        and str(item.get("activityType") or "").strip()
+        and str(item.get("scope") or "").strip()
+    ]
+
+
+def _activity_sla_from_request(request: RoleProfileRequest) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for item in request.activitySla or []:
+        activity_code = str(item.activityCode or "").strip()
+        activity_type = str(item.activityType or "").strip()
+        activity_name = str(item.activityName or activity_type).strip()
+        scope = str(item.scope or "").strip()
+        base_doc = str(item.baseDoc or "").strip()
+        if not activity_code or not activity_type or not activity_name or not scope:
+            continue
+        base_sla_hours = float(item.baseSlaHours or 0)
+        if base_sla_hours <= 0:
+            continue
+        rows.append({
+            "activityCode": activity_code,
+            "activityType": activity_type,
+            "activityName": activity_name,
+            "description": item.description or "",
+            "scope": scope,
+            "baseDoc": base_doc,
+            "baseSlaHours": base_sla_hours,
+            "reminderPct": max(0, min(100, int(item.reminderPct))),
+            "warningPct": max(0, min(100, int(item.warningPct))),
+            "escalationPct": max(0, min(100, int(item.escalationPct))),
+            "blockerPct": max(0, min(100, int(item.blockerPct))),
+        })
+    return rows
+
+
+def _validate_role_activity_sla(request: RoleProfileRequest, activity_sla: list[dict[str, Any]]) -> None:
+    selected_codes = {str(code).strip() for code in request.activityCodes or [] if str(code).strip()}
+    if not selected_codes:
+        return
+    activities_by_code = {
+        str(activity.get("activityCode") or ""): activity
+        for activity in ACTIVITY_DEFINITIONS
+    }
+    rows_by_key = {
+        (
+            str(item.get("activityCode") or "").strip(),
+            str(item.get("scope") or "").strip().lower(),
+        ): item
+        for item in activity_sla
+    }
+    doc_type_scopes = _doc_type_scopes_from_request(request)
+    missing: list[str] = []
+    invalid: list[str] = []
+    for activity_code in selected_codes:
+        sla_config = SLA_ACTIVITY_CONFIG_BY_CODE.get(activity_code)
+        if not sla_config:
+            continue
+        activity = activities_by_code.get(activity_code, {})
+        scopes = doc_type_scopes.get(activity_code, []) if activity.get("scopeType") == "docType" else []
+        if activity.get("scopeType") == "docType" and not scopes:
+            scopes = _normalize_doc_type_list(request.documentScope)
+        if not scopes:
+            fallback_scope = str(activity.get("scope") or sla_config.get("baseDoc") or "Default").strip()
+            scopes = [fallback_scope]
+        for scope in scopes:
+            key = (activity_code, str(scope).strip().lower())
+            row = rows_by_key.get(key)
+            label = f"{sla_config['activityName']} - {scope}"
+            if not row:
+                missing.append(label)
+                continue
+            if float(row.get("baseSlaHours") or 0) <= 0 or not str(row.get("baseDoc") or "").strip():
+                invalid.append(label)
+                continue
+            thresholds = [
+                row.get("reminderPct"),
+                row.get("warningPct"),
+                row.get("escalationPct"),
+                row.get("blockerPct"),
+            ]
+            if any(not isinstance(value, int) or value < 0 or value > 100 for value in thresholds):
+                invalid.append(label)
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing SLA for: {', '.join(missing)}")
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Invalid SLA for: {', '.join(invalid)}")
+
+
 def _doc_type_scopes_from_request(request: RoleProfileRequest) -> dict[str, list[str]]:
     scopes: dict[str, list[str]] = {}
     for activity_code, values in (request.docTypeScopes or {}).items():
@@ -1083,6 +1244,7 @@ def _role_profile_from_keycloak(role: dict, *, user_count: int = 0, detail: bool
     activity_codes = _attr_values(attrs, "ewms.activities") or list(defaults.get("activityCodes", []))
     document_scope = _attr_values(attrs, "ewms.documentScope") or _default_document_scope(role_name, defaults)
     doc_type_scopes = _parse_doc_type_scopes(attrs)
+    activity_sla = _parse_activity_sla(attrs)
     scoped_activity_codes = {
         str(activity["activityCode"])
         for activity in ACTIVITY_DEFINITIONS
@@ -1111,6 +1273,7 @@ def _role_profile_from_keycloak(role: dict, *, user_count: int = 0, detail: bool
         "defaultDataScope": _attr_value(attrs, "ewms.dataScope", str(defaults.get("defaultDataScope") or "TEAM")),
         "documentScope": document_scope,
         "docTypeScopes": doc_type_scopes,
+        "activitySla": activity_sla,
         "_count": {"users": user_count, "roleActivities": len(activity_codes)},
     }
     if detail:
@@ -1140,6 +1303,7 @@ def _role_payload_from_request(request: RoleProfileRequest, *, role_id: str | No
     document_scope = _normalize_doc_type_list(request.documentScope)
     if not document_scope and doc_type_scopes:
         document_scope = sorted({doc_type for doc_types in doc_type_scopes.values() for doc_type in doc_types})
+    activity_sla = _activity_sla_from_request(request)
     for activity_code in request.activityCodes or []:
         module_code = ACTIVITY_MODULES.get(activity_code)
         if module_code:
@@ -1155,6 +1319,7 @@ def _role_payload_from_request(request: RoleProfileRequest, *, role_id: str | No
             "ewms.dataScope": [request.defaultDataScope or "TEAM"],
             "ewms.documentScope": document_scope,
             "ewms.docTypeScopes": [json.dumps(doc_type_scopes, sort_keys=True)],
+            "ewms.activitySla": [json.dumps(activity_sla, sort_keys=True)],
             "ewms.modules": sorted(modules),
             "ewms.activities": request.activityCodes,
             "ewms.managedBy": ["ewms-admin"],
@@ -1504,6 +1669,98 @@ async def _next_escalation_config_id_db(prisma, activity_type: str, scope: str =
     return candidate
 
 
+async def _find_escalation_config_by_activity_scope(prisma, activity_type: str, scope: str) -> dict[str, Any] | None:
+    await _seed_default_escalation_configs(prisma)
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT *
+        FROM "public"."escalation_configs"
+        WHERE LOWER("activity_type") = LOWER($1)
+          AND LOWER(COALESCE("scope", '')) = LOWER($2)
+        ORDER BY "id" ASC
+        LIMIT 1
+        """,
+        activity_type,
+        scope,
+    )
+    return _escalation_row_to_config(rows[0]) if rows else None
+
+
+async def _upsert_activity_sla_configs(prisma, activity_sla: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    saved: list[dict[str, Any]] = []
+    if not activity_sla:
+        return saved
+    await _seed_default_escalation_configs(prisma)
+    for item in activity_sla:
+        activity_type = str(item.get("activityType") or "").strip()
+        activity_name = str(item.get("activityName") or activity_type).strip()
+        scope = str(item.get("scope") or "").strip()
+        if not activity_type or not activity_name or not scope:
+            continue
+        existing = await _find_escalation_config_by_activity_scope(prisma, activity_type, scope)
+        config_id = existing["id"] if existing else await _next_escalation_config_id_db(prisma, activity_type, scope)
+        current = {
+            "id": config_id,
+            "activityType": activity_type,
+            "activityName": activity_name,
+            "description": item.get("description") or (existing or {}).get("description") or "",
+            "scope": scope,
+            "baseDoc": item.get("baseDoc") or (existing or {}).get("baseDoc") or "",
+            "baseSlaHours": float(item.get("baseSlaHours") or (existing or {}).get("baseSlaHours") or 24),
+            "reminderPct": int(item.get("reminderPct") if item.get("reminderPct") is not None else (existing or {}).get("reminderPct", 0)),
+            "warningPct": int(item.get("warningPct") if item.get("warningPct") is not None else (existing or {}).get("warningPct", 50)),
+            "escalationPct": int(item.get("escalationPct") if item.get("escalationPct") is not None else (existing or {}).get("escalationPct", 75)),
+            "blockerPct": int(item.get("blockerPct") if item.get("blockerPct") is not None else (existing or {}).get("blockerPct", 100)),
+            "channels": (existing or {}).get("channels") or DEFAULT_ESCALATION_CHANNELS,
+            "targets": (existing or {}).get("targets") or {},
+        }
+        await _execute_raw(
+            prisma,
+            """
+            INSERT INTO "public"."escalation_configs" (
+              "id", "activity_type", "activity_name", "description", "scope", "base_doc",
+              "base_sla_hours", "reminder_pct", "warning_pct", "escalation_pct", "blocker_pct",
+              "channels", "targets"
+            )
+            VALUES (
+              $1, $2, $3, $4, $5, $6,
+              $7, $8, $9, $10, $11,
+              $12::jsonb, $13::jsonb
+            )
+            ON CONFLICT ("id") DO UPDATE
+            SET "activity_type" = EXCLUDED."activity_type",
+                "activity_name" = EXCLUDED."activity_name",
+                "description" = EXCLUDED."description",
+                "scope" = EXCLUDED."scope",
+                "base_doc" = EXCLUDED."base_doc",
+                "base_sla_hours" = EXCLUDED."base_sla_hours",
+                "reminder_pct" = EXCLUDED."reminder_pct",
+                "warning_pct" = EXCLUDED."warning_pct",
+                "escalation_pct" = EXCLUDED."escalation_pct",
+                "blocker_pct" = EXCLUDED."blocker_pct",
+                "channels" = EXCLUDED."channels",
+                "targets" = EXCLUDED."targets",
+                "updated_at" = NOW()
+            """,
+            config_id,
+            activity_type,
+            activity_name,
+            str(current["description"]),
+            scope,
+            str(current["baseDoc"]),
+            float(current["baseSlaHours"]),
+            int(current["reminderPct"]),
+            int(current["warningPct"]),
+            int(current["escalationPct"]),
+            int(current["blockerPct"]),
+            json.dumps(current["channels"]),
+            json.dumps(current["targets"]),
+        )
+        saved.append(current)
+    return saved
+
+
 async def _ensure_validation_rule_override_table(prisma) -> None:
     await _execute_raw(prisma, 'CREATE SCHEMA IF NOT EXISTS "document_module"')
     await _execute_raw(
@@ -1681,6 +1938,45 @@ async def delete_admin_team(team_id: str, _user=Depends(get_admin_user)):
 @legacy_router.get("/activities")
 async def list_admin_activities(_user=Depends(get_admin_user)):
     return {"ok": True, "data": ACTIVITY_DEFINITIONS}
+
+
+@router.get("/activities/sla")
+@legacy_router.get("/activities/sla")
+async def list_admin_activity_sla(_user=Depends(get_admin_user)):
+    prisma = await get_prisma()
+    configs = await _list_escalation_configs(prisma)
+    by_activity_scope = {
+        f"{str(item.get('activityType') or '').lower()}::{str(item.get('scope') or '').lower()}": item
+        for item in configs
+    }
+    definitions = []
+    for activity in ACTIVITY_DEFINITIONS:
+        activity_code = str(activity.get("activityCode") or "")
+        sla_config = SLA_ACTIVITY_CONFIG_BY_CODE.get(activity_code)
+        if not sla_config:
+            continue
+        activity_type = sla_config["activityType"]
+        definitions.append({
+            "activityCode": activity_code,
+            "activityType": activity_type,
+            "activityName": sla_config["activityName"],
+            "description": sla_config["description"],
+            "baseDoc": sla_config["baseDoc"],
+            "scopeType": activity.get("scopeType"),
+            "scope": activity.get("scope"),
+            "defaults": {
+                "baseSlaHours": 24,
+                "reminderPct": 0,
+                "warningPct": 50,
+                "escalationPct": 75,
+                "blockerPct": 100,
+            },
+            "existing": [
+                item for key, item in by_activity_scope.items()
+                if key.startswith(f"{activity_type.lower()}::")
+            ],
+        })
+    return {"ok": True, "data": definitions}
 
 
 @router.get("/warehouses")
@@ -2622,10 +2918,16 @@ async def create_admin_role(request: RoleProfileRequest, _user=Depends(get_admin
     payload = _role_payload_from_request(request)
     if not payload["attributes"]["ewms.modules"]:
         return {"ok": False, "error": "Select at least one module for this role."}
+    activity_sla = _activity_sla_from_request(request)
+    _validate_role_activity_sla(request, activity_sla)
     try:
+        prisma = await get_prisma()
+        await _upsert_activity_sla_configs(prisma, activity_sla)
         keycloak_admin.create_realm_role(payload, skip_exists=False)
         role = keycloak_admin.get_realm_role(payload["name"])
         return {"ok": True, "data": _role_profile_from_keycloak(role, detail=True)}
+    except HTTPException:
+        raise
     except Exception as exc:
         return {"ok": False, "error": f"Could not create Keycloak role: {exc}"}
 
@@ -2644,10 +2946,16 @@ async def update_admin_role(role_id: str, request: RoleProfileRequest, _user=Dep
             payload = _role_payload_from_request(request, role_id=update_role_name)
         if not payload["attributes"]["ewms.modules"]:
             return {"ok": False, "error": "Select at least one module for this role."}
+        activity_sla = _activity_sla_from_request(request)
+        _validate_role_activity_sla(request, activity_sla)
+        prisma = await get_prisma()
+        await _upsert_activity_sla_configs(prisma, activity_sla)
         payload["id"] = existing.get("id")
         keycloak_admin.update_realm_role(update_role_name, payload)
         role = keycloak_admin.get_realm_role(update_role_name)
         return {"ok": True, "data": _role_profile_from_keycloak(role, detail=True)}
+    except HTTPException:
+        raise
     except Exception as exc:
         return {"ok": False, "error": f"Could not update Keycloak role: {exc}"}
 

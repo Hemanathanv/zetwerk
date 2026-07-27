@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
 import { Link, useLocation } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Ship, FileText, Package, Receipt,
   BarChart3, Settings, LogOut, ClipboardList,
@@ -11,6 +11,7 @@ import { useSidebar } from '@/contexts/SidebarContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionContext';
 import { useLocation as useWouterLocation } from 'wouter';
+import { getAuthToken } from '@/lib/api';
 
 type ChildNavItem = {
   icon: React.ElementType;
@@ -148,28 +149,22 @@ function SidebarSkeleton({ isOpen }: { isOpen: boolean }) {
 type BadgeData = { tasks: number; pendingDocuments: number; pendingTickets: number; unread: number };
 
 function useNavBadges(): BadgeData {
-  const [badges, setBadges] = useState<BadgeData>({ tasks: 0, pendingDocuments: 0, pendingTickets: 0, unread: 0 });
-
-  const fetchBadges = useCallback(async () => {
-    try {
-      const token = localStorage.getItem('ewms_token');
-      if (!token) return;
-      const res = await window.fetch('/api/navigation/badges', {
+  const query = useQuery({
+    queryKey: ['navigation', 'badges'],
+    queryFn: async () => {
+      const token = getAuthToken();
+      if (!token) return { tasks: 0, pendingDocuments: 0, pendingTickets: 0, unread: 0 };
+      const res = await fetch('/api/navigation/badges', {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      if (data.ok) setBadges(data.data);
-    } catch {
-    }
-  }, []);
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to load navigation badges');
+      return data.data as BadgeData;
+    },
+    refetchInterval: 60_000,
+  });
 
-  useEffect(() => {
-    fetchBadges();
-    const id = setInterval(fetchBadges, 60_000);
-    return () => clearInterval(id);
-  }, [fetchBadges]);
-
-  return badges;
+  return query.data ?? { tasks: 0, pendingDocuments: 0, pendingTickets: 0, unread: 0 };
 }
 
 export function Sidebar() {

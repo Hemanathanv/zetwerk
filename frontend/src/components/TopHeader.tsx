@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, Sun, Moon, LogOut, Upload, ChevronRight, Bell } from 'lucide-react';
+import { Search, Sun, Moon, LogOut, Upload, ChevronRight } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { Link, useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionContext';
+import { NotificationCenter } from '@/components/NotificationCenter';
 
 const SEGMENT_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -173,16 +174,7 @@ export function TopHeader() {
             </Button>
           )}
 
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-muted-foreground hover:text-foreground"
-            onClick={() => navigate('/notifications')}
-            data-testid="button-notifications"
-            title="Notifications"
-          >
-            <Bell className="w-4 h-4" />
-          </Button>
+          <NotificationCenter />
 
           {/* Dark mode toggle */}
           <Button

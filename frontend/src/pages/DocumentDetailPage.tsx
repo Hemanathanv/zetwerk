@@ -18,6 +18,9 @@ const TEAL = 'hsl(173 58% 39%)';
 const RED = 'hsl(0 84% 60%)';
 const GREEN = 'hsl(152 69% 31%)';
 const BLUE = 'hsl(221 83% 53%)';
+const UPLOAD_PROCESS_ROUTE = '/documents/upload';
+const PROCESSING_QUEUE_ROUTE = '/documents/upload/queue';
+const UPLOAD_PROCESS_RETURN_PATH_KEY = 'ewms-upload-process-return-path';
 
 type PipelineStageState = 'done' | 'current' | 'current-spin' | 'future';
 
@@ -616,7 +619,7 @@ function WarehouseMappingModal({
         <div style={{ padding: '16px 18px', borderBottom: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 750, color: FG }}>Warehouse Mapping</div>
-            <div style={{ marginTop: 4, fontSize: 12, color: MUTED }}>Map this CBP shipment to one warehouse from Settings.</div>
+            <div style={{ marginTop: 4, fontSize: 12, color: MUTED }}>Map this cargo release shipment to one warehouse from Settings.</div>
           </div>
           <button onClick={onClose} style={{ border: 'none', background: 'transparent', color: MUTED, cursor: 'pointer' }}><X size={18} /></button>
         </div>
@@ -693,6 +696,9 @@ export function DocumentDetailPage() {
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
   const [warehouseMappingShipmentId, setWarehouseMappingShipmentId] = useState<string | null>(null);
   const isApprovalRoute = currentPath.endsWith('/approve');
+  const uploadProcessBackPath = sessionStorage.getItem(UPLOAD_PROCESS_RETURN_PATH_KEY) === PROCESSING_QUEUE_ROUTE
+    ? PROCESSING_QUEUE_ROUTE
+    : UPLOAD_PROCESS_ROUTE;
 
   useEffect(() => {
     let cancelled = false;
@@ -856,7 +862,7 @@ export function DocumentDetailPage() {
     } catch (err) {
       toast({
         title: 'Could not save warehouse mapping',
-        description: getApiErrorMessage(err, 'Unable to map this CBP shipment to a warehouse.'),
+        description: getApiErrorMessage(err, 'Unable to map this cargo release shipment to a warehouse.'),
         variant: 'destructive',
       });
     } finally {
@@ -906,7 +912,7 @@ export function DocumentDetailPage() {
   if (error || !documentDetail) {
     return (
       <div style={{ padding: 24 }}>
-        <button onClick={() => navigate('/documents/upload')} style={{ marginBottom: 16, color: TEAL, background: 'transparent', border: `1px solid ${TEAL}50`, borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}>
+        <button onClick={() => navigate(uploadProcessBackPath)} style={{ marginBottom: 16, color: TEAL, background: 'transparent', border: `1px solid ${TEAL}50`, borderRadius: 8, padding: '8px 12px', cursor: 'pointer' }}>
           Back to Upload & Process
         </button>
         <div style={{ border: `1px solid ${RED}30`, borderRadius: 10, padding: 18, color: RED }}>
@@ -946,11 +952,11 @@ export function DocumentDetailPage() {
         />
       )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
-        <button onClick={() => navigate('/documents/upload')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: TEAL, background: 'transparent', border: `1px solid ${TEAL}50`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+        <button onClick={() => navigate(uploadProcessBackPath)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: TEAL, background: 'transparent', border: `1px solid ${TEAL}50`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
           <ArrowLeft size={14} /> Upload & Process
         </button>
         <button
-          onClick={() => navigate('/documents/upload')}
+          onClick={() => navigate(uploadProcessBackPath)}
           title="Close document"
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: MUTED, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
         >
@@ -986,7 +992,7 @@ export function DocumentDetailPage() {
             {containerMappingApproved ? 'Mapping approved' : 'Container Mapping'}
           </button>
         )}
-        {documentDetail.docType === 'ENTRY_SUMMARY' && extraction && (
+        {documentDetail.docType === 'US_CARGO_RELEASE_ORDER' && extraction && (
           <button
             onClick={() => void openWarehouseMapping()}
             style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: TEAL, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
