@@ -1953,7 +1953,7 @@ function ContainerMappingModal({
 
 export function UploadProcessPage() {
   const { templates, docTypes, loading: configLoading } = useConfig();
-  const { activitySla } = usePermissions();
+  const { activitySla, docTypes: permittedDocTypes } = usePermissions();
   const [location, navigate] = useLocation();
   const { toast }          = useToast();
   const queryClient = useQueryClient();
@@ -2236,6 +2236,35 @@ export function UploadProcessPage() {
     us_customs_release_order: 'US_CUSTOMS_RELEASE_ORDER',
     isf: 'ISF',
   };
+  const allowedUploadDocTypes = permittedDocTypes.upload ?? [];
+  const canUploadDocType = useCallback((docTypeCode: string): boolean => {
+    if (!allowedUploadDocTypes.length) return false;
+    return allowedUploadDocTypes.includes('*') || allowedUploadDocTypes.includes(docTypeCode);
+  }, [allowedUploadDocTypes]);
+  const uploadDocTypeForOption = useCallback((optionValue: string): string => (
+    backendDocTypes[optionValue]
+    ?? optionValue.trim().replace(/-/g, '_').toUpperCase()
+  ), []);
+  const permittedDocTypeGroups = useMemo(
+    () => docTypeGroups
+      .map((group) => ({
+        ...group,
+        options: group.options.filter((option) => canUploadDocType(uploadDocTypeForOption(option.value))),
+      }))
+      .filter((group) => group.options.length > 0),
+    [canUploadDocType, docTypeGroups, uploadDocTypeForOption],
+  );
+  const permittedDocTypeFlat = useMemo(
+    () => docTypeFlat.filter((option) => canUploadDocType(uploadDocTypeForOption(option.value))),
+    [canUploadDocType, docTypeFlat, uploadDocTypeForOption],
+  );
+  useEffect(() => {
+    if (docType === 'auto') return;
+    if (!canUploadDocType(uploadDocTypeForOption(docType))) {
+      setDocType('auto');
+      setClassification(null);
+    }
+  }, [canUploadDocType, docType, uploadDocTypeForOption]);
 
   const classifyDocumentMutation = useMutation({
     mutationFn: (form: FormData) => documentApi.classify(form),
@@ -2333,6 +2362,10 @@ export function UploadProcessPage() {
       toast({ title: 'Verify the document first', description: 'Run Auto-detect before approving the upload.' });
       return;
     }
+    if (!canUploadDocType(resolvedDocType)) {
+      toast({ title: 'Access denied for this doc', variant: 'destructive' });
+      return;
+    }
     setIsUploading(true);
     const form = new FormData();
     form.append('file', selectedFile);
@@ -2348,7 +2381,13 @@ export function UploadProcessPage() {
       chooseFile(null);
       setQueuePage(1);
     } catch (err) {
-      toast({ title: 'Upload failed', description: err instanceof Error ? err.message : 'Unable to upload right now.', variant: 'destructive' });
+      const message = err instanceof Error ? err.message : 'Unable to upload right now.';
+      const isAccessDenied = message.toLowerCase().includes('access denied') || message.toLowerCase().includes('permission denied');
+      toast({
+        title: isAccessDenied ? 'Access denied for this doc' : 'Upload failed',
+        description: isAccessDenied ? undefined : message,
+        variant: 'destructive',
+      });
     } finally {
       setIsUploading(false);
     }
@@ -2764,10 +2803,10 @@ export function UploadProcessPage() {
                       <option value="auto">Auto-detect</option>
                       {configLoading && !docTypeFlat.length
                         ? <option disabled value="">Loading…</option>
-                        : docTypeGroups.length > 0
+                        : permittedDocTypeGroups.length > 0
                           ? (() => {
                               const usedVals = new Set<string>();
-                              return docTypeGroups.map((g, gi) => {
+                              return permittedDocTypeGroups.map((g, gi) => {
                                 const opts = g.options.filter(o => {
                                   if (usedVals.has(o.value)) return false;
                                   usedVals.add(o.value);
@@ -2785,7 +2824,7 @@ export function UploadProcessPage() {
                             })()
                           : (() => {
                               const usedVals = new Set<string>();
-                              return docTypeFlat.filter(o => {
+                              return permittedDocTypeFlat.filter(o => {
                                 if (usedVals.has(o.value)) return false;
                                 usedVals.add(o.value);
                                 return true;

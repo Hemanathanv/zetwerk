@@ -21,7 +21,8 @@ from helpers.config import settings
 from documents_ocr.schema_loader import load_extraction_schema
 
 
-DEFAULT_CLASSIFIER_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+DEFAULT_CLASSIFIER_MODEL = "google/gemini-2.5-flash-lite"
+DEFAULT_CLASSIFIER_URL = "https://openrouter.ai/api/v1/chat/completions"
 LOCAL_POPPLER_BIN = Path(__file__).resolve().parents[1] / "poppler" / "Library" / "bin"
 LINUX_POPPLER_BIN = Path("/usr/bin")
 MAX_FIELD_HINTS = 7
@@ -32,6 +33,7 @@ MIN_CLASSIFICATION_GAP = 0.5
 CLASSIFIER_IMAGE_DPI = 150
 CLASSIFIER_IMAGE_MAX_EDGE = 1400
 CLASSIFIER_IMAGE_JPEG_QUALITY = 55
+CLASSIFIER_MAX_OUTPUT_TOKENS = 900
 
 
 def _resolve_poppler_path() -> str | None:
@@ -768,9 +770,24 @@ def _normalize_gemini_url(raw_url: str, model: str) -> str:
     return f"{normalized}/v1beta/models/{model}:generateContent"
 
 
+def _openrouter_classifier_model(raw_model: str) -> str:
+    model = (raw_model or "").strip()
+    if not model or model == (settings.OPENROUTER_MODEL_PRO or "").strip():
+        return DEFAULT_CLASSIFIER_MODEL
+    if model.startswith("gemini-"):
+        return DEFAULT_CLASSIFIER_MODEL
+    return model
+
+
 def _classifier_config() -> tuple[str, str, str, str]:
+    openrouter_api_key = (settings.OPENROUTER_API_KEY or "").strip()
+    if openrouter_api_key:
+        model = _openrouter_classifier_model(settings.DOC_CLASSIFIER_MODEL)
+        raw_url = (settings.OPENROUTER_API_URL or "").strip() or DEFAULT_CLASSIFIER_URL
+        return openrouter_api_key, _normalize_chat_completions_url(raw_url), model, "openai-compatible"
+
     api_key = (settings.DOC_CLASSIFIER_API_KEY or "").strip()
-    model = (settings.DOC_CLASSIFIER_MODEL or "").strip()
+    model = (settings.DOC_CLASSIFIER_MODEL or "").strip() or DEFAULT_CLASSIFIER_MODEL
     raw_url = (settings.DOC_CLASSIFIER_API_URL or "").strip() or DEFAULT_CLASSIFIER_URL
     provider = "gemini" if _is_native_gemini_url(raw_url) else "openai-compatible"
     api_url = (
@@ -779,7 +796,7 @@ def _classifier_config() -> tuple[str, str, str, str]:
         else _normalize_chat_completions_url(raw_url)
     )
     if not api_key:
-        raise RuntimeError("Missing DOC_CLASSIFIER_API_KEY")
+        raise RuntimeError("Missing OPENROUTER_API_KEY or DOC_CLASSIFIER_API_KEY")
     if not model:
         raise RuntimeError("Missing DOC_CLASSIFIER_MODEL")
     return api_key, api_url, model, provider
@@ -1701,6 +1718,7 @@ def classify_document_bytes(*, file_bytes: bytes, file_name: str, content_type: 
         "If the evidence is ambiguous, return confidence below 0.85.\n\n"
         "Keep neighboring labels separate. Include invoice/form numbers, parties, shipment references, airway/bill references, "
         "charge descriptions, tax labels, packing/weight labels, customs identifiers, and warehouse/delivery labels only when visible. "
+        "Do not extract tables, totals, line items, or full OCR content; this is only document type classification. "
         "Do not include candidate names inside visibleText, visibleLabels, or visiblePhrases unless those words are printed on the page."
     )
     content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
@@ -1719,6 +1737,7 @@ def classify_document_bytes(*, file_bytes: bytes, file_name: str, content_type: 
             "contents": [{"role": "user", "parts": _gemini_content_parts(content)}],
             "generationConfig": {
                 "temperature": 0,
+                "maxOutputTokens": CLASSIFIER_MAX_OUTPUT_TOKENS,
                 "responseMimeType": "application/json",
             },
         }
@@ -1728,9 +1747,14 @@ def classify_document_bytes(*, file_bytes: bytes, file_name: str, content_type: 
             "model": model,
             "messages": [{"role": "user", "content": content}],
             "temperature": 0,
+            "max_tokens": CLASSIFIER_MAX_OUTPUT_TOKENS,
             "response_format": {"type": "json_object"},
         }
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "X-Title": "doc auto detect",
+        }
     req = request.Request(
         url=api_url,
         data=json.dumps(payload).encode("utf-8"),

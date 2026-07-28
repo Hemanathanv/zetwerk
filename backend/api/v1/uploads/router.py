@@ -309,7 +309,7 @@ def _require_doc_type_action(user: Any, action: str, doc_type: str) -> None:
     if not can_do_doc_type_action(user, action, doc_type):
         raise HTTPException(
             status_code=403,
-            detail=f"Permission denied: {action} is not allowed for document type {doc_type}",
+            detail="Access denied for this doc",
         )
 
 

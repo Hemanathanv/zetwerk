@@ -46,8 +46,8 @@ def _format_detection_error(exc: Exception) -> str:
         )
     if "could not read text or render a preview" in lower:
         return message
-    if "missing doc_classifier_api_key" in lower or "missing doc_classifier_model" in lower:
-        return "Document classification is not configured. Set DOC_CLASSIFIER_API_KEY and DOC_CLASSIFIER_MODEL."
+    if "missing openrouter_api_key" in lower or "missing doc_classifier_api_key" in lower or "missing doc_classifier_model" in lower:
+        return "Document classification is not configured. Set OPENROUTER_API_KEY and DOC_CLASSIFIER_MODEL."
     if "provider error" in lower:
         return "Document classification provider rejected the request. Try again or select the document type manually."
     return f"Document classification failed: {message[:300]}"

@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     OCR_GEMINI_RETRY_BACKOFF_SECONDS: float = 2.0
     DOC_CLASSIFIER_API_KEY: str = ""
     DOC_CLASSIFIER_API_URL: str = ""
-    DOC_CLASSIFIER_MODEL: str = ""
+    DOC_CLASSIFIER_MODEL: str = "google/gemini-2.5-flash-lite"
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_API_URL: str = "https://openrouter.ai/api/v1/chat/completions"
     OPENROUTER_MODEL_PRO: str = ""
