@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Final
 
 
@@ -140,6 +141,11 @@ def _attr_values(attributes: dict | None, key: str) -> list[str]:
     return [str(raw)] if str(raw) else []
 
 
+def _attr_value(attributes: dict | None, key: str, default: str = "") -> str:
+    values = _attr_values(attributes, key)
+    return values[0] if values else default
+
+
 def _normalize_document_scope(values: list[str]) -> set[str]:
     scope: set[str] = set()
     for value in values:
@@ -154,6 +160,45 @@ def role_document_scope_from_attrs(attributes: dict | None) -> set[str] | None:
     if not attributes or "ewms.documentScope" not in attributes:
         return None
     return _normalize_document_scope(_attr_values(attributes, "ewms.documentScope"))
+
+
+def role_doc_type_scopes_from_attrs(attributes: dict | None) -> dict[str, set[str]]:
+    raw = _attr_value(attributes, "ewms.docTypeScopes", "")
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    scopes: dict[str, set[str]] = {}
+    for activity_code, values in parsed.items():
+        if isinstance(values, list):
+            scopes[str(activity_code)] = _normalize_document_scope([str(item) for item in values])
+    return scopes
+
+
+DOC_TYPE_ACTION_ACTIVITY_CODES: Final[dict[str, tuple[str, ...]]] = {
+    "upload": ("documents.upload",),
+    "approve_extraction": ("documents.approve_draft", "documents.edit_extracted"),
+    "review_generation": (
+        "documents.generate_draft",
+        "documents.approve_generated_document",
+        "documents.approve_draft",
+    ),
+    "view": ("documents.view", "documents.view_extracted", "documents.download_export"),
+}
+
+
+def _scoped_doc_types_for_action(attributes: dict | None, action: str) -> set[str]:
+    scopes = role_doc_type_scopes_from_attrs(attributes)
+    if not scopes:
+        return set()
+    scoped: set[str] = set()
+    for activity_code in DOC_TYPE_ACTION_ACTIVITY_CODES.get(action, (action,)):
+        scoped.update(scopes.get(activity_code, set()))
+    return scoped
 
 
 def can_access_all_documents(user: Any) -> bool:
@@ -171,19 +216,45 @@ def document_type_scope(user: Any) -> set[str] | None:
 
 
 def doc_type_permissions_for_role(role_name: str, attributes: dict | None = None) -> dict[str, list[str]]:
-    explicit_scope = role_document_scope_from_attrs(attributes)
-    if explicit_scope is not None:
+    explicit_document_scope = role_document_scope_from_attrs(attributes)
+    explicit_activity_scopes = role_doc_type_scopes_from_attrs(attributes)
+    if explicit_document_scope is not None or explicit_activity_scopes:
         return {
-            "upload": sorted(explicit_scope),
-            "approve_extraction": sorted(explicit_scope),
-            "review_generation": sorted(explicit_scope),
-            "view": sorted(explicit_scope),
+            "upload": sorted(_scoped_doc_types_for_action(attributes, "upload")),
+            "approve_extraction": sorted(_scoped_doc_types_for_action(attributes, "approve_extraction")),
+            "review_generation": sorted(_scoped_doc_types_for_action(attributes, "review_generation")),
+            "view": sorted(explicit_document_scope or _scoped_doc_types_for_action(attributes, "view")),
         }
     actions = ROLE_DOC_TYPE_ACTIONS.get(normalize_role_name(role_name), {})
     return {
         action: sorted(values)
         for action, values in actions.items()
     }
+
+
+def doc_type_action_scope(user: Any, action: str) -> set[str] | None:
+    attrs = getattr(user, "keycloakRoleAttributes", None)
+    explicit_document_scope = role_document_scope_from_attrs(attrs)
+    explicit_activity_scopes = role_doc_type_scopes_from_attrs(attrs)
+    if explicit_document_scope is not None or explicit_activity_scopes:
+        if action == "view":
+            return explicit_document_scope or _scoped_doc_types_for_action(attrs, action)
+        return _scoped_doc_types_for_action(attrs, action)
+    actions = ROLE_DOC_TYPE_ACTIONS.get(access_role(user), {})
+    scope = actions.get(action)
+    if scope is None:
+        return set()
+    if "*" in scope:
+        return None
+    return set(scope)
+
+
+def can_do_doc_type_action(user: Any, action: str, doc_type: Any) -> bool:
+    normalized_doc_type = str(doc_type or "").strip().upper().replace("-", "_").replace(" ", "_")
+    if not normalized_doc_type:
+        return False
+    scope = doc_type_action_scope(user, action)
+    return scope is None or normalized_doc_type in scope
 
 
 def has_role_document_scope(user: Any) -> bool:
@@ -221,8 +292,15 @@ def document_sql_where(alias: str, user: Any, *, first_param: int = 1) -> tuple[
 
 def document_module_sql_where(alias: str, user: Any, *, first_param: int = 1) -> tuple[str, list[Any], int]:
     quoted_alias = alias.strip()
-    if has_role_document_scope(user):
+    if can_access_all_documents(user):
         return f'{quoted_alias}."is_deleted" = false', [], first_param
+    scoped_types = document_type_scope(user)
+    if scoped_types is not None:
+        return (
+            f'{quoted_alias}."is_deleted" = false AND {quoted_alias}."doc_type"::text = ANY(${first_param}::text[])',
+            [sorted(scoped_types)],
+            first_param + 1,
+        )
     return (
         f'{quoted_alias}."uploaded_by"::text = ${first_param}::text AND {quoted_alias}."is_deleted" = false',
         [user_id(user)],

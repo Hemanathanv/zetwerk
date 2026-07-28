@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { apiGet, getAuthToken } from '@/lib/api';
 import { documentApi } from '@/auth/api';
 import { useConfig } from '@/contexts/ConfigContext';
+import { usePermissions } from '@/contexts/PermissionContext';
 import { buildDocTypeOptions } from '@/utils/docTypeDropdown';
 import { useLocation } from 'wouter';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -109,7 +110,14 @@ type DraftPayload = {
 
 // ─── Live clock hook (ticks every 60 s so SLA badges update without reload) ───
 function useNow(): number {
-  return Date.now();
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  return now;
 }
 
 // ─── Pipeline dots ────────────────────────────────────────────────────────────
@@ -606,11 +614,11 @@ function QueueCardEl({ card, onApproveClick, onStopClick, onRetryClick, onCardCl
             <div style={{ fontSize: 14, color: MUTED, marginTop: 4 }}>{card.timestamp}</div>
             {/* SLA urgency badge — shown when approval is overdue */}
             {false && slaHours != null && needsReviewApproval(card) && card.createdAt && (() => {
-              const elapsed = (now - new Date(card.createdAt).getTime()) / 3600000;
-              if (elapsed <= slaHours) {
+              const elapsed = (now - new Date(card.createdAt!).getTime()) / 3600000;
+              if (elapsed <= slaHours!) {
                 // Within SLA — show warning chip only when < 25% of window remains
-                const remainingH = slaHours - elapsed;
-                if (remainingH >= slaHours * 0.25) return null;
+                const remainingH = slaHours! - elapsed;
+                if (remainingH >= slaHours! * 0.25) return null;
                 const totalMins = Math.round(remainingH * 60);
                 const hPart = Math.floor(totalMins / 60);
                 const mPart = totalMins % 60;
@@ -628,8 +636,8 @@ function QueueCardEl({ card, onApproveClick, onStopClick, onRetryClick, onCardCl
                   </span>
                 );
               }
-              const isBreached = elapsed > slaHours * 1.5;
-              const overdueH = elapsed - slaHours;
+              const isBreached = elapsed > slaHours! * 1.5;
+              const overdueH = elapsed - slaHours!;
               const days = Math.floor(overdueH / 24);
               const hrs = Math.floor(overdueH % 24);
               const timeStr = days > 0 ? (hrs > 0 ? `${days}d ${hrs}h` : `${days}d`) : `${Math.max(1, hrs)}h`;
@@ -1945,6 +1953,7 @@ function ContainerMappingModal({
 
 export function UploadProcessPage() {
   const { templates, docTypes, loading: configLoading } = useConfig();
+  const { activitySla } = usePermissions();
   const [location, navigate] = useLocation();
   const { toast }          = useToast();
   const queryClient = useQueryClient();
@@ -2169,7 +2178,28 @@ export function UploadProcessPage() {
     staleTime: 5 * 60_000,
     refetchOnWindowFocus: false,
   });
-  const escalationConfigs = escalationQuery.data ?? [];
+  const roleEscalationConfigs = useMemo<EscalationConfig[]>(
+    () => (activitySla ?? [])
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+      .map((item) => ({
+        id: `role-${String(item.activityCode ?? item.activityType ?? '')}-${String(item.scope ?? '')}`,
+        activityType: String(item.activityType ?? ''),
+        activityName: item.activityName ? String(item.activityName) : undefined,
+        scope: item.scope ? String(item.scope) : undefined,
+        baseDoc: item.baseDoc ? String(item.baseDoc) : undefined,
+        baseSlaHours: Number(item.baseSlaHours ?? 0),
+        reminderPct: Number(item.reminderPct ?? 0),
+        warningPct: Number(item.warningPct ?? 50),
+        escalationPct: Number(item.escalationPct ?? 75),
+        blockerPct: Number(item.blockerPct ?? 100),
+      }))
+      .filter((item) => item.activityType && Number.isFinite(Number(item.baseSlaHours)) && Number(item.baseSlaHours) > 0),
+    [activitySla],
+  );
+  const escalationConfigs = useMemo(
+    () => [...roleEscalationConfigs, ...(escalationQuery.data ?? [])],
+    [roleEscalationConfigs, escalationQuery.data],
+  );
 
   const ocrHealthQuery = useQuery({
     queryKey: ['upload-process', 'ocr-health'],

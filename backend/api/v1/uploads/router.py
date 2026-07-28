@@ -39,6 +39,7 @@ from documents_ocr.Bill_of_lading.container_mapping import (
 from helpers.config import settings
 from helpers.dependencies import get_current_user
 from helpers.rbac_data_access import (
+    can_do_doc_type_action,
     document_module_sql_where,
     document_prisma_where,
     document_sql_where,
@@ -302,6 +303,14 @@ def _safe_download_url(bucket: str, object_key: str) -> str | None:
         return get_download_url(bucket, object_key)
     except Exception:
         return None
+
+
+def _require_doc_type_action(user: Any, action: str, doc_type: str) -> None:
+    if not can_do_doc_type_action(user, action, doc_type):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Permission denied: {action} is not allowed for document type {doc_type}",
+        )
 
 
 DOC_TYPE_TO_EXTRACTION_RELATION: Final[dict[str, str]] = {
@@ -937,6 +946,7 @@ async def upload_document(
     normalized_doc_type = str(docType or "").strip().upper()
     if normalized_doc_type not in DOC_TYPE_VALUES:
         raise HTTPException(status_code=400, detail=f"Unsupported docType: {docType!r}")
+    _require_doc_type_action(user, "upload", normalized_doc_type)
 
     default_bucket_from_doc_type = _bucket_slug_from_doc_type(normalized_doc_type)
     raw_bucket = bucket or default_bucket_from_doc_type or DEFAULT_BUCKET or settings.S3_DEFAULT_BUCKET
@@ -1470,6 +1480,9 @@ async def list_approved_documents_for_shipments(user=Depends(get_current_user)):
     for row in generated_rows:
         payload = row.get("rendered_payload") or {}
         payload = payload if isinstance(payload, dict) else {}
+        generated_type = str(row.get("generated_doc_type") or "")
+        if not can_do_doc_type_action(user, "view", generated_type):
+            continue
         flattened_fields: dict[str, Any] = {}
         for section in payload.get("sections", []):
             if not isinstance(section, dict):
@@ -1482,7 +1495,6 @@ async def list_approved_documents_for_shipments(user=Depends(get_current_user)):
             **flattened_fields,
             "sourceDocumentIds": row.get("source_document_ids") or {},
         }
-        generated_type = str(row.get("generated_doc_type") or "")
         display_name = str(payload.get("displayName") or generated_type.replace("_", " ").title())
         documents.append({
             "id": str(row["id"]),
@@ -1633,6 +1645,7 @@ async def update_document_extraction(
         raise HTTPException(status_code=404, detail="Document not found")
 
     doc_type = str(document.docType)
+    _require_doc_type_action(user, "approve_extraction", doc_type)
     parent_model = DOC_TYPE_TO_PRISMA_PARENT_MODEL.get(doc_type)
     accessor_name = DOC_TYPE_TO_EXTRACTION_ACCESSOR.get(doc_type)
     if not parent_model or not accessor_name:
@@ -1711,6 +1724,7 @@ async def update_bol_container_mapping(
     user=Depends(get_current_user),
     _authz=Depends(require_activity("documents.approve_draft")),
 ):
+    _require_doc_type_action(user, "approve_extraction", "BILL_OF_LADING")
     try:
         return await save_container_mapping(
             prisma=await get_prisma(),
@@ -1974,6 +1988,7 @@ async def update_document_warehouse_mapping(
     document = await prisma.document.find_first(where=where)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
+    _require_doc_type_action(user, "approve_extraction", str(document.docType))
     if str(document.docType) != "US_CARGO_RELEASE_ORDER":
         raise HTTPException(status_code=400, detail="Warehouse mapping is only available for US Cargo Release Order")
 
@@ -2110,6 +2125,7 @@ async def reupload_document_for_validation(
             raise HTTPException(status_code=400, detail=f"Invalid PDF file: {exc}") from exc
 
     doc_type = str(document.docType)
+    _require_doc_type_action(user, "upload", doc_type)
     target_bucket = str(document.bucket)
     target_module = _bucket_slug_from_doc_type(doc_type)
     upload_time = datetime.now()
@@ -3145,6 +3161,7 @@ async def approve_document_extraction(
         raise HTTPException(status_code=404, detail="Document not found")
 
     doc_type = str(document.docType)
+    _require_doc_type_action(user, "approve_extraction", doc_type)
     accessor = DOC_TYPE_TO_EXTRACTION_ACCESSOR.get(doc_type)
     if not accessor:
         raise HTTPException(status_code=400, detail=f"Approval is not configured for {doc_type}")

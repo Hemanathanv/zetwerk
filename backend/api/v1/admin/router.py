@@ -1107,6 +1107,14 @@ def _normalize_doc_type_list(values: list[str] | None) -> list[str]:
     return sorted({str(item).strip().upper() for item in values or [] if str(item).strip()})
 
 
+def _doc_type_display_name(type_code: str) -> str:
+    normalized = str(type_code or "").strip().upper()
+    for item in DOC_TYPE_REGISTRY:
+        if str(item.get("typeCode") or "").upper() == normalized:
+            return str(item.get("displayName") or normalized)
+    return normalized
+
+
 def _parse_doc_type_scopes(attrs: dict | None) -> dict[str, list[str]]:
     raw = _attr_value(attrs, "ewms.docTypeScopes", "")
     if not raw:
@@ -1202,9 +1210,12 @@ def _validate_role_activity_sla(request: RoleProfileRequest, activity_sla: list[
             fallback_scope = str(activity.get("scope") or sla_config.get("baseDoc") or "Default").strip()
             scopes = [fallback_scope]
         for scope in scopes:
-            key = (activity_code, str(scope).strip().lower())
-            row = rows_by_key.get(key)
-            label = f"{sla_config['activityName']} - {scope}"
+            scope_text = str(scope).strip()
+            scope_candidates = {scope_text.lower()}
+            if activity.get("scopeType") == "docType":
+                scope_candidates.add(_doc_type_display_name(scope_text).strip().lower())
+            row = next((rows_by_key.get((activity_code, candidate)) for candidate in scope_candidates if rows_by_key.get((activity_code, candidate))), None)
+            label = f"{sla_config['activityName']} - {_doc_type_display_name(scope_text) if activity.get('scopeType') == 'docType' else scope_text}"
             if not row:
                 missing.append(label)
                 continue

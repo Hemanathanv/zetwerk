@@ -600,6 +600,40 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
     });
   }, [requiredSlaRows, escalationConfigs]);
 
+  const roleSaveBlockedReason = useMemo(() => {
+    if (!roleName.trim()) return 'Role name is required';
+    if (!allowedLevels.length) return 'Select at least one level';
+    if (!enabledModules.length) return 'Enable at least one module';
+    const selectedDocScoped = activities.filter((act) => selectedActs.has(act.activityCode) && act.scopeType === 'docType');
+    const missingDocScope = selectedDocScoped.find((act) => !(docTypeScopes[act.activityCode] ?? []).length);
+    if (missingDocScope) return `Select documents for ${missingDocScope.name}`;
+    const missingSla = requiredSlaRows.find((row) => positiveHours(slaHoursByKey[row.key]) <= 0);
+    if (missingSla) return `Enter SLA for ${missingSla.activityName} - ${missingSla.scopeLabel}`;
+    const missingBaseDoc = requiredSlaRows.find((row) => !String(slaBaseDocByKey[row.key] ?? '').trim());
+    if (missingBaseDoc) return `Select base doc for ${missingBaseDoc.activityName} - ${missingBaseDoc.scopeLabel}`;
+    const invalidThreshold = requiredSlaRows.find((row) => {
+      const t = slaThresholdsByKey[row.key];
+      if (!t) return true;
+      return [t.reminderPct, t.warningPct, t.escalationPct, t.blockerPct].some((value) => {
+        const n = Number(value);
+        return !Number.isFinite(n) || n < 0 || n > 100;
+      });
+    });
+    if (invalidThreshold) return `Enter 0-100 thresholds for ${invalidThreshold.activityName} - ${invalidThreshold.scopeLabel}`;
+    return null;
+  }, [
+    roleName,
+    allowedLevels,
+    enabledModules,
+    activities,
+    selectedActs,
+    docTypeScopes,
+    requiredSlaRows,
+    slaHoursByKey,
+    slaBaseDocByKey,
+    slaThresholdsByKey,
+  ]);
+
   function toggleModule(code: string) {
     setEnabledModules((p) => p.includes(code) ? p.filter((m) => m !== code) : [...p, code]);
   }
@@ -642,6 +676,10 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
   }
 
   async function handleSave() {
+    if (roleSaveBlockedReason) {
+      toast({ title: roleSaveBlockedReason, variant: 'destructive' });
+      return;
+    }
     if (!roleName.trim()) { toast({ title: 'Role name is required', variant: 'destructive' }); return; }
     if (!allowedLevels.length) { toast({ title: 'Select at least one level', variant: 'destructive' }); return; }
     if (!enabledModules.length) { toast({ title: 'Enable at least one module', variant: 'destructive' }); return; }
@@ -737,7 +775,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
           {selectedCount}/{activities.length} activities
         </span>
         <Button variant="outline" size="sm" onClick={onBack}>Cancel</Button>
-        <Button size="sm" disabled={saving} onClick={handleSave} style={{ minWidth: 110 }}>
+        <Button size="sm" disabled={saving || !!roleSaveBlockedReason} onClick={handleSave} title={roleSaveBlockedReason ?? undefined} style={{ minWidth: 110 }}>
           {saving ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite', marginRight: 6 }} />Saving…</> : 'Save changes'}
         </Button>
       </div>

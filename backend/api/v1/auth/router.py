@@ -115,12 +115,23 @@ def _permissions_from_role(role: dict) -> dict:
             }
     except Exception:
         activity_doc_types = {}
+    try:
+        parsed_sla = json.loads(_attr_value(attrs, "ewms.activitySla", "[]"))
+        activity_sla = [
+            item for item in parsed_sla
+            if isinstance(item, dict)
+            and str(item.get("activityCode") or "").strip()
+            and str(item.get("activityType") or "").strip()
+        ] if isinstance(parsed_sla, list) else []
+    except Exception:
+        activity_sla = []
     return {
         "modules": modules,
         "gates": [],
         "docTypes": doc_type_permissions_for_role(role_name, attrs),
         "documentScope": sorted(role_document_scope_from_attrs(attrs) or []),
         "activityDocTypes": activity_doc_types,
+        "activitySla": activity_sla,
         "ticketCategories": [],
         "activities": activities,
         "dataScope": _normalize_data_scope(_attr_value(attrs, "ewms.dataScope", "TEAM")),

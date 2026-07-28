@@ -15,11 +15,12 @@ export interface RbacPermissions {
   docTypes: Record<string, string[]>;
   documentScope?: string[];
   activityDocTypes?: Record<string, string[]>;
+  activitySla?: Array<Record<string, unknown>>;
   ticketCategories: string[];
   activities: string[];
   dataScope: string;
   capabilities?: Record<string, boolean>;
-  role: { id: string; name: string; category: string; color: string };
+  role: { id: string; name: string; category: string; color: string; systemCode?: string };
 }
 
 interface PermissionContextType extends RbacPermissions {
@@ -33,6 +34,7 @@ const defaultState: PermissionContextType = {
   docTypes: {},
   documentScope: [],
   activityDocTypes: {},
+  activitySla: [],
   ticketCategories: [],
   activities: [],
   dataScope: 'TAGGED',
@@ -172,7 +174,8 @@ export function useCanReviewGeneration(docType: string): boolean {
 export function useCanViewDocType(docType: string): boolean {
   const { docTypes } = usePermissions();
   const viewList = docTypes.view;
-  if (!viewList || viewList.length === 0) return true;
+  if (!viewList) return true;
+  if (viewList.length === 0) return false;
   return viewList.includes('*') || viewList.includes(docType);
 }
 
@@ -184,7 +187,8 @@ export function useDocTypePermissions(): { canDo: (docType: string, action: DocT
   const canDo = useCallback((docType: string, action: DocTypeAction): boolean => {
     if (action === 'view') {
       const viewList = docTypes.view;
-      if (!viewList || viewList.length === 0) return true;
+      if (!viewList) return true;
+      if (viewList.length === 0) return false;
       return viewList.includes('*') || viewList.includes(docType);
     }
     const allowed = docTypes[action] ?? [];
