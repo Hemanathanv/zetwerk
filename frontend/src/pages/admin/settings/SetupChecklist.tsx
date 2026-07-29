@@ -408,7 +408,6 @@ export default function SetupChecklist({
       st(checks.orgProfile),
       st(checks.userCount > 0),
       st(checks.rolesConfigured, checks.roleWarnings.length > 0),
-      st(checks.teamCount > 0),
       st(checks.templateCount > 0),
       st(checks.docTypeCount > 0),
       st(checks.validationCount > 0),
@@ -461,13 +460,6 @@ export default function SetupChecklist({
             ? `${checks.roleWarnings.length} profile${checks.roleWarnings.length > 1 ? 's' : ''} need review`
             : checks.rolesConfigured ? 'Configured' : 'Not configured',
           warnings: checks.roleWarnings,
-        },
-        {
-          key: 'teams', label: 'Teams', section: 'team',
-          classification: 'client_specific',
-          defaultNote: "Your team structure (e.g. 'India Ops', 'US Logistics'). Used for data scoping.",
-          status: st(checks.teamCount > 0),
-          statusDetail: checks.teamCount > 0 ? `${checks.teamCount} team${checks.teamCount !== 1 ? 's' : ''}` : 'None defined',
         },
       ],
     },

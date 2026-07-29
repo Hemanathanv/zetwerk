@@ -5,6 +5,7 @@ export type DocType =
   | "BILL_OF_LADING"
   | "PACKING_LIST"
   | "ENTRY_SUMMARY"
+  | "DRAFT_CBP_FORM_7501_BROKER"
   | "OCEAN_FREIGHT"
   | "FREIGHT_FORWARDER_BILL"
   | "CUSTOMER_BROKER_BILL"
@@ -25,6 +26,7 @@ export const DOC_TYPE_OPTIONS: Array<{ value: DocType; label: string }> = [
   { value: "BILL_OF_LADING", label: "Bill Of Lading" },
   { value: "PACKING_LIST", label: "Packing List" },
   { value: "ENTRY_SUMMARY", label: "CBP FORM 7501" },
+  { value: "DRAFT_CBP_FORM_7501_BROKER", label: "Draft CBP FORM 7501_Broker" },
   { value: "OCEAN_FREIGHT", label: "Ocean Freight" },
   { value: "FREIGHT_FORWARDER_BILL", label: "Freight Forwarder Bill" },
   { value: "CUSTOMER_BROKER_BILL", label: "Customs Broker Bill" },

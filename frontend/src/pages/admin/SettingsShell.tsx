@@ -16,6 +16,7 @@ import { AdminAuditPage } from './AdminAuditPage';
 import { AdminCompliancePage } from './AdminCompliancePage';
 import { AdminWarehousesPage } from './AdminWarehousesPage';
 import { SafeCubeSettingsCard } from '../settings/SafeCubeSettingsCard';
+import { useToast } from '@/hooks/use-toast';
 
 const T = {
   bg:          'hsl(var(--background))',
@@ -196,6 +197,7 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
   const [savedAt] = useState<Date>(new Date());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { user } = useAuth();
+  const { toast } = useToast();
   const orgName = (user as any)?.org?.name as string | undefined;
 
   const activeLabel = sections.find(s => s.id === activeSection)?.label ?? 'Settings';
@@ -396,13 +398,14 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
               </button>
             )}
             <button
+              onClick={() => toast({ title: 'Organisation settings saved' })}
               style={{
                 padding: '8px 20px', fontSize: 14.5, fontWeight: 600,
                 background: T.teal, color: '#fff', border: 'none',
-                borderRadius: 8, cursor: 'default', opacity: 0.85,
+                borderRadius: 8, cursor: 'pointer', opacity: 1,
                 fontFamily: "'Instrument Sans', sans-serif",
               }}
-              title="No unsaved changes"
+              title="Save organisation settings"
             >
               Save Changes
             </button>

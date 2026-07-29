@@ -100,6 +100,14 @@ def _notification_type_for_task(task: dict[str, Any]) -> str:
     return "info"
 
 
+def _notification_recipient_clause(alias: str = "n") -> str:
+    prefix = f'{alias}.' if alias else ""
+    return (
+        f'({prefix}"recipient_user_id" = $1 '
+        f'OR ({prefix}"recipient_user_id" IS NULL AND {prefix}"recipient_role" = $2))'
+    )
+
+
 def _sla_activity_type(activity_code: str | None) -> str:
     value = str(activity_code or "").strip()
     return ACTIVITY_CODE_TO_SLA_TYPE.get(value, value or "TSK-001")
@@ -189,7 +197,16 @@ async def _insert_notification(
         VALUES (
           $1::uuid, $2, $3, $4, $5, $6, $7, $8::uuid, $9, $10, $11::jsonb
         )
-        ON CONFLICT ("dedupe_key") DO NOTHING
+        ON CONFLICT ("dedupe_key") DO UPDATE SET
+          "type" = EXCLUDED."type",
+          "title" = EXCLUDED."title",
+          "message" = EXCLUDED."message",
+          "link" = EXCLUDED."link",
+          "recipient_user_id" = EXCLUDED."recipient_user_id",
+          "recipient_role" = EXCLUDED."recipient_role",
+          "task_id" = EXCLUDED."task_id",
+          "source" = EXCLUDED."source",
+          "metadata" = EXCLUDED."metadata"
         """,
         str(uuid4()),
         _notification_type_for_task(task),
@@ -240,7 +257,7 @@ async def _sync_ocr_validation_tasks(prisma) -> None:
           'resolve_validation_failure',
           CASE WHEN vt."status" = 'RESOLVED' THEN 'COMPLETED' ELSE 'ASSIGNED' END,
           CASE WHEN UPPER(vt."alert_level") = 'BLOCKER' THEN 'BLOCKER' ELSE 'WARNING' END,
-          COALESCE(NULLIF(vt."assigned_role", ''), 'ADMIN'),
+          COALESCE(NULLIF(vt."assigned_role", ''), $1),
           CASE
             WHEN vt."shipment_id" ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
             THEN vt."shipment_id"::uuid
@@ -277,6 +294,7 @@ async def _sync_ocr_validation_tasks(prisma) -> None:
           "metadata" = EXCLUDED."metadata",
           "updated_at" = EXCLUDED."updated_at"
         """,
+        DEFAULT_ROLE_ID,
     )
     task_rows = await _query_raw(
         prisma,
@@ -291,24 +309,14 @@ async def _sync_ocr_validation_tasks(prisma) -> None:
         list(OPEN_STATUSES),
     )
     for task in task_rows:
-        notification_task = {**task, "assigned_role": None, "assigned_user_id": None}
         await _insert_notification(
             prisma,
-            task=notification_task,
+            task=task,
             title=f"OCR validation task: {task.get('title')}",
             message=task.get("description") or "OCR validation found a mismatch that needs review.",
             source="ocr_validation_task",
             dedupe_key=f"notification:{task.get('source_key')}",
         )
-    await _execute_raw(
-        prisma,
-        """
-        UPDATE "public"."notifications"
-        SET "recipient_role" = NULL,
-            "recipient_user_id" = NULL
-        WHERE "source" = 'ocr_validation_task'
-        """,
-    )
 
 
 async def _sync_task_reminders(prisma) -> None:
@@ -899,7 +907,7 @@ async def list_notifications(
     await _sync_task_reminders(prisma)
     role = _user_role(user)
     user_id = _user_id(user)
-    clauses = ['(n."recipient_user_id" = $1 OR (n."recipient_user_id" IS NULL AND (n."recipient_role" = $2 OR n."recipient_role" IS NULL)))']
+    clauses = [_notification_recipient_clause("n")]
     params: list[Any] = [user_id, role]
     if type:
         params.append(type)
@@ -933,22 +941,21 @@ async def list_notifications(
     )
     unread_rows = await _query_raw(
         prisma,
-        """
+        f"""
         SELECT COUNT(*) AS unread_count
         FROM "public"."notifications" n
         WHERE n."read" = FALSE
-          AND (n."recipient_user_id" = $1 OR (n."recipient_user_id" IS NULL AND (n."recipient_role" = $2 OR n."recipient_role" IS NULL)))
+          AND {_notification_recipient_clause("n")}
         """,
         user_id,
         role,
     )
     type_rows = await _query_raw(
         prisma,
-        """
+        f"""
         SELECT n."type", COUNT(*) AS count
         FROM "public"."notifications" n
-        WHERE n."recipient_user_id" = $1
-           OR (n."recipient_user_id" IS NULL AND (n."recipient_role" = $2 OR n."recipient_role" IS NULL))
+        WHERE {_notification_recipient_clause("n")}
         GROUP BY n."type"
         """,
         user_id,
@@ -962,10 +969,21 @@ async def list_notifications(
 
 
 @router.patch("/api/notifications/{notification_id}/read")
-async def mark_notification_read(notification_id: str, _user=Depends(get_current_user)):
+async def mark_notification_read(notification_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_tables(prisma)
-    await _execute_raw(prisma, 'UPDATE "public"."notifications" SET "read" = TRUE WHERE "id" = $1::uuid', notification_id)
+    await _execute_raw(
+        prisma,
+        f"""
+        UPDATE "public"."notifications" n
+        SET "read" = TRUE
+        WHERE n."id" = $3::uuid
+          AND {_notification_recipient_clause("n")}
+        """,
+        _user_id(user),
+        _user_role(user),
+        notification_id,
+    )
     return {"ok": True}
 
 
@@ -975,11 +993,10 @@ async def mark_all_notifications_read(user=Depends(get_current_user)):
     await _ensure_tables(prisma)
     await _execute_raw(
         prisma,
-        """
+        f"""
         UPDATE "public"."notifications"
         SET "read" = TRUE
-        WHERE "recipient_user_id" = $1
-           OR ("recipient_user_id" IS NULL AND ("recipient_role" = $2 OR "recipient_role" IS NULL))
+        WHERE {_notification_recipient_clause("")}
         """,
         _user_id(user),
         _user_role(user),
@@ -1007,11 +1024,11 @@ async def navigation_badges(user=Depends(get_current_user)):
     )
     notif_rows = await _query_raw(
         prisma,
-        """
+        f"""
         SELECT COUNT(*) AS unread
         FROM "public"."notifications"
         WHERE "read" = FALSE
-          AND ("recipient_user_id" = $1 OR ("recipient_user_id" IS NULL AND ("recipient_role" = $2 OR "recipient_role" IS NULL)))
+          AND {_notification_recipient_clause("")}
         """,
         user_id,
         role,

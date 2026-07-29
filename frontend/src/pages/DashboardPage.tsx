@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Ship, Clock, AlertTriangle, Ban, ClipboardList, DollarSign, CheckCircle,
+  Ship, Clock, AlertTriangle, Ban, ClipboardList, DollarSign, CheckCircle, Package,
 } from 'lucide-react';
 import { useShipments, useTaskCount } from '@/hooks/useOperationalData';
 import { usePermissions } from '@/contexts/PermissionContext';
@@ -18,7 +18,7 @@ function authFetchHeaders(): Record<string, string> {
 // ─── MetricCard ──────────────────────────────────────────────────────────────
 
 function MetricCard({
-  label, value, icon: Icon, color, href, badge,
+  label, value, icon: _Icon, color: _color, href, badge: _badge, sideStats,
 }: {
   label: string;
   value: number;
@@ -26,28 +26,38 @@ function MetricCard({
   color: string;
   href?: string;
   badge?: string;
+  sideStats?: Array<{ value: string | number; label: string }>;
 }) {
-  const colorMap: Record<string, string> = {
-    teal:  'text-teal-600 bg-teal-50 dark:bg-teal-950/30',
-    amber: 'text-amber-600 bg-amber-50 dark:bg-amber-950/30',
-    red:   'text-red-600 bg-red-50 dark:bg-red-950/30',
-    blue:  'text-blue-600 bg-blue-50 dark:bg-blue-950/30',
-    green: 'text-green-600 bg-green-50 dark:bg-green-950/30',
-  };
-
+  const resolvedSideStats = sideStats ?? [];
   const content = (
-    <div className={`rounded-xl p-5 ${colorMap[color] ?? colorMap.teal} relative ${href ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}>
-      <div className="flex items-center justify-between">
-        <Icon className="w-5 h-5 opacity-60" />
-        {badge && (
-          <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[13px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
-            {badge}
-          </span>
-        )}
+    <div
+      className={`group relative flex size-full flex-col items-start gap-3 rounded-2xl border border-[#e5e5e5] bg-white p-6 transition-shadow hover:border-[#e5e5e5] hover:bg-white hover:shadow-[0px_8px_24px_0px_rgba(9,9,9,0.08)] ${href ? 'cursor-pointer' : 'cursor-default'}`}
+      data-node-id="607:14563"
+      data-name="KPI Card"
+    >
+      <div className="flex w-full shrink-0 items-center gap-2 overflow-hidden">
+        <span className="flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[#dbe9fb] group-hover:bg-[#dbe9fb]">
+          <Package className="size-4 text-[#0c46c3]" strokeWidth={1.75} aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1 text-[13px] font-medium leading-[1.4] text-[#090909]">
+          {label}
+        </span>
       </div>
-      <div className="mt-3">
-        <div className="text-4xl font-bold font-mono leading-none">{value}</div>
-        <div className="text-[12px] font-semibold opacity-70 mt-1.5 uppercase tracking-wide">{label}</div>
+
+      <span className="shrink-0 whitespace-nowrap text-[26px] font-semibold leading-[1.1] tracking-[-0.52px] text-[#090909]">
+        {value}
+      </span>
+
+      <div className="flex w-full shrink-0 flex-col items-start overflow-hidden">
+        <div className="h-px w-full shrink-0 bg-[#e5e5e5]" />
+        <div className="flex w-full shrink-0 items-start gap-4 overflow-hidden pt-3 whitespace-nowrap">
+          {resolvedSideStats.slice(0, 2).map((stat) => (
+            <div key={`${stat.label}-${stat.value}`} className="flex shrink-0 items-center gap-1 overflow-hidden">
+              <span className="text-[13px] font-semibold leading-normal text-[#090909]">{stat.value}</span>
+              <span className="text-[11px] font-normal leading-[1.3] text-[#555]">{stat.label}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -238,20 +248,51 @@ export function DashboardPage() {
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
           {Array.from({ length: 7 }).map((_, i) => (
-            <div key={i} className="rounded-xl p-3 bg-muted/30 animate-pulse h-20" />
+            <div key={i} className="h-[185px] rounded-2xl bg-muted/30 animate-pulse" />
           ))}
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
-          <MetricCard label="Active"     value={metrics.active}    icon={Ship}          color="teal" />
-          <MetricCard label="Pending ID" value={metrics.pending}   icon={Clock}         color="amber" />
-          <MetricCard label="At Risk"    value={0}                 icon={AlertTriangle}  color="amber" />
+          <MetricCard
+            label="Active"
+            value={metrics.active}
+            icon={Ship}
+            color="teal"
+            sideStats={[
+              { value: metrics.pending, label: 'Pending' },
+              { value: metrics.completed, label: 'Completed' },
+            ]}
+          />
+          <MetricCard
+            label="Pending ID"
+            value={metrics.pending}
+            icon={Clock}
+            color="amber"
+            sideStats={[
+              { value: metrics.active, label: 'Active' },
+              { value: metrics.blocked, label: 'Blocked' },
+            ]}
+          />
+          <MetricCard
+            label="At Risk"
+            value={0}
+            icon={AlertTriangle}
+            color="amber"
+            sideStats={[
+              { value: metrics.blocked, label: 'Blocked' },
+              { value: metrics.dndRisk, label: 'D&D' },
+            ]}
+          />
           <MetricCard
             label="Blocked"
             value={metrics.blocked}
             icon={Ban}
             color="red"
             href="/shipments?status=blocked"
+            sideStats={[
+              { value: metrics.active, label: 'Active' },
+              { value: metrics.pending, label: 'Pending' },
+            ]}
           />
           <MetricCard
             label="My Tasks"
@@ -260,6 +301,10 @@ export function DashboardPage() {
             color="blue"
             href="/tasks"
             badge={taskCount.blockers > 0 ? `${taskCount.blockers}!` : undefined}
+            sideStats={[
+              { value: taskCount.blockers, label: 'Blockers' },
+              { value: taskCount.total, label: 'Total' },
+            ]}
           />
           {hasDndAccess && (
             <MetricCard
@@ -268,9 +313,22 @@ export function DashboardPage() {
               icon={DollarSign}
               color="red"
               href="/inventory/dnd"
+              sideStats={[
+                { value: dndSummary?.upcomingLfd7d ?? 0, label: 'LFD 7d' },
+                { value: `$${Number(dndSummary?.totalAccruedCharge ?? 0).toLocaleString()}`, label: 'Value' },
+              ]}
             />
           )}
-          <MetricCard label="Completed" value={metrics.completed} icon={CheckCircle} color="green" />
+          <MetricCard
+            label="Completed"
+            value={metrics.completed}
+            icon={CheckCircle}
+            color="green"
+            sideStats={[
+              { value: metrics.active, label: 'Active' },
+              { value: shipments.length, label: 'Total' },
+            ]}
+          />
         </div>
       )}
 

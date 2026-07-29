@@ -73,6 +73,7 @@ DOC_TYPE_VALUES: Final[set[str]] = {
     "BILL_OF_LADING",
     "PACKING_LIST",
     "ENTRY_SUMMARY",
+    "DRAFT_CBP_FORM_7501_BROKER",
     "OCEAN_FREIGHT",
     "FREIGHT_FORWARDER_BILL",
     "CUSTOMER_BROKER_BILL",
@@ -318,6 +319,7 @@ DOC_TYPE_TO_EXTRACTION_RELATION: Final[dict[str, str]] = {
     "BILL_OF_LADING": "bolExtraction",
     "PACKING_LIST": "packingListExtraction",
     "ENTRY_SUMMARY": "entrySummaryExtraction",
+    "DRAFT_CBP_FORM_7501_BROKER": "entrySummaryExtraction",
     "OCEAN_FREIGHT": "oceanFreightExtraction",
     "FREIGHT_FORWARDER_BILL": "freightForwarderBillExtraction",
     "CUSTOMER_BROKER_BILL": "customerBrokerBillExtraction",
@@ -338,6 +340,7 @@ DOC_TYPE_TO_EXTRACTION_ACCESSOR: Final[dict[str, str]] = {
     "BILL_OF_LADING": "billoflading",
     "PACKING_LIST": "packinglistextraction",
     "ENTRY_SUMMARY": "entrysummaryextraction",
+    "DRAFT_CBP_FORM_7501_BROKER": "entrysummaryextraction",
     "OCEAN_FREIGHT": "oceanfreightextraction",
     "FREIGHT_FORWARDER_BILL": "freightforwarderbillextraction",
     "CUSTOMER_BROKER_BILL": "customerbrokerbillextraction",
@@ -358,6 +361,7 @@ DOC_TYPE_TO_PRISMA_PARENT_MODEL: Final[dict[str, str]] = {
     "BILL_OF_LADING": "BillOfLading",
     "PACKING_LIST": "PackingListExtraction",
     "ENTRY_SUMMARY": "EntrySummaryExtraction",
+    "DRAFT_CBP_FORM_7501_BROKER": "EntrySummaryExtraction",
     "OCEAN_FREIGHT": "OceanFreightExtraction",
     "FREIGHT_FORWARDER_BILL": "FreightForwarderBillExtraction",
     "CUSTOMER_BROKER_BILL": "CustomerBrokerBillExtraction",
@@ -787,8 +791,11 @@ async def _create_document_record(
 
 
 def _bucket_slug_from_doc_type(doc_type: str) -> str:
-    if str(doc_type or "").strip().upper() == "CUSTOMER_BROKER_BILL":
+    normalized_doc_type = str(doc_type or "").strip().upper()
+    if normalized_doc_type == "CUSTOMER_BROKER_BILL":
         return "customs-broker-bill"
+    if normalized_doc_type == "DRAFT_CBP_FORM_7501_BROKER":
+        return _bucket_slug_from_doc_type("ENTRY_SUMMARY")
     return normalize_bucket_name(doc_type.lower().replace("_", "-"))
 
 
@@ -1002,10 +1009,13 @@ async def upload_document(
             except Exception as exc:
                 print(f"[docgen][views] warning: could not ensure views after sales invoice upload: {exc}", flush=True)
 
-        await enqueue_upload_job(
-            document_id=document.id,
-            bucket=target_bucket,
-            module=target_module,
+        await asyncio.wait_for(
+            enqueue_upload_job(
+                document_id=document.id,
+                bucket=target_bucket,
+                module=target_module,
+            ),
+            timeout=10,
         )
 
         return UploadResponse(
@@ -1057,6 +1067,11 @@ async def upload_document(
                     "Invalid bucket name after normalization. "
                     f"Use lowercase letters, numbers, dots, or hyphens only. Bucket: {target_bucket!r}"
                 ),
+            )
+        if isinstance(exc, asyncio.TimeoutError):
+            raise HTTPException(
+                status_code=503,
+                detail="Upload could not start OCR because queue enqueue timed out. Check Redis and the upload/ocr workers.",
             )
         raise HTTPException(status_code=500, detail=f"Upload failed: {exc}")
 

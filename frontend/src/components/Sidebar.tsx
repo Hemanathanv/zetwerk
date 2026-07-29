@@ -41,7 +41,7 @@ const NAV_GROUPS: { items: NavItem[] }[] = [
       { icon: ScanText,        label: 'Upload & Process',  href: '/documents/upload',                   module: 'documents',  requiredAnyActivities: ['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr'] },
       { icon: Wand2,           label: 'Doc Generate',      href: '/documents/generate',                 module: 'documents',  requiredAnyActivities: ['documents.generate_draft', 'DOC-003', 'inventory.create_outward_grn_new_dispatch', 'inventory.update_milestone'] },
       { icon: Boxes,      label: 'Inventory',      href: '/inventory/containers', module: 'inventory', requiredAnyActivities: ['inventory.view_container', 'inventory.view_timeline', 'GATE-001'] },
-      { icon: Warehouse,  label: 'Warehouse',      href: '/inventory/warehouse',  module: 'warehouse', requiredAnyActivities: ['inventory.view_container'] },
+      { icon: Warehouse,  label: 'Warehouse',      href: '/inventory/warehouse',  module: 'warehouse', requiredAnyActivities: ['inventory.view_warehouse', 'inventory.warehouse_inventory_stock_position'] },
       { icon: DollarSign, label: 'D&D Management', href: '/inventory/dnd',        module: 'dnd',       requiredAnyActivities: ['inventory.acknowledge_dnd', 'inventory.update_milestone'] },
     ],
   },

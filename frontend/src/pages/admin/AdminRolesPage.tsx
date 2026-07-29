@@ -207,6 +207,10 @@ function isModuleEnabled(moduleCode: string, enabledModules: string[]) {
   return enabledModules.includes(moduleCode);
 }
 
+function isActivityEnabled(activity: Activity, enabledModules: string[]) {
+  return isModuleEnabled(activityModule(activity), enabledModules);
+}
+
 function docScopeSummary(scope: string[] | undefined, docTypes: DocType[]) {
   const selected = scope ?? [];
   if (!selected.length) return 'No documents';
@@ -324,12 +328,11 @@ interface EditorProps {
   activities: Activity[];
   docTypes: DocType[];
   sysModules: SysModule[];
-  teams: { id: string; name: string }[];
   onBack: () => void;
   onSaved: () => void;
 }
 
-function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, onBack, onSaved }: EditorProps) {
+function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, onSaved }: EditorProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isNew = roleId === 'new';
@@ -339,7 +342,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
   const [category, setCategory]               = useState('INTERNAL_OPS');
   const [color, setColor]                     = useState('#0EA5A0');
   const [allowedLevels, setAllowedLevels]     = useState<string[]>(['L1']);
-  const [dataScope, setDataScope]             = useState('TEAM');
+  const dataScope                             = 'TEAM';
   const [enabledModules, setEnabledModules]   = useState<string[]>([]);
   const [selectedActs, setSelectedActs]       = useState<Set<string>>(new Set());
   const [expandedGroups, setExpandedGroups]   = useState<Set<string>>(new Set(['document', 'generation']));
@@ -351,7 +354,6 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
   const [isSystem, setIsSystem]               = useState(false);
   const [systemCode, setSystemCode]           = useState('');
   const [userCount, setUserCount]             = useState(0);
-  const [liveTeams, setLiveTeams]             = useState<{ id: string; name: string }[]>(teams);
   const [assignedLevelsByActivity, setAssignedLevelsByActivity] = useState<Record<string, string[]>>({});
   const [escalationConfigs, setEscalationConfigs] = useState<EscalationConfig[]>([]);
   const [slaHoursByKey, setSlaHoursByKey] = useState<Record<string, string>>({});
@@ -364,13 +366,6 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
   }>>({});
   const [editingSlaCell, setEditingSlaCell] = useState<{ rowKey: string; field: 'baseSlaHours' | 'reminderPct' | 'warningPct' | 'escalationPct' | 'blockerPct' } | null>(null);
   const [baseDocPickerRow, setBaseDocPickerRow] = useState<RequiredSlaRow | null>(null);
-
-  const teamsQuery = useQuery({
-    queryKey: ['admin', 'teams'],
-    queryFn: () => apiGet<any>('/api/admin/teams'),
-    enabled: dataScope === 'TEAM',
-    staleTime: 60_000,
-  });
 
   const escalationQuery = useQuery({
     queryKey: ['admin', 'escalation'],
@@ -412,10 +407,6 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
   });
 
   useEffect(() => {
-    if (Array.isArray(teamsQuery.data?.data)) setLiveTeams(teamsQuery.data.data);
-  }, [teamsQuery.data]);
-
-  useEffect(() => {
     if (escalationQuery.data?.ok) setEscalationConfigs(escalationQuery.data.data ?? []);
   }, [escalationQuery.data]);
 
@@ -427,8 +418,8 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
       setDescription(data.description ?? '');
       setCategory(data.roleCategory ?? 'INTERNAL_OPS');
       setColor(data.color ?? '#0EA5A0');
-      setAllowedLevels(data.allowedLevels ?? ['L1']);
-      setDataScope(data.defaultDataScope ?? 'TEAM');
+      const savedLevels = (data.allowedLevels ?? ['L1']).filter((level: string) => LEVELS.includes(level));
+      setAllowedLevels([savedLevels[0] ?? 'L1']);
       setEnabledModules(data.defaultModules ?? []);
       setIsSystem(data.isSystemDefault ?? false);
       setSystemCode(data.systemCode ?? '');
@@ -523,18 +514,34 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
   }, [activities]);
 
   const groupOrder = useMemo(() => {
-    const known = ACTIVITY_GROUP_ORDER.filter((code) => grouped[code]);
-    const extra = Object.keys(grouped).filter((code) => !known.includes(code)).sort();
+    const visibleGroups = Object.keys(grouped).filter((code) =>
+      (grouped[code] ?? []).some((activity) => isActivityEnabled(activity, enabledModules))
+    );
+    const known = ACTIVITY_GROUP_ORDER.filter((code) => visibleGroups.includes(code));
+    const extra = visibleGroups.filter((code) => !known.includes(code)).sort();
     return [...known, ...extra];
-  }, [grouped]);
+  }, [enabledModules, grouped]);
+
+  const enabledActivityCodes = useMemo(() => {
+    return new Set(
+      activities
+        .filter((activity) => isActivityEnabled(activity, enabledModules))
+        .map((activity) => activity.activityCode)
+    );
+  }, [activities, enabledModules]);
+
+  const strictSelectedActs = useMemo(() => {
+    return new Set(Array.from(selectedActs).filter((code) => enabledActivityCodes.has(code)));
+  }, [enabledActivityCodes, selectedActs]);
 
   const selectedCount = useMemo(() => {
-    let n = 0; activities.forEach((a) => { if (selectedActs.has(a.activityCode)) n++; }); return n;
-  }, [activities, selectedActs]);
+    let n = 0; activities.forEach((a) => { if (strictSelectedActs.has(a.activityCode)) n++; }); return n;
+  }, [activities, strictSelectedActs]);
+  const enabledActivityTotal = enabledActivityCodes.size;
 
   const requiredSlaRows = useMemo<RequiredSlaRow[]>(() => {
     return activities
-      .filter((act) => selectedActs.has(act.activityCode) && SLA_ACTIVITY_CONFIG[act.activityCode])
+      .filter((act) => strictSelectedActs.has(act.activityCode) && SLA_ACTIVITY_CONFIG[act.activityCode])
       .flatMap((act) => {
         const cfg = SLA_ACTIVITY_CONFIG[act.activityCode];
         const scopedDocs = act.scopeType === 'docType' ? (docTypeScopes[act.activityCode] ?? []) : [];
@@ -552,7 +559,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
           baseDoc: cfg.baseDoc || scope.label,
         }));
       });
-  }, [activities, selectedActs, docTypeScopes, docTypes]);
+  }, [activities, strictSelectedActs, docTypeScopes, docTypes]);
 
   useEffect(() => {
     setSlaHoursByKey((prev) => {
@@ -604,40 +611,47 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
     if (!roleName.trim()) return 'Role name is required';
     if (!allowedLevels.length) return 'Select at least one level';
     if (!enabledModules.length) return 'Enable at least one module';
-    const selectedDocScoped = activities.filter((act) => selectedActs.has(act.activityCode) && act.scopeType === 'docType');
+    const selectedDocScoped = activities.filter((act) => strictSelectedActs.has(act.activityCode) && act.scopeType === 'docType');
     const missingDocScope = selectedDocScoped.find((act) => !(docTypeScopes[act.activityCode] ?? []).length);
     if (missingDocScope) return `Select documents for ${missingDocScope.name}`;
-    const missingSla = requiredSlaRows.find((row) => positiveHours(slaHoursByKey[row.key]) <= 0);
-    if (missingSla) return `Enter SLA for ${missingSla.activityName} - ${missingSla.scopeLabel}`;
-    const missingBaseDoc = requiredSlaRows.find((row) => !String(slaBaseDocByKey[row.key] ?? '').trim());
-    if (missingBaseDoc) return `Select base doc for ${missingBaseDoc.activityName} - ${missingBaseDoc.scopeLabel}`;
-    const invalidThreshold = requiredSlaRows.find((row) => {
-      const t = slaThresholdsByKey[row.key];
-      if (!t) return true;
-      return [t.reminderPct, t.warningPct, t.escalationPct, t.blockerPct].some((value) => {
-        const n = Number(value);
-        return !Number.isFinite(n) || n < 0 || n > 100;
-      });
-    });
-    if (invalidThreshold) return `Enter 0-100 thresholds for ${invalidThreshold.activityName} - ${invalidThreshold.scopeLabel}`;
     return null;
   }, [
     roleName,
     allowedLevels,
     enabledModules,
     activities,
-    selectedActs,
+    strictSelectedActs,
     docTypeScopes,
-    requiredSlaRows,
-    slaHoursByKey,
-    slaBaseDocByKey,
-    slaThresholdsByKey,
   ]);
 
   function toggleModule(code: string) {
-    setEnabledModules((p) => p.includes(code) ? p.filter((m) => m !== code) : [...p, code]);
+    const turningOff = enabledModules.includes(code);
+    setEnabledModules((p) => turningOff ? p.filter((m) => m !== code) : [...p, code]);
+    if (!turningOff) return;
+    const disabledActivityCodes = activities
+      .filter((activity) => activityModule(activity) === code)
+      .map((activity) => activity.activityCode);
+    const disabledSet = new Set(disabledActivityCodes);
+    setSelectedActs((p) => {
+      const n = new Set(p);
+      disabledSet.forEach((activityCode) => n.delete(activityCode));
+      return n;
+    });
+    setDocTypeScopes((p) => {
+      const n = { ...p };
+      disabledSet.forEach((activityCode) => delete n[activityCode]);
+      return n;
+    });
+    setTicketScopes((p) => {
+      const n = { ...p };
+      disabledSet.forEach((activityCode) => delete n[activityCode]);
+      return n;
+    });
+    if (openScope && disabledSet.has(openScope)) setOpenScope(null);
+    if (scopeDialogActivity && disabledSet.has(scopeDialogActivity.activityCode)) setScopeDialogActivity(null);
   }
   function toggleActivity(code: string) {
+    if (!enabledActivityCodes.has(code)) return;
     setSelectedActs((p) => { const n = new Set(p); n.has(code) ? n.delete(code) : n.add(code); return n; });
   }
   function toggleGroupAll(cat: string, catActs: Activity[]) {
@@ -645,8 +659,8 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
     const allSel = codes.every((c) => selectedActs.has(c));
     setSelectedActs((p) => { const n = new Set(p); allSel ? codes.forEach((c) => n.delete(c)) : codes.forEach((c) => n.add(c)); return n; });
   }
-  function toggleLevel(l: string) {
-    setAllowedLevels((p) => p.includes(l) ? p.filter((x) => x !== l) : [...p, l]);
+  function selectLevel(level: string) {
+    setAllowedLevels([level]);
   }
   function activityLevels(act: Activity) {
     const levels = new Set(assignedLevelsByActivity[act.activityCode] ?? []);
@@ -683,35 +697,17 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
     if (!roleName.trim()) { toast({ title: 'Role name is required', variant: 'destructive' }); return; }
     if (!allowedLevels.length) { toast({ title: 'Select at least one level', variant: 'destructive' }); return; }
     if (!enabledModules.length) { toast({ title: 'Enable at least one module', variant: 'destructive' }); return; }
-    const selectedDocScoped = activities.filter((act) => selectedActs.has(act.activityCode) && act.scopeType === 'docType');
+    const selectedDocScoped = activities.filter((act) => strictSelectedActs.has(act.activityCode) && act.scopeType === 'docType');
     const missingDocScope = selectedDocScoped.find((act) => !(docTypeScopes[act.activityCode] ?? []).length);
     if (missingDocScope) {
       toast({ title: `Select documents for ${missingDocScope.name}`, variant: 'destructive' });
       return;
     }
-    const missingSla = requiredSlaRows.find((row) => positiveHours(slaHoursByKey[row.key]) <= 0);
-    if (missingSla) {
-      toast({ title: `Enter SLA for ${missingSla.activityName} - ${missingSla.scopeLabel}`, variant: 'destructive' });
-      return;
-    }
-    const missingBaseDoc = requiredSlaRows.find((row) => !String(slaBaseDocByKey[row.key] ?? '').trim());
-    if (missingBaseDoc) {
-      toast({ title: `Select base doc for ${missingBaseDoc.activityName} - ${missingBaseDoc.scopeLabel}`, variant: 'destructive' });
-      return;
-    }
-    const invalidThreshold = requiredSlaRows.find((row) => {
-      const t = slaThresholdsByKey[row.key];
-      if (!t) return true;
-      return [t.reminderPct, t.warningPct, t.escalationPct, t.blockerPct].some((value) => {
-        const n = Number(value);
-        return !Number.isFinite(n) || n < 0 || n > 100;
-      });
-    });
-    if (invalidThreshold) {
-      toast({ title: `Enter 0-100 thresholds for ${invalidThreshold.activityName} - ${invalidThreshold.scopeLabel}`, variant: 'destructive' });
-      return;
-    }
-    const derivedDocumentScope = [...new Set(Object.values(docTypeScopes).flat())].sort();
+    const strictActivityCodes = Array.from(strictSelectedActs);
+    const strictDocTypeScopes = Object.fromEntries(
+      Object.entries(docTypeScopes).filter(([activityCode]) => strictSelectedActs.has(activityCode))
+    );
+    const derivedDocumentScope = [...new Set(Object.values(strictDocTypeScopes).flat())].sort();
     const activitySla = requiredSlaRows.map((row) => {
       const thresholds = slaThresholdsByKey[row.key] ?? { reminderPct: '0', warningPct: '50', escalationPct: '75', blockerPct: '100' };
       return {
@@ -720,7 +716,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
         activityName: row.activityName,
         description: row.description,
         scope: row.scopeLabel,
-        baseDoc: slaBaseDocByKey[row.key],
+        baseDoc: slaBaseDocByKey[row.key] || row.baseDoc || row.scopeLabel,
         baseSlaHours: positiveHours(slaHoursByKey[row.key]),
         reminderPct: Number(thresholds.reminderPct),
         warningPct: Number(thresholds.warningPct),
@@ -733,8 +729,8 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
         name: roleName.trim(), description: description || null, roleCategory: category,
         color, allowedLevels, defaultDataScope: dataScope, defaultModules: enabledModules,
         documentScope: derivedDocumentScope,
-        docTypeScopes,
-        activityCodes: Array.from(selectedActs),
+        docTypeScopes: strictDocTypeScopes,
+        activityCodes: strictActivityCodes,
         activitySla,
       };
       const res = await saveRoleMutation.mutateAsync(payload);
@@ -775,7 +771,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
           {selectedCount}/{activities.length} activities
         </span>
         <Button variant="outline" size="sm" onClick={onBack}>Cancel</Button>
-        <Button size="sm" disabled={saving || !!roleSaveBlockedReason} onClick={handleSave} title={roleSaveBlockedReason ?? undefined} style={{ minWidth: 110 }}>
+        <Button size="sm" disabled={saving} onClick={handleSave} title={roleSaveBlockedReason ?? undefined} style={{ minWidth: 110 }}>
           {saving ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite', marginRight: 6 }} />Saving…</> : 'Save changes'}
         </Button>
       </div>
@@ -863,55 +859,14 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
 
             <div>
               <FieldLabel>Levels</FieldLabel>
-              <div style={{ display: 'flex', gap: 10 }}>
-                {LEVELS.map((l) => (
-                  <label key={l} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 14.5 }}>
-                    <input type="checkbox" checked={allowedLevels.includes(l)} onChange={() => toggleLevel(l)}
-                      style={{ accentColor: 'hsl(173 58% 39%)' }} />
-                    {l}
+              <RadioGroup value={allowedLevels[0] ?? 'L1'} onValueChange={selectLevel} style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {LEVELS.map((level) => (
+                  <label key={level} htmlFor={`role-level-${level}`} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 14.5 }}>
+                    <RadioGroupItem value={level} id={`role-level-${level}`} />
+                    {level}
                   </label>
                 ))}
-              </div>
-            </div>
-
-            <div>
-              <FieldLabel>Default data scope</FieldLabel>
-              <RadioGroup value={dataScope} onValueChange={setDataScope} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {[
-                  { value: 'ALL',    label: 'All',    help: 'Sees all org data' },
-                  { value: 'TEAM',   label: 'Team',   help: 'Sees team shipments' },
-                  { value: 'TAGGED', label: 'Tagged', help: 'Only assigned shipments' },
-                ].map((o) => (
-                  <div key={o.value} style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
-                    <RadioGroupItem value={o.value} id={`scope-${o.value}`} style={{ marginTop: 2 }} />
-                    <div>
-                      <Label htmlFor={`scope-${o.value}`} style={{ fontSize: 14.5, fontWeight: 500, cursor: 'pointer' }}>{o.label}</Label>
-                      <p style={{ margin: 0, fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>{o.help}</p>
-                    </div>
-                  </div>
-                ))}
               </RadioGroup>
-
-              {dataScope === 'TEAM' && (
-                <div style={{ marginTop: 8, background: 'hsl(var(--muted) / 0.5)', border: '1px solid hsl(var(--border))', borderRadius: 7, padding: '10px 12px' }}>
-                  <p style={{ margin: '0 0 6px', fontSize: 14.5, fontWeight: 600, color: 'hsl(var(--foreground))' }}>Teams in this org</p>
-                  {liveTeams.length === 0 ? (
-                    <p style={{ margin: 0, fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>No teams configured yet.</p>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      {liveTeams.map((t) => (
-                        <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <div style={{ width: 6, height: 6, borderRadius: 3, background: 'hsl(var(--primary))', flexShrink: 0 }} />
-                          <span style={{ fontSize: 14, color: 'hsl(var(--foreground))' }}>{t.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <p style={{ margin: '8px 0 0', fontSize: 14, color: 'hsl(var(--muted-foreground))', lineHeight: 1.4 }}>
-                    Users with this role see only their assigned team's shipments. Assign teams to individual users in User Management.
-                  </p>
-                </div>
-              )}
             </div>
 
             {/* Preview card */}
@@ -926,7 +881,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
                 </div>
               </div>
               <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', fontFamily: '"JetBrains Mono", monospace' }}>
-                {selectedCount}/{activities.length} activities · {lvlRange(allowedLevels)} · {dataScope.toLowerCase()}
+                {selectedCount}/{enabledActivityTotal} activities · {lvlRange(allowedLevels)}
               </div>
               {enabledModules.length > 0 && (
                 <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -963,30 +918,37 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
           {/* Tier 2: Activity groups */}
           <AdminFormSection title="Activity Permissions" defaultOpen>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {groupOrder.length === 0 && (
+                <div style={{
+                  border: '1px dashed hsl(var(--border))',
+                  borderRadius: 8,
+                  padding: '18px 14px',
+                  color: 'hsl(var(--muted-foreground))',
+                  fontSize: 14.5,
+                }}>
+                  Enable a module to configure its activities.
+                </div>
+              )}
               {groupOrder.map((groupCode) => {
-                const groupActs = grouped[groupCode] ?? [];
-                const enabledActs = groupActs.filter((act) => isModuleEnabled(activityModule(act), enabledModules));
-                const selCount = groupActs.filter((a) => selectedActs.has(a.activityCode)).length;
+                const groupActs = (grouped[groupCode] ?? []).filter((act) => isActivityEnabled(act, enabledModules));
+                const selCount = groupActs.filter((a) => strictSelectedActs.has(a.activityCode)).length;
                 const isExpanded = expandedGroups.has(groupCode);
-                const groupEnabled = enabledActs.length > 0;
-                const allSel = enabledActs.length > 0 && enabledActs.every((a) => selectedActs.has(a.activityCode));
+                const allSel = groupActs.length > 0 && groupActs.every((a) => strictSelectedActs.has(a.activityCode));
                 const someSel = selCount > 0 && !allSel;
 
                 return (
-                  <div key={groupCode} style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, overflow: 'hidden', opacity: groupEnabled ? 1 : 0.45 }}>
+                  <div key={groupCode} style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, overflow: 'hidden' }}>
                     {/* Group header */}
                     <div
                       onClick={() => {
-                        if (!groupEnabled) return;
                         setExpandedGroups((p) => { const n = new Set(p); n.has(groupCode) ? n.delete(groupCode) : n.add(groupCode); return n; });
                       }}
-                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: groupEnabled ? 'pointer' : 'default', background: 'hsl(var(--muted) / 0.3)', userSelect: 'none' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', cursor: 'pointer', background: 'hsl(var(--muted) / 0.3)', userSelect: 'none' }}
                     >
                       {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                       <input type="checkbox" checked={allSel}
                         ref={(el) => { if (el) el.indeterminate = someSel; }}
-                        disabled={!groupEnabled}
-                        onChange={(e) => { e.stopPropagation(); toggleGroupAll(groupCode, enabledActs); }}
+                        onChange={(e) => { e.stopPropagation(); toggleGroupAll(groupCode, groupActs); }}
                         onClick={(e) => e.stopPropagation()}
                         style={{ accentColor: 'hsl(173 58% 39%)', flexShrink: 0 }}
                       />
@@ -1024,8 +986,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
                       </div>
                     )}
                     {isExpanded && groupActs.map((act) => {
-                      const isSel = selectedActs.has(act.activityCode);
-                      const rowEnabled = isModuleEnabled(activityModule(act), enabledModules);
+                      const isSel = strictSelectedActs.has(act.activityCode);
                       const levels = activityLevels(act);
                       const scopedDocs = docTypeScopes[act.activityCode] ?? [];
                       const isScopeOpen = openScope === act.activityCode;
@@ -1040,7 +1001,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
                             padding: '7px 14px', borderTop: '1px solid hsl(var(--border))',
                             background: isSel ? 'hsl(173 58% 39% / 0.04)' : undefined,
                           }}>
-                            <input type="checkbox" checked={isSel} disabled={!rowEnabled}
+                            <input type="checkbox" checked={isSel}
                               onChange={() => toggleActivity(act.activityCode)}
                               style={{ accentColor: 'hsl(173 58% 39%)', flexShrink: 0 }} />
                             <span style={{
@@ -1060,9 +1021,8 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
                               {act.scopeType === 'docType' ? (
                                 <button
                                   type="button"
-                                  disabled={!rowEnabled}
                                   onClick={() => {
-                                    if (!selectedActs.has(act.activityCode)) toggleActivity(act.activityCode);
+                                    if (!strictSelectedActs.has(act.activityCode)) toggleActivity(act.activityCode);
                                     setScopeDialogActivity(act);
                                   }}
                                   title={activityScopeSummary(act, scopedDocs, docTypes)}
@@ -1076,7 +1036,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, teams, on
                                     border: '1px solid hsl(var(--border))',
                                     background: scopedDocs.length ? 'hsl(173 58% 39% / 0.08)' : 'hsl(var(--background))',
                                     color: scopedDocs.length ? 'hsl(173 58% 30%)' : 'hsl(var(--muted-foreground))',
-                                    cursor: rowEnabled ? 'pointer' : 'not-allowed',
+                                    cursor: 'pointer',
                                     fontSize: 13.5,
                                     overflow: 'hidden',
                                   }}
@@ -1631,12 +1591,6 @@ export function AdminRolesPage() {
     staleTime: 5 * 60_000,
   });
 
-  const teamsQuery = useQuery({
-    queryKey: ['admin', 'teams'],
-    queryFn: () => apiGet<any>('/api/admin/teams'),
-    staleTime: 60_000,
-  });
-
   const activitiesQuery = useQuery({
     queryKey: ['admin', 'activities'],
     queryFn: () => apiGet<any>('/api/admin/activities'),
@@ -1645,7 +1599,6 @@ export function AdminRolesPage() {
   const roles = (rolesQuery.data?.data ?? []) as Role[];
   const docTypes = ((docTypesQuery.data?.data ?? []) as DocType[]).map(d => ({ ...d, geography: d.geography ?? '' }));
   const sysModules = (modulesQuery.data?.data ?? []) as SysModule[];
-  const configTeams = (teamsQuery.data?.data ?? []) as { id: string; name: string }[];
   const activities = (activitiesQuery.data?.data ?? []) as Activity[];
   const pageLoading = rolesQuery.isLoading || docTypesQuery.isLoading || modulesQuery.isLoading || activitiesQuery.isLoading;
 
@@ -1776,7 +1729,6 @@ export function AdminRolesPage() {
         activities={activities}
         docTypes={docTypes}
         sysModules={sysModules}
-        teams={configTeams}
         onBack={() => setEditingRoleId(null)}
         onSaved={() => { setEditingRoleId(null); }}
       />

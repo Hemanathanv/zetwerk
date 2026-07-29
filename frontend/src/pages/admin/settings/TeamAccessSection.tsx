@@ -579,7 +579,6 @@ export default function TeamAccessSection() {
   const [overview, setOverview] = useState<any>(null);
   const [triggerCreate, setTriggerCreate] = useState(0);
   const [peopleOpen, setPeopleOpen] = useState(false);
-  const [teamsOpen, setTeamsOpen] = useState(false);
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [orgsOpen, setOrgsOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
@@ -633,7 +632,6 @@ export default function TeamAccessSection() {
             <StatPill label="active" value={overview.activeUsers} />
             <StatPill label="partners" value={overview.partnerUsers} />
             <StatPill label="admin" value={overview.adminUsers} />
-            <StatPill label="teams" value={overview.teamCount ?? 0} warn={(overview.teamCount ?? 0) === 0} />
             {overview.overrideUsers > 0 && (
               <StatPill label="override" value={overview.overrideUsers} warn={overview.overrideUsers > 3} />
             )}
@@ -664,31 +662,6 @@ export default function TeamAccessSection() {
       {peopleOpen && (
         <div style={{ paddingTop: 20, paddingBottom: 28 }}>
           <AdminUsersPage compact triggerCreate={triggerCreate} />
-        </div>
-      )}
-
-      {/* Teams */}
-      <SectionBar
-        title="Teams"
-        open={teamsOpen}
-        onToggle={() => setTeamsOpen(o => !o)}
-        extra={
-          <button
-            onClick={e => { e.stopPropagation(); setTeamsOpen(true); }}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              padding: '5px 11px', borderRadius: 7,
-              background: 'hsl(173 58% 39%)', color: '#fff',
-              fontSize: 14, fontWeight: 600, border: 'none', cursor: 'pointer',
-            }}
-          >
-            <Plus style={{ width: 12, height: 12 }} /> Add Team
-          </button>
-        }
-      />
-      {teamsOpen && (
-        <div style={{ paddingTop: 16, paddingBottom: 28 }}>
-          <TeamsContent />
         </div>
       )}
 

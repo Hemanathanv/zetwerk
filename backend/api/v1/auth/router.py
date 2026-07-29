@@ -65,10 +65,111 @@ def _normalize_data_scope(scope: str) -> str:
 
 
 def _expand_modules(modules: list[str]) -> list[str]:
-    expanded = set(modules)
-    if "inventory" in expanded:
-        expanded.update({"warehouse", "dnd"})
-    return sorted(expanded)
+    return sorted({str(module).strip() for module in modules if str(module).strip()})
+
+
+ADMIN_FALLBACK_MODULES = [
+    "dashboard",
+    "shipments",
+    "tasks",
+    "documents",
+    "inventory",
+    "warehouse",
+    "dnd",
+    "accounting",
+    "reports",
+    "admin",
+]
+
+ADMIN_FALLBACK_ACTIVITIES = [
+    "shipments.view",
+    "shipments.create",
+    "tasks.view",
+    "documents.view",
+    "documents.view_extracted",
+    "documents.upload",
+    "documents.edit_extracted",
+    "documents.approve_draft",
+    "documents.reprocess_ocr",
+    "documents.generate_draft",
+    "inventory.view_container",
+    "inventory.view_timeline",
+    "inventory.view_warehouse",
+    "inventory.warehouse_inventory_stock_position",
+    "inventory.acknowledge_dnd",
+    "inventory.update_milestone",
+    "accounting.view_queue",
+    "accounting.view_ap_aging",
+    "reports.view_dashboard",
+    "reports.generate_dsr",
+    "admin.manage",
+    "users.manage",
+    "roles.view",
+    "roles.manage",
+    "admin.manage_users",
+    "admin.configure_roles",
+    "admin.edit_workflows",
+    "admin.configure_doctypes",
+    "admin.edit_account_mappings",
+    "admin.manage_partners",
+    "admin.view_audit_log",
+    "admin.security_settings",
+]
+
+
+def _is_admin_role(role_name: str) -> bool:
+    return str(role_name or "").upper().replace("-", "_") in {"ADMIN", "SUPER_ADMIN"}
+
+
+ACTIVITY_MODULE_OVERRIDES = {
+    "inventory.view_warehouse": "warehouse",
+    "inventory.warehouse_inventory_stock_position": "warehouse",
+    "inventory.acknowledge_dnd": "dnd",
+    "inventory.view_dnd_charges": "dnd",
+    "inventory.view_last_free_days_shipment_based": "dnd",
+    "inventory.view_lfd_calendar": "dnd",
+    "inventory.modify_lfd": "dnd",
+    "users.manage": "admin",
+    "roles.view": "admin",
+    "roles.manage": "admin",
+    "SHP-001": "shipments",
+    "SHP-002": "shipments",
+    "SHP-003": "shipments",
+    "SHP-005": "shipments",
+    "GATE-001": "inventory",
+    "GATE-002": "shipments",
+    "DOC-003": "documents",
+    "ACC-001": "accounting",
+    "ACC-003": "accounting",
+    "ACC-004": "accounting",
+    "TSK-001": "tasks",
+    "TSK-002": "tasks",
+    "TSK-003": "tasks",
+    "TSK-004": "tasks",
+    "TSK-007": "tasks",
+}
+
+
+def _activity_module(activity_code: str) -> str:
+    code = str(activity_code or "").strip()
+    if code in ACTIVITY_MODULE_OVERRIDES:
+        return ACTIVITY_MODULE_OVERRIDES[code]
+    prefix = code.split(".", 1)[0]
+    if prefix in {"shipments", "documents", "inventory", "accounting", "reports", "tasks", "admin"}:
+        return prefix
+    return ""
+
+
+def _filter_activities_for_modules(activities: list[str], modules: list[str]) -> list[str]:
+    module_set = set(modules)
+    filtered = []
+    for activity in activities:
+        module = _activity_module(activity)
+        if not module:
+            continue
+        if module in module_set or ("partner" in module_set and module in {"documents", "shipments", "inventory", "warehouse"}):
+            filtered.append(activity)
+    return sorted(set(filtered))
 
 
 def _primary_role_name(role_names: list[str]) -> str:
@@ -104,6 +205,12 @@ def _permissions_from_role(role: dict) -> dict:
     role_category = _attr_value(attrs, "ewms.category", "org_internal")
     modules = _expand_modules(_attr_values(attrs, "ewms.modules"))
     activities = _legacy_activity_codes(_attr_values(attrs, "ewms.activities"))
+    if _is_admin_role(role_name):
+        if not modules:
+            modules = ADMIN_FALLBACK_MODULES
+        if not activities:
+            activities = _legacy_activity_codes(ADMIN_FALLBACK_ACTIVITIES)
+    activities = _filter_activities_for_modules(activities, modules)
     activity_doc_types = {}
     try:
         parsed_scopes = json.loads(_attr_value(attrs, "ewms.docTypeScopes", "{}"))
@@ -375,14 +482,17 @@ async def get_permissions(
         role = keycloak_admin.get_realm_role(role_name)
         user_level = _user_level_from_keycloak(keycloak_admin, userinfo, role)
     except Exception:
-        fallback_modules = ["dashboard", "shipments", "documents", "tasks"]
+        is_admin_role = _is_admin_role(role_name)
+        fallback_modules = ADMIN_FALLBACK_MODULES if is_admin_role else []
+        fallback_activities = ADMIN_FALLBACK_ACTIVITIES if is_admin_role else []
         role = {
             "name": role_name,
             "attributes": {
                 "ewms.displayName": [role_name.replace("_", " ").title()],
                 "ewms.category": ["org_internal"],
                 "ewms.modules": fallback_modules,
-                "ewms.activities": ["shipments.view", "documents.view_extracted"],
+                "ewms.activities": fallback_activities,
+                "ewms.levels": ["L4"] if is_admin_role else [],
                 "ewms.dataScope": ["TEAM"],
                 "ewms.color": ["#0f766e"],
             },
@@ -390,6 +500,8 @@ async def get_permissions(
         user_level = _highest_level(_attr_values(role["attributes"], "ewms.levels"))
 
     permissions = _permissions_from_role(role)
+    if _is_admin_role(role_name) and not _attr_values(role.get("attributes") or {}, "ewms.levels"):
+        user_level = "L4"
     permissions["activities"] = _activities_for_level(permissions["activities"], user_level)
     return {"ok": True, "data": permissions}
 
@@ -407,8 +519,16 @@ async def get_level(
         keycloak_admin = get_keycloak_admin()
         role = keycloak_admin.get_realm_role(role_name)
         level = _user_level_from_keycloak(keycloak_admin, userinfo, role)
+        if _is_admin_role(role_name) and not _attr_values(role.get("attributes") or {}, "ewms.levels"):
+            level = "L4"
+        role_activities = _attr_values(role.get("attributes") or {}, "ewms.activities")
+        if _is_admin_role(role_name) and not role_activities:
+            role_activities = ADMIN_FALLBACK_ACTIVITIES
+        role_modules = _expand_modules(_attr_values(role.get("attributes") or {}, "ewms.modules"))
+        if _is_admin_role(role_name) and not role_modules:
+            role_modules = ADMIN_FALLBACK_MODULES
         activities = _activities_for_level(
-            _legacy_activity_codes(_attr_values(role.get("attributes") or {}, "ewms.activities")),
+            _filter_activities_for_modules(_legacy_activity_codes(role_activities), role_modules),
             level,
         )
     except Exception:

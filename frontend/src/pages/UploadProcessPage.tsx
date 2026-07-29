@@ -10,7 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   UploadCloud, ChevronDown, ChevronRight,
   Sparkles, X, CheckCircle2, Search, Pencil,
-  LayoutList, LayoutGrid, ChevronRight as ArrowRight,
+  ChevronRight as ArrowRight,
   AlertTriangle, Clock3, Loader2,
 } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
@@ -2222,6 +2222,7 @@ export function UploadProcessPage() {
     shipping_bill: 'SHIPPING_BILL',
     packing_list: 'PACKING_LIST',
     entry_summary: 'ENTRY_SUMMARY',
+    draft_cbp_form_7501_broker: 'DRAFT_CBP_FORM_7501_BROKER',
     cha: 'CHA_BILL',
     freight_forwarder_bill: 'FREIGHT_FORWARDER_BILL',
     customer_broker_bill: 'CUSTOMER_BROKER_BILL',
@@ -2394,9 +2395,6 @@ export function UploadProcessPage() {
   }
 
   const [recentExpanded, setRecentExpanded] = useState(false);
-  const [viewMode, setViewMode] = useState<'card' | 'row'>(
-    () => (localStorage.getItem('upload-queue-view') as 'card' | 'row' | null) ?? 'card',
-  );
   const [ocrTooltipOpen,   setOcrTooltipOpen]   = useState(false);
   const [attentionDismissed, setAttentionDismissed] = useState(false);
   const [pageTab, setPageTab] = useState<'upload' | 'queue'>(() => (
@@ -2582,8 +2580,6 @@ export function UploadProcessPage() {
 
   const queueSearchOptions = queueSearch.trim() ? filteredCards.slice(0, 8) : [];
 
-  // Auto-switch: >20 items → row, ≤20 → respect user's viewMode choice
-  const effectiveView: 'card' | 'row' = filteredCards.length > 20 ? 'row' : viewMode;
   const queueTotalPages = Math.max(1, queuePagination?.totalPages ?? 1);
   const queuePageNumbers = (() => {
     const current = queuePagination?.page ?? queuePage;
@@ -2896,56 +2892,25 @@ export function UploadProcessPage() {
                 const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
                 const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
                 return tb - ta;
-              });
-              const renderCard = (card: typeof sorted[0], key: string) => (
-                <div
-                  key={key}
-                  onClick={() => handleRowClick(card)}
-                  style={{ width: 210, flexShrink: 0, backgroundColor: 'hsl(var(--card))', borderRadius: 12, border: `1px solid ${BORDER}`, padding: '14px 16px', boxShadow: 'var(--vs-shadow-card)', borderLeft: `3px solid ${card.headerColor}`, cursor: 'pointer', transition: 'box-shadow 0.15s, border-color 0.15s' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 18px hsla(0,0%,0%,0.18)'; (e.currentTarget as HTMLDivElement).style.borderColor = card.headerColor; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = 'var(--vs-shadow-card)'; (e.currentTarget as HTMLDivElement).style.borderColor = BORDER; }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                    <DocBadge code={card.docCode} size="sm" />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: FG, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{card.docType}</span>
-                        {card.isGenerated && <Sparkles size={9} style={{ color: GOLD, flexShrink: 0 }} />}
-                      </div>
-                      <span className="vs-mono" style={{ fontSize: 14, color: MUTED, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{card.docNumber}</span>
-                    </div>
-                  </div>
-                  <div style={{ marginBottom: 10 }}>
-                    <PipelineDots dots={card.dots} gold={card.goldDots} />
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    {needsReviewApproval(card) ? (
-                      <span style={{ fontSize: 14, fontWeight: 600, padding: '2px 8px', borderRadius: 999, backgroundColor: 'hsla(221,83%,53%,0.10)', color: BLUE }}>{card.status}</span>
-                    ) : card.statusCategory === 'done' ? (
-                      <span style={{ fontSize: 14, fontWeight: 600, padding: '2px 8px', borderRadius: 999, backgroundColor: `${GREEN}12`, color: GREEN }}>{card.status}</span>
-                    ) : card.statusCategory === 'draft-review' ? (
-                      <span style={{ fontSize: 14, fontWeight: 600, padding: '2px 8px', borderRadius: 999, backgroundColor: GOLD_BG, color: 'hsl(38 92% 30%)' }}>{card.status}</span>
-                    ) : (
-                      <StatusPill status={card.status} variant={card.statusVariant} />
-                    )}
-                    <span style={{ fontSize: 14, color: MUTED }}>{card.timestamp}</span>
-                  </div>
-                </div>
-              );
+              }).slice(0, 6);
               return (
                 <div style={{
-                  overflow: 'hidden',
-                  maskImage: 'linear-gradient(to right, transparent, black 6%, black 94%, transparent)',
-                  WebkitMaskImage: 'linear-gradient(to right, transparent, black 6%, black 94%, transparent)',
+                  backgroundColor: 'hsl(var(--card))', borderRadius: 12,
+                  border: `1px solid ${BORDER}`, overflow: 'hidden',
                 }}>
-                  <div
-                    style={{ display: 'flex', gap: 12, width: 'max-content', animation: 'recentScroll 55s linear infinite' }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.animationPlayState = 'paused'; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.animationPlayState = 'running'; }}
-                  >
-                    {sorted.map(card => renderCard(card, card.id))}
-                    {sorted.map(card => renderCard(card, `${card.id}-dup`))}
-                  </div>
+                  <QueueRowHeader />
+                  {sorted.map((card) => (
+                    <QueueRowEl
+                      key={card.id}
+                      card={card}
+                      onApproveClick={needsReviewApproval(card) ? () => openApprovalPanel(card) : undefined}
+                      onStopClick={card.statusCategory === 'processing' ? () => stopExtraction(card) : undefined}
+                      onRetryClick={card.status === 'Extraction stopped' ? () => retryExtraction(card) : undefined}
+                      onRowClick={() => handleRowClick(card)}
+                      onDetailsClick={() => handleDetailsClick(card)}
+                      slaConfig={escalationConfigForCard(card, escalationConfigs)}
+                    />
+                  ))}
                 </div>
               );
             })()}
@@ -3031,14 +2996,6 @@ export function UploadProcessPage() {
               <span style={{ fontSize: 14, color: MUTED }}>
                 {filteredCards.length} shown{activeChip === 0 && statsCount.total > filteredCards.length ? ` of ${statsCount.total}` : activeChip !== 0 ? ' filtered' : ' total'}
               </span>
-              {filteredCards.length > 20 && (
-                <span style={{
-                  fontSize: 14, fontWeight: 600, padding: '2px 8px', borderRadius: 999,
-                  backgroundColor: `${TEAL}15`, color: TEAL,
-                }}>
-                  Auto row view
-                </span>
-              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <div style={{
@@ -3093,29 +3050,6 @@ export function UploadProcessPage() {
                 activeIndex={activeChip}
                 onSelect={setActiveChip}
               />
-              {/* Density toggle — only shown when ≤20 items and not waiting-for-bol view */}
-              {activeChip !== WAITING_FOR_BOL_CHIP_INDEX && filteredCards.length <= 20 && (
-                <div style={{
-                  display: 'flex', border: `1px solid ${BORDER}`, borderRadius: 7, overflow: 'hidden', flexShrink: 0,
-                }}>
-                  {(['card', 'row'] as const).map((mode) => (
-                    <button
-                      key={mode}
-                      onClick={() => { setViewMode(mode); localStorage.setItem('upload-queue-view', mode); }}
-                      title={mode === 'card' ? 'Card view' : 'Row view'}
-                      style={{
-                        padding: '5px 9px', cursor: 'pointer', border: 'none',
-                        backgroundColor: viewMode === mode ? TEAL : 'transparent',
-                        color: viewMode === mode ? '#fff' : MUTED,
-                        display: 'flex', alignItems: 'center',
-                        transition: 'background-color 0.12s',
-                      }}
-                    >
-                      {mode === 'card' ? <LayoutGrid size={14} /> : <LayoutList size={14} />}
-                    </button>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
 
@@ -3193,21 +3127,6 @@ export function UploadProcessPage() {
                   </div>
                 );
               })}
-            </div>
-          ) : effectiveView === 'card' ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {filteredCards.map((card) => (
-                <QueueCardEl
-                  key={card.id}
-                  card={card}
-                  onApproveClick={needsReviewApproval(card) ? () => openApprovalPanel(card) : undefined}
-                  onStopClick={card.statusCategory === 'processing' ? () => stopExtraction(card) : undefined}
-                  onRetryClick={card.status === 'Extraction stopped' ? () => retryExtraction(card) : undefined}
-                  onCardClick={() => handleRowClick(card)}
-                  onDetailsClick={() => handleDetailsClick(card)}
-                  slaConfig={escalationConfigForCard(card, escalationConfigs)}
-                />
-              ))}
             </div>
           ) : (
             /* Row view with virtual scroll */
@@ -3320,6 +3239,27 @@ export function UploadProcessPage() {
         </button>
 
         {recentExpanded && (
+          <div style={{
+            backgroundColor: 'hsl(var(--card))', borderRadius: 12,
+            border: `1px solid ${BORDER}`, overflow: 'hidden', marginTop: 12,
+          }}>
+            <QueueRowHeader />
+            {QUEUE_CARDS.filter(card => card.statusCategory === 'done').map((card) => (
+              <QueueRowEl
+                key={card.id}
+                card={card}
+                onApproveClick={undefined}
+                onStopClick={undefined}
+                onRetryClick={undefined}
+                onRowClick={() => handleRowClick(card)}
+                onDetailsClick={() => handleDetailsClick(card)}
+                slaConfig={escalationConfigForCard(card, escalationConfigs)}
+              />
+            ))}
+          </div>
+        )}
+
+        {false && recentExpanded && (
           <div style={{
             display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 12,
           }}

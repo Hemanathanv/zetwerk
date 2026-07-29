@@ -286,6 +286,7 @@ PROCESSOR_BY_DOC_TYPE: dict[str, OcrProcessor] = {
     "CHA_BILL": next(item for item in PROCESSORS if item.parse_result is parse_cha_result),
     "CUSTOMER_BROKER_BILL": next(item for item in PROCESSORS if item.parse_result is parse_customer_broker_bill_result),
     "ENTRY_SUMMARY": next(item for item in PROCESSORS if item.parse_result is parse_cbp_form_7501_result),
+    "DRAFT_CBP_FORM_7501_BROKER": next(item for item in PROCESSORS if item.parse_result is parse_cbp_form_7501_result),
     "FREIGHT_FORWARDER_BILL": next(item for item in PROCESSORS if item.parse_result is parse_freight_forward_result),
     "GRN_INBOUND": next(item for item in PROCESSORS if item.parse_result is parse_grn_inbound_result),
     "ISF": next(item for item in PROCESSORS if item.parse_result is parse_isf_result),
@@ -308,13 +309,12 @@ def validate_ocr_schema_coverage() -> dict[str, Any]:
     errors: list[str] = []
     processor_reports: list[dict[str, Any]] = []
 
-    if len(PROCESSOR_BY_DOC_TYPE) != len(PROCESSORS):
+    unique_processors = set(PROCESSOR_BY_DOC_TYPE.values())
+    if len(unique_processors) != len(PROCESSORS):
         errors.append(
-            f"manual route count ({len(PROCESSOR_BY_DOC_TYPE)}) does not match "
+            f"unique manual route count ({len(unique_processors)}) does not match "
             f"processor count ({len(PROCESSORS)})"
         )
-    if len(set(PROCESSOR_BY_DOC_TYPE.values())) != len(PROCESSORS):
-        errors.append("manual DocType registry does not map one-to-one to OCR processors")
 
     for doc_type, processor in PROCESSOR_BY_DOC_TYPE.items():
         schema = processor.parse_result.__globals__.get("_SCHEMA")

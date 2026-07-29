@@ -11,7 +11,45 @@ export type Permission = {
 };
 
 const ADMIN_MODULES = ['dashboard', 'reports', 'shipments', 'tasks', 'documents', 'inventory', 'warehouse', 'dnd', 'accounting', 'admin', 'settings'];
-const USER_MODULES = ['dashboard', 'reports', 'shipments', 'tasks', 'documents', 'inventory', 'warehouse', 'dnd', 'accounting', 'settings'];
+const ADMIN_ACTIVITIES = [
+  'shipments.view',
+  'shipments.create',
+  'tasks.view',
+  'documents.view',
+  'documents.view_extracted',
+  'documents.upload',
+  'documents.edit_extracted',
+  'documents.approve_draft',
+  'documents.reprocess_ocr',
+  'documents.generate_draft',
+  'inventory.view_container',
+  'inventory.view_timeline',
+  'inventory.view_warehouse',
+  'inventory.warehouse_inventory_stock_position',
+  'inventory.acknowledge_dnd',
+  'inventory.update_milestone',
+  'accounting.view_queue',
+  'accounting.view_ap_aging',
+  'reports.view_dashboard',
+  'reports.generate_dsr',
+  'admin.manage',
+  'users.manage',
+  'roles.view',
+  'roles.manage',
+  'admin.manage_users',
+  'admin.configure_roles',
+  'admin.edit_workflows',
+  'admin.configure_doctypes',
+  'admin.edit_account_mappings',
+  'admin.manage_partners',
+  'admin.view_audit_log',
+  'admin.security_settings',
+  'DOC-003',
+  'SHP-001',
+  'TSK-001',
+  'ACC-001',
+  'GATE-001',
+];
 
 function permissionsForModules(modules: string[], isAdmin: boolean): Permission[] {
   const basePermissions = modules.map((module) => ({
@@ -55,15 +93,31 @@ export function useAuth() {
   const auth = useConnectedAuth();
   const keycloakPermissions = (auth.user as any)?.rbacPermissions as RbacPermissions | undefined;
   const isKnownAdmin = auth.user?.email?.toLowerCase() === 'admin@sprconsultech.com';
-  const isAdmin = isKnownAdmin || auth.user?.systemRole === 'ADMIN' || auth.user?.systemRole === 'SUPER_ADMIN';
-  const modules = keycloakPermissions?.modules ?? (isAdmin ? ADMIN_MODULES : USER_MODULES);
+  const normalizedSystemRole = String(auth.user?.systemRole ?? '').toUpperCase().replace(/-/g, '_');
+  const isAdmin = isKnownAdmin || normalizedSystemRole === 'ADMIN' || normalizedSystemRole === 'SUPER_ADMIN';
+  const adminPermissions = isAdmin && keycloakPermissions
+    ? {
+        ...keycloakPermissions,
+        modules: [...new Set([...(keycloakPermissions.modules ?? []), ...ADMIN_MODULES])],
+        activities: [...new Set([...(keycloakPermissions.activities ?? []), ...ADMIN_ACTIVITIES])],
+        capabilities: {
+          ...(keycloakPermissions.capabilities ?? {}),
+          isApprove: true,
+          isEdit: true,
+          isUpload: true,
+          isOverride: true,
+          isReprocess: true,
+        },
+      }
+    : keycloakPermissions;
+  const modules = adminPermissions?.modules ?? (isAdmin ? ADMIN_MODULES : []);
   const rbacPermissions: RbacPermissions | null = auth.user
-    ? keycloakPermissions ?? {
+    ? adminPermissions ?? (isAdmin ? {
         modules,
         gates: [],
         docTypes: {},
         ticketCategories: [],
-        activities: ['DOC-003'],
+        activities: ADMIN_ACTIVITIES,
         dataScope: isAdmin ? 'ALL' : 'TAGGED',
         capabilities: {
           isApprove: isAdmin,
@@ -78,9 +132,9 @@ export function useAuth() {
           category: isKnownAdmin ? 'ADMIN' : auth.user.systemRole,
           color: '#0f766e',
         },
-      }
+      } : null)
     : null;
-  const keycloakRole = keycloakPermissions?.role;
+  const keycloakRole = adminPermissions?.role;
   const user = auth.user
     ? {
         ...auth.user,

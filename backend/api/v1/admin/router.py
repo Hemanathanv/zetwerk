@@ -217,11 +217,14 @@ SHEET_ACTIVITY_SETS = {
         "shipments.resume_shipment", "shipments.cancel_shipment", "shipments.change_shipment_type",
     ],
     "inventory": [
-        "inventory.view_warehouse", "inventory.view_container", "inventory.inventory_tracking_breakbulk",
+        "inventory.view_container", "inventory.inventory_tracking_breakbulk",
         "inventory.create_outward_grn_new_dispatch", "inventory.approve_dispatch",
         "inventory.reject_dispatch", "inventory.view_outward_dispatches",
         "inventory.adjust_stock_without_remarks", "inventory.adjust_stock_with_remarks",
-        "inventory.warehouse_inventory_stock_position", "inventory.3_way_recon",
+        "inventory.3_way_recon",
+    ],
+    "warehouse": [
+        "inventory.view_warehouse", "inventory.warehouse_inventory_stock_position",
     ],
 }
 
@@ -373,7 +376,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "color": "#DB2777",
         "allowedLevels": ["L1", "L2"],
         "defaultDataScope": "TAGGED",
-        "defaultModules": ["shipments", "documents", "inventory", "tasks"],
+        "defaultModules": ["shipments", "documents", "inventory", "warehouse", "tasks"],
         "activityCodes": ["shipments.view", "documents.upload", "documents.view", "inventory.view_warehouse", "inventory.view_container"],
     },
     "Customer Portal": {
@@ -500,6 +503,10 @@ ACTIVITY_DEFINITIONS = [
     {"id": "activity-reports-export-report", "activityCode": "reports.export_report", "name": "Export reports", "category": "reports", "minLevel": "L2"},
     {"id": "activity-reports-schedule-auto", "activityCode": "reports.schedule_auto", "name": "Schedule automated reports", "category": "reports", "minLevel": "L3"},
     {"id": "activity-tasks-view", "activityCode": "tasks.view", "name": "View tasks", "category": "tasks", "minLevel": "L1"},
+    {"id": "activity-tasks-update", "activityCode": "tasks.update", "name": "Update tasks", "category": "tasks", "minLevel": "L2"},
+    {"id": "activity-tasks-assign", "activityCode": "tasks.assign", "name": "Assign tasks", "category": "tasks", "minLevel": "L3"},
+    {"id": "activity-tasks-escalate", "activityCode": "tasks.escalate", "name": "Escalate tasks", "category": "tasks", "minLevel": "L3"},
+    {"id": "activity-tasks-delegate", "activityCode": "tasks.delegate", "name": "Delegate tasks", "category": "tasks", "minLevel": "L3"},
     {"id": "activity-admin-manage", "activityCode": "admin.manage", "name": "Manage administration", "category": "admin", "minLevel": "L3"},
     {"id": "activity-users-manage", "activityCode": "users.manage", "name": "Manage users", "category": "admin", "minLevel": "L3"},
     {"id": "activity-roles-view", "activityCode": "roles.view", "name": "View roles", "category": "admin", "minLevel": "L2"},
@@ -513,6 +520,16 @@ ACTIVITY_DEFINITIONS = [
     {"id": "activity-admin-view-audit-log", "activityCode": "admin.view_audit_log", "name": "View audit log", "category": "admin", "minLevel": "L3"},
     {"id": "activity-admin-security-settings", "activityCode": "admin.security_settings", "name": "Security settings", "category": "admin", "minLevel": "L4"},
 ]
+
+ACTIVITY_MODULE_OVERRIDES = {
+    "inventory.view_warehouse": "warehouse",
+    "inventory.warehouse_inventory_stock_position": "warehouse",
+    "inventory.acknowledge_dnd": "dnd",
+    "inventory.view_dnd_charges": "dnd",
+    "inventory.view_last_free_days_shipment_based": "dnd",
+    "inventory.view_lfd_calendar": "dnd",
+    "inventory.modify_lfd": "dnd",
+}
 
 SHEET_STATUS_ACTIVITY_ROWS = [
     ("documents", "Document", "documents.upload", "Upload Document", "Doc names", "Uploaded", None),
@@ -665,16 +682,17 @@ def _merge_sheet_status_activities(activities: list[dict[str, Any]]) -> list[dic
 
     group_counts: dict[str, int] = {}
     for module_code, sub_module, activity_code, name, scope, status, remarks in SHEET_STATUS_ACTIVITY_ROWS:
+        effective_module_code = ACTIVITY_MODULE_OVERRIDES.get(activity_code, module_code)
         group_code, group_label = _sheet_activity_group(sub_module)
         group_counts[group_code] = group_counts.get(group_code, 0) + 1
-        display_code = f"{_activity_prefix(group_code, module_code)}-{group_counts[group_code]:03d}"
+        display_code = f"{_activity_prefix(group_code, effective_module_code)}-{group_counts[group_code]:03d}"
         row: dict[str, Any] = {
             "id": _sheet_activity_id(activity_code),
             "activityCode": activity_code,
             "displayCode": display_code,
             "name": name,
             "category": group_code,
-            "moduleCode": module_code,
+            "moduleCode": effective_module_code,
             "displayGroup": group_label,
             "subModule": sub_module,
             "scope": scope,
@@ -691,15 +709,25 @@ def _merge_sheet_status_activities(activities: list[dict[str, Any]]) -> list[dic
             merged[activity_code] = clean_row
         order.append(activity_code)
 
+    for activity in activities:
+        code = str(activity["activityCode"])
+        if code in merged:
+            continue
+        merged[code] = {
+            **activity,
+            "moduleCode": ACTIVITY_MODULE_OVERRIDES.get(code, activity.get("moduleCode") or activity.get("category")),
+        }
+        order.append(code)
+
     return [merged[code] for code in order]
 
 
 ACTIVITY_DEFINITIONS = _merge_sheet_status_activities(ACTIVITY_DEFINITIONS)
 
 ACTIVITY_MODULES = {
-    activity["activityCode"]: activity.get("moduleCode") or activity["category"]
+    activity["activityCode"]: ACTIVITY_MODULE_OVERRIDES.get(activity["activityCode"], activity.get("moduleCode") or activity["category"])
     for activity in ACTIVITY_DEFINITIONS
-    if (activity.get("moduleCode") or activity.get("category")) in {module["moduleCode"] for module in MODULE_DEFINITIONS}
+    if ACTIVITY_MODULE_OVERRIDES.get(activity["activityCode"], activity.get("moduleCode") or activity.get("category")) in {module["moduleCode"] for module in MODULE_DEFINITIONS}
 }
 
 
@@ -876,6 +904,7 @@ DOC_TYPE_REGISTRY: list[dict[str, Any]] = [
     {"id": "BILL_OF_LADING", "typeCode": "BILL_OF_LADING", "displayName": "Bill of Lading", "shortCode": "BOL", "geography": "GLOBAL", "hasExtraction": True, "isSystem": True, "sortOrder": 30},
     {"id": "SHIPPING_BILL", "typeCode": "SHIPPING_BILL", "displayName": "Shipping Bill", "shortCode": "SB", "geography": "INDIA", "hasExtraction": True, "isSystem": True, "sortOrder": 40},
     {"id": "ENTRY_SUMMARY", "typeCode": "ENTRY_SUMMARY", "displayName": "CBP FORM 7501", "shortCode": "CBP", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 50},
+    {"id": "DRAFT_CBP_FORM_7501_BROKER", "typeCode": "DRAFT_CBP_FORM_7501_BROKER", "displayName": "Draft CBP FORM 7501_Broker", "shortCode": "CBP", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 55},
     {"id": "CHA_BILL", "typeCode": "CHA_BILL", "displayName": "CHA Bill", "shortCode": "CHA", "geography": "INDIA", "hasExtraction": True, "isSystem": True, "sortOrder": 60},
     {"id": "FREIGHT_FORWARDER_BILL", "typeCode": "FREIGHT_FORWARDER_BILL", "displayName": "Freight Forwarder Bill", "shortCode": "FF", "geography": "GLOBAL", "hasExtraction": True, "isSystem": True, "sortOrder": 70},
     {"id": "OCEAN_FREIGHT", "typeCode": "OCEAN_FREIGHT", "displayName": "Ocean Freight", "shortCode": "OF", "geography": "GLOBAL", "hasExtraction": True, "isSystem": True, "sortOrder": 80},
@@ -1152,9 +1181,12 @@ def _parse_activity_sla(attrs: dict | None) -> list[dict[str, Any]]:
 
 
 def _activity_sla_from_request(request: RoleProfileRequest) -> list[dict[str, Any]]:
+    enabled_activity_codes = _enabled_activity_codes_from_request(request)
     rows: list[dict[str, Any]] = []
     for item in request.activitySla or []:
         activity_code = str(item.activityCode or "").strip()
+        if activity_code not in enabled_activity_codes:
+            continue
         activity_type = str(item.activityType or "").strip()
         activity_name = str(item.activityName or activity_type).strip()
         scope = str(item.scope or "").strip()
@@ -1181,7 +1213,7 @@ def _activity_sla_from_request(request: RoleProfileRequest) -> list[dict[str, An
 
 
 def _validate_role_activity_sla(request: RoleProfileRequest, activity_sla: list[dict[str, Any]]) -> None:
-    selected_codes = {str(code).strip() for code in request.activityCodes or [] if str(code).strip()}
+    selected_codes = _enabled_activity_codes_from_request(request)
     if not selected_codes:
         return
     activities_by_code = {
@@ -1237,12 +1269,32 @@ def _validate_role_activity_sla(request: RoleProfileRequest, activity_sla: list[
 
 
 def _doc_type_scopes_from_request(request: RoleProfileRequest) -> dict[str, list[str]]:
+    enabled_activity_codes = _enabled_activity_codes_from_request(request)
     scopes: dict[str, list[str]] = {}
     for activity_code, values in (request.docTypeScopes or {}).items():
+        if str(activity_code) not in enabled_activity_codes:
+            continue
         normalized = _normalize_doc_type_list(values)
         if normalized:
             scopes[str(activity_code)] = normalized
     return scopes
+
+
+def _enabled_modules_from_request(request: RoleProfileRequest) -> set[str]:
+    return {str(module).strip() for module in request.defaultModules or [] if str(module).strip()}
+
+
+def _enabled_activity_codes_from_request(request: RoleProfileRequest) -> set[str]:
+    modules = _enabled_modules_from_request(request)
+    enabled: set[str] = set()
+    for activity_code in request.activityCodes or []:
+        code = str(activity_code).strip()
+        module = ACTIVITY_MODULES.get(code)
+        if not code or not module:
+            continue
+        if module in modules or ("partner" in modules and module in {"documents", "shipments", "inventory", "warehouse"}):
+            enabled.add(code)
+    return enabled
 
 
 def _role_profile_from_keycloak(role: dict, *, user_count: int = 0, detail: bool = False) -> dict[str, Any]:
@@ -1309,16 +1361,13 @@ def _role_profile_from_keycloak(role: dict, *, user_count: int = 0, detail: bool
 
 def _role_payload_from_request(request: RoleProfileRequest, *, role_id: str | None = None) -> dict[str, Any]:
     name = role_id or _role_id_from_name(request.name)
-    modules = set(request.defaultModules or [])
+    modules = _enabled_modules_from_request(request)
+    activity_codes = sorted(_enabled_activity_codes_from_request(request))
     doc_type_scopes = _doc_type_scopes_from_request(request)
     document_scope = _normalize_doc_type_list(request.documentScope)
     if not document_scope and doc_type_scopes:
         document_scope = sorted({doc_type for doc_types in doc_type_scopes.values() for doc_type in doc_types})
     activity_sla = _activity_sla_from_request(request)
-    for activity_code in request.activityCodes or []:
-        module_code = ACTIVITY_MODULES.get(activity_code)
-        if module_code:
-            modules.add(module_code)
     return {
         "name": name,
         "description": request.description or "",
@@ -1332,7 +1381,7 @@ def _role_payload_from_request(request: RoleProfileRequest, *, role_id: str | No
             "ewms.docTypeScopes": [json.dumps(doc_type_scopes, sort_keys=True)],
             "ewms.activitySla": [json.dumps(activity_sla, sort_keys=True)],
             "ewms.modules": sorted(modules),
-            "ewms.activities": request.activityCodes,
+            "ewms.activities": activity_codes,
             "ewms.managedBy": ["ewms-admin"],
         },
     }
@@ -2930,7 +2979,6 @@ async def create_admin_role(request: RoleProfileRequest, _user=Depends(get_admin
     if not payload["attributes"]["ewms.modules"]:
         return {"ok": False, "error": "Select at least one module for this role."}
     activity_sla = _activity_sla_from_request(request)
-    _validate_role_activity_sla(request, activity_sla)
     try:
         prisma = await get_prisma()
         await _upsert_activity_sla_configs(prisma, activity_sla)
@@ -2958,7 +3006,6 @@ async def update_admin_role(role_id: str, request: RoleProfileRequest, _user=Dep
         if not payload["attributes"]["ewms.modules"]:
             return {"ok": False, "error": "Select at least one module for this role."}
         activity_sla = _activity_sla_from_request(request)
-        _validate_role_activity_sla(request, activity_sla)
         prisma = await get_prisma()
         await _upsert_activity_sla_configs(prisma, activity_sla)
         payload["id"] = existing.get("id")

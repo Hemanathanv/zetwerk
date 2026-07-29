@@ -400,7 +400,10 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
   }
 
   async function saveUser() {
-    if (!form.fullName.trim() || !form.email.trim() || !form.roleId) return;
+    if (!form.fullName.trim() || !form.email.trim() || !form.roleId) {
+      setFormError('Full name, email, and role are required.');
+      return;
+    }
     setSaving(true); setFormError('');
     try {
       const payload: any = {
@@ -635,8 +638,6 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
       (LEVEL_NUM[u.level] ?? 0) >= delegatorLevelNum
     );
   }, [users, delegatingUser]);
-
-  const canSaveUser = form.fullName.trim() && form.email.trim() && form.roleId;
 
   // ── Edit modal: active delegations section ────────────────────────────────────
   const editUserDelegations = useMemo(() => {
@@ -894,7 +895,7 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {formError && <span style={{ fontSize: 14, color: '#dc2626', flex: 1 }}>{formError}</span>}
             <Button variant="outline" size="sm" onClick={() => setModalMode(null)}>Cancel</Button>
-            <Button size="sm" disabled={!canSaveUser || saving} onClick={saveUser}
+            <Button size="sm" disabled={saving} onClick={saveUser}
               style={{ minWidth: 80 }}>
               {saving ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : 'Save'}
             </Button>

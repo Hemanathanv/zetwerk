@@ -6,7 +6,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { SidebarProvider, useSidebar } from '@/contexts/SidebarContext';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
-import { PermissionProvider } from '@/contexts/PermissionContext';
+import { PermissionProvider, usePermissions } from '@/contexts/PermissionContext';
 import { RequireModule } from '@/components/PermissionGate';
 import { ConfigProvider } from '@/contexts/ConfigContext';
 import { UploadProvider } from '@/contexts/UploadContext';
@@ -68,6 +68,29 @@ import { EwmsShipLoader } from '@/components/EwmsShipLoader';
 
 const queryClient = new QueryClient();
 
+const LANDING_ROUTES = [
+  { module: 'portal', path: '/portal' },
+  { module: 'partner', path: '/partner', activities: ['documents.upload'] },
+  { module: 'dashboard', path: '/dashboard' },
+  { module: 'shipments', path: '/shipments', activities: ['shipments.view', 'SHP-001'] },
+  { module: 'tasks', path: '/tasks', activities: ['tasks.view', 'TSK-001'] },
+  { module: 'documents', path: '/documents', activities: ['documents.view', 'documents.view_extracted'] },
+  { module: 'inventory', path: '/inventory/containers', activities: ['inventory.view_container', 'inventory.view_timeline', 'GATE-001'] },
+  { module: 'warehouse', path: '/inventory/warehouse', activities: ['inventory.view_warehouse', 'inventory.warehouse_inventory_stock_position'] },
+  { module: 'dnd', path: '/inventory/dnd', activities: ['inventory.acknowledge_dnd', 'inventory.update_milestone'] },
+  { module: 'accounting', path: '/accounting', activities: ['accounting.view_queue', 'ACC-001'] },
+  { module: 'reports', path: '/reports/dsr', activities: ['reports.generate_dsr'] },
+  { module: 'admin', path: '/settings', activities: ['admin.manage', 'users.manage', 'roles.view'] },
+] as const;
+
+function firstAllowedLandingPath(modules: string[], activities: string[]) {
+  return LANDING_ROUTES.find((route) => {
+    if (!modules.includes(route.module)) return false;
+    if (!('activities' in route) || !route.activities.length) return true;
+    return route.activities.some((activity) => activities.includes(activity));
+  })?.path ?? '/unauthorized';
+}
+
 function UnauthorizedPage() {
   return (
     <div className="flex items-center justify-center h-full min-h-[60vh]">
@@ -114,101 +137,103 @@ function AppLayout() {
               </RequireModule>
             </Route>
             <Route path="/shipments/new">
-              <RequireModule module="shipments" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="shipments" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['shipments.create', 'SHP-002']} fallback={<Redirect to="/unauthorized" />}>
                   <CreateShipmentPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/shipments/:id/documents">
-              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['documents.view', 'documents.view_extracted']} fallback={<Redirect to="/unauthorized" />}>
                   <ShipmentDocumentsPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/shipments/:id">
-              <RequireModule module="shipments" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="shipments" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['shipments.view', 'SHP-001']} fallback={<Redirect to="/unauthorized" />}>
                   <ShipmentDetailPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/shipments">
-              <RequireModule module="shipments" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="shipments" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['shipments.view', 'SHP-001']} fallback={<Redirect to="/unauthorized" />}>
                   <ShipmentsPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/tracking">
-              <RequireModule module="shipments" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="shipments" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['shipments.view', 'SHP-001']} fallback={<Redirect to="/unauthorized" />}>
                   <ShipmentDetailPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/inventory/containers/:id">
-              <RequireModule module="inventory" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="inventory" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['inventory.view_container', 'inventory.view_timeline', 'GATE-001']} fallback={<Redirect to="/unauthorized" />}>
                   <ContainerDetailPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/inventory/containers">
-              <RequireModule module="inventory" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="inventory" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['inventory.view_container', 'inventory.view_timeline', 'GATE-001']} fallback={<Redirect to="/unauthorized" />}>
                   <ContainerDashboardPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/inventory/warehouse">
-              <RequireModule module="warehouse" fallback={<Redirect to="/dashboard" />}>
-                <RequireAnyActivity codes={['inventory.view_container', 'inventory.warehouse_inventory_stock_position', 'inventory.view_warehouse']} fallback={<Redirect to="/unauthorized" />}>
+              <RequireModule module="warehouse" fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={['inventory.warehouse_inventory_stock_position', 'inventory.view_warehouse']} fallback={<Redirect to="/unauthorized" />}>
                   <WarehouseInventoryPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/inventory/dnd">
-              <RequireModule module="dnd" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="dnd" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['inventory.acknowledge_dnd', 'inventory.update_milestone']} fallback={<Redirect to="/unauthorized" />}>
                   <DndManagementPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/inventory">
-              <Redirect to="/inventory/containers" />
+              <RequireModule module="inventory" fallback={<Redirect to="/unauthorized" />}>
+                <Redirect to="/inventory/containers" />
+              </RequireModule>
             </Route>
             <Route path="/projects/:id">
-              <RequireModule module="shipments" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="shipments" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['shipments.view', 'SHP-001']} fallback={<Redirect to="/unauthorized" />}>
                   <ProjectDetailPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/projects">
-              <RequireModule module="shipments" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="shipments" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['shipments.view', 'SHP-001']} fallback={<Redirect to="/unauthorized" />}>
                   <ProjectListPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/generate/packing-list">
-              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
                 <RequireActivity code="DOC-003" fallback={<Redirect to="/unauthorized" />}>
                   <PackingListGeneratePage />
                 </RequireActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/generate/boe">
-              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
                 <RequireActivity code="DOC-003" fallback={<Redirect to="/unauthorized" />}>
                   <BoeGeneratePage />
                 </RequireActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/generate/outward-grn">
-              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['documents.generate_draft', 'DOC-003', 'inventory.create_outward_grn_new_dispatch', 'inventory.update_milestone']} fallback={<Redirect to="/unauthorized" />}>
                   <DocumentGenerationOutwardGrnPage />
                 </RequireAnyActivity>
@@ -221,106 +246,108 @@ function AppLayout() {
               <Redirect to="/documents/generate/outward-grn" />
             </Route>
             <Route path="/documents/generate/:type">
-              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['documents.generate_draft', 'DOC-003']} fallback={<Redirect to="/unauthorized" />}>
                   <DocumentGeneratePage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/generate">
-              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['documents.generate_draft', 'DOC-003']} fallback={<Redirect to="/unauthorized" />}>
                   <DocumentGeneratePage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/upload/:id/approve">
-              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['documents.edit_extracted', 'documents.approve_draft']} fallback={<Redirect to="/unauthorized" />}>
                   <DocumentDetailPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/upload/generated/:id/details">
-              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
                   <UploadProcessPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/upload/:id/details">
-              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
                   <UploadProcessPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/upload/queue">
-              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
                   <UploadProcessPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/upload/:id">
-              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['documents.view', 'documents.view_extracted']} fallback={<Redirect to="/unauthorized" />}>
                   <DocumentDetailPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/upload">
-              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
                   <UploadProcessPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/:id">
-              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['documents.view', 'documents.view_extracted']} fallback={<Redirect to="/unauthorized" />}>
                   <DocumentDetailPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents">
-              <RequireModule module="documents" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['documents.view', 'documents.view_extracted']} fallback={<Redirect to="/unauthorized" />}>
                   <DocumentsPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/tasks">
-              <RequireModule module="tasks" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="tasks" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['tasks.view', 'TSK-001']} fallback={<Redirect to="/unauthorized" />}>
                   <TasksPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/accounting">
-              <RequireModule module="accounting" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="accounting" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['accounting.view_queue', 'ACC-001']} fallback={<Redirect to="/unauthorized" />}>
                   <FinanceTicketQueuePage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/finance">
-              <RequireModule module="accounting" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="accounting" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['accounting.view_ap_aging', 'accounting.view_queue']} fallback={<Redirect to="/unauthorized" />}>
                   <FinanceDashboardPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/reports/dsr">
-              <RequireModule module="reports" fallback={<Redirect to="/dashboard" />}>
+              <RequireModule module="reports" fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['reports.generate_dsr']} fallback={<Redirect to="/unauthorized" />}>
                   <DsrReportPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/reports">
-              <RequireModule module="reports" fallback={<Redirect to="/dashboard" />}>
-                <UnderBuildPage title="Reports" />
+              <RequireModule module="reports" fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={['reports.view_dashboard']} fallback={<Redirect to="/unauthorized" />}>
+                  <UnderBuildPage title="Reports" />
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/partner/documents">
@@ -360,14 +387,30 @@ function AppLayout() {
             <Route path="/portal">
               <CustomerProjectsPage />
             </Route>
-            <Route path="/invoices" component={InvoicesPage} />
+            <Route path="/invoices">
+              <RequireModule module="accounting" fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={['accounting.view_queue', 'ACC-001']} fallback={<Redirect to="/unauthorized" />}>
+                  <InvoicesPage />
+                </RequireAnyActivity>
+              </RequireModule>
+            </Route>
             <Route path="/notifications" component={NotificationsPage} />
             <Route path="/settings">
-              <SettingsShell />
+              <RequireModule module="admin" fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={['admin.manage', 'users.manage', 'roles.view']} fallback={<Redirect to="/unauthorized" />}>
+                  <SettingsShell />
+                </RequireAnyActivity>
+              </RequireModule>
             </Route>
             <Route path="/platform"><PlatformGuard><PlatformShell /></PlatformGuard></Route>
             <Route path="/user-settings" component={SettingsPage} />
-            <Route path="/schema" component={SchemaReferencePage} />
+            <Route path="/schema">
+              <RequireModule module="admin" fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={['admin.configure_doctypes', 'roles.view']} fallback={<Redirect to="/unauthorized" />}>
+                  <SchemaReferencePage />
+                </RequireAnyActivity>
+              </RequireModule>
+            </Route>
             <Route>
               <UnderBuildPage />
             </Route>
@@ -381,30 +424,34 @@ function AppLayout() {
 
 function AdminArea() {
   return (
-    <AdminGuard>
-      <AdminLayout>
-        <Switch>
-          <Route path="/admin/users">
-            <AdminUsersPage />
-          </Route>
-          <Route path="/admin/roles" component={AdminRolesPage} />
-          <Route path="/admin/organisations" component={AdminOrgsPage} />
-          <Route path="/admin/templates/:id" component={AdminTemplatesPage} />
-          <Route path="/admin/templates" component={AdminTemplatesPage} />
-          <Route path="/admin/validation-rules" component={AdminValidationPage} />
-          <Route path="/admin/accounting" component={AdminAccountingPage} />
-          <Route path="/admin/escalation"><Redirect to="/admin/roles" /></Route>
-          <Route path="/admin/inventory" component={AdminInventoryPage} />
-          <Route path="/admin/warehouses" component={AdminWarehousesPage} />
-          <Route path="/admin/products" component={AdminProductsPage} />
-          <Route path="/admin/audit" component={AdminAuditPage} />
-          <Route path="/admin/compliance" component={AdminCompliancePage} />
-          <Route path="/admin">
-            <Redirect to="/settings" />
-          </Route>
-        </Switch>
-      </AdminLayout>
-    </AdminGuard>
+    <RequireModule module="admin" fallback={<Redirect to="/unauthorized" />}>
+      <RequireAnyActivity codes={['admin.manage', 'roles.view', 'users.manage']} fallback={<Redirect to="/unauthorized" />}>
+        <AdminGuard>
+          <AdminLayout>
+            <Switch>
+              <Route path="/admin/users">
+                <AdminUsersPage />
+              </Route>
+              <Route path="/admin/roles" component={AdminRolesPage} />
+              <Route path="/admin/organisations" component={AdminOrgsPage} />
+              <Route path="/admin/templates/:id" component={AdminTemplatesPage} />
+              <Route path="/admin/templates" component={AdminTemplatesPage} />
+              <Route path="/admin/validation-rules" component={AdminValidationPage} />
+              <Route path="/admin/accounting" component={AdminAccountingPage} />
+              <Route path="/admin/escalation"><Redirect to="/admin/roles" /></Route>
+              <Route path="/admin/inventory" component={AdminInventoryPage} />
+              <Route path="/admin/warehouses" component={AdminWarehousesPage} />
+              <Route path="/admin/products" component={AdminProductsPage} />
+              <Route path="/admin/audit" component={AdminAuditPage} />
+              <Route path="/admin/compliance" component={AdminCompliancePage} />
+              <Route path="/admin">
+                <Redirect to="/settings" />
+              </Route>
+            </Switch>
+          </AdminLayout>
+        </AdminGuard>
+      </RequireAnyActivity>
+    </RequireModule>
   );
 }
 
@@ -430,16 +477,15 @@ function AuthenticatedApp() {
 
 function AppRoutes() {
   const { isAuthenticated, loading, user } = useAuth();
+  const { modules, activities, loaded: permissionsLoaded } = usePermissions();
 
-  if (loading) return <EwmsShipLoader fullPage />;
+  if (loading || (isAuthenticated && !permissionsLoaded)) return <EwmsShipLoader fullPage />;
 
   const landingPath = (() => {
     if (!isAuthenticated) return '/';
-    const mods = (user as any)?.modules as string[] | undefined ?? [];
-    if (mods.includes('portal')) return '/portal';
-    if (mods.includes('partner')) return '/partner';
-    if (user?.role?.category === 'org_external') return '/partner';
-    return '/dashboard';
+    if (modules.includes('portal')) return '/portal';
+    if (modules.includes('partner')) return '/partner';
+    return firstAllowedLandingPath(modules, activities);
   })();
 
   return (

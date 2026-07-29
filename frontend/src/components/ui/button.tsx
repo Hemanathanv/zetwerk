@@ -5,34 +5,30 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0" +
-" hover-elevate active-elevate-2",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium leading-none transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:bg-[#e5e5e5] disabled:text-[#a5a5a5] disabled:opacity-100 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default:
-           // @replit: no hover, and add primary border
-           "bg-primary text-primary-foreground border border-primary-border",
+          "border border-primary-border bg-primary text-primary-foreground hover:bg-[hsl(var(--vs-teal-dark))] active:bg-[hsl(var(--vs-teal-dark))]",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-sm border-destructive-border",
+          "border border-destructive-border bg-destructive text-destructive-foreground hover:bg-red-700 active:bg-red-700",
         outline:
-          // @replit Shows the background color of whatever card / sidebar / accent background it is inside of.
-          // Inherits the current text color. Uses shadow-xs. no shadow on active
-          // No hover state
-          " border [border-color:var(--button-outline)] shadow-xs active:shadow-none ",
+          "border border-input bg-transparent text-foreground hover:bg-muted active:bg-muted",
         secondary:
-          // @replit border, no hover, no shadow, secondary border.
-          "border bg-secondary text-secondary-foreground border border-secondary-border ",
-        // @replit no hover, transparent border
-        ghost: "border border-transparent",
+          "border border-[#c9c9c9] bg-white text-foreground hover:bg-[#f5f5f5] active:bg-[#f5f5f5] dark:bg-card",
+        ghost: "border border-transparent bg-transparent text-foreground hover:bg-muted active:bg-muted",
+        success:
+          "border border-[hsl(var(--vs-success))] bg-[hsl(var(--vs-success))] text-white hover:bg-green-900 active:bg-green-900",
+        danger:
+          "border border-destructive-border bg-destructive text-destructive-foreground hover:bg-red-700 active:bg-red-700",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        // @replit changed sizes
-        default: "min-h-9 px-4 py-2",
-        sm: "min-h-8 rounded-md px-3 text-[13px]",
-        lg: "min-h-10 rounded-md px-8",
-        icon: "h-9 w-9",
+        default: "h-8 px-4",
+        sm: "h-7 px-4 text-sm",
+        lg: "h-10 px-4 text-sm",
+        icon: "h-8 w-8",
       },
     },
     defaultVariants: {

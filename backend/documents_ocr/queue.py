@@ -54,8 +54,11 @@ def _format_detection_error(exc: Exception) -> str:
 
 
 def _module_slug_from_doc_type(doc_type: Any) -> str:
-    if str(doc_type or "").strip().upper() == "CUSTOMER_BROKER_BILL":
+    normalized_doc_type = str(doc_type or "").strip().upper()
+    if normalized_doc_type == "CUSTOMER_BROKER_BILL":
         return "customs-broker-bill"
+    if normalized_doc_type == "DRAFT_CBP_FORM_7501_BROKER":
+        return _module_slug_from_doc_type("ENTRY_SUMMARY")
     return str(doc_type or "uploads").strip().lower().replace("_", "-") or "uploads"
 
 
