@@ -220,6 +220,7 @@ type KeycloakPermissions = {
 };
 
 type LevelAuthorization = {
+  level?: string;
   activities: string[];
 };
 
@@ -306,6 +307,10 @@ function capabilitiesFromActivities(activities: string[]): Record<string, boolea
   };
 }
 
+function mergeActivities(...activityLists: Array<string[] | null | undefined>): string[] {
+  return [...new Set(activityLists.flatMap((activities) => activities ?? []))];
+}
+
 function normalizeKeycloakUser(
   userInfo: KeycloakUserInfo,
   roles: string[],
@@ -319,6 +324,9 @@ function normalizeKeycloakUser(
     userInfo.preferred_username ||
     email;
   const systemRole = email === 'admin@sprconsultech.com' ? 'ADMIN' : roleFromKeycloakRoles(roles);
+  const activities = permissions
+    ? mergeActivities(permissions.activities, levelAuth?.activities)
+    : [];
   return {
     id: userInfo.sub ?? email,
     name,
@@ -328,8 +336,8 @@ function normalizeKeycloakUser(
     ...(permissions ? {
       rbacPermissions: {
         ...permissions,
-        activities: levelAuth?.activities ?? permissions.activities,
-        capabilities: capabilitiesFromActivities(levelAuth?.activities ?? permissions.activities),
+        activities,
+        capabilities: capabilitiesFromActivities(activities),
       },
       modules: permissions.modules,
       role: permissions.role,

@@ -82,6 +82,21 @@ export function RequireModule({
   return <>{children}</>;
 }
 
+export function RequireAnyModule({
+  modules: requiredModules,
+  children,
+  fallback = null,
+}: {
+  modules: string[];
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
+}) {
+  const { modules, loaded } = usePermissions();
+  if (!loaded) return null;
+  if (!requiredModules.some((module) => modules.includes(module))) return <>{fallback}</>;
+  return <>{children}</>;
+}
+
 export function RequireAnyActivity({
   codes,
   children,

@@ -23,6 +23,7 @@ build/
 *.*txt
 *.md
 zetwerk-main/
+docs/
 .agents/
 .codex/
 doc/

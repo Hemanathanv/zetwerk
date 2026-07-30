@@ -7,12 +7,13 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { SidebarProvider, useSidebar } from '@/contexts/SidebarContext';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { PermissionProvider, usePermissions } from '@/contexts/PermissionContext';
-import { RequireModule } from '@/components/PermissionGate';
+import { RequireAnyModule, RequireModule } from '@/components/PermissionGate';
 import { ConfigProvider } from '@/contexts/ConfigContext';
 import { UploadProvider } from '@/contexts/UploadContext';
 import { Sidebar } from '@/components/Sidebar';
 import { TopHeader } from '@/components/TopHeader';
 import { UploadSheet } from '@/components/UploadSheet';
+import { DOC_GENERATION_ACTIVITY_CODES } from '@/lib/docGenerationAccess';
 import { AdminGuard } from '@/components/admin/AdminGuard';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { LoginPage } from '@/pages/LoginPage';
@@ -42,7 +43,7 @@ import CustomerTrackingPage from '@/pages/portal/CustomerTrackingPage';
 import { DocumentGeneratePage } from '@/pages/DocumentGeneratePage';
 import { PackingListGeneratePage } from '@/pages/PackingListGeneratePage';
 import { BoeGeneratePage } from '@/pages/BoeGeneratePage';
-import { RequireActivity, RequireAnyActivity } from '@/components/PermissionGate';
+import { RequireAnyActivity } from '@/components/PermissionGate';
 import { CreateShipmentPage } from '@/pages/CreateShipmentPage';
 import { SchemaReferencePage } from '@/pages/SchemaReferencePage';
 import { UploadProcessPage } from '@/pages/UploadProcessPage';
@@ -65,31 +66,9 @@ import { AdminCompliancePage } from '@/pages/admin/AdminCompliancePage';
 import { ProjectListPage } from '@/pages/ProjectListPage';
 import { ProjectDetailPage } from '@/pages/ProjectDetailPage';
 import { EwmsShipLoader } from '@/components/EwmsShipLoader';
+import { firstAllowedLandingPath } from '@/lib/allowedNavigation';
 
 const queryClient = new QueryClient();
-
-const LANDING_ROUTES = [
-  { module: 'portal', path: '/portal' },
-  { module: 'partner', path: '/partner', activities: ['documents.upload'] },
-  { module: 'dashboard', path: '/dashboard' },
-  { module: 'shipments', path: '/shipments', activities: ['shipments.view', 'SHP-001'] },
-  { module: 'tasks', path: '/tasks', activities: ['tasks.view', 'TSK-001'] },
-  { module: 'documents', path: '/documents', activities: ['documents.view', 'documents.view_extracted'] },
-  { module: 'inventory', path: '/inventory/containers', activities: ['inventory.view_container', 'inventory.view_timeline', 'GATE-001'] },
-  { module: 'warehouse', path: '/inventory/warehouse', activities: ['inventory.view_warehouse', 'inventory.warehouse_inventory_stock_position'] },
-  { module: 'dnd', path: '/inventory/dnd', activities: ['inventory.acknowledge_dnd', 'inventory.update_milestone'] },
-  { module: 'accounting', path: '/accounting', activities: ['accounting.view_queue', 'ACC-001'] },
-  { module: 'reports', path: '/reports/dsr', activities: ['reports.generate_dsr'] },
-  { module: 'admin', path: '/settings', activities: ['admin.manage', 'users.manage', 'roles.view'] },
-] as const;
-
-function firstAllowedLandingPath(modules: string[], activities: string[]) {
-  return LANDING_ROUTES.find((route) => {
-    if (!modules.includes(route.module)) return false;
-    if (!('activities' in route) || !route.activities.length) return true;
-    return route.activities.some((activity) => activities.includes(activity));
-  })?.path ?? '/unauthorized';
-}
 
 function UnauthorizedPage() {
   return (
@@ -220,21 +199,21 @@ function AppLayout() {
             </Route>
             <Route path="/documents/generate/packing-list">
               <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
-                <RequireActivity code="DOC-003" fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={DOC_GENERATION_ACTIVITY_CODES} fallback={<Redirect to="/unauthorized" />}>
                   <PackingListGeneratePage />
-                </RequireActivity>
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/generate/boe">
               <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
-                <RequireActivity code="DOC-003" fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={DOC_GENERATION_ACTIVITY_CODES} fallback={<Redirect to="/unauthorized" />}>
                   <BoeGeneratePage />
-                </RequireActivity>
+                </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/generate/outward-grn">
               <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
-                <RequireAnyActivity codes={['documents.generate_draft', 'DOC-003', 'inventory.create_outward_grn_new_dispatch', 'inventory.update_milestone']} fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={[...DOC_GENERATION_ACTIVITY_CODES, 'inventory.create_outward_grn_new_dispatch', 'inventory.update_milestone']} fallback={<Redirect to="/unauthorized" />}>
                   <DocumentGenerationOutwardGrnPage />
                 </RequireAnyActivity>
               </RequireModule>
@@ -247,14 +226,14 @@ function AppLayout() {
             </Route>
             <Route path="/documents/generate/:type">
               <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
-                <RequireAnyActivity codes={['documents.generate_draft', 'DOC-003']} fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={DOC_GENERATION_ACTIVITY_CODES} fallback={<Redirect to="/unauthorized" />}>
                   <DocumentGeneratePage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/generate">
               <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
-                <RequireAnyActivity codes={['documents.generate_draft', 'DOC-003']} fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={DOC_GENERATION_ACTIVITY_CODES} fallback={<Redirect to="/unauthorized" />}>
                   <DocumentGeneratePage />
                 </RequireAnyActivity>
               </RequireModule>
@@ -396,11 +375,11 @@ function AppLayout() {
             </Route>
             <Route path="/notifications" component={NotificationsPage} />
             <Route path="/settings">
-              <RequireModule module="admin" fallback={<Redirect to="/unauthorized" />}>
+              <RequireAnyModule modules={['settings', 'admin']} fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['admin.manage', 'users.manage', 'roles.view']} fallback={<Redirect to="/unauthorized" />}>
                   <SettingsShell />
                 </RequireAnyActivity>
-              </RequireModule>
+              </RequireAnyModule>
             </Route>
             <Route path="/platform"><PlatformGuard><PlatformShell /></PlatformGuard></Route>
             <Route path="/user-settings" component={SettingsPage} />
@@ -483,8 +462,6 @@ function AppRoutes() {
 
   const landingPath = (() => {
     if (!isAuthenticated) return '/';
-    if (modules.includes('portal')) return '/portal';
-    if (modules.includes('partner')) return '/partner';
     return firstAllowedLandingPath(modules, activities);
   })();
 

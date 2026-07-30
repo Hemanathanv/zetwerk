@@ -186,6 +186,20 @@ ROLE_ALIASES = {
     "role-user": "India Logistics",
     "viewer": "Auditor",
     "user": "India Logistics",
+    "three_pl_partner": "3PL Partner",
+}
+
+DEFAULT_KEYCLOAK_ROLE_NAMES = {
+    "Super Admin": "SUPER_ADMIN",
+    "Org Admin": "ADMIN",
+    "Ops Manager": "OPS_MANAGER",
+    "India Logistics": "INDIA_LOGISTICS",
+    "US Logistics": "US_LOGISTICS",
+    "Finance AP India": "FINANCE_AP_INDIA",
+    "Finance AP US": "FINANCE_AP_US",
+    "Finance Revenue": "FINANCE_REVENUE",
+    "Finance Controller": "FINANCE_CONTROLLER",
+    "3PL Partner": "THREE_PL_PARTNER",
 }
 
 SHEET_ACTIVITY_SETS = {
@@ -226,6 +240,12 @@ SHEET_ACTIVITY_SETS = {
     "warehouse": [
         "inventory.view_warehouse", "inventory.warehouse_inventory_stock_position",
     ],
+    "admin": [
+        "admin.manage", "users.manage", "roles.view", "roles.manage",
+        "admin.manage_users", "admin.configure_roles", "admin.edit_workflows",
+        "admin.configure_doctypes", "admin.edit_account_mappings",
+        "admin.manage_partners", "admin.view_audit_log", "admin.security_settings",
+    ],
 }
 
 
@@ -246,8 +266,8 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "color": "#1E293B",
         "allowedLevels": ["L4"],
         "defaultDataScope": "ALL",
-        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "accounting", "reports", "admin"],
-        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory"),
+        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "warehouse", "dnd", "accounting", "reports", "admin", "settings"],
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "admin"),
     },
     "Org Admin": {
         "name": "Org Admin",
@@ -256,8 +276,8 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "color": "#334155",
         "allowedLevels": ["L4"],
         "defaultDataScope": "ALL",
-        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "accounting", "reports", "admin"],
-        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory"),
+        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "warehouse", "dnd", "accounting", "reports", "admin", "settings"],
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "admin"),
     },
     "Ops Manager": {
         "name": "Ops Manager",
@@ -266,8 +286,8 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "color": "#0F766E",
         "allowedLevels": ["L3"],
         "defaultDataScope": "ALL",
-        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "accounting", "reports", "admin"],
-        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory"),
+        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "warehouse", "dnd", "accounting", "reports", "admin", "settings"],
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "admin"),
     },
     "India Logistics": {
         "name": "India Logistics",
@@ -530,6 +550,8 @@ ACTIVITY_MODULE_OVERRIDES = {
     "inventory.view_lfd_calendar": "dnd",
     "inventory.modify_lfd": "dnd",
 }
+
+KEYCLOAK_ROLE_ATTRIBUTE_VALUE_MAX = 250
 
 SHEET_STATUS_ACTIVITY_ROWS = [
     ("documents", "Document", "documents.upload", "Upload Document", "Doc names", "Uploaded", None),
@@ -1068,6 +1090,25 @@ def _canonical_role_name(role_name: str) -> str:
     return ROLE_ALIASES.get(str(role_name or "").strip().lower(), str(role_name or "").strip())
 
 
+def _keycloak_role_name_for_role(role_name: str) -> str:
+    canonical_name = _canonical_role_name(role_name)
+    return DEFAULT_KEYCLOAK_ROLE_NAMES.get(canonical_name, canonical_name)
+
+
+def _keycloak_role_lookup_names(role_name: str) -> list[str]:
+    canonical_name = _canonical_role_name(role_name)
+    candidates = [
+        str(role_name or "").strip(),
+        canonical_name,
+        DEFAULT_KEYCLOAK_ROLE_NAMES.get(canonical_name, canonical_name),
+    ]
+    names: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in names:
+            names.append(candidate)
+    return names
+
+
 def _display_role_name(role_name: str) -> str:
     return role_name.replace("_", " ").replace("-", " ").title()
 
@@ -1113,6 +1154,43 @@ def _attr_value(attributes: dict | None, key: str, default: str = "") -> str:
     return values[0] if values else default
 
 
+def _attr_json_value(attributes: dict | None, key: str, default: str = "") -> str:
+    chunk_count_text = _attr_value(attributes, f"{key}.__chunks", "")
+    if chunk_count_text.isdigit():
+        chunk_count = int(chunk_count_text)
+        if chunk_count == 0:
+            return _attr_value(attributes, key, default)
+        chunks = [_attr_value(attributes, f"{key}.{index}", "") for index in range(chunk_count)]
+        if all(chunks):
+            return "".join(chunks)
+        return default
+    chunks: list[tuple[int, str]] = []
+    prefix = f"{key}."
+    for attr_key, values in (attributes or {}).items():
+        if not str(attr_key).startswith(prefix):
+            continue
+        suffix = str(attr_key)[len(prefix):]
+        if not suffix.isdigit():
+            continue
+        chunk = _attr_value(attributes, str(attr_key), "")
+        if chunk:
+            chunks.append((int(suffix), chunk))
+    if not chunks:
+        return _attr_value(attributes, key, default)
+    return "".join(chunk for _, chunk in sorted(chunks))
+
+
+def _set_json_attr(attributes: dict[str, list[str]], key: str, value: Any) -> None:
+    raw = json.dumps(value, sort_keys=True)
+    if len(raw) <= KEYCLOAK_ROLE_ATTRIBUTE_VALUE_MAX:
+        attributes[key] = [raw]
+        attributes[f"{key}.__chunks"] = ["0"]
+        return
+    for index, start in enumerate(range(0, len(raw), KEYCLOAK_ROLE_ATTRIBUTE_VALUE_MAX)):
+        attributes[f"{key}.{index}"] = [raw[start:start + KEYCLOAK_ROLE_ATTRIBUTE_VALUE_MAX]]
+    attributes[f"{key}.__chunks"] = [str((len(raw) + KEYCLOAK_ROLE_ATTRIBUTE_VALUE_MAX - 1) // KEYCLOAK_ROLE_ATTRIBUTE_VALUE_MAX)]
+
+
 def _role_id_from_name(name: str) -> str:
     normalized = "".join(ch if ch.isalnum() else "_" for ch in name.strip().upper())
     while "__" in normalized:
@@ -1145,7 +1223,7 @@ def _doc_type_display_name(type_code: str) -> str:
 
 
 def _parse_doc_type_scopes(attrs: dict | None) -> dict[str, list[str]]:
-    raw = _attr_value(attrs, "ewms.docTypeScopes", "")
+    raw = _attr_json_value(attrs, "ewms.docTypeScopes", "")
     if not raw:
         return {}
     try:
@@ -1162,7 +1240,7 @@ def _parse_doc_type_scopes(attrs: dict | None) -> dict[str, list[str]]:
 
 
 def _parse_activity_sla(attrs: dict | None) -> list[dict[str, Any]]:
-    raw = _attr_value(attrs, "ewms.activitySla", "")
+    raw = _attr_json_value(attrs, "ewms.activitySla", "")
     if not raw:
         return []
     try:
@@ -1292,9 +1370,14 @@ def _enabled_activity_codes_from_request(request: RoleProfileRequest) -> set[str
         module = ACTIVITY_MODULES.get(code)
         if not code or not module:
             continue
-        if module in modules or ("partner" in modules and module in {"documents", "shipments", "inventory", "warehouse"}):
+        if module in modules or (module == "admin" and "settings" in modules) or ("partner" in modules and module in {"documents", "shipments", "inventory", "warehouse"}):
             enabled.add(code)
     return enabled
+
+
+def _keycloak_attr_values(values: list[Any] | tuple[Any, ...] | set[Any] | None) -> list[str]:
+    normalized = [str(value) for value in values or [] if str(value)]
+    return normalized or [""]
 
 
 def _role_profile_from_keycloak(role: dict, *, user_count: int = 0, detail: bool = False) -> dict[str, Any]:
@@ -1359,6 +1442,17 @@ def _role_profile_from_keycloak(role: dict, *, user_count: int = 0, detail: bool
     return row
 
 
+def _default_role_source_priority(role_name: str) -> int:
+    canonical_name = _canonical_role_name(role_name)
+    if canonical_name not in ROLE_DEFAULTS:
+        return 0
+    if role_name == canonical_name:
+        return 3
+    if role_name == DEFAULT_KEYCLOAK_ROLE_NAMES.get(canonical_name):
+        return 2
+    return 1
+
+
 def _role_payload_from_request(request: RoleProfileRequest, *, role_id: str | None = None) -> dict[str, Any]:
     name = role_id or _role_id_from_name(request.name)
     modules = _enabled_modules_from_request(request)
@@ -1368,23 +1462,90 @@ def _role_payload_from_request(request: RoleProfileRequest, *, role_id: str | No
     if not document_scope and doc_type_scopes:
         document_scope = sorted({doc_type for doc_types in doc_type_scopes.values() for doc_type in doc_types})
     activity_sla = _activity_sla_from_request(request)
+    attributes = {
+        "ewms.displayName": _keycloak_attr_values([request.name]),
+        "ewms.category": _keycloak_attr_values([request.roleCategory or "org_internal"]),
+        "ewms.color": _keycloak_attr_values([request.color or "#64748b"]),
+        "ewms.levels": _keycloak_attr_values(request.allowedLevels or ["L1"]),
+        "ewms.dataScope": _keycloak_attr_values([request.defaultDataScope or "TEAM"]),
+        "ewms.documentScope": _keycloak_attr_values(document_scope),
+        "ewms.modules": _keycloak_attr_values(sorted(modules)),
+        "ewms.activities": _keycloak_attr_values(activity_codes),
+        "ewms.managedBy": ["ewms-admin"],
+    }
+    _set_json_attr(attributes, "ewms.activitySla", activity_sla)
+    _set_json_attr(attributes, "ewms.docTypeScopes", doc_type_scopes)
     return {
         "name": name,
         "description": request.description or "",
-        "attributes": {
-            "ewms.displayName": [request.name],
-            "ewms.category": [request.roleCategory or "org_internal"],
-            "ewms.color": [request.color or "#64748b"],
-            "ewms.levels": request.allowedLevels or ["L1"],
-            "ewms.dataScope": [request.defaultDataScope or "TEAM"],
-            "ewms.documentScope": document_scope,
-            "ewms.docTypeScopes": [json.dumps(doc_type_scopes, sort_keys=True)],
-            "ewms.activitySla": [json.dumps(activity_sla, sort_keys=True)],
-            "ewms.modules": sorted(modules),
-            "ewms.activities": activity_codes,
-            "ewms.managedBy": ["ewms-admin"],
-        },
+        "attributes": attributes,
     }
+
+
+def _clean_keycloak_role_update_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    cleaned = {key: value for key, value in payload.items() if key != "id"}
+    attrs = cleaned.get("attributes")
+    if isinstance(attrs, dict):
+        cleaned["attributes"] = {
+            str(key): [str(item) for item in value if str(item)]
+            for key, value in attrs.items()
+            if isinstance(value, list) and any(str(item) for item in value)
+        }
+    return cleaned
+
+
+def _keycloak_role_update_payload(existing: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    cleaned_payload = _clean_keycloak_role_update_payload(payload)
+    update_payload = dict(existing or {})
+    update_payload.update(cleaned_payload)
+    role_id = existing.get("id")
+    if role_id:
+        update_payload["id"] = role_id
+    update_payload["name"] = str(existing.get("name") or payload.get("name") or "")
+    update_payload["description"] = str(payload.get("description") or "")
+    update_payload["attributes"] = cleaned_payload.get("attributes") or {}
+    return {
+        key: value
+        for key, value in update_payload.items()
+        if value is not None and key not in {"access"}
+    }
+
+
+def _update_keycloak_role(keycloak_admin, existing: dict[str, Any], payload: dict[str, Any]) -> None:
+    role_name = str(existing.get("name") or payload.get("name") or "")
+    update_payload = _keycloak_role_update_payload(existing, payload)
+    role_id = str(existing.get("id") or "")
+    first_exc: Exception | None = None
+    if role_id and hasattr(keycloak_admin, "update_role_by_id"):
+        try:
+            keycloak_admin.update_role_by_id(role_id, update_payload)
+            return
+        except Exception as exc:
+            first_exc = exc
+    try:
+        keycloak_admin.update_realm_role(role_name, update_payload)
+        return
+    except Exception as name_exc:
+        if first_exc is None:
+            first_exc = name_exc
+        fallback_payload = {
+            "name": role_name,
+            "description": str(update_payload.get("description") or ""),
+            "attributes": update_payload.get("attributes") or {},
+        }
+        if role_id:
+            fallback_payload["id"] = role_id
+        if role_id and hasattr(keycloak_admin, "update_role_by_id"):
+            try:
+                keycloak_admin.update_role_by_id(role_id, fallback_payload)
+                return
+            except Exception:
+                pass
+        try:
+            keycloak_admin.update_realm_role(role_name, fallback_payload)
+            return
+        except Exception:
+            raise first_exc
 
 
 def _default_role_request(role_name: str) -> RoleProfileRequest:
@@ -1404,18 +1565,36 @@ def _default_role_request(role_name: str) -> RoleProfileRequest:
 
 
 def _ensure_keycloak_role(keycloak_admin, role_name: str) -> dict:
+    first_exc: Exception | None = None
+    for keycloak_role_name in _keycloak_role_lookup_names(role_name):
+        try:
+            return keycloak_admin.get_realm_role(keycloak_role_name)
+        except Exception as exc:
+            if first_exc is None:
+                first_exc = exc
+    canonical_name = _canonical_role_name(role_name)
+    if canonical_name not in ROLE_DEFAULTS:
+        if first_exc:
+            raise first_exc
+        raise KeyError(role_name)
+    keycloak_role_name = canonical_name
     try:
-        return keycloak_admin.get_realm_role(role_name)
-    except Exception:
-        canonical_name = _canonical_role_name(role_name)
-        if canonical_name not in ROLE_DEFAULTS:
-            raise
-        payload = _role_payload_from_request(_default_role_request(canonical_name), role_id=canonical_name)
+        payload = _role_payload_from_request(_default_role_request(canonical_name), role_id=keycloak_role_name)
         try:
             keycloak_admin.create_realm_role(payload, skip_exists=True)
         except Exception:
             pass
-        return keycloak_admin.get_realm_role(canonical_name)
+        return keycloak_admin.get_realm_role(keycloak_role_name)
+    except Exception:
+        fallback_name = DEFAULT_KEYCLOAK_ROLE_NAMES.get(canonical_name, canonical_name)
+        if fallback_name == keycloak_role_name:
+            raise
+        payload = _role_payload_from_request(_default_role_request(canonical_name), role_id=fallback_name)
+        try:
+            keycloak_admin.create_realm_role(payload, skip_exists=True)
+        except Exception:
+            pass
+        return keycloak_admin.get_realm_role(fallback_name)
 
 
 def _user_attrs(user: dict) -> dict[str, Any]:
@@ -2723,6 +2902,7 @@ def _split_full_name(full_name: str) -> tuple[str, str]:
 
 def _assign_primary_role(keycloak_admin, user_id: str, role_name: str) -> None:
     selected_role = _ensure_keycloak_role(keycloak_admin, role_name)
+    selected_role_name = str(selected_role.get("name") or role_name)
     existing_roles = keycloak_admin.get_realm_roles_of_user(user_id)
     removable = [
         role
@@ -2730,12 +2910,12 @@ def _assign_primary_role(keycloak_admin, user_id: str, role_name: str) -> None:
         if role.get("name")
         and not str(role["name"]).startswith("default-roles-")
         and str(role["name"]) not in {"offline_access", "uma_authorization"}
-        and str(role["name"]) != role_name
+        and str(role["name"]) != selected_role_name
     ]
     if removable:
         keycloak_admin.delete_realm_roles_of_user(user_id, removable)
     existing_role_names = {str(role.get("name")) for role in keycloak_admin.get_realm_roles_of_user(user_id)}
-    if role_name not in existing_role_names:
+    if selected_role_name not in existing_role_names:
         keycloak_admin.assign_realm_roles(user_id, [selected_role])
 
 
@@ -2897,6 +3077,7 @@ async def list_admin_roles(_user=Depends(get_admin_user)):
             and str(role["name"]) not in {"offline_access", "uma_authorization"}
         ]
         role_rows_by_id: dict[str, dict[str, Any]] = {}
+        role_row_priorities: dict[str, int] = {}
         seen_defaults: set[str] = set()
         for role in sorted(filtered_roles, key=lambda item: str(item.get("name", "")).lower()):
             role_name = str(role.get("name") or "")
@@ -2907,7 +3088,11 @@ async def list_admin_roles(_user=Depends(get_admin_user)):
                 role,
                 user_count=role_counts.get(role_name, role_counts.get(canonical_name, 0)),
             )
-            role_rows_by_id[row["id"]] = row
+            priority = _default_role_source_priority(role_name)
+            existing_priority = role_row_priorities.get(row["id"], -1)
+            if row["id"] not in role_rows_by_id or priority > existing_priority:
+                role_rows_by_id[row["id"]] = row
+                role_row_priorities[row["id"]] = priority
         for role_name, defaults in ROLE_DEFAULTS.items():
             if role_name in seen_defaults:
                 continue
@@ -2975,8 +3160,9 @@ async def get_admin_role(role_id: str, _user=Depends(get_admin_user)):
 @legacy_router.post("/roles")
 async def create_admin_role(request: RoleProfileRequest, _user=Depends(get_admin_user)):
     keycloak_admin = get_keycloak_admin()
+    modules = _enabled_modules_from_request(request)
     payload = _role_payload_from_request(request)
-    if not payload["attributes"]["ewms.modules"]:
+    if not modules:
         return {"ok": False, "error": "Select at least one module for this role."}
     activity_sla = _activity_sla_from_request(request)
     try:
@@ -3003,19 +3189,18 @@ async def update_admin_role(role_id: str, request: RoleProfileRequest, _user=Dep
             payload["name"] = update_role_name
         else:
             payload = _role_payload_from_request(request, role_id=update_role_name)
-        if not payload["attributes"]["ewms.modules"]:
+        if not _enabled_modules_from_request(request):
             return {"ok": False, "error": "Select at least one module for this role."}
         activity_sla = _activity_sla_from_request(request)
         prisma = await get_prisma()
         await _upsert_activity_sla_configs(prisma, activity_sla)
-        payload["id"] = existing.get("id")
-        keycloak_admin.update_realm_role(update_role_name, payload)
+        _update_keycloak_role(keycloak_admin, existing, payload)
         role = keycloak_admin.get_realm_role(update_role_name)
         return {"ok": True, "data": _role_profile_from_keycloak(role, detail=True)}
     except HTTPException:
         raise
     except Exception as exc:
-        return {"ok": False, "error": f"Could not update Keycloak role: {exc}"}
+        return {"ok": False, "error": f"Could not update Keycloak role {role_id!r}: {exc}"}
 
 
 @router.delete("/roles/{role_id}")

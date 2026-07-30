@@ -13,7 +13,7 @@ from doc_generation import DOC_GEN_SCHEMAS, get_doc_gen_schema
 from doc_generation.db_setup import ensure_doc_generation_views
 from helpers.config import settings
 from helpers.dependencies import get_current_user, get_session_token
-from helpers.rbac_data_access import access_role
+from helpers.rbac_data_access import access_role, can_generate_document_type, role_has_activity
 from helpers.rbac import authorize_activity, require_activity
 
 GeneratedDocType = Literal["PACKING_LIST", "US_PACKING_LIST", "ENTRY_SUMMARY"]
@@ -38,6 +38,15 @@ class UpdateDraftRequest(BaseModel):
     fields: dict[str, str | None] = Field(default_factory=dict)
     lineItems: list[dict[str, Any]] | None = None
     status: Literal["DRAFT", "IN_REVIEW", "CONFIRMED", "GENERATED"] = "DRAFT"
+
+
+def _require_doc_generation_activity(user: Any) -> None:
+    if not role_has_activity(user, "documents.generate_draft"):
+        raise HTTPException(status_code=403, detail="Permission denied: missing activity documents.generate_draft")
+
+
+def _has_shared_docgen_access(user: Any) -> bool:
+    return access_role(user).upper().replace("-", "_").replace(" ", "_") in SHARED_DOCGEN_SOURCE_ROLES
 
 
 class FieldValue(BaseModel):
@@ -833,14 +842,16 @@ async def ensure_packing_list_draft_for_sales_invoice(
 ) -> str:
     """Create the Packing List draft for a Sales Invoice exactly once."""
     await ensure_doc_generation_views(prisma)
+    shared_sources = (user_role or "").upper().replace("-", "_").replace(" ", "_") in SHARED_DOCGEN_SOURCE_ROLES
+    created_by_filter = "" if shared_sources else "AND created_by::text = $2::text"
     existing = await _query_raw(
         prisma,
-        """
+        f"""
         SELECT id
         FROM docgen.drafts
         WHERE generated_doc_type = 'PACKING_LIST'
           AND source_document_ids ->> 'SALES_INVOICE' = $1
-          AND created_by::text = $2::text
+          {created_by_filter}
         ORDER BY created_at DESC
         LIMIT 1
         """,
@@ -875,15 +886,69 @@ async def ensure_packing_list_draft_for_sales_invoice(
             SELECT id
             FROM docgen.drafts
             WHERE id::text = $1::text
-              AND created_by::text = $2::text
+              AND ($3::boolean OR created_by::text = $2::text)
             LIMIT 1
             """,
             deterministic_id,
             user_id,
+            shared_sources,
         )
         if not created:
             raise
     return payload.draftId
+
+
+async def ensure_packing_list_drafts_for_accessible_sales_invoices(
+    *,
+    prisma,
+    user_id: str,
+    user_role: str | None = None,
+) -> dict[str, int]:
+    """Materialize one Packing List draft for each accessible Sales Invoice source."""
+    await ensure_doc_generation_views(prisma)
+    shared_sources = (user_role or "").upper().replace("-", "_").replace(" ", "_") in SHARED_DOCGEN_SOURCE_ROLES
+    if shared_sources:
+        rows = await _query_raw(
+            prisma,
+            """
+            SELECT source_document_id
+            FROM docgen.v_packing_list_source
+            ORDER BY created_at DESC
+            """,
+        )
+    else:
+        rows = await _query_raw(
+            prisma,
+            """
+            SELECT source_document_id
+            FROM docgen.v_packing_list_source
+            WHERE uploaded_by::text = $1::text
+            ORDER BY created_at DESC
+            """,
+            user_id,
+        )
+
+    created_or_existing = 0
+    skipped = 0
+    for row in rows:
+        source_document_id = row.get("source_document_id")
+        if not source_document_id:
+            skipped += 1
+            continue
+        try:
+            await ensure_packing_list_draft_for_sales_invoice(
+                prisma=prisma,
+                sales_invoice_document_id=str(source_document_id),
+                user_id=user_id,
+                user_role=user_role,
+            )
+            created_or_existing += 1
+        except Exception as exc:
+            skipped += 1
+            print(f"[docgen][packing-list] skipped sourceDocumentId={source_document_id} error={exc}", flush=True)
+
+    return {"eligible": len(rows), "ready": created_or_existing, "skipped": skipped}
+
 
 async def reorder_existing_packing_list_drafts(prisma) -> dict[str, int]:
     """Align every existing PL draft to its Sales Invoice's printed row order."""
@@ -1023,20 +1088,30 @@ def _build_payload(generated_doc_type: str, draft_id: str, row: dict[str, Any]) 
 
 
 @router.get("/schemas")
-async def list_doc_generation_schemas(user=Depends(get_current_user)):
-    return list(DOC_GEN_SCHEMAS.values())
+async def list_doc_generation_schemas(
+    user=Depends(get_current_user),
+):
+    _require_doc_generation_activity(user)
+    return [
+        schema
+        for schema in DOC_GEN_SCHEMAS.values()
+        if can_generate_document_type(user, schema.get("generatedDocType") or schema.get("docType"))
+    ]
 
 
 @router.post("/drafts", response_model=DraftPayload)
 async def create_doc_generation_draft(
     request: CreateDraftRequest,
     user=Depends(get_current_user),
-    _authz=Depends(require_activity("documents.generate_draft")),
 ):
+    _require_doc_generation_activity(user)
+    if not can_generate_document_type(user, request.generatedDocType):
+        raise HTTPException(status_code=403, detail="Not allowed to generate this document type")
     prisma = await get_prisma()
     try:
         await ensure_doc_generation_views(prisma)
         user_role = access_role(user)
+        shared_sources = _has_shared_docgen_access(user)
         if request.generatedDocType == "PACKING_LIST":
             source_document_id = request.sourceDocumentIds.get("SALES_INVOICE")
             if not source_document_id:
@@ -1059,11 +1134,13 @@ async def create_doc_generation_draft(
                 """
                 SELECT rendered_payload
                 FROM docgen.drafts
-                WHERE id::text = $1::text AND created_by::text = $2::text
+                WHERE id::text = $1::text
+                  AND ($3::boolean OR created_by::text = $2::text)
                 LIMIT 1
                 """,
                 draft_id,
                 str(user.id),
+                shared_sources,
             )
             if not rows:
                 raise HTTPException(status_code=404, detail="Packing List draft not found")
@@ -1093,12 +1170,22 @@ async def list_doc_generation_drafts(
     generatedDocType: GeneratedDocType,
     user=Depends(get_current_user),
 ):
-    """Return one draft per source-document set for the current user."""
+    """Return one draft per source-document set visible to the current role."""
+    _require_doc_generation_activity(user)
+    if not can_generate_document_type(user, generatedDocType):
+        raise HTTPException(status_code=403, detail="Not allowed to generate this document type")
     prisma = await get_prisma()
     try:
         await ensure_doc_generation_views(prisma)
+        user_role = access_role(user)
+        shared_sources = _has_shared_docgen_access(user)
         if generatedDocType == "PACKING_LIST":
             source_key = "SALES_INVOICE"
+            await ensure_packing_list_drafts_for_accessible_sales_invoices(
+                prisma=prisma,
+                user_id=str(user.id),
+                user_role=user_role,
+            )
         elif generatedDocType == "US_PACKING_LIST":
             source_key = "PACKING_LIST"
         else:
@@ -1113,7 +1200,7 @@ async def list_doc_generation_drafts(
                        rendered_payload, created_at, updated_at
                 FROM docgen.drafts
                 WHERE generated_doc_type = $1
-                  AND created_by::text = $2::text
+                  AND ($4::boolean OR created_by::text = $2::text)
                   AND ($1 <> 'ENTRY_SUMMARY' OR schema_version >= 2)
                   AND source_document_ids ->> $3 IS NOT NULL
                 ORDER BY source_document_ids ->> $3, updated_at DESC
@@ -1123,6 +1210,7 @@ async def list_doc_generation_drafts(
             generatedDocType,
             str(user.id),
             source_key,
+            shared_sources,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to list document generation drafts: {exc}")
@@ -1139,19 +1227,26 @@ async def list_doc_generation_drafts(
 
 
 @router.get("/drafts/{draft_id}", response_model=DraftPayload)
-async def get_doc_generation_draft(draft_id: str, user=Depends(get_current_user)):
+async def get_doc_generation_draft(
+    draft_id: str,
+    user=Depends(get_current_user),
+):
+    _require_doc_generation_activity(user)
     prisma = await get_prisma()
     try:
+        shared_sources = _has_shared_docgen_access(user)
         rows = await _query_raw(
             prisma,
             """
             SELECT rendered_payload, created_at, updated_at
             FROM docgen.drafts
-            WHERE id::text = $1::text AND created_by::text = $2::text
+            WHERE id::text = $1::text
+              AND ($3::boolean OR created_by::text = $2::text)
             LIMIT 1
             """,
             draft_id,
             str(user.id),
+            shared_sources,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch document generation draft: {exc}")
@@ -1162,6 +1257,8 @@ async def get_doc_generation_draft(draft_id: str, user=Depends(get_current_user)
     payload = _coerce_json(rows[0]["rendered_payload"])
     if not isinstance(payload, dict):
         raise HTTPException(status_code=500, detail="Draft payload is invalid")
+    if not can_generate_document_type(user, payload.get("generatedDocType")):
+        raise HTTPException(status_code=403, detail="Not allowed to generate this document type")
 
     payload["createdAt"] = str(rows[0].get("created_at")) if rows[0].get("created_at") else None
     payload["updatedAt"] = str(rows[0].get("updated_at")) if rows[0].get("updated_at") else None
@@ -1173,22 +1270,24 @@ async def update_draft_package_type(
     draft_id: str,
     request: UpdatePackageTypeRequest,
     user=Depends(get_current_user),
-    _authz=Depends(require_activity("documents.generate_draft")),
 ):
     """Persist a Packing List line item's package type and user-defined options."""
+    _require_doc_generation_activity(user)
     prisma = await get_prisma()
+    shared_sources = _has_shared_docgen_access(user)
     rows = await _query_raw(
         prisma,
         """
         SELECT rendered_payload, created_at
         FROM docgen.drafts
         WHERE id::text = $1::text
-          AND created_by::text = $2::text
+          AND ($3::boolean OR created_by::text = $2::text)
           AND generated_doc_type = 'PACKING_LIST'
         LIMIT 1
         """,
         draft_id,
         str(user.id),
+        shared_sources,
     )
     if not rows:
         raise HTTPException(status_code=404, detail="Packing List draft not found")
@@ -1196,6 +1295,8 @@ async def update_draft_package_type(
     payload = _coerce_json(rows[0]["rendered_payload"])
     if not isinstance(payload, dict):
         raise HTTPException(status_code=500, detail="Draft payload is invalid")
+    if not can_generate_document_type(user, payload.get("generatedDocType")):
+        raise HTTPException(status_code=403, detail="Not allowed to generate this document type")
 
     line_items = payload.get("lineItems")
     if not isinstance(line_items, list) or request.lineItemIndex >= len(line_items):
@@ -1215,11 +1316,13 @@ async def update_draft_package_type(
         """
         UPDATE docgen.drafts
         SET rendered_payload = $3::jsonb, updated_at = NOW()
-        WHERE id::text = $1::text AND created_by::text = $2::text
+        WHERE id::text = $1::text
+          AND ($4::boolean OR created_by::text = $2::text)
         """,
         draft_id,
         str(user.id),
         json.dumps(payload),
+        shared_sources,
     )
     await _execute_raw(
         prisma,
@@ -1247,22 +1350,26 @@ async def update_doc_generation_draft(
     _authz=Depends(require_activity("documents.generate_draft")),
 ):
     """Persist reviewed field values, tariff lines, calculations, and draft status."""
+    _require_doc_generation_activity(user)
     if request.status in {"CONFIRMED", "GENERATED"}:
         if not token:
             raise HTTPException(status_code=401, detail="Not authenticated")
         authorize_activity(token, "documents.approve_draft")
 
     prisma = await get_prisma()
+    shared_sources = _has_shared_docgen_access(user)
     rows = await _query_raw(
         prisma,
         """
         SELECT rendered_payload, created_at
         FROM docgen.drafts
-        WHERE id::text = $1::text AND created_by::text = $2::text
+        WHERE id::text = $1::text
+          AND ($3::boolean OR created_by::text = $2::text)
         LIMIT 1
         """,
         draft_id,
         str(user.id),
+        shared_sources,
     )
     if not rows:
         raise HTTPException(status_code=404, detail="Document-generation draft not found")
@@ -1270,6 +1377,8 @@ async def update_doc_generation_draft(
     payload = _coerce_json(rows[0]["rendered_payload"])
     if not isinstance(payload, dict):
         raise HTTPException(status_code=500, detail="Draft payload is invalid")
+    if not can_generate_document_type(user, payload.get("generatedDocType")):
+        raise HTTPException(status_code=403, detail="Not allowed to generate this document type")
 
     for section in payload.get("sections", []):
         for field in section.get("fields", []):
@@ -1289,12 +1398,14 @@ async def update_doc_generation_draft(
         SET rendered_payload = $3::jsonb,
             status = $4::docgen."DocGenerationStatus",
             updated_at = NOW()
-        WHERE id::text = $1::text AND created_by::text = $2::text
+        WHERE id::text = $1::text
+          AND ($5::boolean OR created_by::text = $2::text)
         """,
         draft_id,
         str(user.id),
         json.dumps(payload),
         request.status,
+        shared_sources,
     )
     if request.lineItems is not None:
         for line_no, item in enumerate(request.lineItems, start=1):

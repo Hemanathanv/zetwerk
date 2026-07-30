@@ -55,6 +55,33 @@ def _attr_value(attributes: dict | None, key: str, default: str = "") -> str:
     return values[0] if values else default
 
 
+def _attr_json_value(attributes: dict | None, key: str, default: str = "") -> str:
+    chunk_count_text = _attr_value(attributes, f"{key}.__chunks", "")
+    if chunk_count_text.isdigit():
+        chunk_count = int(chunk_count_text)
+        if chunk_count == 0:
+            return _attr_value(attributes, key, default)
+        chunks = [_attr_value(attributes, f"{key}.{index}", "") for index in range(chunk_count)]
+        if all(chunks):
+            return "".join(chunks)
+        return default
+    chunks: list[tuple[int, str]] = []
+    prefix = f"{key}."
+    for attr_key in (attributes or {}):
+        attr_key_text = str(attr_key)
+        if not attr_key_text.startswith(prefix):
+            continue
+        suffix = attr_key_text[len(prefix):]
+        if not suffix.isdigit():
+            continue
+        chunk = _attr_value(attributes, attr_key_text, "")
+        if chunk:
+            chunks.append((int(suffix), chunk))
+    if not chunks:
+        return _attr_value(attributes, key, default)
+    return "".join(chunk for _, chunk in sorted(chunks))
+
+
 def _normalize_data_scope(scope: str) -> str:
     normalized = str(scope or "").strip().upper()
     if normalized in {"ALL", "TEAM", "TAGGED"}:
@@ -118,7 +145,8 @@ ADMIN_FALLBACK_ACTIVITIES = [
 
 
 def _is_admin_role(role_name: str) -> bool:
-    return str(role_name or "").upper().replace("-", "_") in {"ADMIN", "SUPER_ADMIN"}
+    normalized = str(role_name or "").upper().replace("-", "_").replace(" ", "_")
+    return normalized in {"ADMIN", "ORG_ADMIN", "SUPER_ADMIN", "SUPER_ADMINISTRATOR"}
 
 
 ACTIVITY_MODULE_OVERRIDES = {
@@ -173,16 +201,16 @@ def _filter_activities_for_modules(activities: list[str], modules: list[str]) ->
 
 
 def _primary_role_name(role_names: list[str]) -> str:
-    normalized = {role.upper().replace("-", "_"): role for role in role_names}
-    for role in ("SUPER_ADMIN", "ADMIN"):
+    normalized = {role.upper().replace("-", "_").replace(" ", "_"): role for role in role_names}
+    for role in ("SUPER_ADMIN", "SUPER_ADMINISTRATOR", "ORG_ADMIN", "ADMIN"):
         if role in normalized:
             return normalized[role]
     for role in role_names:
-        normalized_role = role.upper().replace("-", "_")
+        normalized_role = role.upper().replace("-", "_").replace(" ", "_")
         if (
             not role.startswith("default-roles-")
             and role not in {"offline_access", "uma_authorization"}
-            and normalized_role not in {"USER", "ADMIN", "SUPER_ADMIN"}
+            and normalized_role not in {"USER", "ADMIN", "ORG_ADMIN", "SUPER_ADMIN", "SUPER_ADMINISTRATOR"}
         ):
             return role
     if "USER" in normalized:
@@ -213,7 +241,7 @@ def _permissions_from_role(role: dict) -> dict:
     activities = _filter_activities_for_modules(activities, modules)
     activity_doc_types = {}
     try:
-        parsed_scopes = json.loads(_attr_value(attrs, "ewms.docTypeScopes", "{}"))
+        parsed_scopes = json.loads(_attr_json_value(attrs, "ewms.docTypeScopes", "{}"))
         if isinstance(parsed_scopes, dict):
             activity_doc_types = {
                 str(activity): sorted({str(doc_type) for doc_type in doc_types if str(doc_type)})
@@ -223,7 +251,7 @@ def _permissions_from_role(role: dict) -> dict:
     except Exception:
         activity_doc_types = {}
     try:
-        parsed_sla = json.loads(_attr_value(attrs, "ewms.activitySla", "[]"))
+        parsed_sla = json.loads(_attr_json_value(attrs, "ewms.activitySla", "[]"))
         activity_sla = [
             item for item in parsed_sla
             if isinstance(item, dict)
@@ -318,76 +346,6 @@ async def get_roles(roles: List[str] = Depends(get_keycloak_roles)):
 
 LEVEL_ORDER = {"L1": 1, "L2": 2, "L3": 3, "L4": 4}
 
-ACTIVITY_MIN_LEVELS = {
-    "shipments.view": "L1",
-    "shipments.create": "L2",
-    "shipments.edit_metadata": "L2",
-    "shipments.assign_user": "L3",
-    "shipments.archive": "L3",
-    "shipments.delete": "L4",
-    "shipments.override_blocked_stage": "L4",
-    "shipments.tag_partner": "L2",
-    "documents.upload": "L1",
-    "documents.view_extracted": "L1",
-    "documents.download_export": "L1",
-    "documents.edit_extracted": "L2",
-    "documents.generate_draft": "L2",
-    "documents.approve_draft": "L2",
-    "documents.override_validation": "L3",
-    "documents.reprocess_ocr": "L3",
-    "documents.delete": "L4",
-    "inventory.view_timeline": "L1",
-    "inventory.view_container": "L1",
-    "inventory.update_milestone": "L2",
-    "inventory.upload_pod": "L2",
-    "inventory.acknowledge_dnd": "L2",
-    "accounting.view_queue": "L1",
-    "accounting.view_ap_aging": "L1",
-    "accounting.export_data": "L2",
-    "accounting.review_ticket": "L2",
-    "accounting.edit_entry": "L2",
-    "accounting.reject_ticket": "L2",
-    "accounting.post_to_erp": "L3",
-    "reports.view_dashboard": "L1",
-    "reports.generate_dsr": "L2",
-    "reports.export_report": "L2",
-    "reports.schedule_auto": "L3",
-    "tasks.view": "L1",
-    "tasks.update": "L2",
-    "tasks.assign": "L3",
-    "tasks.escalate": "L3",
-    "tasks.delegate": "L3",
-    "admin.manage": "L3",
-    "users.manage": "L3",
-    "roles.view": "L2",
-    "roles.manage": "L4",
-    "documents.manage": "L2",
-    "shipments.manage": "L2",
-    "admin.manage_users": "L3",
-    "admin.configure_roles": "L4",
-    "admin.edit_workflows": "L4",
-    "admin.configure_doctypes": "L3",
-    "admin.edit_account_mappings": "L3",
-    "admin.manage_partners": "L3",
-    "admin.view_audit_log": "L3",
-    "admin.security_settings": "L4",
-    "SHP-001": "L1",
-    "SHP-002": "L2",
-    "SHP-003": "L2",
-    "SHP-005": "L4",
-    "GATE-001": "L1",
-    "GATE-002": "L2",
-    "DOC-003": "L2",
-    "ACC-001": "L1",
-    "ACC-003": "L2",
-    "ACC-004": "L2",
-    "TSK-001": "L1",
-    "TSK-002": "L2",
-    "TSK-003": "L3",
-    "TSK-004": "L3",
-    "TSK-007": "L3",
-}
-
 IMPLIED_ACTIVITY_CODES = {
     "documents.manage": {
         "documents.upload",
@@ -431,25 +389,17 @@ LEGACY_ACTIVITY_ALIASES = {
 }
 
 
-def _level_at_least(user_level: str, required_level: str) -> bool:
-    return LEVEL_ORDER.get(str(user_level or "L1").upper(), 0) >= LEVEL_ORDER.get(str(required_level or "L1").upper(), 0)
-
-
 def _highest_level(levels: list[str]) -> str:
     return sorted(levels or ["L1"], key=lambda item: LEVEL_ORDER.get(str(item).upper(), 0))[-1]
 
 
-def _activities_for_level(activities: list[str], user_level: str) -> list[str]:
+def _expand_activity_codes(activities: list[str]) -> list[str]:
     expanded = set(activities)
     for activity in activities:
         expanded.update(IMPLIED_ACTIVITY_CODES.get(activity, set()))
     for activity in list(expanded):
         expanded.update(LEGACY_ACTIVITY_ALIASES.get(activity, set()))
-    return [
-        activity
-        for activity in expanded
-        if _level_at_least(user_level, ACTIVITY_MIN_LEVELS.get(activity, "L1"))
-    ]
+    return sorted(expanded)
 
 
 def _user_level_from_keycloak(keycloak_admin, userinfo: dict, role: dict) -> str:
@@ -474,7 +424,7 @@ async def get_permissions(
     roles: List[str] = Depends(get_keycloak_roles),
 ):
     """
-    Return current user's screen and activity access from Keycloak role attributes.
+    Return current user's screen and activity access.
     """
     role_name = _primary_role_name(roles)
     try:
@@ -502,7 +452,7 @@ async def get_permissions(
     permissions = _permissions_from_role(role)
     if _is_admin_role(role_name) and not _attr_values(role.get("attributes") or {}, "ewms.levels"):
         user_level = "L4"
-    permissions["activities"] = _activities_for_level(permissions["activities"], user_level)
+    permissions["activities"] = _expand_activity_codes(permissions["activities"])
     return {"ok": True, "data": permissions}
 
 
@@ -512,7 +462,7 @@ async def get_level(
     roles: List[str] = Depends(get_keycloak_roles),
 ):
     """
-    Return current user's EWMS authority level and level-filtered activities.
+    Return current user's EWMS level label and assigned activities.
     """
     role_name = _primary_role_name(roles)
     try:
@@ -527,9 +477,8 @@ async def get_level(
         role_modules = _expand_modules(_attr_values(role.get("attributes") or {}, "ewms.modules"))
         if _is_admin_role(role_name) and not role_modules:
             role_modules = ADMIN_FALLBACK_MODULES
-        activities = _activities_for_level(
-            _filter_activities_for_modules(_legacy_activity_codes(role_activities), role_modules),
-            level,
+        activities = _expand_activity_codes(
+            _filter_activities_for_modules(_legacy_activity_codes(role_activities), role_modules)
         )
     except Exception:
         role = {"attributes": {"ewms.levels": ["L1"]}}
@@ -539,6 +488,7 @@ async def get_level(
     return {
         "ok": True,
         "data": {
+            "level": level,
             "activities": activities,
         },
     }

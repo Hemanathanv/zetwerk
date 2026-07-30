@@ -208,7 +208,11 @@ function isModuleEnabled(moduleCode: string, enabledModules: string[]) {
 }
 
 function isActivityEnabled(activity: Activity, enabledModules: string[]) {
-  return isModuleEnabled(activityModule(activity), enabledModules);
+  const moduleCode = activityModule(activity);
+  if (moduleCode === 'admin') {
+    return enabledModules.includes('admin') || enabledModules.includes('settings');
+  }
+  return isModuleEnabled(moduleCode, enabledModules);
 }
 
 function docScopeSummary(scope: string[] | undefined, docTypes: DocType[]) {
@@ -332,6 +336,8 @@ interface EditorProps {
   onSaved: () => void;
 }
 
+const roleApiPath = (roleId: string) => `/api/admin/roles/${encodeURIComponent(roleId)}`;
+
 function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, onSaved }: EditorProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -375,7 +381,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
 
   const roleDetailQuery = useQuery({
     queryKey: ['admin', 'roles', roleId],
-    queryFn: () => apiGet<any>(`/api/admin/roles/${roleId}`),
+    queryFn: () => apiGet<any>(roleApiPath(roleId)),
     enabled: !isNew,
     staleTime: 30_000,
   });
@@ -390,7 +396,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
   const assignedRoleDetailsQuery = useQuery({
     queryKey: ['admin', 'roles', 'activity-levels', comparisonRoleIds],
     queryFn: () => Promise.all(
-      comparisonRoleIds.map((id) => apiGet<any>(`/api/admin/roles/${id}`).catch(() => null))
+      comparisonRoleIds.map((id) => apiGet<any>(roleApiPath(id)).catch(() => null))
     ),
     enabled: comparisonRoleIds.length > 0,
     staleTime: 30_000,
@@ -399,7 +405,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
   const saveRoleMutation = useMutation({
     mutationFn: (payload: any) => isNew
       ? apiPost<any>('/api/admin/roles', payload)
-      : apiPut<any>(`/api/admin/roles/${roleId}`, payload),
+      : apiPut<any>(roleApiPath(roleId), payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'roles'] });
       queryClient.invalidateQueries({ queryKey: ['admin', 'escalation'] });
@@ -626,10 +632,11 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
 
   function toggleModule(code: string) {
     const turningOff = enabledModules.includes(code);
-    setEnabledModules((p) => turningOff ? p.filter((m) => m !== code) : [...p, code]);
+    const nextModules = turningOff ? enabledModules.filter((m) => m !== code) : [...enabledModules, code];
+    setEnabledModules(nextModules);
     if (!turningOff) return;
     const disabledActivityCodes = activities
-      .filter((activity) => activityModule(activity) === code)
+      .filter((activity) => activityModule(activity) === code && !isActivityEnabled(activity, nextModules))
       .map((activity) => activity.activityCode);
     const disabledSet = new Set(disabledActivityCodes);
     setSelectedActs((p) => {
@@ -1603,7 +1610,7 @@ export function AdminRolesPage() {
   const pageLoading = rolesQuery.isLoading || docTypesQuery.isLoading || modulesQuery.isLoading || activitiesQuery.isLoading;
 
   const deleteRoleMutation = useMutation({
-    mutationFn: (roleId: string) => apiDelete<any>(`/api/admin/roles/${roleId}`),
+    mutationFn: (roleId: string) => apiDelete<any>(roleApiPath(roleId)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin', 'roles'] });
     },
@@ -1611,7 +1618,7 @@ export function AdminRolesPage() {
 
   const cloneRoleMutation = useMutation({
     mutationFn: async (role: Role) => {
-      const detail = await apiGet<any>(`/api/admin/roles/${role.id}`);
+      const detail = await apiGet<any>(roleApiPath(role.id));
       const src = detail.data;
       const res = await apiPost<any>('/api/admin/roles', {
         name: `${src.name} (copy)`, description: src.description,

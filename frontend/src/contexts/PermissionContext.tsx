@@ -57,6 +57,10 @@ function capabilitiesFromActivities(activities: string[]): Record<string, boolea
   };
 }
 
+function mergeActivities(...activityLists: Array<string[] | null | undefined>): string[] {
+  return [...new Set(activityLists.flatMap((activities) => activities ?? []))];
+}
+
 export function PermissionProvider({
   initialPermissions,
   authToken,
@@ -78,10 +82,10 @@ export function PermissionProvider({
 
     const [permissionsResponse, levelResponse] = await Promise.all([
       api.get<{ ok: boolean; data: RbacPermissions }>('/auth/permissions'),
-      api.get<{ ok: boolean; data: { activities: string[] } }>('/auth/level'),
+      api.get<{ ok: boolean; data: { level?: string; activities: string[] } }>('/auth/level'),
     ]);
     const nextPermissions = permissionsResponse.data.data;
-    const activities = levelResponse.data.data.activities ?? nextPermissions.activities;
+    const activities = mergeActivities(nextPermissions.activities, levelResponse.data.data.activities);
     setPermissions({
       ...nextPermissions,
       activities,

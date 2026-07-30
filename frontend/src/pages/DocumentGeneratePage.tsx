@@ -9,6 +9,8 @@ import { apiGet, apiPatch, apiPost } from '@/lib/api';
 import type { MappingType } from '@/config/docGenConfig';
 import { DocumentPreviewModal } from '@/components/DocumentPreviewModal';
 import { useLocation, useParams } from 'wouter';
+import { usePermissions } from '@/contexts/PermissionContext';
+import { allowedDocGenerationOptions } from '@/lib/docGenerationAccess';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const TEAL   = 'hsl(173 58% 39%)';
@@ -1807,8 +1809,16 @@ function generatedDocTypeToSchemaKey(type: DraftPayload['generatedDocType']): st
 export function DocumentGeneratePage() {
   const params = useParams<{ type?: string }>();
   const [location, navigate] = useLocation();
+  const { activities, docTypes, documentScope, activityDocTypes, loaded: permissionsLoaded } = usePermissions();
   const routeType = params.type
     ?? (location.endsWith('/boe') ? 'draft-boe' : location.endsWith('/packing-list') ? 'packing-list' : undefined);
+  const generationOptions = useMemo(
+    () => allowedDocGenerationOptions({ activities, docTypes, documentScope, activityDocTypes }),
+    [activities, activityDocTypes, docTypes, documentScope],
+  );
+  const currentGeneratedDocType = routeTypeToGeneratedDocType(routeType);
+  const currentGenerationOption = generationOptions.find((option) => option.generatedDocType === currentGeneratedDocType);
+  const isCurrentGenerationAllowed = !!currentGenerationOption;
   const isOutwardDocGenerationRoute =
     routeType === 'outward-grn' || routeType === 'outward-pl' || routeType === 'us-packing-list' || routeType === 'US_PACKING_LIST';
   const [search,         setSearch]         = useState('');
@@ -1884,6 +1894,14 @@ export function DocumentGeneratePage() {
   const [fetchErr, setFetchErr] = useState<string | null>(null);
 
   const fetchQueue = useCallback(async () => {
+    if (!permissionsLoaded) return;
+    if (!generationOptions.length || !isCurrentGenerationAllowed) {
+      setRawQueue([]);
+      setDraftSchemas({});
+      setDraftPackageTypes({});
+      setLoading(false);
+      return;
+    }
     if (isOutwardDocGenerationRoute) {
       setRawQueue([]);
       setDraftSchemas({});
@@ -1931,9 +1949,19 @@ export function DocumentGeneratePage() {
     } finally {
       setLoading(false);
     }
-  }, [isOutwardDocGenerationRoute, routeType]);
+  }, [generationOptions.length, isCurrentGenerationAllowed, isOutwardDocGenerationRoute, permissionsLoaded, routeType]);
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
+
+  useEffect(() => {
+    if (!permissionsLoaded) return;
+    if (!generationOptions.length) {
+      navigate('/unauthorized');
+      return;
+    }
+    if (generationOptions.some((option) => option.generatedDocType === currentGeneratedDocType)) return;
+    navigate(`/documents/generate/${generationOptions[0].type}`);
+  }, [currentGeneratedDocType, generationOptions, navigate, permissionsLoaded]);
 
   useEffect(() => {
     if (isOutwardDocGenerationRoute) {
@@ -2149,11 +2177,23 @@ export function DocumentGeneratePage() {
   }
 
   // ── Render states ──────────────────────────────────────────────────────────
+  if (permissionsLoaded && (!generationOptions.length || !isCurrentGenerationAllowed)) return null;
+
   if (loading) return (
     <PageShell>
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: MUTED, fontSize: 14 }}>
         <Loader2 size={18} style={{ animation: 'spin 1s linear infinite', color: TEAL }} />
         Loading document queue...
+      </div>
+    </PageShell>
+  );
+
+  if (!generationOptions.length) return (
+    <PageShell>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+        <AlertCircle size={24} style={{ color: RED }} />
+        <div style={{ fontSize: 14, fontWeight: 600, color: FG }}>Access denied</div>
+        <div style={{ fontSize: 13, color: MUTED }}>No generated document types are assigned to this role.</div>
       </div>
     </PageShell>
   );
@@ -2189,11 +2229,7 @@ export function DocumentGeneratePage() {
           display: 'flex', alignItems: 'center', gap: 3, marginLeft: 14,
           padding: 3, borderRadius: 8, background: 'hsl(var(--muted) / 0.55)',
         }}>
-          {[
-            { type: 'packing-list', label: 'Packing List' },
-            { type: 'outward-grn', label: 'Outward GRN' },
-            { type: 'draft-boe', label: 'Draft CBP FORM 7501' },
-          ].map(option => {
+          {generationOptions.map(option => {
             const activeType = generatedDocTypeToSchemaKey(routeTypeToGeneratedDocType(routeType));
             const active = activeType === option.type;
             return (

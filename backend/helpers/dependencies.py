@@ -30,18 +30,17 @@ async def get_session_token(
     credentials: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme),
 ) -> Optional[str]:
     """Extract session token from cookie or Authorization header."""
-    # Try cookie first
-    if session_token:
-        return session_token
-
-    # Swagger's Authorize button sends a bearer token through the security scheme.
+    # Prefer explicit bearer tokens so a stale browser cookie cannot override the
+    # currently logged-in Keycloak user.
     if credentials and credentials.scheme.lower() == "bearer":
         return credentials.credentials
 
-    # Fallback for manually supplied Authorization headers.
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         return auth_header[7:]
+
+    if session_token:
+        return session_token
     
     return None
 
@@ -119,7 +118,13 @@ async def get_current_user(
             status_code=401,
             detail="Not authenticated"
         )
-    
+
+    is_jwt = token.count(".") == 2
+    if is_jwt:
+        keycloak_user = await _get_keycloak_local_user(token)
+        if keycloak_user:
+            return keycloak_user
+
     try:
         session_user = await _get_session_user(token)
     except Exception:
@@ -128,9 +133,10 @@ async def get_current_user(
     if session_user:
         return session_user
 
-    keycloak_user = await _get_keycloak_local_user(token)
-    if keycloak_user:
-        return keycloak_user
+    if not is_jwt:
+        keycloak_user = await _get_keycloak_local_user(token)
+        if keycloak_user:
+            return keycloak_user
 
     raise HTTPException(
         status_code=401,
@@ -178,7 +184,7 @@ def _primary_keycloak_role(roles: list[str]) -> str:
         "THREE_PL_PARTNER",
     ):
         if role in normalized:
-            return role
+            return normalized[role]
     for role in roles:
         normalized_role = normalize_role_name(role)
         if (

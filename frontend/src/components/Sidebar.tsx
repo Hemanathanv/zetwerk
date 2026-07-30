@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionContext';
 import { useLocation as useWouterLocation } from 'wouter';
 import { getAuthToken } from '@/lib/api';
+import { DOC_GENERATION_ACTIVITY_CODES } from '@/lib/docGenerationAccess';
 
 type ChildNavItem = {
   icon: React.ElementType;
@@ -23,7 +24,7 @@ type NavItem = {
   icon: React.ElementType;
   label: string;
   href: string;
-  module: string;
+  module: string | string[];
   requiredAnyActivities?: string[];
   badge?: number;
   badgeKey?: string;
@@ -39,7 +40,7 @@ const NAV_GROUPS: { items: NavItem[] }[] = [
       { icon: ClipboardList,   label: 'My Tasks',          href: '/tasks',                              module: 'tasks',      requiredAnyActivities: ['tasks.view', 'TSK-001'], badgeKey: 'tasks' },
       { icon: FileText,        label: 'Documents',         href: '/documents',                          module: 'documents',  requiredAnyActivities: ['documents.view', 'documents.view_extracted'] },
       { icon: ScanText,        label: 'Upload & Process',  href: '/documents/upload',                   module: 'documents',  requiredAnyActivities: ['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr'] },
-      { icon: Wand2,           label: 'Doc Generate',      href: '/documents/generate',                 module: 'documents',  requiredAnyActivities: ['documents.generate_draft', 'DOC-003', 'inventory.create_outward_grn_new_dispatch', 'inventory.update_milestone'] },
+      { icon: Wand2,           label: 'Doc Generate',      href: '/documents/generate',                 module: 'documents',  requiredAnyActivities: DOC_GENERATION_ACTIVITY_CODES },
       { icon: Boxes,      label: 'Inventory',      href: '/inventory/containers', module: 'inventory', requiredAnyActivities: ['inventory.view_container', 'inventory.view_timeline', 'GATE-001'] },
       { icon: Warehouse,  label: 'Warehouse',      href: '/inventory/warehouse',  module: 'warehouse', requiredAnyActivities: ['inventory.view_warehouse', 'inventory.warehouse_inventory_stock_position'] },
       { icon: DollarSign, label: 'D&D Management', href: '/inventory/dnd',        module: 'dnd',       requiredAnyActivities: ['inventory.acknowledge_dnd', 'inventory.update_milestone'] },
@@ -55,8 +56,8 @@ const NAV_GROUPS: { items: NavItem[] }[] = [
   },
   {
     items: [
-      { icon: Settings,  label: 'Settings',   href: '/settings',    module: 'admin', requiredAnyActivities: ['admin.manage', 'users.manage', 'roles.view'] },
-      { icon: Database,  label: 'Schema Ref', href: '/schema',      module: 'admin', requiredAnyActivities: ['admin.configure_doctypes', 'roles.view'] },
+      { icon: Settings,  label: 'Settings',   href: '/settings',    module: ['settings', 'admin'], requiredAnyActivities: ['admin.manage', 'users.manage', 'roles.view'] },
+      { icon: Database,  label: 'Schema Ref', href: '/schema',      module: ['settings', 'admin'], requiredAnyActivities: ['admin.configure_doctypes', 'roles.view'] },
     ],
   },
   {
@@ -190,7 +191,8 @@ export function Sidebar() {
 
   const visibleGroups = NAV_GROUPS.map((group) => ({
     items: group.items.filter((item) => {
-      if (!permittedModules.includes(item.module)) return false;
+      const modules = Array.isArray(item.module) ? item.module : [item.module];
+      if (!modules.some((module) => permittedModules.includes(module))) return false;
       if (!item.requiredAnyActivities?.length) return true;
       return item.requiredAnyActivities.some(activity => activities.includes(activity));
     }),

@@ -164,6 +164,33 @@ def _attr_value(attributes: dict | None, key: str, default: str = "") -> str:
     return values[0] if values else default
 
 
+def _attr_json_value(attributes: dict | None, key: str, default: str = "") -> str:
+    chunk_count_text = _attr_value(attributes, f"{key}.__chunks", "")
+    if chunk_count_text.isdigit():
+        chunk_count = int(chunk_count_text)
+        if chunk_count == 0:
+            return _attr_value(attributes, key, default)
+        chunks = [_attr_value(attributes, f"{key}.{index}", "") for index in range(chunk_count)]
+        if all(chunks):
+            return "".join(chunks)
+        return default
+    chunks: list[tuple[int, str]] = []
+    prefix = f"{key}."
+    for attr_key in (attributes or {}):
+        attr_key_text = str(attr_key)
+        if not attr_key_text.startswith(prefix):
+            continue
+        suffix = attr_key_text[len(prefix):]
+        if not suffix.isdigit():
+            continue
+        chunk = _attr_value(attributes, attr_key_text, "")
+        if chunk:
+            chunks.append((int(suffix), chunk))
+    if not chunks:
+        return _attr_value(attributes, key, default)
+    return "".join(chunk for _, chunk in sorted(chunks))
+
+
 def _normalize_document_scope(values: list[str]) -> set[str]:
     scope: set[str] = set()
     for value in values:
@@ -181,7 +208,7 @@ def role_document_scope_from_attrs(attributes: dict | None) -> set[str] | None:
 
 
 def role_doc_type_scopes_from_attrs(attributes: dict | None) -> dict[str, set[str]]:
-    raw = _attr_value(attributes, "ewms.docTypeScopes", "")
+    raw = _attr_json_value(attributes, "ewms.docTypeScopes", "")
     if not raw:
         return {}
     try:
@@ -202,11 +229,72 @@ DOC_TYPE_ACTION_ACTIVITY_CODES: Final[dict[str, tuple[str, ...]]] = {
     "approve_extraction": ("documents.approve_draft", "documents.edit_extracted"),
     "review_generation": (
         "documents.generate_draft",
+        "documents.view_draft",
+        "documents.fill_manual_fields",
+        "documents.modify_generated_fields",
+        "documents.save_draft",
+        "documents.submit_for_review",
         "documents.approve_generated_document",
+        "documents.reject_generated_document",
+        "documents.re_trigger_generation",
+        "documents.discard_draft",
         "documents.approve_draft",
     ),
     "view": ("documents.view", "documents.view_extracted", "documents.download_export"),
 }
+
+IMPLIED_ACTIVITY_CODES: Final[dict[str, set[str]]] = {
+    "documents.manage": {
+        "documents.upload",
+        "documents.view_extracted",
+        "documents.edit_extracted",
+        "documents.generate_draft",
+        "documents.approve_draft",
+        "documents.override_validation",
+        "documents.reprocess_ocr",
+        "documents.download_export",
+        "documents.delete",
+    },
+    "documents.view_draft": {"documents.generate_draft", "DOC-003"},
+    "documents.fill_manual_fields": {"documents.generate_draft", "DOC-003"},
+    "documents.modify_generated_fields": {"documents.generate_draft", "DOC-003"},
+    "documents.save_draft": {"documents.generate_draft", "DOC-003"},
+    "documents.submit_for_review": {"documents.generate_draft", "DOC-003"},
+    "documents.approve_generated_document": {"documents.generate_draft", "DOC-003"},
+    "documents.reject_generated_document": {"documents.generate_draft", "DOC-003"},
+    "documents.re_trigger_generation": {"documents.generate_draft", "DOC-003"},
+    "documents.discard_draft": {"documents.generate_draft", "DOC-003"},
+}
+
+LEGACY_ACTIVITY_ALIASES: Final[dict[str, set[str]]] = {
+    "documents.generate_draft": {"DOC-003"},
+    "documents.approve_draft": {"DOC-003"},
+}
+
+GENERATED_DOC_SOURCE_TYPES: Final[dict[str, set[str]]] = {
+    "PACKING_LIST": {"SALES_INVOICE"},
+    "US_PACKING_LIST": {"PACKING_LIST", "BILL_OF_LADING"},
+    "ENTRY_SUMMARY": {"BILL_OF_LADING", "SALES_INVOICE"},
+}
+
+
+def _expand_activity_codes(activities: set[str]) -> set[str]:
+    expanded = set(activities)
+    for activity in list(expanded):
+        expanded.update(IMPLIED_ACTIVITY_CODES.get(activity, set()))
+    for activity in list(expanded):
+        expanded.update(LEGACY_ACTIVITY_ALIASES.get(activity, set()))
+    return expanded
+
+
+def role_has_activity(user: Any, activity_code: str) -> bool:
+    attrs = getattr(user, "keycloakRoleAttributes", None)
+    activities = _expand_activity_codes(set(_attr_values(attrs, "ewms.activities")))
+    if activity_code in activities:
+        return True
+    if access_role(user) in ALL_DOCUMENT_ACCESS_ROLES and activity_code == "documents.generate_draft":
+        return True
+    return False
 
 
 def _scoped_doc_types_for_action(attributes: dict | None, action: str) -> set[str]:
@@ -236,6 +324,14 @@ def document_type_scope(user: Any) -> set[str] | None:
 def doc_type_permissions_for_role(role_name: str, attributes: dict | None = None) -> dict[str, list[str]]:
     explicit_document_scope = role_document_scope_from_attrs(attributes)
     explicit_activity_scopes = role_doc_type_scopes_from_attrs(attributes)
+    if explicit_document_scope is not None and not explicit_activity_scopes:
+        scope = sorted(explicit_document_scope)
+        return {
+            "upload": scope,
+            "approve_extraction": scope,
+            "review_generation": scope,
+            "view": scope,
+        }
     if explicit_document_scope is not None or explicit_activity_scopes:
         return {
             "upload": sorted(_scoped_doc_types_for_action(attributes, "upload")),
@@ -254,6 +350,8 @@ def doc_type_action_scope(user: Any, action: str) -> set[str] | None:
     attrs = getattr(user, "keycloakRoleAttributes", None)
     explicit_document_scope = role_document_scope_from_attrs(attrs)
     explicit_activity_scopes = role_doc_type_scopes_from_attrs(attrs)
+    if explicit_document_scope is not None and not explicit_activity_scopes:
+        return explicit_document_scope
     if explicit_document_scope is not None or explicit_activity_scopes:
         if action == "view":
             return explicit_document_scope or _scoped_doc_types_for_action(attrs, action)
@@ -273,6 +371,19 @@ def can_do_doc_type_action(user: Any, action: str, doc_type: Any) -> bool:
         return False
     scope = doc_type_action_scope(user, action)
     return scope is None or normalized_doc_type in scope
+
+
+def can_generate_document_type(user: Any, generated_doc_type: Any) -> bool:
+    normalized_doc_type = str(generated_doc_type or "").strip().upper().replace("-", "_").replace(" ", "_")
+    if not normalized_doc_type:
+        return False
+    scope = doc_type_action_scope(user, "review_generation")
+    if scope is None:
+        return True
+    if normalized_doc_type in scope:
+        return True
+    source_types = GENERATED_DOC_SOURCE_TYPES.get(normalized_doc_type, set())
+    return bool(source_types) and source_types.issubset(scope)
 
 
 def has_role_document_scope(user: Any) -> bool:

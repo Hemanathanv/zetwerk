@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertCircle, ArrowLeft, Check, Loader2, Package, Plus, Send, Truck } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { getAuthToken, apiUrl, readJsonResponse } from '@/lib/api';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { usePermissions } from '@/contexts/PermissionContext';
+import { allowedDocGenerationOptions } from '@/lib/docGenerationAccess';
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();
@@ -367,6 +369,9 @@ function NewDispatchForm({
 export default function DocumentGenerationOutwardGrnPage() {
   const [location, navigate] = useLocation();
   const fromDocGeneration = location.startsWith('/documents/generate');
+  const { activities, docTypes, documentScope, activityDocTypes } = usePermissions();
+  const generationOptions = allowedDocGenerationOptions({ activities, docTypes, documentScope, activityDocTypes });
+  const canAccessOutwardGrn = generationOptions.some((option) => option.type === 'outward-grn');
   const queryClient = useQueryClient();
   const stockQuery = useQuery({
     queryKey: outwardGrnQueryKeys.stock,
@@ -384,6 +389,25 @@ export default function DocumentGenerationOutwardGrnPage() {
   const backHref = fromDocGeneration ? '/documents/generate' : '/inventory/warehouse';
   const crumbRoot = fromDocGeneration ? 'Documents' : 'Warehouse';
   const crumbRootHref = fromDocGeneration ? '/documents/generate' : '/inventory/warehouse';
+  const fallbackGenerationType = generationOptions[0]?.type;
+
+  useEffect(() => {
+    if (!fromDocGeneration || canAccessOutwardGrn || !fallbackGenerationType) return;
+    navigate(`/documents/generate/${fallbackGenerationType}`);
+  }, [canAccessOutwardGrn, fallbackGenerationType, fromDocGeneration, navigate]);
+
+  if (fromDocGeneration && !canAccessOutwardGrn) {
+    if (fallbackGenerationType) return null;
+    return (
+      <div className="p-6 max-w-5xl mx-auto">
+        <div className="rounded-lg border border-border bg-card p-8 text-center">
+          <AlertCircle className="w-6 h-6 mx-auto text-red-500 mb-2" />
+          <h1 className="text-[15px] font-semibold text-foreground">Access denied</h1>
+          <p className="text-[13px] text-muted-foreground mt-1">No generated document types are assigned to this role.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-5">
@@ -394,11 +418,7 @@ export default function DocumentGenerationOutwardGrnPage() {
             <p className="text-[12px] text-muted-foreground">AI-drafted documents for review & approval</p>
           </div>
           <div className="flex items-center gap-1 ml-4 p-1 rounded-lg bg-muted/60">
-            {[
-              { type: 'packing-list', label: 'Packing List' },
-              { type: 'outward-grn', label: 'Outward GRN' },
-              { type: 'draft-boe', label: 'Draft CBP FORM 7501' },
-            ].map((option) => {
+            {generationOptions.map((option) => {
               const active = option.type === 'outward-grn';
               return (
                 <button

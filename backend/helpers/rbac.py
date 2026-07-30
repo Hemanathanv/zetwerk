@@ -17,76 +17,6 @@ keycloak_openid = KeycloakOpenID(
 
 LEVEL_ORDER = {"L1": 1, "L2": 2, "L3": 3, "L4": 4}
 
-ACTIVITY_MIN_LEVELS = {
-    "shipments.view": "L1",
-    "shipments.create": "L2",
-    "shipments.edit_metadata": "L2",
-    "shipments.assign_user": "L3",
-    "shipments.archive": "L3",
-    "shipments.delete": "L4",
-    "shipments.override_blocked_stage": "L4",
-    "shipments.tag_partner": "L2",
-    "documents.upload": "L1",
-    "documents.view_extracted": "L1",
-    "documents.download_export": "L1",
-    "documents.edit_extracted": "L2",
-    "documents.generate_draft": "L2",
-    "documents.approve_draft": "L2",
-    "documents.override_validation": "L3",
-    "documents.reprocess_ocr": "L3",
-    "documents.delete": "L4",
-    "inventory.view_timeline": "L1",
-    "inventory.view_container": "L1",
-    "inventory.update_milestone": "L2",
-    "inventory.upload_pod": "L2",
-    "inventory.acknowledge_dnd": "L2",
-    "accounting.view_queue": "L1",
-    "accounting.view_ap_aging": "L1",
-    "accounting.export_data": "L2",
-    "accounting.review_ticket": "L2",
-    "accounting.edit_entry": "L2",
-    "accounting.reject_ticket": "L2",
-    "accounting.post_to_erp": "L3",
-    "reports.view_dashboard": "L1",
-    "reports.generate_dsr": "L2",
-    "reports.export_report": "L2",
-    "reports.schedule_auto": "L3",
-    "tasks.view": "L1",
-    "tasks.update": "L2",
-    "tasks.assign": "L3",
-    "tasks.escalate": "L3",
-    "tasks.delegate": "L3",
-    "admin.manage": "L3",
-    "users.manage": "L3",
-    "roles.view": "L2",
-    "roles.manage": "L4",
-    "documents.manage": "L2",
-    "shipments.manage": "L2",
-    "admin.manage_users": "L3",
-    "admin.configure_roles": "L4",
-    "admin.edit_workflows": "L4",
-    "admin.configure_doctypes": "L3",
-    "admin.edit_account_mappings": "L3",
-    "admin.manage_partners": "L3",
-    "admin.view_audit_log": "L3",
-    "admin.security_settings": "L4",
-    "SHP-001": "L1",
-    "SHP-002": "L2",
-    "SHP-003": "L2",
-    "SHP-005": "L4",
-    "GATE-001": "L1",
-    "GATE-002": "L2",
-    "DOC-003": "L2",
-    "ACC-001": "L1",
-    "ACC-003": "L2",
-    "ACC-004": "L2",
-    "TSK-001": "L1",
-    "TSK-002": "L2",
-    "TSK-003": "L3",
-    "TSK-004": "L3",
-    "TSK-007": "L3",
-}
-
 IMPLIED_ACTIVITY_CODES = {
     "documents.manage": {
         "documents.upload",
@@ -99,6 +29,15 @@ IMPLIED_ACTIVITY_CODES = {
         "documents.download_export",
         "documents.delete",
     },
+    "documents.view_draft": {"documents.generate_draft", "DOC-003"},
+    "documents.fill_manual_fields": {"documents.generate_draft", "DOC-003"},
+    "documents.modify_generated_fields": {"documents.generate_draft", "DOC-003"},
+    "documents.save_draft": {"documents.generate_draft", "DOC-003"},
+    "documents.submit_for_review": {"documents.generate_draft", "DOC-003"},
+    "documents.approve_generated_document": {"documents.generate_draft", "DOC-003"},
+    "documents.reject_generated_document": {"documents.generate_draft", "DOC-003"},
+    "documents.re_trigger_generation": {"documents.generate_draft", "DOC-003"},
+    "documents.discard_draft": {"documents.generate_draft", "DOC-003"},
     "shipments.manage": {
         "shipments.view",
         "shipments.create",
@@ -173,10 +112,6 @@ def _highest_level(levels: list[str]) -> str:
     return sorted(levels or ["L1"], key=lambda item: LEVEL_ORDER.get(str(item).upper(), 0))[-1]
 
 
-def _level_at_least(user_level: str, required_level: str) -> bool:
-    return LEVEL_ORDER.get(str(user_level or "L1").upper(), 0) >= LEVEL_ORDER.get(str(required_level or "L1").upper(), 0)
-
-
 def _expand_activity_codes(activities: set[str]) -> set[str]:
     expanded = set(activities)
     if "documents.view" in expanded:
@@ -238,13 +173,6 @@ def authorize_activity(token: str, activity_code: str) -> dict:
         raise HTTPException(
             status_code=403,
             detail=f"Permission denied: missing activity {activity_code}",
-        )
-
-    required_level = ACTIVITY_MIN_LEVELS.get(activity_code, "L1")
-    if not _level_at_least(str(context["level"]), required_level):
-        raise HTTPException(
-            status_code=403,
-            detail=f"Permission denied: {activity_code} requires {required_level}",
         )
 
     return context
