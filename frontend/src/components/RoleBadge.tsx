@@ -1,4 +1,7 @@
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { useConfig } from '@/contexts/ConfigContext';
+import { cn } from '@/lib/utils';
 
 export function RoleBadge({ roleId, size = 'sm' }: { roleId: string; size?: 'sm' | 'md' }) {
   const { getRoleById } = useConfig();
@@ -6,11 +9,10 @@ export function RoleBadge({ roleId, size = 'sm' }: { roleId: string; size?: 'sm'
 
   if (!role) return <span className="text-[13px] text-muted-foreground">Unknown role</span>;
 
-  const sizeClasses = size === 'sm' ? 'text-[12px] px-1.5 py-0.5' : 'text-[13px] px-2 py-0.5';
-
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full font-medium ${sizeClasses}`}
+    <Badge
+      size={size === 'sm' ? 'sm' : 'default'}
+      className="border-transparent"
       style={{ backgroundColor: `${role.color}22`, color: role.color }}
     >
       <span
@@ -18,7 +20,7 @@ export function RoleBadge({ roleId, size = 'sm' }: { roleId: string; size?: 'sm'
         style={{ backgroundColor: role.color }}
       />
       {role.name}
-    </span>
+    </Badge>
   );
 }
 
@@ -33,7 +35,6 @@ export function UserAvatar({
 }) {
   const { getRoleById } = useConfig();
   const role = roleId ? getRoleById(roleId) : null;
-  const bgColor = role?.color || '#64748B';
 
   const initials = name
     .split(' ')
@@ -50,21 +51,21 @@ export function UserAvatar({
   }[size];
 
   return (
-    <div
-      className={`${sizeClasses} rounded-full flex items-center justify-center font-semibold text-white shrink-0`}
-      style={{ backgroundColor: bgColor }}
-      title={`${name}${role ? ` — ${role.name}` : ''}`}
+    <Avatar
+      className={cn(sizeClasses, 'font-semibold text-primary-foreground')}
+      style={role?.color ? { backgroundColor: role.color } : undefined}
+      title={`${name}${role ? ` - ${role.name}` : ''}`}
     >
-      {initials}
-    </div>
+      <AvatarFallback className="bg-transparent text-current">{initials}</AvatarFallback>
+    </Avatar>
   );
 }
 
 export function LevelBadge({ level }: { level: string }) {
   return (
-    <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[12px] font-mono font-medium bg-muted text-muted-foreground">
+    <Badge intent="neutral" size="sm" className="rounded font-mono">
       {level}
-    </span>
+    </Badge>
   );
 }
 

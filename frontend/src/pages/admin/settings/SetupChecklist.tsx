@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Check, AlertTriangle, ChevronRight } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { apiUrl, getAuthToken, readJsonResponse } from '@/lib/api';
 
 function authHeaders(): Record<string, string> {
@@ -143,26 +144,18 @@ function StatusBadge({ step }: { step: Step }) {
   if (status === 'done') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <span style={{
-          display: 'inline-flex', alignItems: 'center', gap: 4,
-          fontSize: 14.5, fontWeight: 600, color: T.green,
-          fontFamily: "'Instrument Sans', sans-serif",
-        }}>
-          <Check size={11} strokeWidth={2.5} /> {statusDetail || 'Configured'}
-        </span>
+        <Badge intent="success" size="sm" leadingIcon={<Check className="size-3" />}>
+          {statusDetail || 'Configured'}
+        </Badge>
       </div>
     );
   }
   if (status === 'warn') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <span style={{
-          display: 'inline-flex', alignItems: 'center', gap: 4,
-          fontSize: 14.5, fontWeight: 600, color: T.amber,
-          fontFamily: "'Instrument Sans', sans-serif",
-        }}>
-          <AlertTriangle size={11} strokeWidth={2.5} /> {statusDetail || 'Needs attention'}
-        </span>
+        <Badge intent="warning" size="sm" leadingIcon={<AlertTriangle className="size-3" />}>
+          {statusDetail || 'Needs attention'}
+        </Badge>
         {warnings?.map((w, i) => (
           <span key={i} style={{ fontSize: 14, color: T.amber, fontFamily: "'Instrument Sans', sans-serif", paddingLeft: 15 }}>
             {w.name}: {w.issue}

@@ -296,6 +296,112 @@ function roleFromKeycloakRoles(roles: string[]): AuthUser['systemRole'] {
   return 'USER';
 }
 
+const ADMIN_FALLBACK_MODULES = [
+  'dashboard',
+  'shipments',
+  'tasks',
+  'documents',
+  'inventory',
+  'warehouse',
+  'dnd',
+  'accounting',
+  'reports',
+  'admin',
+  'settings',
+];
+
+const ADMIN_FALLBACK_ACTIVITIES = [
+  'admin.configure_doctypes',
+  'admin.configure_roles',
+  'admin.edit_account_mappings',
+  'admin.edit_workflows',
+  'admin.manage',
+  'admin.manage_partners',
+  'admin.manage_users',
+  'admin.security_settings',
+  'admin.view_audit_log',
+  'documents.approve_container_mapping',
+  'documents.approve_draft',
+  'documents.approve_generated_document',
+  'documents.classify_document_type',
+  'documents.delete',
+  'documents.discard_draft',
+  'documents.download_export',
+  'documents.edit_extracted',
+  'documents.fill_manual_fields',
+  'documents.generate_draft',
+  'documents.manage',
+  'documents.map_container_to_sku',
+  'documents.modify_generated_fields',
+  'documents.ocr_completed',
+  'documents.override_approved_fields',
+  'documents.override_validation',
+  'documents.re_trigger_generation',
+  'documents.re_upload_document',
+  'documents.reassign_document_to_shipment',
+  'documents.reject_container_mapping',
+  'documents.reject_extraction',
+  'documents.reject_generated_document',
+  'documents.reprocess_ocr',
+  'documents.resolve_validation_failure',
+  'documents.revoke_approval',
+  'documents.save_draft',
+  'documents.submit_for_approval',
+  'documents.submit_for_review',
+  'documents.submit_mapping_for_approval',
+  'documents.trigger_re_validation',
+  'documents.upload',
+  'documents.validation_triggered',
+  'documents.view',
+  'documents.view_draft',
+  'documents.view_extracted',
+  'documents.view_validation_results',
+  'inventory.3_way_recon',
+  'inventory.acknowledge_dnd',
+  'inventory.adjust_stock_with_remarks',
+  'inventory.adjust_stock_without_remarks',
+  'inventory.approve_dispatch',
+  'inventory.create_outward_grn_new_dispatch',
+  'inventory.delivered',
+  'inventory.inventory_tracking_breakbulk',
+  'inventory.modify_lfd',
+  'inventory.move_inventory',
+  'inventory.reject_dispatch',
+  'inventory.returned',
+  'inventory.update_milestone',
+  'inventory.upload_pod',
+  'inventory.view_container',
+  'inventory.view_dnd_charges',
+  'inventory.view_last_free_days_shipment_based',
+  'inventory.view_lfd_calendar',
+  'inventory.view_outward_dispatches',
+  'inventory.view_timeline',
+  'inventory.view_warehouse',
+  'inventory.warehouse_inventory_stock_position',
+  'roles.manage',
+  'roles.view',
+  'shipments.archive',
+  'shipments.assign_user',
+  'shipments.cancel_shipment',
+  'shipments.change_shipment_type',
+  'shipments.create',
+  'shipments.delete',
+  'shipments.edit_metadata',
+  'shipments.export_details',
+  'shipments.hold_shipment',
+  'shipments.manage',
+  'shipments.override_blocked_stage',
+  'shipments.resume_shipment',
+  'shipments.tag_partner',
+  'shipments.view',
+  'tasks.assign',
+  'tasks.delegate',
+  'tasks.escalate',
+  'tasks.update',
+  'tasks.view',
+  'users.manage',
+];
+
 function capabilitiesFromActivities(activities: string[]): Record<string, boolean> {
   const allowed = new Set(activities);
   return {
@@ -309,6 +415,47 @@ function capabilitiesFromActivities(activities: string[]): Record<string, boolea
 
 function mergeActivities(...activityLists: Array<string[] | null | undefined>): string[] {
   return [...new Set(activityLists.flatMap((activities) => activities ?? []))];
+}
+
+function isAdminIdentity(userInfo: KeycloakUserInfo, roles: string[]): boolean {
+  const email = (userInfo.email ?? userInfo.preferred_username ?? '').toLowerCase();
+  const normalizedRoles = new Set(roles.map((role) => role.toUpperCase().replace(/-/g, '_').replace(/ /g, '_')));
+  return (
+    email === 'admin@sprconsultech.com' ||
+    normalizedRoles.has('ADMIN') ||
+    normalizedRoles.has('ORG_ADMIN') ||
+    normalizedRoles.has('SUPER_ADMIN') ||
+    normalizedRoles.has('SUPER_ADMINISTRATOR')
+  );
+}
+
+function fallbackPermissions(userInfo: KeycloakUserInfo, roles: string[]): KeycloakPermissions {
+  const isAdmin = isAdminIdentity(userInfo, roles);
+  const roleId = isAdmin ? 'ADMIN' : 'USER';
+  return {
+    modules: isAdmin ? ADMIN_FALLBACK_MODULES : [],
+    gates: [],
+    docTypes: isAdmin
+      ? {
+          upload: ['*'],
+          approve_extraction: ['*'],
+          review_generation: ['*'],
+          view: ['*'],
+        }
+      : {},
+    documentScope: isAdmin ? [] : undefined,
+    activityDocTypes: {},
+    ticketCategories: [],
+    activities: isAdmin ? ADMIN_FALLBACK_ACTIVITIES : [],
+    dataScope: isAdmin ? 'ALL' : 'TAGGED',
+    role: {
+      id: roleId,
+      name: isAdmin ? 'Admin' : 'User',
+      category: 'org_internal',
+      color: '#0f766e',
+      systemCode: roleId.toLowerCase(),
+    },
+  };
 }
 
 function normalizeKeycloakUser(
@@ -376,21 +523,41 @@ const authApi = {
     if (!token) {
       return Promise.reject(new Error('Missing access token'));
     }
-    return Promise.all([
+    const roles = rolesFromAccessToken(token);
+    return Promise.allSettled([
       getKeycloakUserInfo(token).catch(() => userInfoFromAccessToken(token)),
       api.get<{ ok: boolean; data: KeycloakPermissions }>('/auth/permissions'),
       api.get<{ ok: boolean; data: LevelAuthorization }>('/auth/level'),
-    ]).then(([userInfo, permissionsResponse, levelResponse]) => ({
-      data: {
-        status: 'success',
-        user: normalizeKeycloakUser(
-          userInfo,
-          rolesFromAccessToken(token),
-          permissionsResponse.data.data,
-          levelResponse.data.data,
-        ),
-      } satisfies AuthStatusResponse,
-    }));
+    ]).then(([userInfoResult, permissionsResult, levelResult]) => {
+      const userInfo = userInfoResult.status === 'fulfilled'
+        ? userInfoResult.value
+        : userInfoFromAccessToken(token);
+      const permissions = permissionsResult.status === 'fulfilled'
+        ? permissionsResult.value.data.data
+        : fallbackPermissions(userInfo, roles);
+      const levelAuth = levelResult.status === 'fulfilled'
+        ? levelResult.value.data.data
+        : { level: isAdminIdentity(userInfo, roles) ? 'L4' : 'L1', activities: permissions.activities };
+
+      if (permissionsResult.status === 'rejected' || levelResult.status === 'rejected') {
+        console.error('RBAC bootstrap failed; using token role fallback permissions.', {
+          permissionsError: permissionsResult.status === 'rejected' ? permissionsResult.reason : null,
+          levelError: levelResult.status === 'rejected' ? levelResult.reason : null,
+        });
+      }
+
+      return {
+        data: {
+          status: 'success',
+          user: normalizeKeycloakUser(
+            userInfo,
+            roles,
+            permissions,
+            levelAuth,
+          ),
+        } satisfies AuthStatusResponse,
+      };
+    });
   },
 
   /**

@@ -4,6 +4,7 @@ import {
   X, Code2,
 } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { apiGet } from '@/lib/api';
@@ -30,24 +31,17 @@ interface Filters {
 
 const MONO: React.CSSProperties = { fontFamily: '"JetBrains Mono", monospace' };
 
-const ACTION_COLORS: Record<string, { bg: string; text: string }> = {
-  create:        { bg: '#16a34a22', text: '#16a34a' },
-  update:        { bg: '#2563eb22', text: '#2563eb' },
-  delete:        { bg: '#dc262622', text: '#dc2626' },
-  approve:       { bg: '#0d948022', text: '#0d9488' },
-  override:      { bg: '#d9770622', text: '#d97706' },
-  post:          { bg: '#4f46e522', text: '#4f46e5' },
-  reverse:       { bg: '#db277722', text: '#db2777' },
-  login:         { bg: '#6b728022', text: '#6b7280' },
-  config_change: { bg: '#47556922', text: '#475569' },
-  revoke:        { bg: '#dc262622', text: '#dc2626' },
-};
-
-const ENTITY_COLORS: Record<string, string> = {
-  document: '#0d9488', shipment: '#2563eb', ticket: '#7c3aed',
-  role: '#d97706', user: '#16a34a', template: '#0891b2',
-  rule: '#4f46e5', organisation: '#db2777', delegation: '#6b7280',
-  gate: '#475569', warehouse: '#15803d',
+const ACTION_INTENT: Record<string, 'success' | 'info' | 'danger' | 'warning' | 'active' | 'neutral'> = {
+  create: 'success',
+  update: 'info',
+  delete: 'danger',
+  approve: 'success',
+  override: 'warning',
+  post: 'info',
+  reverse: 'warning',
+  login: 'neutral',
+  config_change: 'neutral',
+  revoke: 'danger',
 };
 
 const ENTITY_TYPES = ['Document', 'Shipment', 'Ticket', 'Role', 'User', 'Template', 'Rule', 'Organisation', 'Delegation', 'Gate'];
@@ -89,23 +83,15 @@ function userColor(name: string): string {
 // ─── ActionBadge ──────────────────────────────────────────────────────────────
 
 function ActionBadge({ action }: { action: string }) {
-  const c = ACTION_COLORS[action] ?? { bg: '#6b728022', text: '#6b7280' };
-  return (
-    <span style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 99, fontSize: 14.5, fontWeight: 700, background: c.bg, color: c.text }}>
-      {action}
-    </span>
-  );
+  return <Badge intent={ACTION_INTENT[action] ?? 'neutral'} size="sm">{action}</Badge>;
 }
 
 // ─── EntityBadge ─────────────────────────────────────────────────────────────
 
 function EntityBadge({ type, id }: { type: string; id: string | null }) {
-  const color = ENTITY_COLORS[type.toLowerCase()] ?? '#475569';
   return (
     <div>
-      <span style={{ display: 'inline-block', padding: '1px 7px', borderRadius: 5, fontSize: 14, fontWeight: 700, background: `${color}22`, color }}>
-        {type}
-      </span>
+      <Badge intent="neutral" size="sm">{type}</Badge>
       {id && (
         <div style={{ ...MONO, fontSize: 14, color: 'hsl(var(--muted-foreground))', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 170 }}>
           {id.slice(0, 8)}…

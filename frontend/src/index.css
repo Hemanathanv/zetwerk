@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -124,7 +124,7 @@
 
   --app-font-sans: 'Inter', system-ui, sans-serif;
   --app-font-serif: Georgia, serif;
-  --app-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --app-font-mono: 'Inter', system-ui, sans-serif;
   --radius: 0.5rem;
 
   --shadow-2xs: 0px 1px 2px 0px rgba(0,0,0,0.04);
@@ -139,16 +139,16 @@
   --spacing: 0.25rem;
 
   /* ── Typography scale ───────────────────────────────────────────────────── */
-  --text-page-title-size:   36px;
-  --text-page-title-weight: 800;
-  --text-admin-title-size:  28px;
-  --text-admin-title-weight: 700;
-  --text-section-size:      20px;
-  --text-section-weight:    700;
-  --text-body-size:         14.5px;
-  --text-meta-size:         12.5px;
+  --text-page-title-size:   38px;
+  --text-page-title-weight: 600;
+  --text-admin-title-size:  38px;
+  --text-admin-title-weight: 600;
+  --text-section-size:      18px;
+  --text-section-weight:    600;
+  --text-body-size:         14px;
+  --text-meta-size:         13px;
   --text-label-size:        12px;
-  --text-subtitle-size:     14.5px;
+  --text-subtitle-size:     13px;
 
   --sidebar-primary-border: hsl(var(--sidebar-primary));
   --sidebar-accent-border: hsl(var(--sidebar-accent));
@@ -264,10 +264,129 @@
   }
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    font-feature-settings: 'tnum' 1, 'ss01' 1;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    min-height: 32px;
+    border: 1px solid hsl(var(--input));
+    border-radius: 8px;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    box-shadow: none;
+    font-family: var(--app-font-sans);
+    font-size: 14px;
+    line-height: 1.4;
+    font-feature-settings: 'tnum' 1, 'ss01' 1;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):focus,
+  select:focus,
+  textarea:focus {
+    border-color: hsl(var(--primary));
+    outline: none;
+    box-shadow: none;
+  }
+
+  input[aria-invalid="true"],
+  textarea[aria-invalid="true"],
+  select[aria-invalid="true"] {
+    border-color: hsl(var(--destructive));
+  }
+
+  .ewms-search-field {
+    min-height: 32px;
+    border: 1px solid hsl(var(--input));
+    border-radius: 8px;
+    background: hsl(var(--background));
+    transition: border-color 0.15s ease;
+  }
+
+  .ewms-search-field:focus-within {
+    border-color: hsl(var(--primary));
+  }
+
+  .ewms-search-field input.ewms-search-input {
+    min-height: 0;
+    height: auto;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .ewms-search-field input.ewms-search-input:focus {
+    border: 0 !important;
+    outline: none !important;
+    box-shadow: none !important;
   }
 }
 
 @layer utilities {
+  .ewms-scrollarea {
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.42) transparent;
+  }
+
+  .ewms-scrollarea:hover {
+    scrollbar-color: hsl(var(--muted-foreground) / 0.68) hsl(var(--muted) / 0.25);
+  }
+
+  .ewms-scrollarea::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .ewms-scrollarea::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .ewms-scrollarea:hover::-webkit-scrollbar-track {
+    background: hsl(var(--muted) / 0.25);
+  }
+
+  .ewms-scrollarea::-webkit-scrollbar-thumb {
+    min-height: 32px;
+    border-radius: 999px;
+    background: hsl(var(--muted-foreground) / 0.42);
+  }
+
+  .ewms-scrollarea:hover::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.68);
+  }
+
+  .ewms-scrollarea::-webkit-scrollbar-thumb:active {
+    background: hsl(var(--primary) / 0.72);
+  }
+
+  .ewms-scrollarea[data-ewms-scrollbar="sidebar"] {
+    scrollbar-color: hsl(var(--sidebar-foreground) / 0.38) transparent;
+  }
+
+  .ewms-scrollarea[data-ewms-scrollbar="sidebar"]:hover {
+    scrollbar-color: hsl(var(--sidebar-foreground) / 0.62) hsl(var(--sidebar-accent) / 0.32);
+  }
+
+  .ewms-scrollarea[data-ewms-scrollbar="sidebar"]::-webkit-scrollbar-thumb {
+    background: hsl(var(--sidebar-foreground) / 0.38);
+  }
+
+  .ewms-scrollarea[data-ewms-scrollbar="sidebar"]:hover::-webkit-scrollbar-track {
+    background: hsl(var(--sidebar-accent) / 0.32);
+  }
+
+  .ewms-scrollarea[data-ewms-scrollbar="sidebar"]:hover::-webkit-scrollbar-thumb {
+    background: hsl(var(--sidebar-foreground) / 0.62);
+  }
+
+  .ewms-scrollarea[data-ewms-scrollbar="sidebar"]::-webkit-scrollbar-thumb:active {
+    background: hsl(var(--sidebar-primary) / 0.72);
+  }
+
   input[type="search"]::-webkit-search-cancel-button {
     @apply hidden;
   }
@@ -364,8 +483,19 @@
 
   /* ── VentureSight typography ── */
   .vs-mono {
-    font-family: 'JetBrains Mono', ui-monospace, monospace;
-    font-feature-settings: 'tnum';
+    font-family: var(--app-font-sans);
+    font-feature-settings: 'tnum' 1, 'ss01' 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .font-mono {
+    font-family: var(--app-font-sans) !important;
+    font-feature-settings: 'tnum' 1, 'ss01' 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  :where(.bg-card.rounded-xl, .bg-card.rounded-2xl, .rounded-xl.border, .rounded-xl[class*="border"], .overflow-x-auto.rounded-xl) {
+    border-radius: 8px !important;
   }
 
   /* ── VentureSight hover-lift ── */
@@ -421,4 +551,3 @@
     font-weight: 500;
   }
 }
-

@@ -11,6 +11,7 @@ import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { AdminFormSection } from '@/components/admin/AdminFormSection';
 import { AdminSectionTabs } from '@/components/admin/AdminSectionTabs';
 import { AdminEmptyState } from '@/components/admin/AdminEmptyState';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -151,16 +152,8 @@ function roleCatStyle(cat: string): { bg: string; color: string } {
 
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_DISPLAY[status] ?? STATUS_DISPLAY.DRAFT;
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center',
-      padding: '2px 10px', borderRadius: 99,
-      fontSize: 14.5, fontWeight: 600,
-      background: cfg.bg, color: cfg.text,
-    }}>
-      {cfg.label}
-    </span>
-  );
+  const intent = status === 'ACTIVE' ? 'success' : status === 'ARCHIVED' ? 'neutral' : 'draft';
+  return <Badge intent={intent} size="sm">{cfg.label}</Badge>;
 }
 
 function StatChip({ icon, label, value, accent }: {

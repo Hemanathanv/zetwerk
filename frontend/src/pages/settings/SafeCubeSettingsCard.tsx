@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Eye, EyeOff, Copy, CheckCircle2, XCircle, Loader2, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { apiGet, apiPut, apiPost } from '@/lib/api';
+import { Badge } from '@/components/ui/badge';
 import { useLocation } from 'wouter';
 
 interface SafeCubeConfig {
@@ -40,27 +41,15 @@ function timeAgo(iso: string | null): string {
 function ScheduleStatusPill({ status, delayDays }: { status: string | null; delayDays: number | null }) {
   if (!status) return <span className="text-muted-foreground text-[13px]">—</span>;
   if (delayDays === 0 || status.toLowerCase().includes('on time')) {
-    return (
-      <span className="text-[13px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
-        On Time
-      </span>
-    );
+    return <Badge intent="success" size="sm">On Time</Badge>;
   }
   if (delayDays && delayDays > 0) {
-    return (
-      <span className="text-[13px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
-        {delayDays}d delay
-      </span>
-    );
+    return <Badge intent="warning" size="sm">{delayDays}d delay</Badge>;
   }
   if (delayDays && delayDays < 0) {
-    return (
-      <span className="text-[13px] font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400">
-        Past ETA
-      </span>
-    );
+    return <Badge intent="danger" size="sm">Past ETA</Badge>;
   }
-  return <span className="text-[13px] text-muted-foreground">{status}</span>;
+  return <Badge intent="neutral" size="sm">{status}</Badge>;
 }
 
 const POLLING_OPTIONS = [

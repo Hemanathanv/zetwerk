@@ -6,6 +6,20 @@ import {
 } from 'lucide-react';
 import { getAuthToken } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { ListCell, ListHeaderRow, ListRow } from '@/components/ewms/DataDisplay';
+import { SegmentedControl } from '@/components/ewms/SegmentedControl';
+import { IconBadge, StepperHorizontal, type StepStatus } from '@/components/ewms/Visualization';
+import { MetricCard } from '@/components/vs/MetricCard';
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();
@@ -84,68 +98,20 @@ function JourneyStrip({ stage, lastEventText, lastEventFacility, lastEventAt }: 
   lastEventFacility: string | null;
   lastEventAt: string | null;
 }) {
-  const teal = 'hsl(173 58% 39%)';
-  const muted = 'hsl(var(--muted-foreground))';
-  const mutedBg = 'hsl(var(--muted))';
+  const steps = STAGES.map((label, i) => ({
+    label,
+    status: (i < stage ? 'completed' : i === stage ? 'active' : 'upcoming') as StepStatus,
+  }));
 
   return (
-    <div style={{ flex: 1, minWidth: 0 }}>
-      {/* 7-node progress strip */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-        {STAGES.map((label, i) => {
-          const done = i < stage;
-          const active = i === stage;
-          const isLast = i === STAGES.length - 1;
-
-          return (
-            <React.Fragment key={label}>
-              <div title={label} style={{
-                width: active ? 14 : 10,
-                height: active ? 14 : 10,
-                borderRadius: '50%',
-                flexShrink: 0,
-                background: done ? teal : active ? teal : mutedBg,
-                boxShadow: active ? `0 0 0 3px hsla(173,58%,39%,0.18)` : 'none',
-                transition: 'all 150ms',
-              }} />
-              {!isLast && (
-                <div style={{
-                  flex: 1,
-                  height: 2,
-                  background: done ? teal : mutedBg,
-                  transition: 'background 150ms',
-                }} />
-              )}
-            </React.Fragment>
-          );
-        })}
-      </div>
-
-      {/* Stage label row */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-        {STAGES.map((label, i) => (
-          <span key={label} style={{
-            fontSize: 14.5,
-            color: i === stage ? teal : muted,
-            fontWeight: i === stage ? 600 : 400,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            maxWidth: 80,
-          }}>{label}</span>
-        ))}
-      </div>
-
-      {/* Last event sublabel */}
+    <div className="min-w-0 flex-1">
+      <StepperHorizontal steps={steps} />
       {(lastEventText || lastEventFacility) && (
-        <div style={{
-          fontSize: 14.5, color: muted, marginTop: 4,
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        }}>
+        <div className="mt-1 truncate text-sm text-muted-foreground">
           {lastEventFacility
-            ? <>{lastEventFacility}{lastEventText ? ` · ${lastEventText}` : ''}</>
+            ? <>{lastEventFacility}{lastEventText ? ` - ${lastEventText}` : ''}</>
             : lastEventText}
-          {lastEventAt && <span style={{ marginLeft: 4, opacity: 0.7 }}>· {formatTimeAgo(lastEventAt)}</span>}
+          {lastEventAt && <span className="ml-1 opacity-70">- {formatTimeAgo(lastEventAt)}</span>}
         </div>
       )}
     </div>
@@ -156,27 +122,11 @@ function JourneyStrip({ stage, lastEventText, lastEventFacility, lastEventAt }: 
 
 function ScheduleChip({ scheduleStatus, delayDays }: { scheduleStatus: string | null; delayDays: number | null }) {
   if (delayDays != null && delayDays > 0) {
-    return (
-      <span style={{
-        fontSize: 14.5, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
-        background: 'hsl(38 92% 93%)', color: 'hsl(38 55% 38%)',
-        border: '1px solid hsl(38 80% 80%)', whiteSpace: 'nowrap',
-      }}>
-        +{delayDays}d
-      </span>
-    );
+    return <Badge intent="warning" size="sm">+{delayDays}d</Badge>;
   }
   const s = (scheduleStatus || '').toLowerCase();
   if (s.includes('on') || s.includes('time') || delayDays === 0) {
-    return (
-      <span style={{
-        fontSize: 14.5, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
-        background: 'hsl(143 60% 93%)', color: 'hsl(143 50% 32%)',
-        border: '1px solid hsl(143 50% 78%)', whiteSpace: 'nowrap',
-      }}>
-        On Time
-      </span>
-    );
+    return <Badge intent="success" size="sm">On Time</Badge>;
   }
   return null;
 }
@@ -184,47 +134,32 @@ function ScheduleChip({ scheduleStatus, delayDays }: { scheduleStatus: string | 
 // ─── StatPill ────────────────────────────────────────────────────────────────
 
 type StatColor = 'blue' | 'amber' | 'red' | 'muted' | 'teal' | 'purple' | 'green';
-const STAT_COLORS: Record<StatColor, { bg: string; text: string }> = {
-  blue:   { bg: 'hsl(214 100% 97%)', text: 'hsl(214 72% 40%)' },
-  amber:  { bg: 'hsl(38 92% 96%)',   text: 'hsl(38 55% 40%)' },
-  red:    { bg: 'hsl(0 72% 97%)',    text: 'hsl(0 60% 45%)' },
-  teal:   { bg: 'hsl(173 58% 95%)',  text: 'hsl(173 58% 30%)' },
-  purple: { bg: 'hsl(270 60% 97%)',  text: 'hsl(270 50% 45%)' },
-  green:  { bg: 'hsl(143 60% 96%)',  text: 'hsl(143 50% 32%)' },
-  muted:  { bg: 'hsl(var(--muted))', text: 'hsl(var(--muted-foreground))' },
+const STAT_TONE: Record<StatColor, 'info' | 'warning' | 'danger' | 'teal' | 'green'> = {
+  blue: 'info',
+  amber: 'warning',
+  red: 'danger',
+  teal: 'teal',
+  purple: 'info',
+  green: 'green',
+  muted: 'info',
 };
 
 function StatPill({ label, value, color, icon: Icon, suffix = '', settingsLink }: {
   label: string; value: number; color: StatColor; icon: any; suffix?: string;
   settingsLink?: string;
 }) {
-  const { bg, text } = STAT_COLORS[color] || STAT_COLORS.muted;
-  const [hovered, setHovered] = useState(false);
   return (
-    <div
-      style={{ background: bg, borderRadius: 12, padding: '12px 14px', position: 'relative' }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <Icon style={{ width: 15, height: 15, color: text, opacity: 0.6 }} />
-        <span style={{ fontSize: 22, fontWeight: 700, fontFamily: 'monospace', color: text }}>{value}</span>
-        {suffix && <span style={{ fontSize: 14.5, fontFamily: 'monospace', color: text }}>{suffix}</span>}
-        {settingsLink && hovered && (
-          <a
-            href={settingsLink}
-            title="Configure thresholds in Settings"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              marginLeft: 'auto', display: 'flex', alignItems: 'center',
-              color: text, opacity: 0.6,
-            }}
-          >
-            <Settings style={{ width: 11, height: 11 }} />
-          </a>
-        )}
-      </div>
-      <div style={{ fontSize: 14.5, fontWeight: 500, marginTop: 3, color: text, opacity: 0.75 }}>{label}</div>
+    <div className="relative">
+      <MetricCard
+        label={label}
+        value={suffix ? `${value}${suffix}` : value}
+        icon={null}
+        color={STAT_TONE[color] ?? 'info'}
+        href={settingsLink}
+      />
+      {settingsLink && (
+        <Settings className="pointer-events-none absolute right-3 top-3 size-3 text-muted-foreground opacity-60" aria-hidden="true" />
+      )}
     </div>
   );
 }
@@ -256,16 +191,6 @@ function ContainerRow({ container, alertLookup }: {
     }
   }
 
-  const borderColor =
-    alertState === 'accruing'    ? 'hsl(0 72% 50%)' :
-    alertState === 'approaching' ? 'hsl(38 92% 50%)' :
-    alertState === 'stale'       ? 'hsl(220 9% 65%)' :
-    'transparent';
-  const rowBg =
-    alertState === 'accruing'    ? 'hsla(0,72%,50%,0.04)' :
-    alertState === 'approaching' ? 'hsla(38,92%,50%,0.04)' :
-    'hsl(var(--card))';
-
   const stage = deriveStage(
     container.latestMovementType ?? null,
     sc?.status ?? null,
@@ -281,19 +206,18 @@ function ContainerRow({ container, alertLookup }: {
     if (charge.status === 'ACCRUING') {
       const daysPast = Math.floor((now - lfdTime) / 86400000);
       lfdNode = (
-        <span style={{ fontSize: 14, fontFamily: 'monospace', color: 'hsl(0 60% 45%)', fontWeight: 600 }}>
+        <span className="text-sm font-semibold tabular-nums text-destructive">
           {charge.currency} {Number(charge.totalCharge).toLocaleString()}
-          <span style={{ fontSize: 14.5, color: 'hsl(0 50% 55%)', marginLeft: 4 }}>({daysPast}d past LFD)</span>
+          <span className="ml-1 text-xs">({daysPast}d past LFD)</span>
         </span>
       );
     } else if (daysUntil <= 0) {
-      lfdNode = <span style={{ fontSize: 14, fontFamily: 'monospace', color: 'hsl(0 60% 45%)', fontWeight: 600 }}>LFD today</span>;
+      lfdNode = <Badge intent="danger" size="sm">LFD today</Badge>;
     } else {
-      const color = alertState === 'approaching' ? 'hsl(38 55% 40%)' : 'hsl(var(--muted-foreground))';
       lfdNode = (
-        <span style={{ fontSize: 14, fontFamily: 'monospace', color, fontWeight: alertState === 'approaching' ? 600 : 400 }}>
+        <span className={alertState === 'approaching' ? 'text-sm font-semibold tabular-nums text-[hsl(var(--vs-warning))]' : 'text-sm tabular-nums text-muted-foreground'}>
           LFD {daysUntil}d
-          <span style={{ fontSize: 14.5, marginLeft: 4, opacity: 0.75 }}>({formatDate(charge.lfd)})</span>
+          <span className="ml-1 text-xs opacity-75">({formatDate(charge.lfd)})</span>
         </span>
       );
     }
@@ -302,35 +226,19 @@ function ContainerRow({ container, alertLookup }: {
   const vesselDisplay = container.scVesselName || container.vesselName;
 
   return (
-    <a
-      href={`/inventory/containers/${container.id}`}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 12,
-        background: rowBg,
-        borderRadius: 10,
-        padding: '11px 14px',
-        borderLeft: `3px solid ${borderColor}`,
-        textDecoration: 'none',
-        color: 'inherit',
-        transition: 'box-shadow 150ms',
-      }}
-      onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 2px 8px hsla(0,0%,0%,0.08)')}
-      onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}
+    <ListRow
+      onClick={() => { window.location.href = `/inventory/containers/${container.id}`; }}
+      className={alertState === 'accruing' ? 'border-l-4 border-l-destructive' : alertState === 'approaching' ? 'border-l-4 border-l-[hsl(var(--vs-warning))]' : alertState === 'stale' ? 'border-l-4 border-l-muted-foreground' : 'border-l-4 border-l-transparent'}
+      style={{ gridTemplateColumns: '140px minmax(360px,1fr) 120px 164px 20px' } as React.CSSProperties}
     >
-      {/* Container # + shipment ref */}
-      <div style={{ width: 140, flexShrink: 0 }}>
-        <div style={{ fontSize: 14, fontFamily: 'monospace', fontWeight: 700, letterSpacing: '-0.01em' }}>
-          {container.containerNumber}
-        </div>
-        <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>
+      <ListCell
+        primary={<span className="font-semibold tabular-nums">{container.containerNumber}</span>}
+        secondary={<>
           {container.shipment?.shipmentNumber || 'Pending ID'}
-          {sc?.isoCode && (
-            <span style={{ marginLeft: 5, opacity: 0.6 }}>{sc.isoCode}</span>
-          )}
-        </div>
-      </div>
+          {sc?.isoCode && <span className="ml-1 opacity-70">{sc.isoCode}</span>}
+        </>}
+      />
 
-      {/* Journey strip — 7 nodes */}
       <JourneyStrip
         stage={stage}
         lastEventText={sc?.lastEvent?.description ?? null}
@@ -338,44 +246,27 @@ function ContainerRow({ container, alertLookup }: {
         lastEventAt={sc?.lastEvent?.eventAt ?? container.lastEventAt ?? null}
       />
 
-      {/* Vessel + ETA */}
-      <div style={{ width: 120, flexShrink: 0, textAlign: 'right' }}>
-        {vesselDisplay && (
-          <div style={{
-            fontSize: 14, fontWeight: 500,
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            {vesselDisplay}
-          </div>
-        )}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 2 }}>
-          {eta ? (
-            <span style={{ fontSize: 14.5, fontFamily: 'monospace', color: 'hsl(var(--muted-foreground))' }}>
-              ETA {formatDate(eta)}
-            </span>
-          ) : (
-            <span style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>—</span>
-          )}
-          <ScheduleChip scheduleStatus={container.scheduleStatus} delayDays={container.delayDays} />
-        </div>
-      </div>
+      <ListCell
+        kind="date"
+        primary={vesselDisplay || '-'}
+        secondary={
+          <span className="flex items-center justify-end gap-1">
+            {eta ? <span>ETA {formatDate(eta)}</span> : <span>-</span>}
+            <ScheduleChip scheduleStatus={container.scheduleStatus} delayDays={container.delayDays} />
+          </span>
+        }
+      />
 
-      {/* LFD / D&D */}
-      <div style={{ width: 164, flexShrink: 0, textAlign: 'right' }}>
-        {lfdNode ?? <span style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>—</span>}
-      </div>
+      <ListCell kind="metric" metric={lfdNode ?? <span className="text-muted-foreground">-</span>} />
 
-      {/* Alert icon */}
-      <div style={{ width: 18, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
-        {alertState === 'accruing'    && <DollarSign size={14} style={{ color: 'hsl(0 60% 45%)' }} />}
-        {alertState === 'approaching' && <Clock size={14} style={{ color: 'hsl(38 55% 40%)' }} />}
-        {alertState === 'stale'       && <WifiOff size={14} style={{ color: 'hsl(220 9% 55%)' }} />}
+      <div className="flex justify-center">
+        {alertState === 'accruing' && <DollarSign className="size-4 text-destructive" aria-label="D&D accruing" />}
+        {alertState === 'approaching' && <Clock className="size-4 text-[hsl(var(--vs-warning))]" aria-label="LFD approaching" />}
+        {alertState === 'stale' && <WifiOff className="size-4 text-muted-foreground" aria-label="Stale tracking" />}
       </div>
-    </a>
+    </ListRow>
   );
 }
-
-// ─── SafeCube connection badge ────────────────────────────────────────────────
 
 function ScBadge({ containers }: { containers: any[] }) {
   const linked = containers.filter(c => c.sc !== null).length;
@@ -386,76 +277,29 @@ function ScBadge({ containers }: { containers: any[] }) {
   const noneLinked = linked === 0;
   const someLinked = !allLinked && !noneLinked;
 
-  const bg = noneLinked ? 'hsl(var(--muted))' : allLinked ? 'hsl(173 58% 95%)' : 'hsl(38 92% 96%)';
-  const color = noneLinked ? 'hsl(var(--muted-foreground))' : allLinked ? 'hsl(173 58% 30%)' : 'hsl(38 55% 38%)';
   const label = noneLinked ? 'Live tracking unlinked' : allLinked ? 'Live tracking' : `${linked}/${total} live tracked`;
-  const icon = noneLinked ? <WifiOff size={11} /> : allLinked ? <Wifi size={11} /> : <AlertTriangle size={11} />;
+  const Icon = noneLinked ? WifiOff : allLinked ? Wifi : AlertTriangle;
+  const intent = noneLinked ? 'neutral' : allLinked ? 'active' : 'warning';
 
   const inner = (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 6,
-      padding: '5px 10px', borderRadius: 8, fontSize: 14.5,
-      background: bg, color,
-      textDecoration: 'none',
-    }}>
-      {icon}
-      <span style={{ fontWeight: 600 }}>{label}</span>
-      {(noneLinked || someLinked) && (
-        <span style={{ fontSize: 14.5, opacity: 0.75 }}>· Connect in Settings</span>
-      )}
-    </div>
+    <IconBadge
+      icon={Icon}
+      intent={intent}
+      label={<>
+        {label}
+        {(noneLinked || someLinked) && <span className="opacity-75">- Connect in Settings</span>}
+      </>}
+    />
   );
 
   if (noneLinked || someLinked) {
-    return (
-      <a href="/settings" title="Configure SafeCube in Settings → Vessel Tracking" style={{ textDecoration: 'none' }}>
-        {inner}
-      </a>
-    );
+    return <a href="/settings" title="Configure SafeCube in Settings - Vessel Tracking" className="no-underline">{inner}</a>;
   }
+
   return inner;
 }
 
-// ─── Column header ────────────────────────────────────────────────────────────
-
-function ColHeader({ children, width, align = 'left' }: { children: React.ReactNode; width?: number; align?: 'left' | 'right' }) {
-  return (
-    <div style={{
-      width, flexShrink: 0,
-      fontSize: 14.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em',
-      color: 'hsl(var(--muted-foreground))',
-      textAlign: align,
-    }}>
-      {children}
-    </div>
-  );
-}
-
-// ─── Main page ───────────────────────────────────────────────────────────────
-
 type InventoryViewMode = 'container' | 'breakBulk';
-
-function BreakBulkEmptyState() {
-  return (
-    <div style={{
-      border: '1px solid hsl(var(--border))',
-      borderRadius: 8,
-      background: 'hsl(var(--card))',
-      padding: '44px 24px',
-      textAlign: 'center',
-      color: 'hsl(var(--muted-foreground))',
-    }}>
-      <Box size={24} style={{ margin: '0 auto 12px', opacity: 0.55 }} />
-      <div style={{ fontSize: 16, fontWeight: 650, color: 'hsl(var(--foreground))', marginBottom: 4 }}>
-        No break bulk inventory yet
-      </div>
-      <div style={{ fontSize: 14.5 }}>
-        Break bulk tracking data will appear here once it is available.
-      </div>
-    </div>
-  );
-}
-
 export function ContainerDashboardPage() {
   const { user } = useAuth();
   const roleCategory = (user?.role as any)?.category;
@@ -591,13 +435,6 @@ export function ContainerDashboardPage() {
     return result;
   }, [containers, searchQuery, statusFilter, portFilter, riskFilter, sortBy, alertLookup]);
 
-  const selectStyle: React.CSSProperties = {
-    fontSize: 14.5, border: '1px solid hsl(var(--border))',
-    borderRadius: 8, padding: '6px 10px',
-    background: 'hsl(var(--background))', color: 'hsl(var(--foreground))',
-    outline: 'none', cursor: 'pointer',
-  };
-
   return (
     <div style={{ padding: '24px 32px' }}>
 
@@ -617,61 +454,28 @@ export function ContainerDashboardPage() {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div
-            style={{
-              display: 'flex',
-              border: '1px solid hsl(var(--border))',
-              borderRadius: 8,
-              overflow: 'hidden',
-              background: 'hsl(var(--background))',
-            }}
-          >
-            <button
-              onClick={() => setViewMode('container')}
-              style={{
-                padding: '6px 12px',
-                border: 0,
-                background: viewMode === 'container' ? 'hsl(173 58% 39%)' : 'transparent',
-                color: viewMode === 'container' ? '#fff' : 'hsl(var(--foreground))',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              Container
-            </button>
-            <button
-              onClick={() => setViewMode('breakBulk')}
-              style={{
-                padding: '6px 12px',
-                border: 0,
-                borderLeft: '1px solid hsl(var(--border))',
-                background: viewMode === 'breakBulk' ? 'hsl(173 58% 39%)' : 'transparent',
-                color: viewMode === 'breakBulk' ? '#fff' : 'hsl(var(--foreground))',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              Break Bulk
-            </button>
-          </div>
+          <SegmentedControl
+            value={viewMode}
+            onValueChange={(value) => setViewMode(value as InventoryViewMode)}
+            options={[
+              { value: 'container', label: 'Container' },
+              { value: 'breakBulk', label: 'Break Bulk' },
+            ]}
+          />
           {viewMode === 'container' && (
             <>
               <ScBadge containers={containers} />
-              <button
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
                 onClick={handleRefresh}
                 disabled={refreshing}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '6px 12px', borderRadius: 8, border: '1px solid hsl(var(--border))',
-                  background: 'hsl(var(--card))', fontSize: 14, cursor: refreshing ? 'not-allowed' : 'pointer',
-                  opacity: refreshing ? 0.6 : 1,
-                }}
+                className="gap-2"
               >
-                <RefreshCw size={12} style={{ animation: refreshing ? 'spin 1s linear infinite' : 'none' }} />
+                <RefreshCw className={refreshing ? 'size-4 animate-spin' : 'size-4'} aria-hidden="true" />
                 Refresh
-              </button>
+              </Button>
             </>
           )}
         </div>
@@ -706,76 +510,82 @@ export function ContainerDashboardPage() {
       </div>
 
       {/* Filters */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 180 }}>
-          <Search style={{
-            position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
-            width: 12, height: 12, color: 'hsl(var(--muted-foreground))',
-          }} />
-          <input
+      <div className="mb-4 flex flex-wrap gap-2">
+        <div className="relative min-w-56 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Input
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search containers, shipments, vessels…"
-            style={{
-              width: '100%', paddingLeft: 30, paddingRight: 10, paddingTop: 7, paddingBottom: 7,
-              border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: 14.5,
-              background: 'hsl(var(--background))', color: 'hsl(var(--foreground))', outline: 'none',
-              boxSizing: 'border-box',
-            }}
+            placeholder="Search containers, shipments, vessels..."
+            className="pl-9"
           />
         </div>
 
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={selectStyle}>
-          <option value="all">All statuses</option>
-          {filterOptions.statuses.map(s => (
-            <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-          ))}
-        </select>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-40"><SelectValue placeholder="All statuses" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            {filterOptions.statuses.map(s => (
+              <SelectItem key={s} value={s}>{s.replace(/_/g, ' ')}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-        <select value={portFilter} onChange={e => setPortFilter(e.target.value)} style={selectStyle}>
-          <option value="all">All ports</option>
-          {filterOptions.ports.map(p => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
+        <Select value={portFilter} onValueChange={setPortFilter}>
+          <SelectTrigger className="w-56"><SelectValue placeholder="All ports" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All ports</SelectItem>
+            {filterOptions.ports.map(p => (
+              <SelectItem key={p} value={p}>{p}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
-        <select value={riskFilter} onChange={e => setRiskFilter(e.target.value)} style={selectStyle}>
-          <option value="all">All risk levels</option>
-          <option value="accruing">D&D Accruing</option>
-          <option value="approaching">LFD Approaching</option>
-          <option value="stale">Stale tracking</option>
-          <option value="safe">Safe</option>
-        </select>
+        <Select value={riskFilter} onValueChange={setRiskFilter}>
+          <SelectTrigger className="w-48"><SelectValue placeholder="All risk levels" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All risk levels</SelectItem>
+            <SelectItem value="accruing">D&amp;D Accruing</SelectItem>
+            <SelectItem value="approaching">LFD Approaching</SelectItem>
+            <SelectItem value="stale">Stale tracking</SelectItem>
+            <SelectItem value="safe">Safe</SelectItem>
+          </SelectContent>
+        </Select>
 
-        <select value={sortBy} onChange={e => setSortBy(e.target.value as any)} style={selectStyle}>
-          <option value="risk">Sort: Risk</option>
-          <option value="eta">Sort: ETA</option>
-          <option value="default">Sort: Default</option>
-        </select>
+        <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
+          <SelectTrigger className="w-40"><SelectValue placeholder="Sort" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="risk">Sort: Risk</SelectItem>
+            <SelectItem value="eta">Sort: ETA</SelectItem>
+            <SelectItem value="default">Sort: Default</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* List */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '40px 0', color: 'hsl(var(--muted-foreground))', fontSize: 14.5 }}>
-          Loading containers…
+        <div className="py-10 text-center text-sm text-muted-foreground">
+          Loading containers...
         </div>
       ) : (
         <>
-          {/* Column headers */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 14px', marginBottom: 6 }}>
-            <ColHeader width={140}>Container</ColHeader>
-            <div style={{ flex: 1 }} />
-            <ColHeader width={120} align="right">Vessel / ETA</ColHeader>
-            <ColHeader width={164} align="right">LFD / D&D</ColHeader>
-            <ColHeader width={20}>{null}</ColHeader>
-          </div>
+          <ListHeaderRow
+            className="mb-1 rounded-t-lg"
+            style={{ gridTemplateColumns: '140px minmax(360px,1fr) 120px 164px 20px' } as React.CSSProperties}
+          >
+            <span>Container</span>
+            <span>Journey</span>
+            <span className="text-right">Vessel / ETA</span>
+            <span className="text-right">LFD / D&D</span>
+            <span />
+          </ListHeaderRow>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div className="flex flex-col gap-1.5">
             {filteredContainers.map(c => (
               <ContainerRow key={c.id} container={c} alertLookup={alertLookup} />
             ))}
             {filteredContainers.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '40px 0', color: 'hsl(var(--muted-foreground))', fontSize: 14.5 }}>
+              <div className="py-10 text-center text-sm text-muted-foreground">
                 No containers match these filters.
               </div>
             )}

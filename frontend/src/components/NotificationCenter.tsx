@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bell, CheckCheck } from 'lucide-react';
 import { useNotifications } from '@/hooks/useOperationalData';
+import { EwmsScrollArea } from '@/components/ewms/Media';
 
 function formatTimeAgo(date: Date): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
@@ -68,7 +69,7 @@ export function NotificationCenter() {
             )}
           </div>
 
-          <div className="max-h-[400px] overflow-y-auto">
+          <EwmsScrollArea className="max-h-[400px]">
             {notifications.length === 0 ? (
               <div className="px-4 py-8 text-center text-[14.5px] text-muted-foreground">
                 No notifications
@@ -106,7 +107,7 @@ export function NotificationCenter() {
                 </a>
               ))
             )}
-          </div>
+          </EwmsScrollArea>
 
           <div className="px-4 py-2 border-t text-center" style={{ borderColor: 'hsl(var(--border))' }}>
             <a href="/notifications" className="text-[13px] text-teal-600 hover:underline">

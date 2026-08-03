@@ -19,6 +19,13 @@ if str(BACKEND_DIR) not in sys.path:
 from keycloak import KeycloakAdmin
 
 from helpers.config import settings
+from api.v1.admin.router import (
+    ACTIVITY_DEFINITIONS,
+    DEFAULT_KEYCLOAK_ROLE_NAMES as ADMIN_DEFAULT_KEYCLOAK_ROLE_NAMES,
+    REFERENCE_USER_DEFAULTS as ADMIN_REFERENCE_USER_DEFAULTS,
+    MODULE_DEFINITIONS,
+    ROLE_DEFAULTS as ADMIN_ROLE_DEFAULTS,
+)
 
 
 DEFAULT_ADMIN_EMAIL = "admin@sprconsultech.com"
@@ -26,21 +33,14 @@ DEFAULT_ADMIN_PASSWORD = "admin123"
 DEFAULT_ADMIN_FIRST_NAME = "EWMS"
 DEFAULT_ADMIN_LAST_NAME = "Admin"
 ALL_ACTIVITY_CODES = [
-    "shipments.create", "shipments.view", "shipments.edit_metadata", "shipments.assign_user",
-    "shipments.archive", "shipments.delete", "shipments.override_blocked_stage", "shipments.tag_partner",
-    "documents.upload", "documents.view_extracted", "documents.edit_extracted",
-    "documents.generate_draft", "documents.approve_draft", "documents.override_validation",
-    "documents.reprocess_ocr", "documents.download_export", "documents.delete",
-    "inventory.view_timeline", "inventory.update_milestone", "inventory.upload_pod",
-    "inventory.acknowledge_dnd", "inventory.view_container",
-    "accounting.view_queue", "accounting.review_ticket", "accounting.edit_entry",
-    "accounting.post_to_erp", "accounting.reject_ticket", "accounting.view_ap_aging",
-    "accounting.export_data",
-    "reports.view_dashboard", "reports.generate_dsr", "reports.export_report", "reports.schedule_auto",
-    "tasks.view", "tasks.update", "tasks.assign", "tasks.escalate", "tasks.delegate",
-    "admin.manage", "users.manage", "roles.view", "roles.manage", "documents.manage", "shipments.manage",
-    "admin.manage_users", "admin.configure_roles", "admin.edit_workflows", "admin.configure_doctypes",
-    "admin.edit_account_mappings", "admin.manage_partners", "admin.view_audit_log", "admin.security_settings",
+    str(activity["activityCode"])
+    for activity in ACTIVITY_DEFINITIONS
+    if activity.get("activityCode")
+]
+ALL_ADMIN_MODULE_CODES = [
+    str(module["moduleCode"])
+    for module in sorted(MODULE_DEFINITIONS, key=lambda item: int(item.get("sortOrder") or 0))
+    if module.get("isActive") and module.get("moduleCode")
 ]
 DEFAULT_ROLE_PAYLOADS = {
     "admin": {"name": "admin"},
@@ -54,7 +54,7 @@ DEFAULT_ROLE_PAYLOADS = {
             "ewms.color": ["#0f766e"],
             "ewms.levels": ["L1", "L2", "L3", "L4"],
             "ewms.dataScope": ["ALL"],
-            "ewms.modules": ["dashboard", "shipments", "documents", "tasks", "accounting", "inventory", "warehouse", "dnd", "reports", "admin"],
+            "ewms.modules": ALL_ADMIN_MODULE_CODES,
             "ewms.activities": ALL_ACTIVITY_CODES,
             "ewms.managedBy": ["ewms-admin"],
         },
@@ -66,15 +66,10 @@ DEFAULT_ROLE_PAYLOADS = {
             "ewms.displayName": ["Org Admin"],
             "ewms.category": ["org_admin"],
             "ewms.color": ["#2563eb"],
-            "ewms.levels": ["L2", "L3", "L4"],
+            "ewms.levels": ["L4"],
             "ewms.dataScope": ["ALL"],
-            "ewms.modules": ["dashboard", "shipments", "documents", "tasks", "accounting", "inventory", "reports", "admin"],
-            "ewms.activities": [
-                "users.manage", "roles.view", "documents.manage", "shipments.manage",
-                "documents.upload", "documents.view_extracted", "documents.edit_extracted",
-                "documents.generate_draft", "documents.approve_draft", "documents.download_export",
-                "tasks.view", "tasks.update", "tasks.assign", "tasks.escalate", "tasks.delegate",
-            ],
+            "ewms.modules": ALL_ADMIN_MODULE_CODES,
+            "ewms.activities": ALL_ACTIVITY_CODES,
             "ewms.managedBy": ["ewms-admin"],
         },
     },
@@ -110,8 +105,6 @@ DEFAULT_ROLE_PAYLOADS = {
                 "documents.reprocess_ocr", "documents.download_export",
                 "inventory.view_timeline", "inventory.update_milestone", "inventory.upload_pod",
                 "inventory.acknowledge_dnd", "inventory.view_container",
-                "accounting.view_queue",
-                "reports.view_dashboard", "reports.generate_dsr", "reports.export_report", "reports.schedule_auto",
                 "tasks.view", "tasks.update", "tasks.assign", "tasks.escalate", "tasks.delegate",
             ],
             "ewms.managedBy": ["ewms-admin"],
@@ -132,7 +125,6 @@ DEFAULT_ROLE_PAYLOADS = {
                 "documents.upload", "documents.view_extracted", "documents.edit_extracted",
                 "documents.approve_draft", "documents.generate_draft", "documents.download_export",
                 "inventory.view_timeline", "inventory.update_milestone",
-                "reports.view_dashboard",
                 "tasks.view", "tasks.update",
             ],
             "ewms.managedBy": ["ewms-admin"],
@@ -153,7 +145,6 @@ DEFAULT_ROLE_PAYLOADS = {
                 "documents.upload", "documents.view_extracted", "documents.download_export",
                 "inventory.view_timeline", "inventory.update_milestone", "inventory.upload_pod",
                 "inventory.acknowledge_dnd", "inventory.view_container",
-                "reports.view_dashboard",
                 "tasks.view", "tasks.update",
             ],
             "ewms.managedBy": ["ewms-admin"],
@@ -172,10 +163,6 @@ DEFAULT_ROLE_PAYLOADS = {
             "ewms.activities": [
                 "shipments.view",
                 "documents.view_extracted", "documents.download_export",
-                "accounting.view_queue", "accounting.review_ticket", "accounting.edit_entry",
-                "accounting.post_to_erp", "accounting.reject_ticket", "accounting.view_ap_aging",
-                "accounting.export_data",
-                "reports.view_dashboard", "reports.generate_dsr",
             ],
             "ewms.managedBy": ["ewms-admin"],
         },
@@ -200,61 +187,64 @@ DEFAULT_ROLE_PAYLOADS = {
     },
 }
 
+DEFAULT_ROLE_PAYLOADS["Super Admin"] = {
+    **DEFAULT_ROLE_PAYLOADS["SUPER_ADMIN"],
+    "name": "Super Admin",
+}
+DEFAULT_ROLE_PAYLOADS["Org Admin"] = {
+    **DEFAULT_ROLE_PAYLOADS["ADMIN"],
+    "name": "Org Admin",
+}
+
+
+def _role_payload_from_admin_defaults(role_name: str, defaults: dict) -> dict:
+    return {
+        "name": role_name,
+        "description": str(defaults.get("description") or ""),
+        "attributes": {
+            "ewms.displayName": [str(defaults.get("name") or role_name)],
+            "ewms.category": [str(defaults.get("roleCategory") or "org_internal")],
+            "ewms.color": [str(defaults.get("color") or "#0f766e")],
+            "ewms.levels": [str(level) for level in defaults.get("allowedLevels", [])],
+            "ewms.dataScope": [str(defaults.get("defaultDataScope") or "TEAM")],
+            "ewms.modules": [str(module) for module in defaults.get("defaultModules", [])],
+            "ewms.activities": [str(activity) for activity in defaults.get("activityCodes", [])],
+            "ewms.managedBy": ["ewms-admin"],
+        },
+    }
+
+
+for admin_role_name, admin_role_defaults in ADMIN_ROLE_DEFAULTS.items():
+    display_payload = _role_payload_from_admin_defaults(admin_role_name, admin_role_defaults)
+    DEFAULT_ROLE_PAYLOADS[admin_role_name] = display_payload
+    keycloak_role_name = ADMIN_DEFAULT_KEYCLOAK_ROLE_NAMES.get(admin_role_name)
+    if keycloak_role_name:
+        DEFAULT_ROLE_PAYLOADS[keycloak_role_name] = {
+            **display_payload,
+            "name": keycloak_role_name,
+        }
+
+USER_PASSWORDS = {
+    "admin@sprconsultech.com": "admin123",
+    "ops@zetwerk.com": "ops123",
+    "us@zetwerk.com": "us123",
+    "3pl@pacific-dist.com": "3pl123",
+    "india@zetwerk.com": "india123",
+    "finance@zetwerk.com": "finance123",
+}
+
 DEFAULT_USERS = [
     {
-        "email": "admin@sprconsultech.com",
-        "password": "admin123",
-        "full_name": "SPR Admin",
-        "roles": ["Super Admin"],
-        "level": "L4",
-        "data_scope": "ALL",
-        "user_type": "internal",
-    },
-    {
-        "email": "ops@zetwerk.com",
-        "password": "ops123",
-        "full_name": "Manish Agarwal",
-        "roles": ["Ops Manager"],
-        "level": "L4",
-        "data_scope": "TAGGED",
-        "user_type": "internal",
-    },
-    {
-        "email": "us@zetwerk.com",
-        "password": "us123",
-        "full_name": "Mike US Logistics",
-        "roles": ["US Logistics"],
-        "level": "L2",
-        "data_scope": "TAGGED",
-        "user_type": "internal",
-    },
-    {
-        "email": "3pl@pacific-dist.com",
-        "password": "3pl123",
-        "full_name": "Pacific Distribution - 3PL",
-        "roles": ["3PL Partner"],
-        "level": "L2",
-        "data_scope": "TAGGED",
-        "user_type": "external",
-    },
-    {
-        "email": "india@zetwerk.com",
-        "password": "india123",
-        "full_name": "Priya Logistics",
-        "roles": ["India Logistics"],
-        "level": "L2",
-        "data_scope": "TAGGED",
-        "user_type": "internal",
-    },
-    {
-        "email": "finance@zetwerk.com",
-        "password": "finance123",
-        "full_name": "Ravi Finance",
-        "roles": ["Finance AP India"],
-        "level": "L2",
-        "data_scope": "TAGGED",
-        "user_type": "internal",
-    },
+        "email": email,
+        "password": USER_PASSWORDS[email],
+        "full_name": str(defaults["fullName"]),
+        "roles": [str(defaults["roleName"])],
+        "level": str(defaults["level"]),
+        "data_scope": str(defaults["dataScope"]),
+        "user_type": str(defaults["userType"]),
+    }
+    for email, defaults in ADMIN_REFERENCE_USER_DEFAULTS.items()
+    if email in USER_PASSWORDS
 ]
 
 

@@ -746,11 +746,39 @@ def _merge_sheet_status_activities(activities: list[dict[str, Any]]) -> list[dic
 
 ACTIVITY_DEFINITIONS = _merge_sheet_status_activities(ACTIVITY_DEFINITIONS)
 
+DISABLED_ACTIVITY_MODULE_CODES = {"accounting", "reports"}
+ACTIVITY_DEFINITIONS = [
+    activity for activity in ACTIVITY_DEFINITIONS
+    if ACTIVITY_MODULE_OVERRIDES.get(
+        str(activity.get("activityCode") or ""),
+        activity.get("moduleCode") or activity.get("category"),
+    ) not in DISABLED_ACTIVITY_MODULE_CODES
+]
+
 ACTIVITY_MODULES = {
     activity["activityCode"]: ACTIVITY_MODULE_OVERRIDES.get(activity["activityCode"], activity.get("moduleCode") or activity["category"])
     for activity in ACTIVITY_DEFINITIONS
     if ACTIVITY_MODULE_OVERRIDES.get(activity["activityCode"], activity.get("moduleCode") or activity.get("category")) in {module["moduleCode"] for module in MODULE_DEFINITIONS}
 }
+
+ALL_ADMIN_MODULE_CODES = [
+    str(module["moduleCode"])
+    for module in sorted(MODULE_DEFINITIONS, key=lambda item: int(item.get("sortOrder") or 0))
+    if module.get("isActive") and module.get("moduleCode")
+]
+
+ALL_ADMIN_ACTIVITY_CODES = [
+    str(activity["activityCode"])
+    for activity in ACTIVITY_DEFINITIONS
+    if activity.get("activityCode") and str(activity.get("activityCode")) in ACTIVITY_MODULES
+]
+
+for admin_role_name in ("Super Admin", "Org Admin"):
+    if admin_role_name in ROLE_DEFAULTS:
+        ROLE_DEFAULTS[admin_role_name]["allowedLevels"] = ["L4"]
+        ROLE_DEFAULTS[admin_role_name]["defaultDataScope"] = "ALL"
+        ROLE_DEFAULTS[admin_role_name]["defaultModules"] = ALL_ADMIN_MODULE_CODES
+        ROLE_DEFAULTS[admin_role_name]["activityCodes"] = ALL_ADMIN_ACTIVITY_CODES
 
 
 class StorageFileItem(BaseModel):
@@ -1385,9 +1413,10 @@ def _role_profile_from_keycloak(role: dict, *, user_count: int = 0, detail: bool
     default_key = role_name if role_name in ROLE_DEFAULTS else ROLE_ALIASES.get(role_name.lower(), "")
     defaults = ROLE_DEFAULTS.get(default_key, {})
     attrs = role.get("attributes") or {}
-    modules = _attr_values(attrs, "ewms.modules") or list(defaults.get("defaultModules", []))
-    levels = _attr_values(attrs, "ewms.levels") or list(defaults.get("allowedLevels", []))
-    activity_codes = _attr_values(attrs, "ewms.activities") or list(defaults.get("activityCodes", []))
+    is_admin_default_role = default_key in {"Super Admin", "Org Admin"}
+    modules = ALL_ADMIN_MODULE_CODES if is_admin_default_role else (_attr_values(attrs, "ewms.modules") or list(defaults.get("defaultModules", [])))
+    levels = ["L4"] if is_admin_default_role else (_attr_values(attrs, "ewms.levels") or list(defaults.get("allowedLevels", [])))
+    activity_codes = ALL_ADMIN_ACTIVITY_CODES if is_admin_default_role else (_attr_values(attrs, "ewms.activities") or list(defaults.get("activityCodes", [])))
     document_scope = _attr_values(attrs, "ewms.documentScope") or _default_document_scope(role_name, defaults)
     doc_type_scopes = _parse_doc_type_scopes(attrs)
     activity_sla = _parse_activity_sla(attrs)
@@ -1455,8 +1484,9 @@ def _default_role_source_priority(role_name: str) -> int:
 
 def _role_payload_from_request(request: RoleProfileRequest, *, role_id: str | None = None) -> dict[str, Any]:
     name = role_id or _role_id_from_name(request.name)
-    modules = _enabled_modules_from_request(request)
-    activity_codes = sorted(_enabled_activity_codes_from_request(request))
+    is_admin_role = _canonical_role_name(name) in {"Super Admin", "Org Admin"} or _canonical_role_name(request.name) in {"Super Admin", "Org Admin"}
+    modules = set(ALL_ADMIN_MODULE_CODES) if is_admin_role else _enabled_modules_from_request(request)
+    activity_codes = sorted(ALL_ADMIN_ACTIVITY_CODES if is_admin_role else _enabled_activity_codes_from_request(request))
     doc_type_scopes = _doc_type_scopes_from_request(request)
     document_scope = _normalize_doc_type_list(request.documentScope)
     if not document_scope and doc_type_scopes:
@@ -1466,8 +1496,8 @@ def _role_payload_from_request(request: RoleProfileRequest, *, role_id: str | No
         "ewms.displayName": _keycloak_attr_values([request.name]),
         "ewms.category": _keycloak_attr_values([request.roleCategory or "org_internal"]),
         "ewms.color": _keycloak_attr_values([request.color or "#64748b"]),
-        "ewms.levels": _keycloak_attr_values(request.allowedLevels or ["L1"]),
-        "ewms.dataScope": _keycloak_attr_values([request.defaultDataScope or "TEAM"]),
+        "ewms.levels": _keycloak_attr_values(["L4"] if is_admin_role else (request.allowedLevels or ["L1"])),
+        "ewms.dataScope": _keycloak_attr_values(["ALL"] if is_admin_role else [request.defaultDataScope or "TEAM"]),
         "ewms.documentScope": _keycloak_attr_values(document_scope),
         "ewms.modules": _keycloak_attr_values(sorted(modules)),
         "ewms.activities": _keycloak_attr_values(activity_codes),
@@ -3162,7 +3192,7 @@ async def create_admin_role(request: RoleProfileRequest, _user=Depends(get_admin
     keycloak_admin = get_keycloak_admin()
     modules = _enabled_modules_from_request(request)
     payload = _role_payload_from_request(request)
-    if not modules:
+    if not modules and _canonical_role_name(request.name) not in {"Super Admin", "Org Admin"}:
         return {"ok": False, "error": "Select at least one module for this role."}
     activity_sla = _activity_sla_from_request(request)
     try:
@@ -3189,7 +3219,7 @@ async def update_admin_role(role_id: str, request: RoleProfileRequest, _user=Dep
             payload["name"] = update_role_name
         else:
             payload = _role_payload_from_request(request, role_id=update_role_name)
-        if not _enabled_modules_from_request(request):
+        if not _enabled_modules_from_request(request) and _canonical_role_name(update_role_name) not in {"Super Admin", "Org Admin"}:
             return {"ok": False, "error": "Select at least one module for this role."}
         activity_sla = _activity_sla_from_request(request)
         prisma = await get_prisma()

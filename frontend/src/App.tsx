@@ -67,6 +67,7 @@ import { ProjectListPage } from '@/pages/ProjectListPage';
 import { ProjectDetailPage } from '@/pages/ProjectDetailPage';
 import { EwmsShipLoader } from '@/components/EwmsShipLoader';
 import { firstAllowedLandingPath } from '@/lib/allowedNavigation';
+import { EwmsScrollArea } from '@/components/ewms/Media';
 
 const queryClient = new QueryClient();
 
@@ -107,7 +108,7 @@ function AppLayout() {
         style={{ marginLeft: sidebarWidth }}
       >
         <TopHeader />
-        <main className="flex-1 overflow-y-auto">
+        <EwmsScrollArea as="main" className="flex-1">
           <Switch>
             <Route path="/unauthorized" component={UnauthorizedPage} />
             <Route path="/dashboard">
@@ -394,7 +395,7 @@ function AppLayout() {
               <UnderBuildPage />
             </Route>
           </Switch>
-        </main>
+        </EwmsScrollArea>
       </div>
       <UploadSheet />
     </div>

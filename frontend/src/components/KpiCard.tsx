@@ -24,7 +24,7 @@ export function KpiCard({
 
   return (
     <div
-      className="relative bg-card border rounded-lg p-5 hover:shadow-md transition-shadow duration-200 overflow-hidden"
+      className="relative overflow-hidden rounded-lg border bg-card p-6 transition-shadow duration-200 hover:shadow-md"
       style={{ borderColor: 'hsl(var(--card-border))' }}
       data-testid={`kpi-card-${label.toLowerCase().replace(/ /g, '-')}`}
     >
@@ -34,7 +34,7 @@ export function KpiCard({
           <p className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
             {label}
           </p>
-          <p className="text-4xl font-bold font-mono leading-none text-foreground">{value}</p>
+          <p className="text-[26px] font-semibold leading-[1.1] text-foreground tabular-nums">{value}</p>
         </div>
         <div
           className="p-3 rounded-lg opacity-90"

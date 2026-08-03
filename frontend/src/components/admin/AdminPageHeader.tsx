@@ -1,3 +1,5 @@
+import { Badge } from '@/components/ui/badge';
+
 interface AdminPageHeaderProps {
   title: string;
   description?: string;
@@ -31,24 +33,8 @@ export function AdminPageHeader({ title, description, badge, actions }: AdminPag
             {title}
           </h1>
           {badge && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  minWidth: 24,
-                  height: 24,
-                  borderRadius: 12,
-                  background: 'hsl(173 58% 39%)',
-                  color: '#fff',
-                  fontSize: 14,
-                  fontWeight: 700,
-                  padding: '0 6px',
-                }}
-              >
-                {badge.count}
-              </span>
+            <div className="flex items-center gap-1.5">
+              <Badge intent="active" size="sm">{badge.count}</Badge>
               <span style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
                 {badge.label}
               </span>

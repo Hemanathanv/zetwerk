@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { apiUrl, getAuthToken, readJsonResponse } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { Badge } from '@/components/ui/badge';
+import { StatusIndicator } from '@/components/ewms';
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();
@@ -22,33 +24,23 @@ function fmtDate(d: string | null | undefined) {
 // ─── SLA badge ───────────────────────────────────────────────
 function SlaBadge({ status }: { status: 'ok' | 'warning' | 'overdue' }) {
   if (status === 'ok') return null;
-  const cls = status === 'overdue'
-    ? 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400'
-    : 'bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400';
   return (
-    <span className={`text-[12px] font-medium px-1.5 py-0.5 rounded-full ${cls}`}>
+    <Badge intent={status === 'overdue' ? 'danger' : 'warning'} size="sm">
       SLA {status}
-    </span>
+    </Badge>
   );
 }
 
 // ─── QC status badge ─────────────────────────────────────────
 function QcBadge({ passed }: { passed: boolean | null }) {
-  if (passed === null) return <span className="text-[12px] text-muted-foreground">No QC</span>;
+  if (passed === null) return <Badge intent="neutral" size="sm">No QC</Badge>;
   return passed
-    ? <span className="flex items-center gap-1 text-[12px] text-teal-600 font-medium"><ShieldCheck className="w-3 h-3" /> QC Pass</span>
-    : <span className="flex items-center gap-1 text-[12px] text-red-600 font-medium"><AlertCircle className="w-3 h-3" /> QC Fail</span>;
+    ? <Badge intent="success" size="sm" leadingIcon={<ShieldCheck className="size-3" />}>QC Pass</Badge>
+    : <Badge intent="danger" size="sm" leadingIcon={<AlertCircle className="size-3" />}>QC Fail</Badge>;
 }
 
 // ─── Stage badge ─────────────────────────────────────────────
 function StageBadge({ stage }: { stage: string }) {
-  const map: Record<string, string> = {
-    inbound: 'bg-blue-100 text-blue-700',
-    pending_qc: 'bg-amber-100 text-amber-700',
-    in_stock: 'bg-teal-100 text-teal-700',
-    dispatching: 'bg-indigo-100 text-indigo-700',
-    delivered: 'bg-green-100 text-green-700',
-  };
   const labels: Record<string, string> = {
     inbound: 'Inbound',
     pending_qc: 'Pending QC',
@@ -56,11 +48,7 @@ function StageBadge({ stage }: { stage: string }) {
     dispatching: 'Dispatching',
     delivered: 'Delivered',
   };
-  return (
-    <span className={`text-[12px] font-medium px-2 py-0.5 rounded-full ${map[stage] || 'bg-muted text-muted-foreground'}`}>
-      {labels[stage] || stage}
-    </span>
-  );
+  return <StatusIndicator status={labels[stage] || stage} size="sm" />;
 }
 
 // ─── Container row ───────────────────────────────────────────

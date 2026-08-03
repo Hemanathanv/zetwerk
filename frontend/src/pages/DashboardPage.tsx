@@ -1,12 +1,14 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type ElementType } from 'react';
 import {
-  Ship, Clock, AlertTriangle, Ban, ClipboardList, DollarSign, CheckCircle, Package,
+  Ship, Clock, AlertTriangle, Ban, ClipboardList, DollarSign, CheckCircle, Boxes, Package,
 } from 'lucide-react';
 import { useShipments, useTaskCount } from '@/hooks/useOperationalData';
 import { usePermissions } from '@/contexts/PermissionContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { RequireActivity } from '@/components/PermissionGate';
 import { useTemplates } from '@/contexts/ConfigContext';
+import { MetricCard } from '@/components/vs/MetricCard';
+import { StatusBadge } from '@/components/StatusBadge';
 import { getAuthToken } from '@/lib/api';
 import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
 
@@ -15,73 +17,76 @@ function authFetchHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-// ─── MetricCard ──────────────────────────────────────────────────────────────
+type GateHealthCargoKey = 'container' | 'breakBulk';
+type GateHealthStats = {
+  name: string;
+  cargo: Record<GateHealthCargoKey, { active: number; blocked: number }>;
+};
 
-function MetricCard({
-  label, value, icon: _Icon, color: _color, href, badge: _badge, sideStats,
-}: {
-  label: string;
-  value: number;
-  icon: React.ElementType;
-  color: string;
-  href?: string;
-  badge?: string;
-  sideStats?: Array<{ value: string | number; label: string }>;
-}) {
-  const resolvedSideStats = sideStats ?? [];
-  const content = (
-    <div
-      className={`group relative flex size-full flex-col items-start gap-3 rounded-2xl border border-[#e5e5e5] bg-white p-6 transition-shadow hover:border-[#e5e5e5] hover:bg-white hover:shadow-[0px_8px_24px_0px_rgba(9,9,9,0.08)] ${href ? 'cursor-pointer' : 'cursor-default'}`}
-      data-node-id="607:14563"
-      data-name="KPI Card"
-    >
-      <div className="flex w-full shrink-0 items-center gap-2 overflow-hidden">
-        <span className="flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[#dbe9fb] group-hover:bg-[#dbe9fb]">
-          <Package className="size-4 text-[#0c46c3]" strokeWidth={1.75} aria-hidden="true" />
-        </span>
-        <span className="min-w-0 flex-1 text-[13px] font-medium leading-[1.4] text-[#090909]">
-          {label}
-        </span>
-      </div>
+function emptyGateCargoStats(): GateHealthStats['cargo'] {
+  return {
+    container: { active: 0, blocked: 0 },
+    breakBulk: { active: 0, blocked: 0 },
+  };
+}
 
-      <span className="shrink-0 whitespace-nowrap text-[26px] font-semibold leading-[1.1] tracking-[-0.52px] text-[#090909]">
-        {value}
-      </span>
+function cargoKindForShipment(shipment: any): GateHealthCargoKey {
+  const raw = [
+    shipment?.shipmentType,
+    shipment?.cargoType,
+    shipment?.loadType,
+    ...(Array.isArray(shipment?.shipmentTypes) ? shipment.shipmentTypes : []),
+  ].filter(Boolean).join(' ').toLowerCase();
 
-      <div className="flex w-full shrink-0 flex-col items-start overflow-hidden">
-        <div className="h-px w-full shrink-0 bg-[#e5e5e5]" />
-        <div className="flex w-full shrink-0 items-start gap-4 overflow-hidden pt-3 whitespace-nowrap">
-          {resolvedSideStats.slice(0, 2).map((stat) => (
-            <div key={`${stat.label}-${stat.value}`} className="flex shrink-0 items-center gap-1 overflow-hidden">
-              <span className="text-[13px] font-semibold leading-normal text-[#090909]">{stat.value}</span>
-              <span className="text-[11px] font-normal leading-[1.3] text-[#555]">{stat.label}</span>
-            </div>
-          ))}
+  return raw.includes('break') || raw.includes('bulk') || raw.includes('roro') ? 'breakBulk' : 'container';
+}
+
+function GateHealthCard({ gateNumber, data }: { gateNumber: string; data: GateHealthStats }) {
+  const rows: Array<{ key: GateHealthCargoKey; label: string; Icon: ElementType }> = [
+    { key: 'container', label: 'Container', Icon: Boxes },
+    { key: 'breakBulk', label: 'Break-bulk', Icon: Package },
+  ];
+
+  return (
+    <div className="rounded-lg border border-card-border bg-card p-6">
+      <div className="mb-4">
+        <div className="text-[12px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+          Gate {gateNumber}
         </div>
+        <div className="truncate text-base font-medium leading-5 text-foreground">{data.name}</div>
+      </div>
+      <div className="space-y-3">
+        {rows.map(({ key, label, Icon }) => {
+          const stats = data.cargo[key];
+          return (
+            <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <span className="truncate text-sm text-foreground">{label}</span>
+              </div>
+              <div className="text-right">
+                <div className="text-[18px] font-semibold leading-[1.2] text-[hsl(var(--vs-success))] tabular-nums">
+                  {stats.active}
+                </div>
+                <div className="text-[11px] leading-[1.3] text-muted-foreground">Active</div>
+              </div>
+              <div className="text-right">
+                <div className="text-[18px] font-semibold leading-[1.2] text-destructive tabular-nums">
+                  {stats.blocked}
+                </div>
+                <div className="text-[11px] leading-[1.3] text-muted-foreground">Blocked</div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
-
-  return href ? <a href={href}>{content}</a> : content;
 }
+
+// ─── MetricCard ──────────────────────────────────────────────────────────────
 
 // ─── StatusBadge ─────────────────────────────────────────────────────────────
-
-function StatusBadge({ status }: { status: string }) {
-  const upper = (status ?? '').toUpperCase();
-  const styles: Record<string, string> = {
-    ACTIVE:    'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
-    PENDING:   'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-    COMPLETED: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-    CANCELLED: 'bg-muted text-muted-foreground',
-    ON_HOLD:   'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  };
-  return (
-    <span className={`text-[12px] font-medium px-1.5 py-0.5 rounded ${styles[upper] ?? styles.PENDING}`}>
-      {upper.replace('_', ' ')}
-    </span>
-  );
-}
 
 // ─── DashboardPage ───────────────────────────────────────────────────────────
 
@@ -127,7 +132,7 @@ export function DashboardPage() {
     pending:   shipments.filter(s => normStatus(s) === 'PENDING').length,
     completed: shipments.filter(s => normStatus(s) === 'COMPLETED').length,
     blocked:   shipments.filter(s =>
-      (s.shipmentGates ?? []).some((g: any) => g.status === 'BLOCKED'),
+      (s.shipmentGates ?? []).some((g: any) => String(g.status ?? '').toUpperCase() === 'BLOCKED'),
     ).length,
     myTasks:  taskCount.total,
     dndRisk:  dndSummary?.accruing ?? 0,
@@ -135,19 +140,20 @@ export function DashboardPage() {
 
   // Gate health distribution (only user-permitted gates)
   const gateDistribution = useMemo(() => {
-    const dist: Record<number, { active: number; blocked: number; passed: number; name: string }> = {};
+    const dist: Record<number, GateHealthStats> = {};
     for (const g of permittedGates) {
       if (g.accessLevel !== 'none') {
-        dist[g.gateNumber] = { active: 0, blocked: 0, passed: 0, name: g.gateName };
+        dist[g.gateNumber] = { name: g.gateName, cargo: emptyGateCargoStats() };
       }
     }
     for (const s of shipments) {
+      const cargoKind = cargoKindForShipment(s);
       for (const sg of (s.shipmentGates ?? [])) {
         const num: number = sg.gateConfig?.gateNumber;
         if (!dist[num]) continue;
-        if (sg.status === 'ACTIVE')        dist[num].active++;
-        else if (sg.status === 'BLOCKED')  dist[num].blocked++;
-        else if (sg.status === 'PASSED')   dist[num].passed++;
+        const status = String(sg.status ?? '').toUpperCase();
+        if (status === 'ACTIVE') dist[num].cargo[cargoKind].active += 1;
+        else if (status === 'BLOCKED') dist[num].cargo[cargoKind].blocked += 1;
       }
     }
     return dist;
@@ -167,7 +173,7 @@ export function DashboardPage() {
     }
     if (statusFilter !== 'all') {
       if (statusFilter === 'blocked') {
-        result = result.filter(s => (s.shipmentGates ?? []).some((g: any) => g.status === 'BLOCKED'));
+        result = result.filter(s => (s.shipmentGates ?? []).some((g: any) => String(g.status ?? '').toUpperCase() === 'BLOCKED'));
       } else {
         result = result.filter(s => normStatus(s) === statusFilter.toUpperCase());
       }
@@ -181,8 +187,8 @@ export function DashboardPage() {
         break;
       case 'gate':
         result.sort((a, b) => {
-          const aG = (a.shipmentGates ?? []).find((g: any) => g.status === 'ACTIVE')?.gateConfig?.gateNumber ?? 99;
-          const bG = (b.shipmentGates ?? []).find((g: any) => g.status === 'ACTIVE')?.gateConfig?.gateNumber ?? 99;
+          const aG = (a.shipmentGates ?? []).find((g: any) => String(g.status ?? '').toUpperCase() === 'ACTIVE')?.gateConfig?.gateNumber ?? 99;
+          const bG = (b.shipmentGates ?? []).find((g: any) => String(g.status ?? '').toUpperCase() === 'ACTIVE')?.gateConfig?.gateNumber ?? 99;
           return aG - bG;
         });
         break;
@@ -254,6 +260,7 @@ export function DashboardPage() {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
           <MetricCard
+            variant="dashboard"
             label="Active"
             value={metrics.active}
             icon={Ship}
@@ -264,6 +271,7 @@ export function DashboardPage() {
             ]}
           />
           <MetricCard
+            variant="dashboard"
             label="Pending ID"
             value={metrics.pending}
             icon={Clock}
@@ -274,6 +282,7 @@ export function DashboardPage() {
             ]}
           />
           <MetricCard
+            variant="dashboard"
             label="At Risk"
             value={0}
             icon={AlertTriangle}
@@ -284,6 +293,7 @@ export function DashboardPage() {
             ]}
           />
           <MetricCard
+            variant="dashboard"
             label="Blocked"
             value={metrics.blocked}
             icon={Ban}
@@ -295,6 +305,7 @@ export function DashboardPage() {
             ]}
           />
           <MetricCard
+            variant="dashboard"
             label="My Tasks"
             value={metrics.myTasks}
             icon={ClipboardList}
@@ -308,6 +319,7 @@ export function DashboardPage() {
           />
           {hasDndAccess && (
             <MetricCard
+              variant="dashboard"
               label="D&D Risk"
               value={metrics.dndRisk}
               icon={DollarSign}
@@ -320,6 +332,7 @@ export function DashboardPage() {
             />
           )}
           <MetricCard
+            variant="dashboard"
             label="Completed"
             value={metrics.completed}
             icon={CheckCircle}
@@ -356,58 +369,16 @@ export function DashboardPage() {
 
       {/* ── Gate Health Bar ───────────────────────────────────────────────── */}
       {hasGateAccess && Object.keys(gateDistribution).length > 0 && (
-        <div className="bg-card rounded-xl p-4 mb-6">
-          <h3 className="text-sm font-semibold mb-3">Gate Health</h3>
-          <div className="flex gap-3 overflow-x-auto pb-1">
+        <section className="mb-6">
+          <h3 className="mb-3 text-lg font-semibold leading-[1.3] text-foreground">Gate Health</h3>
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             {Object.entries(gateDistribution)
               .sort(([a], [b]) => Number(a) - Number(b))
               .map(([num, data]) => (
-                <div key={num} className="flex-1 min-w-[100px]">
-                  <div className="text-[13px] text-muted-foreground mb-1.5 truncate">
-                    G{num} {data.name}
-                  </div>
-                  <div className="h-6 rounded-md overflow-hidden flex bg-muted/30">
-                    {data.active > 0 && (
-                      <div
-                        className="bg-teal-500 flex items-center justify-center"
-                        style={{
-                          width: `${(data.active / Math.max(shipments.length, 1)) * 100}%`,
-                          minWidth: '20px',
-                        }}
-                      >
-                        <span className="text-[12px] font-bold text-white">{data.active}</span>
-                      </div>
-                    )}
-                    {data.blocked > 0 && (
-                      <div
-                        className="bg-red-500 flex items-center justify-center"
-                        style={{
-                          width: `${(data.blocked / Math.max(shipments.length, 1)) * 100}%`,
-                          minWidth: '20px',
-                        }}
-                      >
-                        <span className="text-[12px] font-bold text-white">{data.blocked}</span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex justify-between mt-1">
-                    <span className="text-[12px] text-teal-600">{data.active} active</span>
-                    {data.blocked > 0 && (
-                      <span className="text-[12px] text-red-500">{data.blocked} blocked</span>
-                    )}
-                  </div>
-                </div>
+                <GateHealthCard key={num} gateNumber={num} data={data} />
               ))}
           </div>
-          <div className="flex gap-4 mt-2">
-            <span className="text-[12px] text-muted-foreground flex items-center gap-1">
-              <span className="w-2 h-2 rounded-sm bg-teal-500 inline-block" /> Active
-            </span>
-            <span className="text-[12px] text-muted-foreground flex items-center gap-1">
-              <span className="w-2 h-2 rounded-sm bg-red-500 inline-block" /> Blocked
-            </span>
-          </div>
-        </div>
+        </section>
       )}
 
       {/* ── Shipment Table ────────────────────────────────────────────────── */}
@@ -618,3 +589,4 @@ export function DashboardPage() {
     </div>
   );
 }
+

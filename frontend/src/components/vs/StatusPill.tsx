@@ -1,3 +1,6 @@
+import { Badge } from '@/components/ui/badge';
+import { intentForStatus, type EwmsIntent } from '@/design-system/componentIntent';
+
 type PillVariant =
   | 'transit'
   | 'port'
@@ -12,68 +15,22 @@ type PillVariant =
 
 type StatusPillProps = {
   status: string;
-  variant: PillVariant;
+  variant?: PillVariant;
 };
 
-const variantStyles: Record<PillVariant, { bg: string; color: string }> = {
-  transit: {
-    bg:    'hsla(201, 96%, 32%, 0.10)',
-    color: 'hsl(201 96% 28%)',
-  },
-  port: {
-    bg:    'hsla(38, 92%, 50%, 0.12)',
-    color: 'hsl(38 92% 38%)',
-  },
-  cleared: {
-    bg:    'hsla(152, 69%, 31%, 0.10)',
-    color: 'hsl(152 69% 25%)',
-  },
-  blocked: {
-    bg:    'hsla(0, 84%, 60%, 0.10)',
-    color: 'hsl(0 84% 45%)',
-  },
-  validated: {
-    bg:    'hsla(152, 69%, 31%, 0.10)',
-    color: 'hsl(152 69% 25%)',
-  },
-  pending: {
-    bg:    'hsl(var(--muted))',
-    color: 'hsl(var(--muted-foreground))',
-  },
-  warning: {
-    bg:    'hsla(38, 92%, 50%, 0.12)',
-    color: 'hsl(38 92% 38%)',
-  },
-  danger: {
-    bg:    'hsla(0, 84%, 60%, 0.10)',
-    color: 'hsl(0 84% 45%)',
-  },
-  success: {
-    bg:    'hsla(152, 69%, 31%, 0.10)',
-    color: 'hsl(152 69% 25%)',
-  },
-  info: {
-    bg:    'hsla(201, 96%, 32%, 0.10)',
-    color: 'hsl(201 96% 28%)',
-  },
+const variantIntent: Record<PillVariant, EwmsIntent> = {
+  transit: 'info',
+  port: 'warning',
+  cleared: 'success',
+  blocked: 'danger',
+  validated: 'success',
+  pending: 'neutral',
+  warning: 'warning',
+  danger: 'danger',
+  success: 'success',
+  info: 'info',
 };
 
 export function StatusPill({ status, variant }: StatusPillProps) {
-  const { bg, color } = variantStyles[variant];
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '3px 10px',
-        borderRadius: 999,
-        fontSize: 14.5,
-        fontWeight: 500,
-        backgroundColor: bg,
-        color,
-        whiteSpace: 'nowrap',
-      }}
-    >
-      {status}
-    </span>
-  );
+  return <Badge intent={variant ? variantIntent[variant] : intentForStatus(status)} size="sm">{status}</Badge>;
 }

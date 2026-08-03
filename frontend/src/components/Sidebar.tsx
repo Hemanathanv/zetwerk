@@ -1,12 +1,14 @@
 import { Link, useLocation } from 'wouter';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   LayoutDashboard, Ship, FileText, Package, Receipt,
   BarChart3, Settings, LogOut, ClipboardList,
   PanelLeftClose, PanelLeftOpen, Wand2, Database, ScanText,
-  Boxes, Warehouse, DollarSign, ChevronRight, FolderOpen, Upload, Building2, Send,
+  Boxes, Warehouse, DollarSign, ChevronRight, FolderOpen, Upload, Building2,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { EwmsScrollArea } from '@/components/ewms/Media';
 import { useSidebar } from '@/contexts/SidebarContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionContext';
@@ -93,7 +95,7 @@ function Separator({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-function BrandMark({ collapsed }: { collapsed: boolean }) {
+function BrandMark({ collapsed, showOpenIcon = false }: { collapsed: boolean; showOpenIcon?: boolean }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
       <div style={{
@@ -102,7 +104,7 @@ function BrandMark({ collapsed }: { collapsed: boolean }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         color: '#fff', fontSize: 15, fontWeight: 700,
       }}>
-        E
+        {showOpenIcon ? <PanelLeftOpen style={{ width: 18, height: 18 }} /> : 'E'}
       </div>
       {!collapsed && (
         <span style={{
@@ -135,14 +137,14 @@ function SidebarSkeleton({ isOpen }: { isOpen: boolean }) {
       }}>
         <BrandMark collapsed={!isOpen} />
       </div>
-      <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 8px' }}>
+      <EwmsScrollArea className="min-h-0 overflow-x-hidden" style={{ flex: 1, padding: '16px 8px' }} data-ewms-scrollbar="sidebar">
         {[1, 2, 3, 4].map((i) => (
           <div key={i} style={{
             height: 36, borderRadius: 8, marginBottom: 4,
             background: 'hsla(220,14%,90%,0.06)',
           }} />
         ))}
-      </nav>
+      </EwmsScrollArea>
     </aside>
   );
 }
@@ -171,6 +173,7 @@ function useNavBadges(): BadgeData {
 export function Sidebar() {
   const [location] = useLocation();
   const [, navigate] = useWouterLocation();
+  const [brandHover, setBrandHover] = useState(false);
   const { isOpen, toggle } = useSidebar();
   const { user, logout } = useAuth();
   const { modules: permittedModules, activities, loaded } = usePermissions();
@@ -188,10 +191,24 @@ export function Sidebar() {
   if (!loaded) return <SidebarSkeleton isOpen={isOpen} />;
 
   const isSuperAdmin = (user as any)?.role?.systemCode === 'super_admin';
+  const roleCategory = String((user as any)?.role?.category ?? '').toLowerCase();
+  const roleCode = String((user as any)?.role?.systemCode ?? '').toLowerCase();
+  const isPartnerUser = (
+    roleCategory.includes('external') ||
+    roleCategory.includes('partner') ||
+    roleCode.includes('partner') ||
+    roleCode.includes('broker') ||
+    roleCode.includes('forwarder') ||
+    roleCode.includes('cha') ||
+    roleCode.includes('tpl')
+  );
+  const isCustomerUser = roleCategory.includes('customer') || roleCode.includes('customer');
 
   const visibleGroups = NAV_GROUPS.map((group) => ({
     items: group.items.filter((item) => {
       const modules = Array.isArray(item.module) ? item.module : [item.module];
+      if (modules.includes('partner') && !isPartnerUser) return false;
+      if (modules.includes('portal') && !isCustomerUser) return false;
       if (!modules.some((module) => permittedModules.includes(module))) return false;
       if (!item.requiredAnyActivities?.length) return true;
       return item.requiredAnyActivities.some(activity => activities.includes(activity));
@@ -229,8 +246,10 @@ export function Sidebar() {
           minHeight: 57, flexShrink: 0,
         }}
       >
-        <BrandMark collapsed={!isOpen} />
-        <button
+        {isOpen ? (
+          <>
+            <BrandMark collapsed={false} />
+            <button
           onClick={toggle}
           style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -241,17 +260,35 @@ export function Sidebar() {
           }}
           onMouseEnter={(e) => (e.currentTarget.style.color = TEAL_ACTIVE_TEXT)}
           onMouseLeave={(e) => (e.currentTarget.style.color = MUTED_TEXT)}
-          data-testid="button-sidebar-toggle"
-        >
-          {isOpen
-            ? <PanelLeftClose style={{ width: 18, height: 18 }} />
-            : <PanelLeftOpen  style={{ width: 18, height: 18 }} />
-          }
-        </button>
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+              data-testid="button-sidebar-toggle"
+            >
+              <PanelLeftClose style={{ width: 18, height: 18 }} />
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={toggle}
+            onMouseEnter={() => setBrandHover(true)}
+            onMouseLeave={() => setBrandHover(false)}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 40, height: 40, borderRadius: 8, border: 'none',
+              background: 'transparent', cursor: 'pointer',
+              color: 'hsl(var(--sidebar-primary-foreground))',
+            }}
+            aria-label="Expand sidebar"
+            title="Expand sidebar"
+            data-testid="button-sidebar-toggle"
+          >
+            <BrandMark collapsed showOpenIcon={brandHover} />
+          </button>
+        )}
       </div>
 
       {/* ── Navigation ── */}
-      <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '10px 0' }}>
+      <EwmsScrollArea className="min-h-0 overflow-x-hidden" style={{ flex: 1, padding: '10px 0' }} data-ewms-scrollbar="sidebar">
         {visibleGroups.map((group, gi) => (
           <div key={gi}>
             {gi > 0 && <Separator collapsed={!isOpen} />}
@@ -476,7 +513,7 @@ export function Sidebar() {
             })}
           </div>
         ))}
-      </nav>
+      </EwmsScrollArea>
 
       {/* ── User section ── */}
       <div style={{ flexShrink: 0 }}>

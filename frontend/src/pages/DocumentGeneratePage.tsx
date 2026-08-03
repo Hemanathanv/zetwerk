@@ -1,13 +1,14 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Info, Sparkles, FileText, Search, CheckCircle2, Clock, AlertCircle, Lock,
-  ChevronDown, ChevronUp, MoreHorizontal, Eye, X, Loader2,
+  ChevronDown, ChevronUp, MoreHorizontal, Eye, X, Loader2, AlertTriangle, Ban,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOC_GEN_SCHEMAS, DocGenSchema, FieldMapping, GenSection } from '@/config/docGenConfig';
 import { apiGet, apiPatch, apiPost } from '@/lib/api';
 import type { MappingType } from '@/config/docGenConfig';
 import { DocumentPreviewModal } from '@/components/DocumentPreviewModal';
+import { Badge } from '@/components/ui/badge';
 import { useLocation, useParams } from 'wouter';
 import { usePermissions } from '@/contexts/PermissionContext';
 import { allowedDocGenerationOptions } from '@/lib/docGenerationAccess';
@@ -20,6 +21,30 @@ const BORDER = 'hsl(var(--border))';
 const GREEN  = 'hsl(152 69% 31%)';
 const RED    = 'hsl(0 84% 60%)';
 const AMBER  = 'hsl(38 92% 50%)';
+const BLUE   = 'hsl(var(--vs-info))';
+
+const SEMANTIC_SURFACE = {
+  info: {
+    background: 'hsl(var(--vs-info) / 0.08)',
+    border: '1px solid hsl(var(--vs-info) / 0.28)',
+    color: BLUE,
+  },
+  success: {
+    background: 'hsl(var(--vs-success) / 0.08)',
+    border: '1px solid hsl(var(--vs-success) / 0.28)',
+    color: GREEN,
+  },
+  warning: {
+    background: 'hsl(var(--vs-warning) / 0.10)',
+    border: '1px solid hsl(var(--vs-warning) / 0.32)',
+    color: AMBER,
+  },
+  danger: {
+    background: 'hsl(var(--destructive) / 0.08)',
+    border: '1px solid hsl(var(--destructive) / 0.28)',
+    color: RED,
+  },
+} as const;
 
 const MONO = { fontFamily: 'var(--font-mono,"JetBrains Mono",monospace)' } as const;
 
@@ -133,34 +158,16 @@ function docGenerationDisplayName(docType: string, fallback?: string): string {
 
 function StatusBadge({ status, prereqs }: { status: GenQueueItem['status']; prereqs: Prerequisite[] }) {
   if (status === 'generated') return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 3,
-      fontSize: 9.5, fontWeight: 600, padding: '1px 6px', borderRadius: 20,
-      background: 'hsla(152,69%,31%,0.12)', color: GREEN, whiteSpace: 'nowrap',
-    }}>
-      <CheckCircle2 size={8} /> Done
-    </span>
+    <Badge intent="success" size="sm" leadingIcon={<CheckCircle2 className="size-3" />}>Done</Badge>
   );
   if (status === 'waiting') {
     const hint = prereqShortHint(prereqs);
     return (
-      <span style={{
-        display: 'inline-flex', alignItems: 'center', gap: 3,
-        fontSize: 9.5, fontWeight: 600, padding: '1px 6px', borderRadius: 20,
-        background: 'hsla(38,92%,50%,0.10)', color: AMBER, whiteSpace: 'nowrap',
-      }}>
-        <Lock size={8} /> {hint}
-      </span>
+      <Badge intent="warning" size="sm" leadingIcon={<Lock className="size-3" />}>{hint}</Badge>
     );
   }
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 3,
-      fontSize: 9.5, fontWeight: 600, padding: '1px 6px', borderRadius: 20,
-      background: 'hsla(38,92%,50%,0.12)', color: AMBER, whiteSpace: 'nowrap',
-    }}>
-      <AlertCircle size={8} /> Draft
-    </span>
+    <Badge intent="draft" size="sm" leadingIcon={<AlertCircle className="size-3" />}>Draft</Badge>
   );
 }
 
@@ -217,13 +224,13 @@ function QueueTable({
         flexShrink: 0, borderBottom: `1px solid ${BORDER}`,
         background: 'hsl(var(--card))',
       }}>
-        <div style={{
+        <div className="ewms-search-field" style={{
           display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px',
-          borderRadius: 7, border: `1px solid ${BORDER}`,
           background: 'hsl(var(--background))', flex: 1, maxWidth: 340, position: 'relative', zIndex: 5,
         }}>
           <Search size={12} style={{ color: MUTED, flexShrink: 0 }} />
           <input
+            className="ewms-search-input"
             value={search}
             onChange={e => onSearch(e.target.value)}
             placeholder="Search generated documents..."
@@ -696,24 +703,25 @@ function ActionRequiredCard({ schema, manualValues, onManualChange }: {
   const totalRequired  = scalarManual.length + tableTotalAll;
   const totalFilled    = scalarFilled + tableFilledAll;
   const allFilled      = totalFilled >= totalRequired;
+  const cardSignal = allFilled ? SEMANTIC_SURFACE.success : SEMANTIC_SURFACE.danger;
 
   if (totalRequired === 0) return null;
 
   return (
     <div style={{
-      background: 'hsl(var(--muted) / 0.35)',
-      border: `1px solid ${BORDER}`,
+      background: cardSignal.background,
+      border: cardSignal.border,
       borderRadius: 10, padding: '14px 16px', marginBottom: 18,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: allFilled ? 0 : 14 }}>
         <div style={{
           width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
-          background: 'hsl(var(--muted))',
+          background: allFilled ? 'hsl(var(--vs-success) / 0.14)' : 'hsl(var(--destructive) / 0.14)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           {allFilled
             ? <CheckCircle2 size={13} style={{ color: GREEN }} />
-            : <AlertCircle size={13} style={{ color: RED }} />
+            : <Ban size={13} style={{ color: RED }} />
           }
         </div>
         <span style={{ fontSize: 13, fontWeight: 700, color: allFilled ? GREEN : FG, flex: 1 }}>
@@ -745,10 +753,10 @@ function ActionRequiredCard({ schema, manualValues, onManualChange }: {
             <div key={t.section} style={{
               display: 'flex', alignItems: 'center', gap: 8,
               padding: '7px 10px', borderRadius: 6,
-              background: 'hsl(var(--muted) / 0.45)', border: `1px solid ${BORDER}`,
+              background: SEMANTIC_SURFACE.warning.background, border: SEMANTIC_SURFACE.warning.border,
               marginBottom: 6,
             }}>
-              <AlertCircle size={12} style={{ color: RED, flexShrink: 0 }} />
+              <AlertTriangle size={12} style={{ color: AMBER, flexShrink: 0 }} />
               <span style={{ fontSize: 12, color: FG, flex: 1 }}>
                 <strong>{t.section}</strong> — {t.total - t.filled} table cell{(t.total - t.filled) !== 1 ? 's' : ''} need input
               </span>
@@ -877,7 +885,10 @@ function BlockedView({ item, schema }: { item: GenQueueItem; schema: DocGenSchem
       {schema && (
         <div style={{
           fontSize: 12, color: MUTED, marginBottom: 20,
-          padding: '8px 12px', background: 'hsl(var(--muted))', borderRadius: 6,
+          padding: '8px 12px',
+          background: SEMANTIC_SURFACE.warning.background,
+          border: SEMANTIC_SURFACE.warning.border,
+          borderRadius: 6,
         }}>
           <span style={{ fontWeight: 600, color: FG }}>Trigger: </span>{schema.triggerCondition}
         </div>
@@ -1488,11 +1499,11 @@ function DocReviewModal({
                   {/* Trigger + counts banner */}
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-                    background: 'hsl(var(--muted) / 0.35)', border: `1px solid ${BORDER}`,
+                    background: SEMANTIC_SURFACE.info.background, border: SEMANTIC_SURFACE.info.border,
                     borderRadius: 8, padding: '8px 14px', fontSize: 12, color: FG,
                     marginBottom: 14,
                   }}>
-                    <Info size={13} style={{ flexShrink: 0, color: MUTED }} />
+                    <Info size={13} style={{ flexShrink: 0, color: BLUE }} />
                     <span>
                       Trigger: <strong>{schema.triggerCondition}</strong>
                       &nbsp;·&nbsp;

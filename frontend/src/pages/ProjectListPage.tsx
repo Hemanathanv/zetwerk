@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Search, FolderOpen, ChevronRight } from 'lucide-react';
 import { getAuthToken } from '@/lib/api';
+import { MetricCard } from '@/components/vs/MetricCard';
+import { ProgressBar } from '@/components/vs/ProgressBar';
+import { StatusBadge } from '@/components/StatusBadge';
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();
@@ -10,13 +13,6 @@ function authHeaders(): Record<string, string> {
 function fmtDate(d: string | Date) {
   return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 }
-
-const STATUS_STYLES: Record<string, string> = {
-  ACTIVE:    'bg-teal-100 text-teal-700 dark:bg-teal-950/40 dark:text-teal-400',
-  COMPLETED: 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400',
-  ON_HOLD:   'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400',
-  CANCELLED: 'bg-muted text-muted-foreground',
-};
 
 function ProjectCard({ project }: { project: any }) {
   return (
@@ -33,9 +29,7 @@ function ProjectCard({ project }: { project: any }) {
 
       <div className="w-[150px] shrink-0 hidden sm:block">
         <div className="text-[13px] truncate">{project.customerName || '—'}</div>
-        <span className={`text-[13px] font-medium px-1.5 py-0.5 rounded mt-0.5 inline-block ${STATUS_STYLES[project.status] || STATUS_STYLES.ACTIVE}`}>
-          {project.status.replace('_', ' ')}
-        </span>
+        <div className="mt-1"><StatusBadge status={project.status} /></div>
       </div>
 
       <div className="flex-1 min-w-[120px]">
@@ -45,15 +39,7 @@ function ProjectCard({ project }: { project: any }) {
           </span>
           <span className="text-[12px] font-mono font-medium">{project.completionPct}%</span>
         </div>
-        <div className="h-2 rounded-full bg-muted/50 overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all ${
-              project.completionPct === 100 ? 'bg-green-500' :
-              project.completionPct > 0    ? 'bg-teal-500'  : 'bg-muted'
-            }`}
-            style={{ width: `${project.completionPct}%` }}
-          />
-        </div>
+        <ProgressBar current={project.completionPct} total={100} intent={project.completionPct === 100 ? 'success' : 'active'} size="sm" hasLabel={false} valueDisplay="none" />
       </div>
 
       <div className="w-[80px] shrink-0 text-right hidden md:block">
@@ -137,19 +123,10 @@ export function ProjectListPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="bg-card rounded-xl p-3">
-          <div className="text-2xl font-bold font-mono">{stats.active}</div>
-          <div className="text-[12px] text-muted-foreground">Active Projects</div>
-        </div>
-        <div className="bg-card rounded-xl p-3">
-          <div className="text-2xl font-bold font-mono text-teal-600">{stats.completed}</div>
-          <div className="text-[12px] text-muted-foreground">Completed</div>
-        </div>
-        <div className="bg-card rounded-xl p-3">
-          <div className="text-2xl font-bold font-mono">{stats.totalShipments}</div>
-          <div className="text-[12px] text-muted-foreground">Total Shipments</div>
-        </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
+        <MetricCard label="Active projects" value={stats.active} />
+        <MetricCard label="Completed" value={stats.completed} />
+        <MetricCard label="Total shipments" value={stats.totalShipments} />
       </div>
 
       {loading ? (

@@ -2596,7 +2596,32 @@ export function UploadProcessPage() {
 
   return (
     <div style={{ padding: '28px 32px', maxWidth: 'none' }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes recentUploadMarquee {
+          from { transform: translateX(0); }
+          to { transform: translateX(-50%); }
+        }
+        .recent-upload-rail {
+          overflow: hidden;
+          padding: 2px 0 4px;
+          mask-image: linear-gradient(90deg, transparent 0, #000 8%, #000 92%, transparent 100%);
+        }
+        .recent-upload-track {
+          display: flex;
+          gap: 12px;
+          width: max-content;
+          animation: recentUploadMarquee 34s linear infinite;
+        }
+        .recent-upload-track:hover {
+          animation-play-state: paused;
+        }
+        .recent-upload-card-text {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+      `}</style>
       {containerMappingOpen && (
         <ContainerMappingModal
           mapping={containerMapping}
@@ -2893,24 +2918,83 @@ export function UploadProcessPage() {
                 const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
                 return tb - ta;
               }).slice(0, 6);
+              const railCards = sorted.length > 2 ? [...sorted, ...sorted] : sorted;
+              const renderRecentCard = (card: QueueCard, key: string) => (
+                <div
+                  key={key}
+                  onClick={() => handleRowClick(card)}
+                  style={{
+                    width: 210,
+                    flex: '0 0 210px',
+                    backgroundColor: 'hsl(var(--card))',
+                    borderRadius: 12,
+                    border: `1px solid ${BORDER}`,
+                    borderLeft: `3px solid ${card.headerColor}`,
+                    padding: '14px 16px',
+                    boxShadow: 'var(--vs-shadow-card)',
+                    cursor: 'pointer',
+                    boxSizing: 'border-box',
+                    overflow: 'hidden',
+                    transition: 'box-shadow 0.15s, border-color 0.15s, transform 0.15s',
+                  }}
+                  onMouseEnter={event => {
+                    event.currentTarget.style.boxShadow = '0 4px 18px hsla(0,0%,0%,0.18)';
+                    event.currentTarget.style.borderColor = card.headerColor;
+                    event.currentTarget.style.transform = 'translateY(-1px)';
+                  }}
+                  onMouseLeave={event => {
+                    event.currentTarget.style.boxShadow = 'var(--vs-shadow-card)';
+                    event.currentTarget.style.borderColor = BORDER;
+                    event.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, minWidth: 0 }}>
+                    <DocBadge code={card.docCode} size="sm" />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+                        <span className="recent-upload-card-text" style={{ fontSize: 14, fontWeight: 700, color: FG }}>
+                          {card.docType}
+                        </span>
+                        {card.isGenerated && <Sparkles size={9} style={{ color: GOLD, flexShrink: 0 }} />}
+                      </div>
+                      <span className="vs-mono recent-upload-card-text" style={{ fontSize: 14, color: MUTED, display: 'block' }}>
+                        {card.docNumber}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <PipelineDots dots={card.dots} gold={card.goldDots} />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <div style={{ minWidth: 0 }}>
+                      {card.statusCategory === 'needs-approval' ? (
+                        <span className="recent-upload-card-text" style={{ maxWidth: 120, display: 'inline-block', fontSize: 14, fontWeight: 600, padding: '2px 8px', borderRadius: 999, backgroundColor: 'hsla(221,83%,53%,0.10)', color: BLUE }}>
+                          {card.status}
+                        </span>
+                      ) : card.statusCategory === 'done' ? (
+                        <span className="recent-upload-card-text" style={{ maxWidth: 120, display: 'inline-block', fontSize: 14, fontWeight: 600, padding: '2px 8px', borderRadius: 999, backgroundColor: `${GREEN}12`, color: GREEN }}>
+                          {card.status}
+                        </span>
+                      ) : card.statusCategory === 'draft-review' ? (
+                        <span className="recent-upload-card-text" style={{ maxWidth: 120, display: 'inline-block', fontSize: 14, fontWeight: 600, padding: '2px 8px', borderRadius: 999, backgroundColor: GOLD_BG, color: 'hsl(38 92% 30%)' }}>
+                          {card.status}
+                        </span>
+                      ) : (
+                        <StatusPill status={card.status} variant={card.statusVariant} />
+                      )}
+                    </div>
+                    <span style={{ fontSize: 14, color: MUTED, flexShrink: 0 }}>{card.timestamp}</span>
+                  </div>
+                </div>
+              );
               return (
-                <div style={{
-                  backgroundColor: 'hsl(var(--card))', borderRadius: 12,
-                  border: `1px solid ${BORDER}`, overflow: 'hidden',
-                }}>
-                  <QueueRowHeader />
-                  {sorted.map((card) => (
-                    <QueueRowEl
-                      key={card.id}
-                      card={card}
-                      onApproveClick={needsReviewApproval(card) ? () => openApprovalPanel(card) : undefined}
-                      onStopClick={card.statusCategory === 'processing' ? () => stopExtraction(card) : undefined}
-                      onRetryClick={card.status === 'Extraction stopped' ? () => retryExtraction(card) : undefined}
-                      onRowClick={() => handleRowClick(card)}
-                      onDetailsClick={() => handleDetailsClick(card)}
-                      slaConfig={escalationConfigForCard(card, escalationConfigs)}
-                    />
-                  ))}
+                <div className="recent-upload-rail">
+                  <div
+                    className={sorted.length > 2 ? 'recent-upload-track' : undefined}
+                    style={sorted.length <= 2 ? { display: 'flex', gap: 12 } : undefined}
+                  >
+                    {railCards.map((card, index) => renderRecentCard(card, `${card.id}-${index}`))}
+                  </div>
                 </div>
               );
             })()}
@@ -2991,12 +3075,20 @@ export function UploadProcessPage() {
 
           {/* ── Queue header: title + filter chips + density toggle ── */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 16, fontWeight: 600, color: FG }}>Processing queue</span>
-              <span style={{ fontSize: 14, color: MUTED }}>
-                {filteredCards.length} shown{activeChip === 0 && statsCount.total > filteredCards.length ? ` of ${statsCount.total}` : activeChip !== 0 ? ' filtered' : ' total'}
-              </span>
-            </div>
+            <FilterChips
+              chips={[
+                { label: 'All',              count: statsCount.total },
+                { label: 'Needs approval',   count: statsCount.needsApproval },
+                { label: 'Needs re-approval', count: statsCount.needsReapproval },
+                { label: 'Processing',       count: statsCount.processing },
+                { label: 'Cross-validating', count: statsCount.crossValidating },
+                { label: 'Draft review',     count: statsCount.draftReview },
+                { label: 'Done',             count: statsCount.done },
+                { label: 'Waiting for BOL',  count: waitingDocs.length },
+              ]}
+              activeIndex={activeChip}
+              onSelect={setActiveChip}
+            />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 7, padding: '5px 10px',
@@ -3036,20 +3128,6 @@ export function UploadProcessPage() {
                   </div>
                 )}
               </div>
-              <FilterChips
-                chips={[
-                  { label: 'All',              count: statsCount.total },
-                  { label: 'Needs approval',   count: statsCount.needsApproval },
-                  { label: 'Needs re-approval', count: statsCount.needsReapproval },
-                  { label: 'Processing',       count: statsCount.processing },
-                  { label: 'Cross-validating', count: statsCount.crossValidating },
-                  { label: 'Draft review',     count: statsCount.draftReview },
-                  { label: 'Done',             count: statsCount.done },
-                  { label: 'Waiting for BOL',  count: waitingDocs.length },
-                ]}
-                activeIndex={activeChip}
-                onSelect={setActiveChip}
-              />
             </div>
           </div>
 

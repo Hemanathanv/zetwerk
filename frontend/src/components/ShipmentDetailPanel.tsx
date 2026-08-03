@@ -5,6 +5,7 @@ import { TrackingTimeline } from './TrackingTimeline';
 import { DocumentStatusBoard } from './DocumentStatusBoard';
 import { ActivityFeed } from './ActivityFeed';
 import { StatusBadge } from './StatusBadge';
+import { EwmsScrollArea } from '@/components/ewms/Media';
 
 type Tab = 'overview' | 'tracking' | 'documents' | 'activity';
 
@@ -83,7 +84,7 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
       </div>
 
       {/* Tab content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <EwmsScrollArea className="flex-1 p-4">
         {activeTab === 'overview' && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-2">
@@ -121,7 +122,7 @@ export function ShipmentDetailPanel({ shipment }: ShipmentDetailPanelProps) {
         {activeTab === 'activity' && (
           <ActivityFeed events={activityEvents} />
         )}
-      </div>
+      </EwmsScrollArea>
     </div>
   );
 }

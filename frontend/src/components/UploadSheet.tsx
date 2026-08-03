@@ -8,6 +8,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
+import { EwmsScrollArea } from '@/components/ewms/Media';
 import { useUpload } from '@/contexts/UploadContext';
 import { documentApi } from '@/auth/api';
 import type { DocType } from '@/types/backend';
@@ -192,7 +193,7 @@ export function UploadSheet() {
         </SheetHeader>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
+        <EwmsScrollArea className="flex-1 px-6 py-5">
 
           {/* ── Step: select ── */}
           {step === 'select' && (
@@ -389,7 +390,7 @@ export function UploadSheet() {
               </Button>
             </div>
           )}
-        </div>
+        </EwmsScrollArea>
 
         {/* Footer actions — only on configure step */}
         {step === 'configure' && (

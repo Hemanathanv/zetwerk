@@ -16,6 +16,12 @@ from .keycloak_integration import (
     refresh_keycloak_token
 )
 
+try:
+    from api.v1.admin.router import ACTIVITY_DEFINITIONS, MODULE_DEFINITIONS
+except Exception:
+    ACTIVITY_DEFINITIONS = []
+    MODULE_DEFINITIONS = []
+
 router = APIRouter(prefix=settings.API_SLUG + "/auth", tags=["Auth"])
 
 # =================================================================
@@ -106,43 +112,20 @@ ADMIN_FALLBACK_MODULES = [
     "accounting",
     "reports",
     "admin",
+    "settings",
 ]
 
-ADMIN_FALLBACK_ACTIVITIES = [
-    "shipments.view",
-    "shipments.create",
-    "tasks.view",
-    "documents.view",
-    "documents.view_extracted",
-    "documents.upload",
-    "documents.edit_extracted",
-    "documents.approve_draft",
-    "documents.reprocess_ocr",
-    "documents.generate_draft",
-    "inventory.view_container",
-    "inventory.view_timeline",
-    "inventory.view_warehouse",
-    "inventory.warehouse_inventory_stock_position",
-    "inventory.acknowledge_dnd",
-    "inventory.update_milestone",
-    "accounting.view_queue",
-    "accounting.view_ap_aging",
-    "reports.view_dashboard",
-    "reports.generate_dsr",
-    "admin.manage",
-    "users.manage",
-    "roles.view",
-    "roles.manage",
-    "admin.manage_users",
-    "admin.configure_roles",
-    "admin.edit_workflows",
-    "admin.configure_doctypes",
-    "admin.edit_account_mappings",
-    "admin.manage_partners",
-    "admin.view_audit_log",
-    "admin.security_settings",
-]
+ALL_ADMIN_MODULES = [
+    str(module.get("moduleCode"))
+    for module in sorted(MODULE_DEFINITIONS, key=lambda item: int(item.get("sortOrder") or 0))
+    if module.get("isActive") and module.get("moduleCode")
+] or ADMIN_FALLBACK_MODULES
 
+ALL_ADMIN_ACTIVITIES = sorted({
+    str(activity.get("activityCode"))
+    for activity in ACTIVITY_DEFINITIONS
+    if activity.get("activityCode")
+})
 
 def _is_admin_role(role_name: str) -> bool:
     normalized = str(role_name or "").upper().replace("-", "_").replace(" ", "_")
@@ -190,8 +173,22 @@ def _activity_module(activity_code: str) -> str:
 
 def _filter_activities_for_modules(activities: list[str], modules: list[str]) -> list[str]:
     module_set = set(modules)
+    configured_activity_modules = {
+        str(activity.get("activityCode")): str(activity.get("moduleCode") or activity.get("category") or "")
+        for activity in ACTIVITY_DEFINITIONS
+        if activity.get("activityCode")
+    }
+    configured_activity_codes = set(configured_activity_modules)
+    configured_activity_codes.update(
+        alias
+        for source, aliases in LEGACY_ACTIVITY_ALIASES.items()
+        if source in configured_activity_modules
+        for alias in aliases
+    )
     filtered = []
     for activity in activities:
+        if configured_activity_modules and activity not in configured_activity_codes:
+            continue
         module = _activity_module(activity)
         if not module:
             continue
@@ -231,14 +228,15 @@ def _permissions_from_role(role: dict) -> dict:
     attrs = role.get("attributes") or {}
     role_name = str(role.get("name") or "USER")
     role_category = _attr_value(attrs, "ewms.category", "org_internal")
-    modules = _expand_modules(_attr_values(attrs, "ewms.modules"))
-    activities = _legacy_activity_codes(_attr_values(attrs, "ewms.activities"))
     if _is_admin_role(role_name):
-        if not modules:
-            modules = ADMIN_FALLBACK_MODULES
-        if not activities:
-            activities = _legacy_activity_codes(ADMIN_FALLBACK_ACTIVITIES)
-    activities = _filter_activities_for_modules(activities, modules)
+        modules = ALL_ADMIN_MODULES
+        activities = _legacy_activity_codes(ALL_ADMIN_ACTIVITIES)
+    else:
+        modules = _expand_modules(_attr_values(attrs, "ewms.modules"))
+        activities = _filter_activities_for_modules(
+            _legacy_activity_codes(_attr_values(attrs, "ewms.activities")),
+            modules,
+        )
     activity_doc_types = {}
     try:
         parsed_scopes = json.loads(_attr_json_value(attrs, "ewms.docTypeScopes", "{}"))
@@ -388,9 +386,25 @@ LEGACY_ACTIVITY_ALIASES = {
     "tasks.delegate": {"TSK-007"},
 }
 
+ACTIVITY_MIN_LEVELS = {
+    str(activity.get("activityCode")): str(activity.get("minLevel") or "L1").upper()
+    for activity in ACTIVITY_DEFINITIONS
+    if activity.get("activityCode")
+}
+for source_activity, legacy_aliases in LEGACY_ACTIVITY_ALIASES.items():
+    source_level = ACTIVITY_MIN_LEVELS.get(source_activity)
+    if not source_level:
+        continue
+    for legacy_alias in legacy_aliases:
+        ACTIVITY_MIN_LEVELS.setdefault(legacy_alias, source_level)
+
 
 def _highest_level(levels: list[str]) -> str:
     return sorted(levels or ["L1"], key=lambda item: LEVEL_ORDER.get(str(item).upper(), 0))[-1]
+
+
+def _level_at_least(user_level: str, required_level: str) -> bool:
+    return LEVEL_ORDER.get(str(user_level or "L1").upper(), 0) >= LEVEL_ORDER.get(str(required_level or "L1").upper(), 0)
 
 
 def _expand_activity_codes(activities: list[str]) -> list[str]:
@@ -400,6 +414,14 @@ def _expand_activity_codes(activities: list[str]) -> list[str]:
     for activity in list(expanded):
         expanded.update(LEGACY_ACTIVITY_ALIASES.get(activity, set()))
     return sorted(expanded)
+
+
+def _filter_activities_for_level(activities: list[str], user_level: str) -> list[str]:
+    return sorted({
+        activity
+        for activity in activities
+        if _level_at_least(user_level, ACTIVITY_MIN_LEVELS.get(activity, "L1"))
+    })
 
 
 def _user_level_from_keycloak(keycloak_admin, userinfo: dict, role: dict) -> str:
@@ -434,14 +456,13 @@ async def get_permissions(
     except Exception:
         is_admin_role = _is_admin_role(role_name)
         fallback_modules = ADMIN_FALLBACK_MODULES if is_admin_role else []
-        fallback_activities = ADMIN_FALLBACK_ACTIVITIES if is_admin_role else []
         role = {
             "name": role_name,
             "attributes": {
                 "ewms.displayName": [role_name.replace("_", " ").title()],
                 "ewms.category": ["org_internal"],
                 "ewms.modules": fallback_modules,
-                "ewms.activities": fallback_activities,
+                "ewms.activities": ALL_ADMIN_ACTIVITIES if is_admin_role else [],
                 "ewms.levels": ["L4"] if is_admin_role else [],
                 "ewms.dataScope": ["TEAM"],
                 "ewms.color": ["#0f766e"],
@@ -452,7 +473,10 @@ async def get_permissions(
     permissions = _permissions_from_role(role)
     if _is_admin_role(role_name) and not _attr_values(role.get("attributes") or {}, "ewms.levels"):
         user_level = "L4"
-    permissions["activities"] = _expand_activity_codes(permissions["activities"])
+    permissions["activities"] = _expand_activity_codes(permissions["activities"]) if _is_admin_role(role_name) else _filter_activities_for_level(
+        _expand_activity_codes(permissions["activities"]),
+        user_level,
+    )
     return {"ok": True, "data": permissions}
 
 
@@ -471,15 +495,18 @@ async def get_level(
         level = _user_level_from_keycloak(keycloak_admin, userinfo, role)
         if _is_admin_role(role_name) and not _attr_values(role.get("attributes") or {}, "ewms.levels"):
             level = "L4"
-        role_activities = _attr_values(role.get("attributes") or {}, "ewms.activities")
-        if _is_admin_role(role_name) and not role_activities:
-            role_activities = ADMIN_FALLBACK_ACTIVITIES
-        role_modules = _expand_modules(_attr_values(role.get("attributes") or {}, "ewms.modules"))
-        if _is_admin_role(role_name) and not role_modules:
-            role_modules = ADMIN_FALLBACK_MODULES
-        activities = _expand_activity_codes(
-            _filter_activities_for_modules(_legacy_activity_codes(role_activities), role_modules)
-        )
+        if _is_admin_role(role_name):
+            level = "L4"
+            activities = _expand_activity_codes(_legacy_activity_codes(ALL_ADMIN_ACTIVITIES))
+        else:
+            role_activities = _attr_values(role.get("attributes") or {}, "ewms.activities")
+            role_modules = _expand_modules(_attr_values(role.get("attributes") or {}, "ewms.modules"))
+            activities = _filter_activities_for_level(
+                _expand_activity_codes(
+                    _filter_activities_for_modules(_legacy_activity_codes(role_activities), role_modules)
+                ),
+                level,
+            )
     except Exception:
         role = {"attributes": {"ewms.levels": ["L1"]}}
         level = _highest_level(_attr_values(role["attributes"], "ewms.levels"))

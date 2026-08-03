@@ -13,7 +13,7 @@ function getProxyTarget(env: Record<string, string>): string {
     env.API_SERVER_PORT ??
     env.BACKEND_PORT ??
     env.PARSER_SERVER_PORT ??
-    8000
+    8120
   );
   return `http://127.0.0.1:${apiServerPort}`;
 }

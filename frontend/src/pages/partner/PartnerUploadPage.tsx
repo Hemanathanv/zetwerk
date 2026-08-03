@@ -5,6 +5,7 @@ import { usePermissions } from '@/contexts/PermissionContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useShipments, useShipmentDocuments, useUploadableDocTypes } from '@/hooks/useOperationalData';
 import { RoleBadge } from '@/components/RoleBadge';
+import { Badge } from '@/components/ui/badge';
 import { getAuthToken } from '@/lib/api';
 import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
 
@@ -31,27 +32,23 @@ function getPillStatus(doc: any | undefined): 'missing' | 'done' | 'pending' | '
 
 function DocStatusBadge({ doc }: { doc: any }) {
   if (doc.approvedAt) {
-    return <span className="text-[12px] font-medium px-2 py-0.5 rounded-full text-teal-600 bg-teal-50">Approved</span>;
+    return <Badge intent="success" size="sm">Approved</Badge>;
   }
   const s = (doc.ocrStatus ?? '').toUpperCase();
-  const map: Record<string, { label: string; color: string }> = {
-    QUEUED:              { label: 'Queued',       color: 'text-muted-foreground bg-muted' },
-    UPLOADED:            { label: 'Processing',   color: 'text-blue-600 bg-blue-50' },
-    PROCESSING:          { label: 'Extracting',   color: 'text-blue-600 bg-blue-50' },
-    REPROCESSING:        { label: 'Reprocessing', color: 'text-blue-600 bg-blue-50' },
-    EXTRACTED:           { label: 'Under review', color: 'text-amber-600 bg-amber-50' },
-    COMPLETED:           { label: 'Under review', color: 'text-amber-600 bg-amber-50' },
-    FAILED:              { label: 'Failed',       color: 'text-red-600 bg-red-50' },
-    ERROR:               { label: 'Error',        color: 'text-red-600 bg-red-50' },
-    FAILED_PERMANENTLY:  { label: 'Failed',       color: 'text-red-600 bg-red-50' },
-    PENDING:             { label: 'Queued',       color: 'text-muted-foreground bg-muted' },
+  const map: Record<string, { label: string; intent: 'neutral' | 'info' | 'warning' | 'danger' }> = {
+    QUEUED:              { label: 'Queued',       intent: 'neutral' },
+    UPLOADED:            { label: 'Processing',   intent: 'info' },
+    PROCESSING:          { label: 'Extracting',   intent: 'info' },
+    REPROCESSING:        { label: 'Reprocessing', intent: 'info' },
+    EXTRACTED:           { label: 'Under review', intent: 'warning' },
+    COMPLETED:           { label: 'Under review', intent: 'warning' },
+    FAILED:              { label: 'Failed',       intent: 'danger' },
+    ERROR:               { label: 'Error',        intent: 'danger' },
+    FAILED_PERMANENTLY:  { label: 'Failed',       intent: 'danger' },
+    PENDING:             { label: 'Queued',       intent: 'neutral' },
   };
-  const info = map[s] ?? { label: s || 'Uploaded', color: 'text-muted-foreground bg-muted' };
-  return (
-    <span className={`text-[12px] font-medium px-2 py-0.5 rounded-full ${info.color}`}>
-      {info.label}
-    </span>
-  );
+  const info = map[s] ?? { label: s || 'Uploaded', intent: 'neutral' };
+  return <Badge intent={info.intent} size="sm">{info.label}</Badge>;
 }
 
 // ─── ShipmentUploadCard ─────────────────────────────────────────────────────

@@ -97,7 +97,7 @@ async def lifespan(app: FastAPI):
     else:
         print("ARQ OCR workers are disabled in FastAPI (RUN_OCR_WORKERS_IN_API=false)")
 
-    print("API ready at http://localhost:8000")
+    print("API ready at http://localhost:8120")
 
     yield  # Run the app
 

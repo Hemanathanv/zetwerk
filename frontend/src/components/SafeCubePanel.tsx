@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { getAuthToken } from '@/lib/api';
+import { Badge } from '@/components/ui/badge';
+import { EwmsScrollArea } from '@/components/ewms/Media';
 import { ChevronDown, ChevronRight, RefreshCw, Radio, AlertTriangle, Ship } from 'lucide-react';
 import type { SafeCubeData, SafeCubeEvent, SafeCubeAlert } from '@/hooks/useSafeCubeTracking';
 
@@ -26,7 +28,7 @@ function fmtDtShort(iso: string | null | undefined): string {
 
 function clamp(v: number, lo: number, hi: number) { return Math.max(lo, Math.min(hi, v)); }
 
-function authHeaders() {
+function authHeaders(): Record<string, string> {
   const token = getAuthToken();
   return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
 }
@@ -39,24 +41,13 @@ export function ScheduleStatusBadge({ status, delayDays }: { status: string | nu
   const isPast   = delayDays !== null && delayDays !== undefined && delayDays < 0;
   const isDelay  = delayDays !== null && delayDays !== undefined && delayDays > 0;
 
-  let bg    = 'hsl(142 71% 45% / 0.12)';
-  let color = GREEN;
   let label = 'On Time';
-  if (isDelay) { bg = 'hsl(38 92% 50% / 0.12)'; color = AMBER; label = `${delayDays}d delay`; }
-  if (isPast)  { bg = 'hsl(var(--vs-danger) / 0.12)'; color = RED; label = 'Past ETA'; }
-  if (!isOnTime && !isDelay && !isPast) { label = status; bg = 'hsl(var(--muted))'; color = MUTED; }
+  let intent: 'success' | 'warning' | 'danger' | 'neutral' = 'success';
+  if (isDelay) { intent = 'warning'; label = `${delayDays}d delay`; }
+  if (isPast)  { intent = 'danger'; label = 'Past ETA'; }
+  if (!isOnTime && !isDelay && !isPast) { intent = 'neutral'; label = status; }
 
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      padding: '2px 8px', borderRadius: 999,
-      fontSize: 14.5, fontWeight: 600,
-      backgroundColor: bg, color,
-      whiteSpace: 'nowrap', lineHeight: 1.6,
-    }}>
-      {label}
-    </span>
-  );
+  return <Badge intent={intent} size="sm">{label}</Badge>;
 }
 
 // ─── Ship silhouette (reused in route diagram) ────────────────────────────────
@@ -341,7 +332,7 @@ export function SafeCubeTimeline({ events }: { events: SafeCubeEvent[] }) {
       </div>
 
       {open && (
-        <div style={{ padding: '12px 18px', maxHeight: 360, overflowY: 'auto' }}>
+        <EwmsScrollArea style={{ padding: '12px 18px', maxHeight: 360 }}>
           {sorted.map((ev, i) => (
             <div key={ev.id} style={{ display: 'flex', gap: 12, paddingBottom: i < sorted.length - 1 ? 12 : 0, position: 'relative' }}>
               {/* Timeline spine */}
@@ -385,7 +376,7 @@ export function SafeCubeTimeline({ events }: { events: SafeCubeEvent[] }) {
               </div>
             </div>
           ))}
-        </div>
+        </EwmsScrollArea>
       )}
     </div>
   );

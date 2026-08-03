@@ -1,5 +1,7 @@
 import { AlertTriangle } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import type { OcrStatus } from '@/hooks/useDocumentStatus';
+import type { EwmsIntent } from '@/design-system/componentIntent';
 
 interface Props {
   status: OcrStatus | null;
@@ -9,99 +11,45 @@ interface Props {
 
 type Config = {
   label: string;
-  bg: string;
-  color: string;
+  intent: EwmsIntent;
   pulse?: boolean;
-  dot?: string;
   icon?: 'warning';
 };
 
 const STATUS_CONFIG: Record<OcrStatus, Config> = {
-  UPLOADED: {
-    label: 'Uploaded',
-    bg: 'hsl(220 14% 94%)',
-    color: 'hsl(220 14% 40%)',
-    dot: 'hsl(220 14% 60%)',
-  },
-  QUEUED: {
-    label: 'Queued',
-    bg: 'hsla(38,92%,50%,0.12)',
-    color: 'hsl(38 80% 30%)',
-    dot: 'hsl(38 92% 50%)',
-  },
-  PROCESSING: {
-    label: 'Processing',
-    bg: 'hsla(217,91%,60%,0.12)',
-    color: 'hsl(217 70% 35%)',
-    dot: 'hsl(217 91% 55%)',
-    pulse: true,
-  },
-  EXTRACTED: {
-    label: 'Extracted',
-    bg: 'hsla(173,58%,39%,0.10)',
-    color: 'hsl(173 58% 28%)',
-    dot: 'hsl(var(--vs-teal))',
-  },
-  FAILED: {
-    label: 'Failed',
-    bg: 'hsla(0,84%,60%,0.10)',
-    color: 'hsl(0 72% 38%)',
-    dot: 'hsl(0 84% 55%)',
-  },
-  ERROR: {
-    label: 'Error',
-    bg: 'hsla(0,84%,60%,0.10)',
-    color: 'hsl(0 72% 38%)',
-    dot: 'hsl(0 84% 55%)',
-  },
-  FAILED_PERMANENTLY: {
-    label: 'Failed permanently',
-    bg: 'hsla(0,84%,60%,0.10)',
-    color: 'hsl(0 72% 38%)',
-    dot: 'hsl(0 84% 55%)',
-  },
+  UPLOADED: { label: 'Uploaded', intent: 'neutral' },
+  QUEUED: { label: 'Queued', intent: 'warning' },
+  PROCESSING: { label: 'Processing', intent: 'info', pulse: true },
+  EXTRACTED: { label: 'Extracted', intent: 'success' },
+  FAILED: { label: 'Failed', intent: 'danger' },
+  ERROR: { label: 'Error', intent: 'danger' },
+  FAILED_PERMANENTLY: { label: 'Failed permanently', intent: 'danger' },
 };
 
 const STALLED_CONFIG: Config = {
   label: 'Stalled',
-  bg: 'hsla(38,92%,50%,0.12)',
-  color: 'hsl(28 80% 30%)',
-  dot: 'hsl(28 92% 50%)',
+  intent: 'warning',
   icon: 'warning',
 };
 
 const LOADING_CONFIG: Config = {
-  label: 'Loading…',
-  bg: 'hsl(220 14% 94%)',
-  color: 'hsl(220 14% 50%)',
-  dot: 'hsl(220 14% 70%)',
+  label: 'Loading...',
+  intent: 'neutral',
 };
 
 export function DocumentStatusBadge({ status, isStalled = false, className = '' }: Props) {
   const cfg = isStalled ? STALLED_CONFIG : (status ? STATUS_CONFIG[status] : LOADING_CONFIG);
 
   return (
-    <span
-      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[12px] font-semibold select-none ${className}`}
-      style={{ background: cfg.bg, color: cfg.color }}
+    <Badge
+      intent={cfg.intent}
+      size="sm"
+      hasDot={cfg.icon !== 'warning'}
+      leadingIcon={cfg.icon === 'warning' ? <AlertTriangle className="size-3" /> : undefined}
+      className={className}
     >
-      {cfg.icon === 'warning' ? (
-        <AlertTriangle size={10} style={{ flexShrink: 0, color: cfg.color }} />
-      ) : (
-        <span className="relative flex h-2 w-2 flex-shrink-0">
-          {cfg.pulse && (
-            <span
-              className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-              style={{ background: cfg.dot }}
-            />
-          )}
-          <span
-            className="relative inline-flex rounded-full h-2 w-2"
-            style={{ background: cfg.dot }}
-          />
-        </span>
-      )}
+      {cfg.pulse && <span className="sr-only">Processing</span>}
       {cfg.label}
-    </span>
+    </Badge>
   );
 }

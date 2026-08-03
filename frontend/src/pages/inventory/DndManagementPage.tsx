@@ -9,6 +9,10 @@ import { getAuthToken } from '@/lib/api';
 import { RequireActivity } from '@/components/PermissionGate';
 import { useShipments } from '@/hooks/useOperationalData';
 import { useAuth } from '@/contexts/AuthContext';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { SegmentedControl } from '@/components/ewms/SegmentedControl';
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();
@@ -60,38 +64,39 @@ function RecordReturnModal({
       <div className="bg-card rounded-xl p-6 w-96">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-[14.5px] font-semibold">Record Container Return</h3>
-          <button onClick={onClose}><X className="w-4 h-4" /></button>
+          <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close return modal">
+            <X className="w-4 h-4" />
+          </Button>
         </div>
         <p className="text-[13px] text-muted-foreground mb-4 font-mono">{charge.containerNumber}</p>
         <div className="space-y-3">
           <div>
             <label className="text-[13px] text-muted-foreground block mb-1">Return Date</label>
-            <input
+            <Input
               type="date"
               value={returnDate}
               onChange={(e) => setReturnDate(e.target.value)}
-              className="w-full text-[14.5px] border rounded-lg px-3 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-teal-500"
             />
           </div>
           <div>
             <label className="text-[13px] text-muted-foreground block mb-1">Return Depot</label>
-            <input
+            <Input
               value={returnDepot}
               onChange={(e) => setReturnDepot(e.target.value)}
               placeholder="Depot name"
-              className="w-full text-[14.5px] border rounded-lg px-3 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-teal-500"
             />
           </div>
         </div>
         <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
-          <button onClick={onClose} className="text-[13px] px-3 py-1.5 border rounded-lg">Cancel</button>
-          <button
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button
+            type="button"
+            size="sm"
             onClick={handleSubmit}
             disabled={saving || !returnDate || !returnDepot}
-            className="text-[13px] px-4 py-1.5 bg-teal-600 text-white rounded-lg disabled:opacity-50"
           >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
+            {saving ? 'Saving...' : 'Save'}
+          </Button>
         </div>
       </div>
     </div>
@@ -187,17 +192,12 @@ function DndChargeRow({
         </div>
 
         <div className="w-[80px] shrink-0 text-right">
-          <span
-            className={`text-[12px] font-medium px-1.5 py-0.5 rounded-full ${
-              isAccruing
-                ? 'bg-red-100 text-red-700'
-                : charge.status === 'MONITORING'
-                ? 'bg-muted text-muted-foreground'
-                : 'bg-teal-100 text-teal-700'
-            }`}
+          <Badge
+            intent={isAccruing ? 'danger' : charge.status === 'MONITORING' ? 'neutral' : 'success'}
+            size="sm"
           >
             {charge.status}
-          </span>
+          </Badge>
           {charge.ticketId && (
             <a href="/accounting" className="text-[13px] text-teal-600 hover:underline block mt-1">
               Ticket →
@@ -349,23 +349,23 @@ function DndChargesTab({
   return (
     <div>
       <div className="flex gap-2 mb-4 flex-wrap items-center">
-        {filterOptions.map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`text-[13px] px-3 py-1.5 rounded-full capitalize transition-colors ${
-              filter === f ? 'bg-teal-600 text-white' : 'bg-muted hover:bg-muted/70'
-            }`}
-          >
-            {f} ({f === 'all' ? charges.length : charges.filter((c) => c.status.toLowerCase() === f).length})
-          </button>
-        ))}
-        <button
+        <SegmentedControl
+          value={filter}
+          onValueChange={(value) => setFilter(value as any)}
+          options={filterOptions.map((f) => ({
+            value: f,
+            label: `${f} (${f === 'all' ? charges.length : charges.filter((c) => c.status.toLowerCase() === f).length})`,
+          }))}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
           onClick={handleCsvExport}
-          className="ml-auto text-[13px] px-3 py-1.5 border rounded-lg hover:bg-muted flex items-center gap-1.5 transition-colors"
+          className="ml-auto gap-2"
         >
-          <Download className="w-3 h-3" /> Export CSV
-        </button>
+          <Download className="size-4" /> Export CSV
+        </Button>
       </div>
 
       <div className="space-y-2">
@@ -556,14 +556,13 @@ function LfdCalendarTab({ charges }: { charges: any[] }) {
 // ─── Data source badge ────────────────────────────────
 function DataSourceBadge({ label, available }: { label: string; available: boolean }) {
   return (
-    <div
-      className={`text-[12px] px-2 py-1 rounded flex items-center gap-1 ${
-        available ? 'bg-teal-50 text-teal-700' : 'bg-muted text-muted-foreground'
-      }`}
+    <Badge
+      intent={available ? 'success' : 'neutral'}
+      size="sm"
+      leadingIcon={available ? <CheckCircle className="size-3" /> : <Circle className="size-3" />}
     >
-      {available ? <CheckCircle className="w-3 h-3" /> : <Circle className="w-3 h-3" />}
       {label}
-    </div>
+    </Badge>
   );
 }
 

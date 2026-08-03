@@ -14,6 +14,7 @@ import {
   Fingerprint, Sparkles, Calculator, CheckCircle, Circle,
   AlertCircle, ChevronLeft, Camera, Clock, CheckCircle2,
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -269,20 +270,12 @@ function authHeaders(): Record<string, string> {
 // ─── GateStatusBadge ──────────────────────────────────────────────────────────
 
 function GateStatusBadge({ status }: { status: string }) {
-  const base: React.CSSProperties = {
-    display: 'inline-block',
-    fontSize: 11, fontWeight: 700,
-    letterSpacing: '0.04em',
-    padding: '1px 5px', borderRadius: 3,
-  };
-  const map: Record<string, React.CSSProperties> = {
-    PASSED:  { backgroundColor: 'hsla(173,58%,39%,0.12)', color: 'hsl(173 58% 30%)' },
-    ACTIVE:  { backgroundColor: 'hsla(173,58%,39%,0.1)', color: 'hsl(173 58% 32%)', outline: '1px solid hsla(173,58%,39%,0.3)' },
-    BLOCKED: { backgroundColor: 'hsla(0,72%,51%,0.1)', color: 'hsl(0 72% 40%)' },
-    SKIPPED: { backgroundColor: 'hsl(var(--muted))', color: 'hsl(var(--muted-foreground))' },
-    FUTURE:  { backgroundColor: 'hsl(var(--muted) / 0.5)', color: 'hsl(var(--muted-foreground))' },
-  };
-  return <span style={{ ...base, ...(map[status] ?? map.FUTURE) }}>{status}</span>;
+  const intent = status === 'PASSED' || status === 'ACTIVE'
+    ? 'success'
+    : status === 'BLOCKED'
+      ? 'danger'
+      : 'neutral';
+  return <Badge intent={intent} size="sm" className="rounded">{status}</Badge>;
 }
 
 // ─── DocumentStatusCard (G-S10, G-S11) ───────────────────────────────────────

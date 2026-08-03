@@ -8,17 +8,17 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: "border-transparent bg-[#eefefb] text-primary",
-        secondary: "border-transparent bg-[#e5e5e5] text-[#555]",
-        destructive: "border-transparent bg-[#fdf2f1] text-[#c51625]",
+        default: "border-transparent bg-[hsl(var(--primary)/0.10)] text-primary",
+        secondary: "border-transparent bg-muted text-muted-foreground",
+        destructive: "border-transparent bg-[hsl(var(--destructive)/0.10)] text-destructive",
         outline: "border-current bg-transparent text-foreground",
-        success: "border-transparent bg-[#e2fdeb] text-[#198653]",
-        warning: "border-transparent bg-[#fdf3ec] text-[#d17215]",
-        danger: "border-transparent bg-[#fdf2f1] text-[#c51625]",
-        info: "border-transparent bg-[#dbe9fb] text-[#0c46c3]",
-        active: "border-transparent bg-[#eefefb] text-[#2a9d90]",
-        draft: "border-transparent bg-[#e5e5e5] text-[#353535]",
-        neutral: "border-transparent bg-[#e5e5e5] text-[#555]",
+        success: "border-transparent bg-[hsl(var(--vs-success)/0.12)] text-[hsl(var(--vs-success))]",
+        warning: "border-transparent bg-[hsl(var(--vs-warning)/0.14)] text-[hsl(var(--vs-warning))]",
+        danger: "border-transparent bg-[hsl(var(--destructive)/0.10)] text-destructive",
+        info: "border-transparent bg-[hsl(var(--vs-info)/0.12)] text-[hsl(var(--vs-info))]",
+        active: "border-transparent bg-[hsl(var(--primary)/0.10)] text-primary",
+        draft: "border-transparent bg-muted text-foreground",
+        neutral: "border-transparent bg-muted text-muted-foreground",
       },
       badgeStyle: {
         filled: "",
@@ -47,16 +47,16 @@ export interface BadgeProps
 
 const dotColorByVariant: Record<string, string> = {
   default: "bg-primary",
-  secondary: "bg-[#555]",
-  destructive: "bg-[#c51625]",
+  secondary: "bg-muted-foreground",
+  destructive: "bg-destructive",
   outline: "bg-current",
-  success: "bg-[#198653]",
-  warning: "bg-[#d17215]",
-  danger: "bg-[#c51625]",
-  info: "bg-[#0c46c3]",
-  active: "bg-[#2a9d90]",
-  draft: "bg-[#353535]",
-  neutral: "bg-[#555]",
+  success: "bg-[hsl(var(--vs-success))]",
+  warning: "bg-[hsl(var(--vs-warning))]",
+  danger: "bg-destructive",
+  info: "bg-[hsl(var(--vs-info))]",
+  active: "bg-primary",
+  draft: "bg-foreground",
+  neutral: "bg-muted-foreground",
 }
 
 function Badge({

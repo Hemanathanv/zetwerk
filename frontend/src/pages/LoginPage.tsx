@@ -441,8 +441,9 @@ export function LoginPage() {
   useEffect(() => {
     if (!isAuthenticated || !user) return;
     const mods = (user as any)?.modules as string[] | undefined ?? [];
-    if (mods.includes('portal')) { navigate('/portal'); return; }
-    if (mods.includes('partner') || user?.role?.category === 'org_external') { navigate('/partner'); return; }
+    const category = String(user?.role?.category ?? '').toLowerCase();
+    if (mods.includes('portal') && category.includes('customer')) { navigate('/portal'); return; }
+    if (mods.includes('partner') && (category.includes('external') || category.includes('partner'))) { navigate('/partner'); return; }
     navigate('/dashboard');
   }, [isAuthenticated, user]);
 
@@ -457,9 +458,10 @@ export function LoginPage() {
       try {
         const freshUser = JSON.parse(localStorage.getItem('ewms_user') ?? '{}');
         const mods: string[] = freshUser.modules ?? [];
-        if (mods.includes('portal')) {
+        const category = String(freshUser.role?.category ?? '').toLowerCase();
+        if (mods.includes('portal') && category.includes('customer')) {
           navigate('/portal');
-        } else if (mods.includes('partner') || freshUser.role?.category === 'org_external') {
+        } else if (mods.includes('partner') && (category.includes('external') || category.includes('partner'))) {
           navigate('/partner');
         } else {
           navigate('/dashboard');

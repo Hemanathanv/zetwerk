@@ -1,0 +1,39 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+import { EWMS_FIGMA_FILE, figmaComponentMap } from '../design-system/figmaComponentMap';
+
+<Meta title="Design System/Figma Coverage" />
+
+# Figma Coverage
+
+Figma source: [{EWMS_FIGMA_FILE.fileKey}]({EWMS_FIGMA_FILE.url})
+
+Required references for every reconciliation pass:
+
+- `docs/design-system/EWMS_Figma_Component_Reference.md`
+- `docs/design-system/EWMS_Component_Intent_Guide.md`
+- `docs/design-system/EWMS_Frontend_UIUX-Rulebook_Updated.md`
+
+Use this map before changing UI. If a component has `implemented` status, use the code component listed here. If it is `partial`, align work to the Figma node and the rulebook before expanding usage. If it is `needs-code-component`, do not invent a page-local pattern.
+
+<table>
+  <thead>
+    <tr>
+      <th>Section</th>
+      <th>Figma component</th>
+      <th>Node</th>
+      <th>Status</th>
+      <th>Code</th>
+    </tr>
+  </thead>
+  <tbody>
+    {figmaComponentMap.map((item) => (
+      <tr key={`${item.section}-${item.figmaNodeId}`}>
+        <td>{item.section}</td>
+        <td>{item.figmaName}</td>
+        <td>{item.figmaNodeId}</td>
+        <td>{item.status}</td>
+        <td>{item.codePath ?? '-'}</td>
+      </tr>
+    ))}
+  </tbody>
+</table>

@@ -308,12 +308,12 @@ def _scoped_doc_types_for_action(attributes: dict | None, action: str) -> set[st
 
 
 def can_access_all_documents(user: Any) -> bool:
-    attrs = getattr(user, "keycloakRoleAttributes", None)
-    explicit_scope = role_document_scope_from_attrs(attrs)
-    return explicit_scope is None and access_role(user) in ALL_DOCUMENT_ACCESS_ROLES
+    return access_role(user) in ALL_DOCUMENT_ACCESS_ROLES
 
 
 def document_type_scope(user: Any) -> set[str] | None:
+    if access_role(user) in ALL_DOCUMENT_ACCESS_ROLES:
+        return None
     attrs = getattr(user, "keycloakRoleAttributes", None)
     explicit_scope = role_document_scope_from_attrs(attrs)
     if explicit_scope is not None:

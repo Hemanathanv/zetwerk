@@ -65,6 +65,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     try {
+      window.localStorage.removeItem(SESSION_TOKEN_KEY);
+      window.localStorage.removeItem(REFRESH_TOKEN_KEY);
       const response = await authApi.login(email, password);
       const accessToken = response.data?.access_token;
       const refreshToken = response.data?.refresh_token;

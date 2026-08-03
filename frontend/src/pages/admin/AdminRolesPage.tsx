@@ -10,6 +10,7 @@ import { AdminFormSection } from '@/components/admin/AdminFormSection';
 import { AdminStatusBadge } from '@/components/admin/AdminStatusBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ProgressBar as EwmsProgressBar } from '@/components/vs/ProgressBar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -163,6 +164,9 @@ const SLA_ACTIVITY_CONFIG: Record<string, { activityType: string; activityName: 
   },
 };
 
+const ACTIVITY_PERMISSION_GRID_COLUMNS =
+  '20px minmax(0, 112px) minmax(0, 1.35fr) minmax(120px, 190px) minmax(64px, max-content)';
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function catBadgeStyle(cat: string): React.CSSProperties {
   const m: Record<string, { bg: string; color: string }> = {
@@ -274,10 +278,16 @@ function activityScopeSummary(activity: Activity, selected: string[] | undefined
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 function ProgressBar({ value, max }: { value: number; max: number }) {
-  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
-    <div style={{ height: 3, background: 'hsl(var(--muted))', borderRadius: 2, overflow: 'hidden', marginTop: 4 }}>
-      <div style={{ width: `${pct}%`, height: '100%', background: 'hsl(173 58% 39%)', borderRadius: 2 }} />
+    <div style={{ marginTop: 4 }}>
+      <EwmsProgressBar
+        current={value}
+        total={max}
+        intent="active"
+        size="sm"
+        hasLabel={false}
+        valueDisplay="none"
+      />
     </div>
   );
 }
@@ -973,7 +983,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                     {isExpanded && (
                       <div style={{
                         display: 'grid',
-                        gridTemplateColumns: '20px minmax(68px, 86px) minmax(220px, 1fr) minmax(140px, 190px) minmax(78px, max-content)',
+                        gridTemplateColumns: ACTIVITY_PERMISSION_GRID_COLUMNS,
                         alignItems: 'center',
                         gap: 12,
                         padding: '7px 14px',
@@ -986,9 +996,9 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                         letterSpacing: '0.06em',
                       }}>
                         <span />
-                        <span>Code</span>
-                        <span>Activity</span>
-                        <span>Scope</span>
+                        <span style={{ minWidth: 0 }}>Code</span>
+                        <span style={{ minWidth: 0 }}>Activity</span>
+                        <span style={{ minWidth: 0 }}>Scope</span>
                         <span style={{ textAlign: 'right' }}>Level</span>
                       </div>
                     )}
@@ -1002,7 +1012,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                         <div key={act.id}>
                           <div style={{
                             display: 'grid',
-                            gridTemplateColumns: '20px minmax(68px, 86px) minmax(220px, 1fr) minmax(140px, 190px) minmax(78px, max-content)',
+                            gridTemplateColumns: ACTIVITY_PERMISSION_GRID_COLUMNS,
                             alignItems: 'center',
                             gap: 12,
                             padding: '7px 14px', borderTop: '1px solid hsl(var(--border))',
@@ -1016,13 +1026,22 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                               fontSize: 13.5,
                               color: 'hsl(var(--muted-foreground))',
                               whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
                               lineHeight: 1.25,
                               minWidth: 0,
                             }}>
                               {act.displayCode ?? act.activityCode}
                             </span>
-                            <span style={{ fontSize: 14.5, minWidth: 0, lineHeight: 1.3 }}>
-                              <span>{act.name}</span>
+                            <span style={{
+                              fontSize: 14.5,
+                              minWidth: 0,
+                              lineHeight: 1.3,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}>
+                              {act.name}
                             </span>
                             <span style={{ minWidth: 0 }}>
                               {act.scopeType === 'docType' ? (

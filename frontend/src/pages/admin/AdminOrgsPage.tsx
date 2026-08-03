@@ -10,6 +10,8 @@ import { AdminConfirmDialog } from '@/components/admin/AdminConfirmDialog';
 import { AdminFormSection } from '@/components/admin/AdminFormSection';
 import { AdminSectionTabs } from '@/components/admin/AdminSectionTabs';
 import { AdminStatusBadge } from '@/components/admin/AdminStatusBadge';
+import { IconTile } from '@/components/ewms';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -66,13 +68,13 @@ const TAG_FIELDS = [
 ];
 const TAG_OPERATORS = ['equals', 'contains', 'starts with'];
 
-const TYPE_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  cha:               { bg: '#ede9fe', text: '#6d28d9', label: 'CHA' },
-  freight_forwarder: { bg: '#e0e7ff', text: '#3730a3', label: 'Freight Forwarder' },
-  customs_broker:    { bg: '#fce7f3', text: '#9d174d', label: 'Customs Broker' },
-  tpl:               { bg: '#fef3c7', text: '#92400e', label: '3PL' },
-  customer:          { bg: '#dcfce7', text: '#166534', label: 'Customer' },
-  __main:            { bg: '#dbeafe', text: '#1e40af', label: 'Main Org' },
+const TYPE_BADGE: Record<string, { label: string; intent: 'neutral' | 'info' | 'warning' | 'success' | 'active' }> = {
+  cha: { label: 'CHA', intent: 'info' },
+  freight_forwarder: { label: 'Freight Forwarder', intent: 'info' },
+  customs_broker: { label: 'Customs Broker', intent: 'warning' },
+  tpl: { label: '3PL', intent: 'warning' },
+  customer: { label: 'Customer', intent: 'success' },
+  __main: { label: 'Main Org', intent: 'active' },
 };
 
 const MONO = '"JetBrains Mono", "Fira Code", monospace';
@@ -81,17 +83,7 @@ const MONO = '"JetBrains Mono", "Fira Code", monospace';
 
 function TypeBadge({ typeCode }: { typeCode: string }) {
   const cfg = TYPE_BADGE[typeCode] ?? TYPE_BADGE.__main;
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center',
-      padding: '2px 10px', borderRadius: 99,
-      fontSize: 14, fontWeight: 600,
-      background: cfg.bg, color: cfg.text,
-      whiteSpace: 'nowrap',
-    }}>
-      {cfg.label}
-    </span>
-  );
+  return <Badge intent={cfg.intent} size="sm">{cfg.label}</Badge>;
 }
 
 function StatCard({ label, value, sub }: { label: string; value: number; sub?: string }) {
@@ -432,13 +424,7 @@ export function AdminOrgsPage() {
         const cfg = TYPE_BADGE[typeKey] ?? TYPE_BADGE.__main;
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{
-              width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-              background: cfg.bg,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <Building2 size={15} color={cfg.text} />
-            </div>
+            <IconTile icon={Building2} intent={cfg.intent} />
             <div>
               <div style={{ fontSize: 14, fontWeight: 500, color: 'hsl(var(--foreground))' }}>
                 {name}

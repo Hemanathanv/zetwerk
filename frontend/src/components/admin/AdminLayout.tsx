@@ -5,6 +5,7 @@ import {
   Calculator, Container, Warehouse, PackageSearch,
   ScrollText, Settings, ArrowLeft, ClipboardCheck,
 } from 'lucide-react';
+import { EwmsScrollArea } from '@/components/ewms/Media';
 
 interface NavItem {
   label: string;
@@ -63,7 +64,9 @@ function AdminNav({ collapsed }: { collapsed: boolean }) {
   const [location] = useLocation();
 
   return (
-    <nav
+    <EwmsScrollArea
+      as="nav"
+      data-ewms-scrollbar="sidebar"
       style={{
         width: collapsed ? NAV_WC : NAV_W,
         flexShrink: 0,
@@ -72,13 +75,11 @@ function AdminNav({ collapsed }: { collapsed: boolean }) {
         top: 0,
         background: 'hsl(var(--card))',
         borderRight: '1px solid hsl(var(--border))',
-        overflowY: 'auto',
         overflowX: 'hidden',
         padding: collapsed ? '24px 4px' : '24px 12px',
         transition: 'width 0.2s, padding 0.2s',
         display: 'flex',
         flexDirection: 'column',
-        scrollbarWidth: 'none',
         boxSizing: 'border-box',
       } as React.CSSProperties}
     >
@@ -195,7 +196,7 @@ function AdminNav({ collapsed }: { collapsed: boolean }) {
           </div>
         </div>
       ))}
-    </nav>
+    </EwmsScrollArea>
   );
 }
 
@@ -233,9 +234,9 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'hsl(var(--background))' }}>
       <AdminNav collapsed={collapsed} />
-      <div style={{ flex: 1, overflowY: 'auto', padding: 32, minWidth: 0 }}>
+      <EwmsScrollArea style={{ flex: 1, padding: 32, minWidth: 0 }}>
         {children}
-      </div>
+      </EwmsScrollArea>
     </div>
   );
 }

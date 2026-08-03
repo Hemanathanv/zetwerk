@@ -4,6 +4,9 @@ import { Layers, FileText, Fingerprint, Loader2, Plus, ShieldOff } from 'lucide-
 import { useConfig } from '@/contexts/ConfigContext';
 import { RequireActivity } from '@/components/PermissionGate';
 import { apiPost } from '@/lib/api';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -144,7 +147,7 @@ function CreateShipmentForm() {
 
   // ── styles ────────────────────────────────────────────────────────────────
 
-  const inputCls = 'w-full text-sm border rounded-lg px-3 py-2 bg-background text-foreground outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-400';
+  const inputCls = 'w-full';
   const selectCls = inputCls;
   const labelStyle: React.CSSProperties = {
     display: 'block', fontSize: 14.5, fontWeight: 500,
@@ -254,16 +257,9 @@ function CreateShipmentForm() {
                   {tTypes.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
                       {tTypes.map((type: string) => (
-                        <span
-                          key={type}
-                          style={{
-                            fontSize: 13, background: 'hsl(var(--muted))',
-                            borderRadius: 999, padding: '2px 8px',
-                            color: 'hsl(var(--muted-foreground))',
-                          }}
-                        >
+                        <Badge key={type} intent="neutral" size="sm">
                           {type}
-                        </span>
+                        </Badge>
                       ))}
                     </div>
                   )}
@@ -380,7 +376,7 @@ function CreateShipmentForm() {
                   ))}
                 </select>
               ) : (
-                <input
+                <Input
                   value={formData.shipmentType}
                   onChange={e => setField('shipmentType', e.target.value)}
                   className={inputCls}
@@ -392,7 +388,7 @@ function CreateShipmentForm() {
             {/* Exporter Name */}
             <div>
               <label style={labelStyle}>Exporter Name</label>
-              <input
+              <Input
                 value={formData.exporterName}
                 onChange={e => setField('exporterName', e.target.value)}
                 className={inputCls}
@@ -403,7 +399,7 @@ function CreateShipmentForm() {
             {/* Buyer Name */}
             <div>
               <label style={labelStyle}>Buyer Name</label>
-              <input
+              <Input
                 value={formData.buyerName}
                 onChange={e => setField('buyerName', e.target.value)}
                 className={inputCls}
@@ -414,7 +410,7 @@ function CreateShipmentForm() {
             {/* Port of Loading */}
             <div>
               <label style={labelStyle}>Port of Loading</label>
-              <input
+              <Input
                 value={formData.portOfLoading}
                 onChange={e => setField('portOfLoading', e.target.value)}
                 className={inputCls}
@@ -425,7 +421,7 @@ function CreateShipmentForm() {
             {/* Destination */}
             <div>
               <label style={labelStyle}>Destination</label>
-              <input
+              <Input
                 value={formData.destination}
                 onChange={e => setField('destination', e.target.value)}
                 className={inputCls}
@@ -446,7 +442,7 @@ function CreateShipmentForm() {
                   <option value="INR">INR</option>
                   <option value="EUR">EUR</option>
                 </select>
-                <input
+                <Input
                   type="number"
                   value={formData.estimatedValue}
                   onChange={e => setField('estimatedValue', e.target.value)}
@@ -460,7 +456,7 @@ function CreateShipmentForm() {
             {/* PO / Project Reference — full width */}
             <div style={{ gridColumn: '1 / -1' }}>
               <label style={labelStyle}>PO / Project Reference</label>
-              <input
+              <Input
                 value={formData.projectRef}
                 onChange={e => setField('projectRef', e.target.value)}
                 className={inputCls}
@@ -481,24 +477,19 @@ function CreateShipmentForm() {
             {' '}· {templateGates.length} gate{templateGates.length !== 1 ? 's' : ''} will be initialized
             {' '}· Gate 1 will be active immediately
           </p>
-          <button
+          <Button
+            type="button"
             onClick={handleCreate}
             disabled={submitting || !formData.exporterName || !formData.buyerName}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '10px 24px', borderRadius: 10, border: 'none',
-              background: 'hsl(173 58% 39%)', color: '#fff',
-              fontSize: 14.5, fontWeight: 500, cursor: 'pointer',
-              opacity: submitting || !formData.exporterName || !formData.buyerName ? 0.5 : 1,
-              transition: 'opacity 150ms', whiteSpace: 'nowrap',
-            }}
+            size="lg"
+            className="whitespace-nowrap"
           >
             {submitting ? (
-              <><Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> Creating...</>
+              <><Loader2 className="size-4 animate-spin" /> Creating...</>
             ) : (
-              <><Plus size={15} /> Create Shipment</>
+              <><Plus className="size-4" /> Create Shipment</>
             )}
-          </button>
+          </Button>
         </div>
       )}
 

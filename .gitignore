@@ -22,8 +22,14 @@ build/
 *.*zip
 *.*txt
 *.md
+!docs/
+!docs/design-system/
+!docs/design-system/*.md
 zetwerk-main/
 docs/
+!docs/
+!docs/design-system/
+!docs/design-system/*.md
 .agents/
 .codex/
 doc/
@@ -31,3 +37,4 @@ doc/
 keycloak/
 
 frontend/.env.local
+frontend/storybook-static/

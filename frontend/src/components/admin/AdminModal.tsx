@@ -2,6 +2,7 @@ import {
   Dialog, DialogContent, DialogHeader,
   DialogTitle, DialogDescription,
 } from '@/components/ui/dialog';
+import { EwmsScrollArea } from '@/components/ewms/Media';
 
 type ModalSize = 'sm' | 'md' | 'lg' | 'xl';
 
@@ -45,16 +46,11 @@ export function AdminModal({
           )}
         </DialogHeader>
 
-        <div
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-            padding: '20px 24px',
-            minHeight: 0,
-          }}
+        <EwmsScrollArea
+          style={{ flex: 1, padding: '20px 24px', minHeight: 0 }}
         >
           {children}
-        </div>
+        </EwmsScrollArea>
 
         {footer && (
           <div

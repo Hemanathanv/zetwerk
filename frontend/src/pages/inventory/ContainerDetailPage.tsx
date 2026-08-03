@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { getAuthToken } from '@/lib/api';
 import { RequireActivity } from '@/components/PermissionGate';
+import { StatusBadge } from '@/components/StatusBadge';
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();
@@ -37,28 +38,6 @@ function timeAgo(d: string | Date | null | undefined): string {
 }
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
-
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { bg: string; text: string }> = {
-    at_origin:    { bg: 'hsl(var(--muted))', text: 'hsl(var(--muted-foreground))' },
-    in_transit:   { bg: 'hsl(214 100% 95%)', text: 'hsl(214 72% 40%)' },
-    at_port:      { bg: 'hsl(38 92% 94%)',   text: 'hsl(38 55% 38%)' },
-    discharged:   { bg: 'hsl(38 92% 94%)',   text: 'hsl(38 55% 38%)' },
-    gate_out:     { bg: 'hsl(270 60% 96%)',  text: 'hsl(270 50% 42%)' },
-    in_warehouse: { bg: 'hsl(143 60% 93%)',  text: 'hsl(143 50% 32%)' },
-    delivered:    { bg: 'hsl(173 58% 93%)',  text: 'hsl(173 58% 30%)' },
-    returned:     { bg: 'hsl(143 60% 93%)',  text: 'hsl(143 50% 32%)' },
-  };
-  const s = map[status] ?? map.at_origin;
-  return (
-    <span style={{
-      fontSize: 14, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
-      background: s.bg, color: s.text, textTransform: 'capitalize',
-    }}>
-      {(status || 'unknown').replace(/_/g, ' ')}
-    </span>
-  );
-}
 
 // ─── SafeCube event category chip ─────────────────────────────────────────────
 

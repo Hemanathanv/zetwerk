@@ -113,11 +113,85 @@ def _sla_activity_type(activity_code: str | None) -> str:
     return ACTIVITY_CODE_TO_SLA_TYPE.get(value, value or "TSK-001")
 
 
+async def _has_escalation_config_table(prisma) -> bool:
+    rows = await _query_raw(
+        prisma,
+        "SELECT to_regclass('public.escalation_configs')::text AS table_name",
+    )
+    return bool(rows and rows[0].get("table_name"))
+
+
+async def _sla_config_for_activity(prisma, activity_type: str) -> dict[str, Any] | None:
+    if not await _has_escalation_config_table(prisma):
+        return None
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT
+          "id", "activity_type", "base_sla_hours", "reminder_pct",
+          "warning_pct", "escalation_pct", "blocker_pct", "channels", "targets"
+        FROM "public"."escalation_configs"
+        WHERE LOWER("activity_type") = LOWER($1)
+          AND "base_sla_hours" > 0
+        ORDER BY
+          CASE WHEN COALESCE("scope", '') = '' THEN 1 ELSE 0 END,
+          "id" ASC
+        LIMIT 1
+        """,
+        activity_type,
+    )
+    return rows[0] if rows else None
+
+
+async def _validation_sla_config(prisma) -> dict[str, Any] | None:
+    if not await _has_escalation_config_table(prisma):
+        return None
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT
+          "id", "activity_type", "base_sla_hours", "reminder_pct",
+          "warning_pct", "escalation_pct", "blocker_pct", "channels", "targets"
+        FROM "public"."escalation_configs"
+        WHERE LOWER("activity_type") = 'resolve_validation_failure'
+          AND "base_sla_hours" > 0
+          AND COALESCE(NULLIF(TRIM("base_doc"), ''), 'Doc names') <> 'Doc names'
+          AND LOWER(COALESCE(NULLIF(TRIM("scope"), ''), 'validation')) NOT IN ('validation', 'document', 'generated documents')
+        ORDER BY "id" ASC
+        LIMIT 1
+        """,
+    )
+    return rows[0] if rows else None
+
+
 async def _ensure_tables(prisma) -> None:
     global TASKS_READY
     if TASKS_READY:
         return
     await ensure_operational_shipment_tables(prisma)
+    await _execute_raw(
+        prisma,
+        """
+        CREATE TABLE IF NOT EXISTS "public"."escalation_configs" (
+          "id" TEXT PRIMARY KEY,
+          "activity_type" TEXT NOT NULL,
+          "activity_name" TEXT NOT NULL,
+          "description" TEXT NOT NULL DEFAULT '',
+          "scope" TEXT NOT NULL DEFAULT '',
+          "base_doc" TEXT NOT NULL DEFAULT '',
+          "base_sla_hours" DOUBLE PRECISION NOT NULL DEFAULT 24,
+          "reminder_pct" INTEGER NOT NULL DEFAULT 0,
+          "warning_pct" INTEGER NOT NULL DEFAULT 50,
+          "escalation_pct" INTEGER NOT NULL DEFAULT 75,
+          "blocker_pct" INTEGER NOT NULL DEFAULT 100,
+          "channels" JSONB NOT NULL DEFAULT '{}'::jsonb,
+          "targets" JSONB NOT NULL DEFAULT '{}'::jsonb,
+          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+    )
+    await _execute_raw(prisma, 'CREATE INDEX IF NOT EXISTS "idx_escalation_configs_activity_type" ON "public"."escalation_configs"("activity_type")')
     await _execute_raw(
         prisma,
         """
@@ -178,6 +252,43 @@ async def _ensure_tables(prisma) -> None:
     TASKS_READY = True
 
 
+def _sla_task_clause(alias: str = "t") -> str:
+    prefix = f'{alias}.' if alias else ""
+    return (
+        "EXISTS ("
+        'SELECT 1 FROM "public"."escalation_configs" ec '
+        f'WHERE LOWER(ec."activity_type") = LOWER({prefix}"activity_code") '
+        'AND ec."base_sla_hours" > 0'
+        f" AND (LOWER({prefix}\"activity_code\") <> 'resolve_validation_failure' "
+        "OR (COALESCE(NULLIF(TRIM(ec.\"base_doc\"), ''), 'Doc names') <> 'Doc names' "
+        "AND LOWER(COALESCE(NULLIF(TRIM(ec.\"scope\"), ''), 'validation')) NOT IN ('validation', 'document', 'generated documents')))"
+        ")"
+    )
+
+
+def _apply_sla_task_filter(where: str) -> str:
+    clause = _sla_task_clause("t")
+    if where.strip():
+        return f"{where} AND {clause}"
+    return f"WHERE {clause}"
+
+
+def _sla_notification_clause(alias: str = "n") -> str:
+    prefix = f'{alias}.' if alias else ""
+    return (
+        "EXISTS ("
+        'SELECT 1 FROM "public"."task_instances" nt '
+        'JOIN "public"."escalation_configs" ec '
+        'ON LOWER(ec."activity_type") = LOWER(nt."activity_code") '
+        'AND ec."base_sla_hours" > 0 '
+        "AND (LOWER(nt.\"activity_code\") <> 'resolve_validation_failure' "
+        "OR (COALESCE(NULLIF(TRIM(ec.\"base_doc\"), ''), 'Doc names') <> 'Doc names' "
+        "AND LOWER(COALESCE(NULLIF(TRIM(ec.\"scope\"), ''), 'validation')) NOT IN ('validation', 'document', 'generated documents'))) "
+        f'WHERE nt."id" = {prefix}"task_id"'
+        ")"
+    )
+
+
 async def _insert_notification(
     prisma,
     *,
@@ -230,14 +341,13 @@ async def _sync_ocr_validation_tasks(prisma) -> None:
     if not table_rows or not table_rows[0].get("table_name"):
         return
 
+    sla_config = await _validation_sla_config(prisma)
+    if not sla_config:
+        return
+
     await _execute_raw(
         prisma,
         """
-        WITH validation_sla AS (
-          SELECT COALESCE(MAX("base_sla_hours"), 24) AS base_sla_hours
-          FROM "public"."escalation_configs"
-          WHERE "activity_type" = 'resolve_validation_failure'
-        )
         INSERT INTO "public"."task_instances" (
           "id", "title", "description", "category", "activity_code", "status", "urgency",
           "assigned_role", "shipment_id", "entity_type", "entity_id", "sla_deadline",
@@ -265,7 +375,7 @@ async def _sync_ocr_validation_tasks(prisma) -> None:
           END,
           'validation_result',
           COALESCE(vt."validation_result_id", vt."document_id"),
-          vt."created_at" + ((SELECT base_sla_hours FROM validation_sla) * INTERVAL '1 hour'),
+          vt."created_at" + ($2::double precision * INTERVAL '1 hour'),
           jsonb_build_object(
             'module', 'documents',
             'source', 'ocr_validation',
@@ -295,6 +405,7 @@ async def _sync_ocr_validation_tasks(prisma) -> None:
           "updated_at" = EXCLUDED."updated_at"
         """,
         DEFAULT_ROLE_ID,
+        float(sla_config.get("base_sla_hours") or 0),
     )
     task_rows = await _query_raw(
         prisma,
@@ -322,6 +433,8 @@ async def _sync_ocr_validation_tasks(prisma) -> None:
 async def _sync_task_reminders(prisma) -> None:
     await _ensure_tables(prisma)
     await _sync_ocr_validation_tasks(prisma)
+    if not await _has_escalation_config_table(prisma):
+        return
     rows = await _query_raw(
         prisma,
         """
@@ -330,8 +443,23 @@ async def _sync_task_reminders(prisma) -> None:
           t."assigned_role", t."assigned_user_id", t."created_at", t."sla_deadline",
           COALESCE(ec."reminder_pct", 0) AS reminder_pct
         FROM "public"."task_instances" t
-        LEFT JOIN "public"."escalation_configs" ec
-          ON ec."activity_type" = t."activity_code"
+        JOIN LATERAL (
+          SELECT "reminder_pct"
+          FROM "public"."escalation_configs" ec
+          WHERE LOWER(ec."activity_type") = LOWER(t."activity_code")
+            AND ec."base_sla_hours" > 0
+            AND (
+              LOWER(t."activity_code") <> 'resolve_validation_failure'
+              OR (
+                COALESCE(NULLIF(TRIM(ec."base_doc"), ''), 'Doc names') <> 'Doc names'
+                AND LOWER(COALESCE(NULLIF(TRIM(ec."scope"), ''), 'validation')) NOT IN ('validation', 'document', 'generated documents')
+              )
+            )
+          ORDER BY
+            CASE WHEN COALESCE(ec."scope", '') = '' THEN 1 ELSE 0 END,
+            ec."id" ASC
+          LIMIT 1
+        ) ec ON TRUE
         WHERE t."status" = ANY($1::text[])
           AND t."sla_deadline" IS NOT NULL
           AND COALESCE(ec."reminder_pct", 0) > 0
@@ -426,6 +554,7 @@ def _pagination(page: int, page_size: int) -> tuple[int, int, int]:
 async def _task_rows(prisma, where: str = "", *params, limit: int = 500, offset: int = 0) -> list[dict[str, Any]]:
     safe_limit = max(1, min(500, int(limit)))
     safe_offset = max(0, int(offset))
+    effective_where = _apply_sla_task_filter(where)
     rows = await _query_raw(
         prisma,
         f"""
@@ -437,7 +566,7 @@ async def _task_rows(prisma, where: str = "", *params, limit: int = 500, offset:
         FROM "public"."task_instances" t
         LEFT JOIN "public"."shipments" s ON s."id" = t."shipment_id"
         LEFT JOIN "public"."task_instances" p ON p."id" = t."parent_task_id"
-        {where}
+        {effective_where}
         ORDER BY
           CASE t."urgency" WHEN 'BLOCKER' THEN 0 WHEN 'WARNING' THEN 1 ELSE 2 END,
           t."created_at" DESC
@@ -450,13 +579,14 @@ async def _task_rows(prisma, where: str = "", *params, limit: int = 500, offset:
 
 
 async def _task_total(prisma, where: str = "", *params) -> int:
+    effective_where = _apply_sla_task_filter(where)
     rows = await _query_raw(
         prisma,
         f"""
         SELECT COUNT(*) AS total
         FROM "public"."task_instances" t
         LEFT JOIN "public"."shipments" s ON s."id" = t."shipment_id"
-        {where}
+        {effective_where}
         """,
         *params,
     )
@@ -537,18 +667,10 @@ async def create_task(request: TaskCreateRequest, user=Depends(get_current_user)
         return {"ok": False, "error": "Task title is required."}
     task_id = str(uuid4())
     activity_code = _sla_activity_type(request.activityCode)
-    config_rows = await _query_raw(
-        prisma,
-        """
-        SELECT "base_sla_hours"
-        FROM "public"."escalation_configs"
-        WHERE LOWER("activity_type") = LOWER($1)
-        ORDER BY "id"
-        LIMIT 1
-        """,
-        activity_code,
-    )
-    base_sla_hours = float(config_rows[0].get("base_sla_hours") or 24) if config_rows else 24
+    sla_config = await _sla_config_for_activity(prisma, activity_code)
+    if not sla_config:
+        return {"ok": False, "error": f"No SLA is defined for activity '{activity_code}'. Define an SLA before creating tasks or notifications for it."}
+    base_sla_hours = float(sla_config.get("base_sla_hours") or 0)
     await _execute_raw(
         prisma,
         """
@@ -606,12 +728,13 @@ async def task_count(user=Depends(get_current_user)):
     user_id = _user_id(user)
     rows = await _query_raw(
         prisma,
-        """
+        f"""
         SELECT
           COUNT(*) AS total,
           COUNT(*) FILTER (WHERE "urgency" = 'BLOCKER') AS blockers
         FROM "public"."task_instances"
         WHERE "status" = ANY($1::text[])
+          AND {_sla_task_clause("")}
           AND ("assigned_user_id" = $2 OR ("assigned_user_id" IS NULL AND "assigned_role" = $3))
         """,
         list(OPEN_STATUSES),
@@ -630,7 +753,7 @@ async def task_summary(user=Depends(get_current_user)):
     user_id = _user_id(user)
     rows = await _query_raw(
         prisma,
-        """
+        f"""
         SELECT
           COUNT(*) AS total,
           COUNT(*) FILTER (WHERE "urgency" = 'BLOCKER') AS blockers,
@@ -641,6 +764,7 @@ async def task_summary(user=Depends(get_current_user)):
           COUNT(*) FILTER (WHERE "assigned_role" = $3) AS team_count
         FROM "public"."task_instances"
         WHERE "status" = ANY($1::text[])
+          AND {_sla_task_clause("")}
         """,
         list(OPEN_STATUSES),
         user_id,
@@ -691,19 +815,20 @@ async def task_analytics(_user=Depends(get_current_user)):
     await _sync_task_reminders(prisma)
     score_rows = await _query_raw(
         prisma,
-        """
+        f"""
         SELECT
           COUNT(*) FILTER (WHERE "status" = ANY($1::text[])) AS open_count,
           COUNT(*) FILTER (WHERE "status" = 'COMPLETED') AS completed_count,
           COUNT(*) FILTER (WHERE "urgency" = 'BLOCKER' AND "status" = ANY($1::text[])) AS blocker_count,
           COUNT(*) FILTER (WHERE "sla_deadline" < NOW() AND "status" = ANY($1::text[])) AS overdue_count
         FROM "public"."task_instances"
+        WHERE {_sla_task_clause("")}
         """,
         list(OPEN_STATUSES),
     )
     role_rows = await _query_raw(
         prisma,
-        """
+        f"""
         SELECT
           COALESCE("assigned_role", 'Unassigned') AS role_id,
           COALESCE("assigned_role", 'Unassigned') AS role_code,
@@ -714,6 +839,7 @@ async def task_analytics(_user=Depends(get_current_user)):
           COUNT(*) FILTER (WHERE "urgency" = 'NORMAL') AS normal
         FROM "public"."task_instances"
         WHERE "status" = ANY($1::text[])
+          AND {_sla_task_clause("")}
         GROUP BY COALESCE("assigned_role", 'Unassigned')
         ORDER BY total DESC
         LIMIT 12
@@ -722,7 +848,7 @@ async def task_analytics(_user=Depends(get_current_user)):
     )
     hotspot_rows = await _query_raw(
         prisma,
-        """
+        f"""
         SELECT
           t."shipment_id"::text AS shipment_id,
           COALESCE(s."shipment_number", t."shipment_id"::text) AS shipment_number,
@@ -733,6 +859,7 @@ async def task_analytics(_user=Depends(get_current_user)):
         FROM "public"."task_instances" t
         LEFT JOIN "public"."shipments" s ON s."id" = t."shipment_id"
         WHERE t."status" = ANY($1::text[]) AND t."shipment_id" IS NOT NULL
+          AND {_sla_task_clause("t")}
         GROUP BY t."shipment_id", s."shipment_number", s."current_stage_name"
         ORDER BY blockers DESC, oldest_task_age_days DESC
         LIMIT 20
@@ -789,6 +916,9 @@ async def task_detail(task_id: str, _user=Depends(get_current_user)):
 async def start_task(task_id: str, _user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_tables(prisma)
+    rows = await _task_rows(prisma, 'WHERE t."id" = $1::uuid', task_id)
+    if not rows:
+        raise HTTPException(status_code=404, detail="Task not found")
     await _execute_raw(
         prisma,
         'UPDATE "public"."task_instances" SET "status" = \'IN_PROGRESS\', "started_at" = COALESCE("started_at", NOW()), "updated_at" = NOW() WHERE "id" = $1::uuid',
@@ -801,6 +931,9 @@ async def start_task(task_id: str, _user=Depends(get_current_user)):
 async def complete_task(task_id: str, _user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_tables(prisma)
+    rows = await _task_rows(prisma, 'WHERE t."id" = $1::uuid', task_id)
+    if not rows:
+        raise HTTPException(status_code=404, detail="Task not found")
     await _execute_raw(
         prisma,
         'UPDATE "public"."task_instances" SET "status" = \'COMPLETED\', "completed_at" = NOW(), "updated_at" = NOW() WHERE "id" = $1::uuid',
@@ -853,6 +986,9 @@ async def escalate_task(task_id: str, request: EscalateRequest, _user=Depends(ge
 async def reassign_task(task_id: str, request: ReassignRequest, _user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_tables(prisma)
+    rows = await _task_rows(prisma, 'WHERE t."id" = $1::uuid', task_id)
+    if not rows:
+        raise HTTPException(status_code=404, detail="Task not found")
     role_id = request.roleId or request.assignedRoleId
     await _execute_raw(
         prisma,
@@ -907,7 +1043,7 @@ async def list_notifications(
     await _sync_task_reminders(prisma)
     role = _user_role(user)
     user_id = _user_id(user)
-    clauses = [_notification_recipient_clause("n")]
+    clauses = [_notification_recipient_clause("n"), _sla_notification_clause("n")]
     params: list[Any] = [user_id, role]
     if type:
         params.append(type)
@@ -946,6 +1082,7 @@ async def list_notifications(
         FROM "public"."notifications" n
         WHERE n."read" = FALSE
           AND {_notification_recipient_clause("n")}
+          AND {_sla_notification_clause("n")}
         """,
         user_id,
         role,
@@ -956,6 +1093,7 @@ async def list_notifications(
         SELECT n."type", COUNT(*) AS count
         FROM "public"."notifications" n
         WHERE {_notification_recipient_clause("n")}
+          AND {_sla_notification_clause("n")}
         GROUP BY n."type"
         """,
         user_id,
@@ -979,6 +1117,7 @@ async def mark_notification_read(notification_id: str, user=Depends(get_current_
         SET "read" = TRUE
         WHERE n."id" = $3::uuid
           AND {_notification_recipient_clause("n")}
+          AND {_sla_notification_clause("n")}
         """,
         _user_id(user),
         _user_role(user),
@@ -997,6 +1136,7 @@ async def mark_all_notifications_read(user=Depends(get_current_user)):
         UPDATE "public"."notifications"
         SET "read" = TRUE
         WHERE {_notification_recipient_clause("")}
+          AND {_sla_notification_clause("")}
         """,
         _user_id(user),
         _user_role(user),
@@ -1012,10 +1152,11 @@ async def navigation_badges(user=Depends(get_current_user)):
     user_id = _user_id(user)
     task_rows = await _query_raw(
         prisma,
-        """
+        f"""
         SELECT COUNT(*) AS total
         FROM "public"."task_instances"
         WHERE "status" = ANY($1::text[])
+          AND {_sla_task_clause("")}
           AND ("assigned_user_id" = $2 OR ("assigned_user_id" IS NULL AND "assigned_role" = $3))
         """,
         list(OPEN_STATUSES),
@@ -1029,6 +1170,7 @@ async def navigation_badges(user=Depends(get_current_user)):
         FROM "public"."notifications"
         WHERE "read" = FALSE
           AND {_notification_recipient_clause("")}
+          AND {_sla_notification_clause("")}
         """,
         user_id,
         role,

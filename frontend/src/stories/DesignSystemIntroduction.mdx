@@ -1,0 +1,28 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Design System/Introduction" />
+
+# EWMS Design System
+
+This Storybook is the frontend reference for EWMS UI changes.
+
+Use these source documents before changing shared UI:
+
+- `docs/design-system/EWMS_Component_Intent_Guide.md`
+- `docs/design-system/EWMS_Frontend_UIUX-Rulebook_Updated.md`
+
+Rules that matter most:
+
+- Use existing shared components before creating new primitives.
+- Route statuses through the status-to-intent mapping before rendering badges.
+- Dashboard KPI cards use icon + sub-metrics and no trend.
+- Detail-page KPI cards stay minimal unless a trend is truly relevant.
+- Module/feature on-off settings use toggles, not checkboxes.
+- Colors, radius, and spacing must resolve through EWMS tokens/CSS variables.
+- Permission visibility stays strict: do not show actions the user cannot perform.
+
+Figma MCP usage:
+
+- Figma tells us what component variants exist.
+- The component intent guide tells us which variant belongs in each page context.
+- If a future component context is missing from the guide, add the decision there instead of guessing.
