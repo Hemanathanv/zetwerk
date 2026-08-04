@@ -1,5 +1,6 @@
 .venv/
 uv.lock
+!backend/uv.lock
 __pycache__
 data/
 !frontend/src/data/

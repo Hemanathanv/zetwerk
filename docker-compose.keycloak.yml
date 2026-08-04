@@ -34,7 +34,7 @@ services:
     environment:
       # Database configuration - using existing PostgreSQL
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ewms_db}
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ewms-db}
       KC_DB_USERNAME: ${POSTGRES_USER:-ewms-postgres}
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-ewms@#2026!}
       KC_DB_SCHEMA: keycloak  # Separate schema for Keycloak
@@ -56,6 +56,7 @@ services:
       KC_FEATURES: "scripts,token-exchange,admin-fine-grained-authz"
       KC_METRICS_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
+      KC_HTTP_MANAGEMENT_HEALTH_ENABLED: "false"
 
       # SSO and RBAC features
       KC_SPI_THEME_STATIC_MAX_AGE: "-1"
@@ -67,7 +68,7 @@ services:
       - ./keycloak/themes:/opt/keycloak/themes
 
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080$${KC_HTTP_RELATIVE_PATH}/health/ready"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health/ready >/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
