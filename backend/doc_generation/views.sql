@@ -1,8 +1,11 @@
 CREATE SCHEMA IF NOT EXISTS docgen;
 
 DROP VIEW IF EXISTS docgen.v_packing_list_source CASCADE;
+DROP TABLE IF EXISTS docgen.v_packing_list_source CASCADE;
 DROP VIEW IF EXISTS docgen.v_us_packing_list_source CASCADE;
+DROP TABLE IF EXISTS docgen.v_us_packing_list_source CASCADE;
 DROP VIEW IF EXISTS docgen.v_entry_summary_source CASCADE;
+DROP TABLE IF EXISTS docgen.v_entry_summary_source CASCADE;
 
 CREATE OR REPLACE VIEW docgen.v_packing_list_source AS
 SELECT
