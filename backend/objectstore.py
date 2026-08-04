@@ -16,32 +16,51 @@ def _env(name: str, default: str | None = None) -> str | None:
     return value.strip().strip('"').strip("'") if value else value
 
 
-S3_ENDPOINT = _env("S3_ENDPOINT")
-S3_ACCESS_KEY = _env("S3_ACCESS_KEY") or _env("S3_APP_ACCESS")
-S3_SECRET_KEY = _env("S3_SECRET_KEY") or _env("S3_APP_SECRET")
-S3_ADMIN_ACCESS = _env("S3_ADMIN_ACCESS")
-S3_ADMIN_SECRET = _env("S3_ADMIN_SECRET")
-S3_REGION = _env("S3_REGION", "us-east-1")
-DEFAULT_BUCKET = _env("S3_DEFAULT_BUCKET")
-S3_KEY_PREFIX = (_env("VOL_DIR_UUID") or _env("S3_KEY_PREFIX", "") or "").strip("/\\")
+APP_ENVIRONMENT = (_env("APP_ENVIRONMENT") or _env("APP_ENV", "dev")).strip().lower()
+IS_DEV = APP_ENVIRONMENT in {"dev", "development"}
+IS_PROD = APP_ENVIRONMENT in {"prod", "production"}
 
-for key, value in {
-    "S3_ENDPOINT": S3_ENDPOINT,
-    "S3_ACCESS_KEY": S3_ACCESS_KEY,
-    "S3_SECRET_KEY": S3_SECRET_KEY,
-}.items():
-    if not value:
-        raise RuntimeError(f"Missing {key} in backend/.env")
+if IS_DEV:
+    # DEV mode using SeaweedFS
+    S3_ENDPOINT = _env("S3_ENDPOINT")
+    S3_ACCESS_KEY = _env("S3_ACCESS_KEY") or _env("S3_APP_ACCESS") or _env("AWS_ACCESS_KEY_ID")
+    S3_SECRET_KEY = _env("S3_SECRET_KEY") or _env("S3_APP_SECRET") or _env("AWS_SECRET_ACCESS_KEY")
+    S3_ADMIN_ACCESS = _env("S3_ADMIN_ACCESS") or _env("AWS_ADMIN_ACCESS_KEY_ID")
+    S3_ADMIN_SECRET = _env("S3_ADMIN_SECRET") or _env("AWS_ADMIN_SECRET_ACCESS_KEY")
+    S3_REGION = _env("S3_REGION") or _env("AWS_REGION", "us-east-1")
+    DEFAULT_BUCKET = _env("S3_DEFAULT_BUCKET") or _env("S3_BUCKET_NAME", "ewms-invoices")
+    S3_KEY_PREFIX = (_env("VOL_DIR_UUID") or _env("S3_KEY_PREFIX", "") or "").strip("/\\")
+
+    for key, value in {
+        "S3_ENDPOINT": S3_ENDPOINT,
+        "S3_ACCESS_KEY": S3_ACCESS_KEY,
+        "S3_SECRET_KEY": S3_SECRET_KEY,
+    }.items():
+        if not value:
+            raise RuntimeError(f"Missing {key} in backend/.env for DEV (SeaweedFS) mode")
+else:
+    # PRODUCTION mode using direct AWS S3 (EC2 IAM Role authentication by default)
+    S3_ENDPOINT = _env("AWS_S3_ENDPOINT")
+    S3_ACCESS_KEY = _env("AWS_ACCESS_KEY_ID") or _env("S3_ACCESS_KEY") or _env("S3_APP_ACCESS")
+    S3_SECRET_KEY = _env("AWS_SECRET_ACCESS_KEY") or _env("S3_SECRET_KEY") or _env("S3_APP_SECRET")
+    S3_ADMIN_ACCESS = _env("AWS_ADMIN_ACCESS_KEY_ID") or _env("S3_ADMIN_ACCESS")
+    S3_ADMIN_SECRET = _env("AWS_ADMIN_SECRET_ACCESS_KEY") or _env("S3_ADMIN_SECRET")
+    S3_REGION = _env("S3_REGION") or _env("AWS_REGION", "ap-south-1")
+    DEFAULT_BUCKET = _env("S3_DEFAULT_BUCKET") or _env("S3_BUCKET_NAME", "ewms-storage")
+    S3_KEY_PREFIX = (_env("S3_KEY_PREFIX") or _env("VOL_DIR_UUID", "spr-ewms-zata-files") or "spr-ewms-zata-files").strip("/\\")
 
 
-def _client(access: str, secret: str):
-    return boto3.client(
-        "s3",
-        endpoint_url=S3_ENDPOINT,
-        aws_access_key_id=access,
-        aws_secret_access_key=secret,
-        region_name=S3_REGION,
-    )
+def _client(access: str | None, secret: str | None):
+    kwargs: dict[str, object] = {
+        "service_name": "s3",
+        "region_name": S3_REGION,
+    }
+    if S3_ENDPOINT:
+        kwargs["endpoint_url"] = S3_ENDPOINT
+    if access and secret:
+        kwargs["aws_access_key_id"] = access
+        kwargs["aws_secret_access_key"] = secret
+    return boto3.client(**kwargs)
 
 
 s3 = _client(S3_ACCESS_KEY, S3_SECRET_KEY)
@@ -93,6 +112,16 @@ def validate_bucket_name(bucket: str) -> str | None:
     return None
 
 
+def _create_bucket(client, bucket: str) -> None:
+    if S3_REGION and S3_REGION != "us-east-1":
+        client.create_bucket(
+            Bucket=bucket,
+            CreateBucketConfiguration={"LocationConstraint": S3_REGION},
+        )
+    else:
+        client.create_bucket(Bucket=bucket)
+
+
 def _ensure_bucket(bucket: str) -> None:
     client = s3_admin or s3
     try:
@@ -100,12 +129,13 @@ def _ensure_bucket(bucket: str) -> None:
     except ClientError as err:
         code = err.response.get("Error", {}).get("Code", "")
         if code in {"404", "NoSuchBucket", "NotFound"}:
-            client.create_bucket(Bucket=bucket)
+            _create_bucket(client, bucket)
         elif _is_access_denied(err):
             try:
-                client.create_bucket(Bucket=bucket)
+                _create_bucket(client, bucket)
             except ClientError as create_err:
-                if create_err.response["Error"]["Code"] not in {"BucketAlreadyOwnedByYou", "BucketAlreadyExists"}:
+                code_create = create_err.response.get("Error", {}).get("Code", "")
+                if code_create not in {"BucketAlreadyOwnedByYou", "BucketAlreadyExists"}:
                     raise
         else:
             raise
@@ -204,8 +234,13 @@ def delete_document_object(bucket: str, file_key: str) -> None:
 
 
 __all__ = [
+    "APP_ENVIRONMENT",
     "DEFAULT_BUCKET",
+    "IS_DEV",
+    "IS_PROD",
     "S3_ENDPOINT",
+    "S3_KEY_PREFIX",
+    "S3_REGION",
     "build_object_key",
     "delete_document_object",
     "download_bytes",
@@ -213,6 +248,8 @@ __all__ = [
     "list_buckets",
     "list_prefix",
     "normalize_bucket_name",
+    "s3",
+    "s3_admin",
     "upload_bytes",
     "validate_bucket_name",
 ]
