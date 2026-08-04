@@ -1,0 +1,33 @@
+name: ewms-nginx
+
+services:
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: nginx-proxy-manager
+    restart: unless-stopped
+
+    ports:
+      - "80:80"
+      - "81:81"
+      - "443:443"
+
+    environment:
+      TZ: Asia/Kolkata
+
+    volumes:
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:81 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+    networks:
+      - ewms-net
+
+networks:
+  ewms-net:
+    external: true
+    name: ewms-network

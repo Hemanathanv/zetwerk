@@ -1,0 +1,92 @@
+x-backend-env: &backend-env
+  env_file:
+    - ./backend/.env
+  environment:
+    RUN_OCR_WORKERS_IN_API: "false"
+    KEYCLOAK_URL: ${KEYCLOAK_URL:-http://host.docker.internal:8031}
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+  views-init:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.backend-api
+      secrets:
+        - backend_env
+    image: zetwerk-backend-api:local
+    <<: *backend-env
+    command: ["python", "scripts/ensure_views.py"]
+    restart: "no"
+
+  backend-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.backend-api
+      secrets:
+        - backend_env
+    image: zetwerk-backend-api:local
+    <<: *backend-env
+    depends_on:
+      views-init:
+        condition: service_completed_successfully
+    ports:
+      - "${BACKEND_PORT:-8120}:8120"
+    restart: unless-stopped
+
+  upload-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.upload_service
+      secrets:
+        - backend_env
+    image: zetwerk-upload-service:local
+    <<: *backend-env
+    depends_on:
+      views-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  detect-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.detect_ocr
+      secrets:
+        - backend_env
+    image: zetwerk-detect-ocr:local
+    <<: *backend-env
+    depends_on:
+      views-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  ocr-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.ocr_service
+      secrets:
+        - backend_env
+    image: zetwerk-ocr-service:local
+    <<: *backend-env
+    depends_on:
+      views-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: zetwerk-frontend:local
+    env_file:
+      - ./frontend/.env.local
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://host.docker.internal:8120/api/v1}
+      VITE_BACKEND_API_BASE: ${VITE_BACKEND_API_BASE:-http://host.docker.internal:8120}
+      VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:-http://host.docker.internal:8031}
+      VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:-ewms-saas}
+    depends_on:
+      - backend-api
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    restart: unless-stopped
