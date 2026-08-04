@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -5,8 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
     PATH="/opt/venv/bin:$PATH" \
-    RUN_OCR_WORKERS_IN_API=false \
-    DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres"
+    RUN_OCR_WORKERS_IN_API=false
 
 WORKDIR /app
 
@@ -25,9 +25,9 @@ RUN apt-get update \
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN uv sync --frozen --no-dev --no-install-project --extra worker
 
 COPY . .
-RUN python -m prisma generate --schema prisma/schema.prisma
+RUN --mount=type=secret,id=backend_env,required=true python -c "import subprocess; from dotenv import load_dotenv; load_dotenv('/run/secrets/backend_env'); subprocess.run(['python', '-m', 'prisma', 'generate', '--schema', 'prisma/schema.prisma'], check=True)"
 
 CMD ["python", "-m", "documents_ocr.workers", "detect_worker"]

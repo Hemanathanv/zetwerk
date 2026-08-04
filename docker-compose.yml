@@ -12,6 +12,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.backend-api
+      secrets:
+        - backend_env
     image: zetwerk-backend-api:local
     <<: *backend-env
     command: ["python", "scripts/ensure_views.py"]
@@ -21,6 +23,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.backend-api
+      secrets:
+        - backend_env
     image: zetwerk-backend-api:local
     <<: *backend-env
     depends_on:
@@ -34,6 +38,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.upload_service
+      secrets:
+        - backend_env
     image: zetwerk-upload-service:local
     <<: *backend-env
     depends_on:
@@ -45,6 +51,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.detect_ocr
+      secrets:
+        - backend_env
     image: zetwerk-detect-ocr:local
     <<: *backend-env
     depends_on:
@@ -56,6 +64,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.ocr_service
+      secrets:
+        - backend_env
     image: zetwerk-ocr-service:local
     <<: *backend-env
     depends_on:
@@ -80,3 +90,7 @@ services:
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     restart: unless-stopped
+
+secrets:
+  backend_env:
+    file: ./backend/.env
