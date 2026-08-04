@@ -3,9 +3,9 @@ x-backend-env: &backend-env
     - ./backend/.env
   environment:
     RUN_OCR_WORKERS_IN_API: "false"
-    KEYCLOAK_URL: ${KEYCLOAK_URL:-http://host.docker.internal:8031}
-  extra_hosts:
-    - "host.docker.internal:host-gateway"
+    DATABASE_URL: ${DATABASE_URL:-postgresql://ewms-postgres:ewms%40%232026%21@postgres:5432/ewms_db}
+    REDIS_URL: ${REDIS_URL:-redis://redis:6379/3}
+    KEYCLOAK_URL: ${KEYCLOAK_URL:-http://ewms-keycloak:8080/keycloak}
 
 services:
   views-init:
@@ -18,6 +18,8 @@ services:
     <<: *backend-env
     command: ["python", "scripts/ensure_views.py"]
     restart: "no"
+    networks:
+      - ewms-net
 
   backend-api:
     build:
@@ -33,6 +35,8 @@ services:
     ports:
       - "${BACKEND_PORT:-8120}:8120"
     restart: unless-stopped
+    networks:
+      - ewms-net
 
   upload-worker:
     build:
@@ -46,6 +50,8 @@ services:
       views-init:
         condition: service_completed_successfully
     restart: unless-stopped
+    networks:
+      - ewms-net
 
   detect-worker:
     build:
@@ -59,6 +65,8 @@ services:
       views-init:
         condition: service_completed_successfully
     restart: unless-stopped
+    networks:
+      - ewms-net
 
   ocr-worker:
     build:
@@ -72,21 +80,32 @@ services:
       views-init:
         condition: service_completed_successfully
     restart: unless-stopped
+    networks:
+      - ewms-net
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+        VITE_BACKEND_API_BASE: ${VITE_BACKEND_API_BASE:-}
+        VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:-/keycloak}
+        VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:-ewms-saas}
     image: zetwerk-frontend:local
-    env_file:
-      - ./frontend/.env.local
-    environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://host.docker.internal:8120/api/v1}
-      VITE_BACKEND_API_BASE: ${VITE_BACKEND_API_BASE:-http://host.docker.internal:8120}
-      VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:-http://host.docker.internal:8031}
-      VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:-ewms-saas}
     depends_on:
       - backend-api
     ports:
       - "${FRONTEND_PORT:-5173}:5173"
     restart: unless-stopped
+    networks:
+      - ewms-net
+
+networks:
+  ewms-net:
+    external: true
+    name: ewms-network
+
+secrets:
+  backend_env:
+    file: ./backend/.env

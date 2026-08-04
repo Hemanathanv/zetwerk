@@ -34,14 +34,15 @@ services:
     environment:
       # Database configuration - using existing PostgreSQL
       KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/ewms-db
-      KC_DB_USERNAME: ewms-postgres
-      KC_DB_PASSWORD: ewms@#2026!
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-ewms_db}
+      KC_DB_USERNAME: ${POSTGRES_USER:-ewms-postgres}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-ewms@#2026!}
       KC_DB_SCHEMA: keycloak  # Separate schema for Keycloak
 
       # Keycloak specific settings
-      KC_HOSTNAME: 127.0.0.1
-      KC_HOSTNAME_PORT: 8031
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-127.0.0.1}
+      KC_HOSTNAME_PORT: ${KEYCLOAK_HOSTNAME_PORT:-8031}
+      KC_HTTP_RELATIVE_PATH: ${KEYCLOAK_HTTP_RELATIVE_PATH:-/keycloak}
       KC_PROXY: edge
       KC_HTTP_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"
@@ -66,7 +67,7 @@ services:
       - ./keycloak/themes:/opt/keycloak/themes
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/ready"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8080$${KC_HTTP_RELATIVE_PATH}/health/ready"]
       interval: 30s
       timeout: 10s
       retries: 3

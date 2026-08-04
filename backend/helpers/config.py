@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     SESSION_COOKIE_SECURE: bool = False
     SESSION_COOKIE_SAMESITE: str = "lax"
     SESSION_COOKIE_DOMAIN: str = ""
+    RUN_OCR_WORKERS_IN_API: bool = True
     
     # Cache settings
     CACHE_TTL_SECONDS: int = 3600  # 1 hour default TTL for cached messages
