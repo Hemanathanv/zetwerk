@@ -6,7 +6,11 @@ import path from "path";
 function getProxyTarget(env: Record<string, string>): string {
   const explicitBase = env.VITE_BACKEND_API_BASE || env.VITE_API_BASE_URL;
   if (explicitBase) {
-    return new URL(explicitBase).origin;
+    try {
+      return new URL(explicitBase).origin;
+    } catch {
+      // Ignored if explicitBase is a relative URL path (e.g. /api/v1)
+    }
   }
 
   const apiServerPort = Number(

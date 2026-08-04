@@ -163,6 +163,9 @@ async def ensure_doc_generation_views(prisma: Any) -> set[str]:
     if valid_existing_views.issuperset(DOC_GENERATION_VIEWS):
         return existing_views
 
+    for view_name in incompatible_views:
+        await _execute_raw(prisma, f"DROP VIEW IF EXISTS docgen.{view_name} CASCADE;")
+
     statements = _split_sql_statements(DOC_GENERATION_SQL_PATH.read_text(encoding="utf-8"))
     created_or_existing = set(valid_existing_views)
     for statement in statements:
