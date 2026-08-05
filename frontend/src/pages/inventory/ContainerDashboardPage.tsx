@@ -299,6 +299,16 @@ function ScBadge({ containers }: { containers: any[] }) {
   return inner;
 }
 
+function BreakBulkEmptyState() {
+  return (
+    <div className="ewms-surface ewms-card-default text-center text-sm text-muted-foreground">
+      <Box className="mx-auto mb-3 size-6 text-muted-foreground" aria-hidden="true" />
+      <div className="font-semibold text-foreground">Break bulk inventory is not available yet.</div>
+      <div className="mt-1">Approved break bulk mappings will appear here when they are ready.</div>
+    </div>
+  );
+}
+
 type InventoryViewMode = 'container' | 'breakBulk';
 export function ContainerDashboardPage() {
   const { user } = useAuth();
@@ -436,14 +446,14 @@ export function ContainerDashboardPage() {
   }, [containers, searchQuery, statusFilter, portFilter, riskFilter, sortBy, alertLookup]);
 
   return (
-    <div style={{ padding: '24px 32px' }}>
+    <div className="ewms-page-shell">
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 'var(--ewms-page-section-gap)', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{
             fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)',
-            letterSpacing: '-0.025em', margin: 0, color: 'hsl(var(--foreground))', lineHeight: 1.2,
+            letterSpacing: 0, margin: 0, color: 'hsl(var(--foreground))', lineHeight: 1.2,
           }}>
             Inventory Tracking
           </h1>
@@ -453,7 +463,7 @@ export function ContainerDashboardPage() {
               : 'Break bulk inventory tracking'}
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="ewms-toolbar">
           <SegmentedControl
             value={viewMode}
             onValueChange={(value) => setViewMode(value as InventoryViewMode)}
@@ -486,7 +496,7 @@ export function ContainerDashboardPage() {
         <BreakBulkEmptyState />
       ) : (
         <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 'var(--ewms-metric-grid-gap)', marginBottom: 'var(--ewms-page-section-gap)' }}>
         <StatPill label="At Origin / Loading" value={summaryStats.atOrigin}    color="muted"  icon={Box} />
         <StatPill label="Ocean Transit"        value={summaryStats.inTransit}   color="blue"   icon={Navigation} />
         <StatPill label="At US Port"           value={summaryStats.atPort}      color="teal"   icon={Anchor} />
@@ -510,7 +520,7 @@ export function ContainerDashboardPage() {
       </div>
 
       {/* Filters */}
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="ewms-toolbar" style={{ marginBottom: 'var(--ewms-content-grid-gap)' }}>
         <div className="relative min-w-56 flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input

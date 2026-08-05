@@ -28,7 +28,7 @@ export function JourneyBar({ phases }: JourneyBarProps) {
     <div style={{
       background: 'hsl(var(--card))',
       border: '1px solid hsl(var(--border))',
-      borderRadius: 12,
+      borderRadius: 8,
       padding: '20px 24px 18px',
       marginBottom: 12,
     }}>
@@ -99,7 +99,7 @@ export function JourneyBar({ phases }: JourneyBarProps) {
                   color: nodeColor,
                   fontSize: 14.5,
                   fontWeight: 600,
-                  fontFamily: 'JetBrains Mono, monospace',
+                  fontFamily: 'var(--app-font-sans)',
                   position: 'relative',
                   zIndex: 1,
                   boxShadow: isCurrent
@@ -127,7 +127,7 @@ export function JourneyBar({ phases }: JourneyBarProps) {
                       color: isCurrent ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))',
                       fontWeight: isCurrent ? 500 : 400,
                       marginTop: 2,
-                      fontFamily: 'JetBrains Mono, monospace',
+                      fontFamily: 'var(--app-font-sans)',
                       whiteSpace: 'nowrap',
                     }}>
                       {[phase.phaseLocation, phase.occurredAt].filter(Boolean).join(' · ')}

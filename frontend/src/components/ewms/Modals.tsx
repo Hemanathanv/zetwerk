@@ -28,7 +28,7 @@ export function ModalShell({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-3xl overflow-hidden rounded-2xl">
+      <DialogContent className="max-h-[85vh] max-w-3xl overflow-hidden rounded-lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}
@@ -59,7 +59,7 @@ export function WarningActionModal({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md rounded-2xl">
+      <DialogContent className="max-w-md rounded-lg">
         <DialogHeader>
           <div className="mb-2 flex size-10 items-center justify-center rounded-full bg-[hsl(var(--destructive)/0.10)] text-destructive">
             <AlertTriangle className="size-5" aria-hidden="true" />

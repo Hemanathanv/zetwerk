@@ -237,7 +237,7 @@ export function WarehouseEditModal({ warehouse, onClose, onSave }: {
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={LBL_S}>FIRMS Code</label>
-          <input style={INP_S({ fontFamily: '"JetBrains Mono", monospace' })} value={firms} onChange={e => setFirms(e.target.value)} placeholder="e.g., Z693" />
+          <input style={INP_S({ fontFamily: 'var(--app-font-sans)' })} value={firms} onChange={e => setFirms(e.target.value)} placeholder="e.g., Z693" />
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
           <div>
@@ -268,13 +268,13 @@ export function WarehouseCard({ warehouse, onEdit, onQc, onDeactivate }: {
 }) {
   const itemCount = warehouse.qcChecklist?.items?.length ?? 0;
   return (
-    <div style={{ background: 'hsl(var(--card))', borderRadius: 10, border: '1px solid hsl(var(--border))', padding: '18px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.07)' }}>
+    <div style={{ background: 'hsl(var(--card))', borderRadius: 8, border: '1px solid hsl(var(--border))', padding: '18px 20px', boxShadow: '0 1px 3px rgba(0,0,0,0.07)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
         <div>
           <div style={{ fontSize: 16, fontWeight: 700 }}>{warehouse.name}</div>
           {warehouse.address && <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>{warehouse.address}</div>}
           {warehouse.firmsCode && (
-            <div style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>
+            <div style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>
               FIRMS: {warehouse.firmsCode}
             </div>
           )}
@@ -285,13 +285,13 @@ export function WarehouseCard({ warehouse, onEdit, onQc, onDeactivate }: {
       <div style={{ display: 'flex', gap: 20, marginTop: 14, fontSize: 14 }}>
         <div>
           <span style={{ color: 'hsl(var(--muted-foreground))' }}>Inbound SLA</span><br />
-          <span style={{ fontFamily: '"JetBrains Mono", monospace', fontWeight: 600 }}>
+          <span style={{ fontFamily: 'var(--app-font-sans)', fontWeight: 600 }}>
             {warehouse.inboundSlaHrs != null ? `${warehouse.inboundSlaHrs}h` : '—'}
           </span>
         </div>
         <div>
           <span style={{ color: 'hsl(var(--muted-foreground))' }}>Outbound SLA</span><br />
-          <span style={{ fontFamily: '"JetBrains Mono", monospace', fontWeight: 600 }}>
+          <span style={{ fontFamily: 'var(--app-font-sans)', fontWeight: 600 }}>
             {warehouse.outboundSlaHrs != null ? `${warehouse.outboundSlaHrs}h` : '—'}
           </span>
         </div>
@@ -390,7 +390,7 @@ export function PartnerWarehouseSection({ partnerOrgId }: { partnerOrgId: string
           <WarehouseIcon size={13} />
           WAREHOUSES
           {warehouses.length > 0 && (
-            <span style={{ background: 'hsl(var(--muted))', color: 'hsl(var(--muted-foreground))', borderRadius: 10, padding: '0 6px', fontSize: 14.5, fontWeight: 700 }}>
+            <span style={{ background: 'hsl(var(--muted))', color: 'hsl(var(--muted-foreground))', borderRadius: 8, padding: '0 6px', fontSize: 14.5, fontWeight: 700 }}>
               {warehouses.length}
             </span>
           )}

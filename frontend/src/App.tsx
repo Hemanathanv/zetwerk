@@ -38,8 +38,6 @@ import PartnerDocumentsPage from '@/pages/partner/PartnerDocumentsPage';
 import ThreePlPage from '@/pages/partner/ThreePlPage';
 import StockPositionPage from '@/pages/partner/StockPositionPage';
 import DocumentGenerationOutwardGrnPage from '@/pages/DocumentGenerationOutwardGrnPage';
-import CustomerProjectsPage from '@/pages/portal/CustomerProjectsPage';
-import CustomerTrackingPage from '@/pages/portal/CustomerTrackingPage';
 import { DocumentGeneratePage } from '@/pages/DocumentGeneratePage';
 import { PackingListGeneratePage } from '@/pages/PackingListGeneratePage';
 import { BoeGeneratePage } from '@/pages/BoeGeneratePage';
@@ -362,10 +360,10 @@ function AppLayout() {
               </RequireModule>
             </Route>
             <Route path="/portal/tracking/:id">
-              <CustomerTrackingPage />
+              <Redirect to="/dashboard" />
             </Route>
             <Route path="/portal">
-              <CustomerProjectsPage />
+              <Redirect to="/dashboard" />
             </Route>
             <Route path="/invoices">
               <RequireModule module="accounting" fallback={<Redirect to="/unauthorized" />}>

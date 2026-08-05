@@ -15,8 +15,7 @@ type SegmentedControlProps = {
 export function SegmentedControl({ options, value, onValueChange, className }: SegmentedControlProps) {
   return (
     <div
-      className={cn('inline-grid max-w-full overflow-x-auto rounded-full bg-muted p-0.5', className)}
-      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(max-content, 1fr))` }}
+      className={cn('inline-flex max-w-full flex-wrap items-center rounded-full bg-muted p-0.5', className)}
       role="tablist"
       aria-label="Segmented options"
     >

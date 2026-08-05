@@ -61,7 +61,7 @@ type Template = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const MONO = '"JetBrains Mono","Fira Code",monospace';
+const MONO = 'var(--app-font-sans)';
 const TEAL = 'hsl(173 58% 39%)';
 
 const DOC_TYPE_ORDER = ['SI', 'PL', 'BL', 'BOL', 'SB', 'BOE', 'CHA', 'FF', 'OF'];
@@ -396,7 +396,7 @@ export function AdminValidationPage() {
 
             return (
               <div key={docType} style={{
-                borderRadius: 10, border: '1px solid hsl(var(--border))', overflow: 'hidden',
+                borderRadius: 8, border: '1px solid hsl(var(--border))', overflow: 'hidden',
               }}>
                 {/* Group header */}
                 <button

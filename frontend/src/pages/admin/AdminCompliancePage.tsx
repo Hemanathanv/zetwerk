@@ -20,7 +20,7 @@ interface AuditUser { id: string; fullName: string; email: string; status?: stri
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
-const MONO: React.CSSProperties = { fontFamily: '"JetBrains Mono", monospace' };
+const MONO: React.CSSProperties = { fontFamily: 'var(--app-font-sans)' };
 
 function fmtTs(ts: string): string {
   const d = new Date(ts);
@@ -54,7 +54,7 @@ function ComplianceCard({ title, description, runCheck, runTrigger }: {
   useEffect(() => { if (runTrigger > 0) run(); }, [runTrigger, run]);
 
   return (
-    <div style={{ background: 'hsl(var(--card))', borderRadius: 10, padding: '18px 20px', border: '1px solid hsl(var(--border))', marginBottom: 12 }}>
+    <div style={{ background: 'hsl(var(--card))', borderRadius: 8, padding: '18px 20px', border: '1px solid hsl(var(--border))', marginBottom: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
           <div style={{ paddingTop: 1 }}>

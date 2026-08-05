@@ -12,6 +12,14 @@ interface PreviewProps {
   onClose:        () => void;
 }
 
+interface GeneratedDocumentPaperProps {
+  schema:         DocGenSchema;
+  manualValues:   Record<string, string>;
+  computedFields?: Record<string, string>;
+  computedRowMap?: Record<string, Record<string, string>[]>;
+  isApproved?:     boolean;
+}
+
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
 const DOC_FG     = '#1a1a2e';
@@ -19,7 +27,7 @@ const DOC_MUTED  = '#6b7280';
 const DOC_BORDER = '#d1d5db';
 const DOC_BG     = '#f9fafb';
 const DOC_TEAL   = '#0f766e';
-const MONO_FONT  = '"JetBrains Mono", "Courier New", monospace';
+const MONO_FONT  = 'var(--app-font-sans)';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -70,7 +78,7 @@ function DocHeader({ title, docNumber, date, subtitle }: {
           }}>
             Export Workflow Management System
           </div>
-          <h1 style={{ fontSize: 20, fontWeight: 800, color: DOC_FG, margin: 0, letterSpacing: '-0.02em' }}>
+          <h1 style={{ fontSize: 20, fontWeight: 800, color: DOC_FG, margin: 0, letterSpacing: 0 }}>
             {title}
           </h1>
           {subtitle && (
@@ -614,7 +622,7 @@ export function DocumentPreviewModal({
         <div
           className="doc-preview-modal"
           style={{
-            background: '#f0f0f0', borderRadius: 12, width: '100%', maxWidth: 900,
+            background: '#f0f0f0', borderRadius: 8, width: '100%', maxWidth: 900,
             boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
             display: 'flex', flexDirection: 'column', minHeight: 0,
           }}
@@ -640,7 +648,7 @@ export function DocumentPreviewModal({
 
             {/* Status pill */}
             <div style={{
-              padding: '3px 10px', borderRadius: 20, fontSize: 14.5, fontWeight: 700,
+              padding: '3px 10px', borderRadius: 999, fontSize: 14.5, fontWeight: 700,
               background: isApproved ? 'hsla(152,69%,31%,0.12)' : 'hsla(38,92%,50%,0.12)',
               color: isApproved ? '#0f766e' : '#92400e',
               border: `1px solid ${isApproved ? 'hsla(152,69%,31%,0.25)' : 'hsla(38,92%,50%,0.3)'}`,
@@ -693,5 +701,55 @@ export function DocumentPreviewModal({
         </div>
       </div>
     </>
+  );
+}
+
+export function GeneratedDocumentPaper({
+  schema,
+  manualValues,
+  computedFields = {},
+  computedRowMap = {},
+  isApproved = false,
+}: GeneratedDocumentPaperProps) {
+  const resolve    = makeResolver(schema, manualValues, computedFields);
+  const resolveRow = makeRowResolver(schema, manualValues, computedRowMap);
+
+  function renderDoc() {
+    switch (schema.docType) {
+      case 'packing-list':
+        return <PackingListDoc schema={schema} resolve={resolve} resolveRow={resolveRow} />;
+      case 'outward-pl':
+        return <OutwardGRNDoc schema={schema} resolve={resolve} resolveRow={resolveRow} />;
+      case 'draft-boe':
+        return <DraftBoEDoc schema={schema} resolve={resolve} resolveRow={resolveRow} />;
+      default:
+        return (
+          <div style={{ textAlign: 'center', padding: 40, color: DOC_MUTED }}>
+            <FileText size={32} style={{ marginBottom: 12 }} />
+            <div>No preview template for "{schema.displayName}"</div>
+          </div>
+        );
+    }
+  }
+
+  return (
+    <div
+      className="doc-preview-paper"
+      style={{
+        background: '#fff',
+        borderRadius: 4,
+        boxShadow: '0 2px 12px rgba(0,0,0,0.12)',
+        padding: '40px 48px 48px',
+        position: 'relative',
+        overflow: 'hidden',
+        minHeight: 900,
+        margin: '0 auto',
+      }}
+    >
+      <Watermark label={isApproved ? 'APPROVED' : 'DRAFT'} />
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        {renderDoc()}
+      </div>
+    </div>
   );
 }

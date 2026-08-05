@@ -73,7 +73,7 @@ export default function AdminUserPermissionsView() {
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-      <section className="rounded-xl border border-border bg-card">
+      <section className="rounded-lg border border-border bg-card">
         <div className="border-b border-border px-5 py-4">
           <h3 className="text-base font-semibold text-foreground">Role Permissions</h3>
           <p className="text-sm text-muted-foreground">Review module access for Keycloak roles.</p>
@@ -104,7 +104,7 @@ export default function AdminUserPermissionsView() {
       </section>
 
       <aside className="space-y-4">
-        <section className="rounded-xl border border-border bg-card p-5">
+        <section className="rounded-lg border border-border bg-card p-5">
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-primary" />
             <h3 className="text-base font-semibold text-foreground">Access Rules</h3>
@@ -122,7 +122,7 @@ export default function AdminUserPermissionsView() {
           </div>
         </section>
 
-        <section className="rounded-xl border border-border bg-card p-5">
+        <section className="rounded-lg border border-border bg-card p-5">
           <div className="flex items-center gap-2">
             <LockKeyhole className="h-4 w-4 text-primary" />
             <h3 className="text-base font-semibold text-foreground">Backend Contract</h3>

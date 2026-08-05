@@ -681,6 +681,19 @@ async def _create_document_record(
         "uploadedBy": user_id,
     }
 
+    if doc_type == "DRAFT_CBP_FORM_7501_BROKER":
+        return await _create_document_record_raw(
+            prisma=prisma,
+            user_id=user_id,
+            doc_type=doc_type,
+            bucket=bucket,
+            object_key=object_key,
+            file_name=file_name,
+            content_type=content_type,
+            size_bytes=size_bytes,
+            page_count=page_count,
+        )
+
     last_exc: Exception | None = None
     attempt_errors: list[str] = []
     for doc_type_key in ("docType", "doc_type", "doctype"):
@@ -732,6 +745,37 @@ async def _create_document_record(
             continue
 
     # Final fallback: raw SQL insert, bypassing Prisma input-shape drift.
+    return await _create_document_record_raw(
+        prisma=prisma,
+        user_id=user_id,
+        doc_type=doc_type,
+        bucket=bucket,
+        object_key=object_key,
+        file_name=file_name,
+        content_type=content_type,
+        size_bytes=size_bytes,
+        page_count=page_count,
+        attempt_errors=attempt_errors,
+        last_exc=last_exc,
+    )
+
+
+async def _create_document_record_raw(
+    *,
+    prisma,
+    user_id: str,
+    doc_type: str,
+    bucket: str,
+    object_key: str,
+    file_name: str,
+    content_type: str,
+    size_bytes: int,
+    page_count: int,
+    attempt_errors: list[str] | None = None,
+    last_exc: Exception | None = None,
+) -> object:
+    attempt_errors = attempt_errors or []
+    fallback_id = str(uuid4())
     raw_insert_sql = (
         'INSERT INTO "public"."documents" '
         '("id","doc_type","status","bucket","object_key","file_name","content_type","size_bytes","total_pages","uploaded_by","is_deleted","created_at","updated_at") '
@@ -763,6 +807,7 @@ async def _create_document_record(
 
     # Backup raw fallback without parameters (for runtime variants that don't
     # support execute_raw bindings in this environment).
+    fallback_id = str(uuid4())
     raw_insert_sql_unbound = (
         'INSERT INTO "public"."documents" '
         '("id","doc_type","status","bucket","object_key","file_name","content_type","size_bytes","total_pages","uploaded_by","is_deleted","created_at","updated_at") '
@@ -818,6 +863,65 @@ async def _create_document_page_record(
             "isExtractionSource": True,
         }
     )
+
+
+_DOC_TYPE_ENUM_CACHE: set[str] | None = None
+
+
+async def _database_doc_type_values(prisma) -> set[str]:
+    global _DOC_TYPE_ENUM_CACHE
+    if _DOC_TYPE_ENUM_CACHE is not None:
+        return _DOC_TYPE_ENUM_CACHE
+    rows = await prisma.query_raw(
+        """
+        SELECT enumlabel AS value
+        FROM pg_enum
+        WHERE enumtypid = '"public"."DocType"'::regtype
+        """
+    )
+    _DOC_TYPE_ENUM_CACHE = {
+        str((row.get("value") if isinstance(row, dict) else getattr(row, "value", "")) or "")
+        for row in rows
+    }
+    return _DOC_TYPE_ENUM_CACHE
+
+
+async def _add_database_doc_type_value(prisma, doc_type: str) -> None:
+    global _DOC_TYPE_ENUM_CACHE
+    execute_raw = getattr(prisma, "execute_raw", None)
+    if execute_raw is None:
+        raise RuntimeError("Prisma client has no execute_raw")
+    await execute_raw(f'ALTER TYPE "public"."DocType" ADD VALUE IF NOT EXISTS {_sql_quote(doc_type)}')
+    _DOC_TYPE_ENUM_CACHE = None
+
+
+async def _ensure_database_doc_type_supported(prisma, doc_type: str) -> None:
+    try:
+        values = await _database_doc_type_values(prisma)
+    except Exception:
+        return
+    if doc_type not in values:
+        try:
+            await _add_database_doc_type_value(prisma, doc_type)
+            values = await _database_doc_type_values(prisma)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Database DocType enum does not include {doc_type}, and the backend could not add it automatically. "
+                    "Run the Prisma migration backend/prisma/migrations/"
+                    f"20260729_draft_cbp_form_7501_broker/migration.sql on the active database. Detail: {exc}"
+                ),
+            ) from exc
+        if doc_type not in values:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Database DocType enum does not include {doc_type}. "
+                    "Run the Prisma migration backend/prisma/migrations/"
+                    "20260729_draft_cbp_form_7501_broker/migration.sql on the active database."
+                ),
+            )
 
 
 async def _stage_detection_file(*, file: UploadFile, user_id: str) -> DocumentClassificationQueuedResponse:
@@ -954,6 +1058,7 @@ async def upload_document(
     if normalized_doc_type not in DOC_TYPE_VALUES:
         raise HTTPException(status_code=400, detail=f"Unsupported docType: {docType!r}")
     _require_doc_type_action(user, "upload", normalized_doc_type)
+    await _ensure_database_doc_type_supported(prisma, normalized_doc_type)
 
     default_bucket_from_doc_type = _bucket_slug_from_doc_type(normalized_doc_type)
     raw_bucket = bucket or default_bucket_from_doc_type or DEFAULT_BUCKET or settings.S3_DEFAULT_BUCKET
@@ -1118,6 +1223,20 @@ def _document_section_where(*, user: Any, section: str) -> dict[str, Any]:
     return where
 
 
+def _validation_active_clause(document_alias: str = "d") -> str:
+    return f"""
+        (
+          UPPER(COALESCE({document_alias}."validation_status", '')) IN ('BLOCKED', 'WAITING')
+          OR EXISTS (
+            SELECT 1
+            FROM "document_module"."document_validation_status" dvs
+            WHERE dvs."document_id" = {document_alias}."id"::text
+              AND dvs."status" IN ('BLOCKED', 'WAITING')
+          )
+        )
+    """
+
+
 async def _document_count(*, prisma, user: Any, section: str) -> int:
     if has_role_document_scope(user):
         try:
@@ -1131,21 +1250,14 @@ async def _document_count(*, prisma, user: Any, section: str) -> int:
 
             if section in {"cross-validating", "done"}:
                 await _ensure_cross_validation_tables(prisma)
-                validation_done_clause = """
-                    EXISTS (
-                      SELECT 1
-                      FROM "document_module"."document_validation_status" dvs
-                      WHERE dvs."document_id" = d."id"::text
-                        AND dvs."status" IN ('PASSED', 'WARNING')
-                    )
-                """
+                validation_active_clause = _validation_active_clause("d")
                 if section == "done":
                     section_clause = (
                         f"""(d."status"::text = 'ARCHIVED'
-                        OR (d."status"::text = 'REVIEWED' AND {validation_done_clause}))"""
+                        OR (d."status"::text = 'REVIEWED' AND NOT {validation_active_clause}))"""
                     )
                 else:
-                    section_clause = f"""d."status"::text = 'REVIEWED' AND NOT {validation_done_clause}"""
+                    section_clause = f"""d."status"::text = 'REVIEWED' AND {validation_active_clause}"""
                 rows = await prisma.query_raw(
                     f'SELECT COUNT(*) AS count FROM "public"."documents" d WHERE {access_where} AND {section_clause}',
                     *access_params,
@@ -1169,14 +1281,7 @@ async def _document_count(*, prisma, user: Any, section: str) -> int:
 
     current_user_id = user_id(user)
     if section in {"cross-validating", "done"}:
-        validation_done_clause = """
-            EXISTS (
-              SELECT 1
-              FROM "document_module"."document_validation_status" dvs
-              WHERE dvs."document_id" = d."id"::text
-                AND dvs."status" IN ('PASSED', 'WARNING')
-            )
-        """
+        validation_active_clause = _validation_active_clause("d")
         if section == "done":
             sql = f"""
                 SELECT COUNT(*) AS count
@@ -1185,7 +1290,7 @@ async def _document_count(*, prisma, user: Any, section: str) -> int:
                   AND d."is_deleted" = false
                   AND (
                     d."status"::text = 'ARCHIVED'
-                    OR (d."status"::text = 'REVIEWED' AND {validation_done_clause})
+                    OR (d."status"::text = 'REVIEWED' AND NOT {validation_active_clause})
                   )
             """
         else:
@@ -1195,7 +1300,7 @@ async def _document_count(*, prisma, user: Any, section: str) -> int:
                 WHERE d."uploaded_by"::text = $1::text
                   AND d."is_deleted" = false
                   AND d."status"::text = 'REVIEWED'
-                  AND NOT {validation_done_clause}
+                  AND {validation_active_clause}
             """
         try:
             await _ensure_cross_validation_tables(prisma)
@@ -1212,14 +1317,13 @@ async def _document_count(*, prisma, user: Any, section: str) -> int:
 def _document_matches_section(status: str, validation_status: str | None, section: str) -> bool:
     normalized_status = str(status or "").upper()
     normalized_validation = str(validation_status or "").upper()
+    validation_active = normalized_validation in {"BLOCKED", "WAITING"}
     if section == "all":
         return True
     if section == "done":
-        return normalized_status == "ARCHIVED" or (
-            normalized_status == "REVIEWED" and normalized_validation in {"PASSED", "WARNING"}
-        )
+        return normalized_status == "ARCHIVED" or (normalized_status == "REVIEWED" and not validation_active)
     if section == "cross-validating":
-        return normalized_status == "REVIEWED" and normalized_validation not in {"PASSED", "WARNING"}
+        return normalized_status == "REVIEWED" and validation_active
     statuses = DOCUMENT_SECTION_STATUS_FILTERS.get(section)
     return normalized_status in (statuses or set())
 
@@ -1372,7 +1476,8 @@ async def list_documents(
         for row in rows:
             status = await _status_from_db_with_stale_recovery(prisma=prisma, row=row)
             validation_snapshot = validation_snapshots.get(str(row.id), {})
-            if not _document_matches_section(status, validation_snapshot.get("status"), normalized_section):
+            validation_status = validation_snapshot.get("status") or getattr(row, "validationStatus", None)
+            if not _document_matches_section(status, validation_status, normalized_section):
                 continue
             extraction = await _fetch_extraction_direct(
                 prisma=prisma,
@@ -1391,7 +1496,7 @@ async def list_documents(
                     sizeBytes=int(row.sizeBytes),
                     createdAt=row.createdAt.isoformat() if row.createdAt else "",
                     updatedAt=row.updatedAt.isoformat() if row.updatedAt else "",
-                    validationStatus=validation_snapshot.get("status"),
+                    validationStatus=validation_status,
                     validationSummary=validation_snapshot.get("summary"),
                     validationResults=validation_snapshot.get("results") or [],
                     status=status,
@@ -2204,15 +2309,24 @@ async def stop_document_ocr(
     _authz=Depends(require_activity("documents.reprocess_ocr")),
 ):
     prisma = await get_prisma()
-    where = document_prisma_where(user)
-    where["id"] = document_id
-    document = await prisma.document.find_first(
-        where=where,
+    access_where, access_params, _next_param = document_sql_where("d", user, first_param=2)
+    documents = await _query_raw(
+        prisma,
+        f"""
+        SELECT d."id"::text AS id, d."status"::text AS status
+        FROM "public"."documents" d
+        WHERE d."id"::text = $1::text
+          AND {access_where}
+        LIMIT 1
+        """,
+        document_id,
+        *access_params,
     )
+    document = documents[0] if documents else None
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    current_status = str(document.status or "").upper()
+    current_status = str(document.get("status") or "").upper()
     if current_status not in {"UPLOADED", "QUEUED", "PROCESSING", "REPROCESSING"}:
         raise HTTPException(
             status_code=409,
@@ -2220,9 +2334,15 @@ async def stop_document_ocr(
         )
 
     aborted = await cancel_ocr_job(document_id)
-    await prisma.document.update(
-        where={"id": document_id},
-        data={"status": "REJECTED"},
+    await _execute_raw(
+        prisma,
+        """
+        UPDATE "public"."documents"
+        SET "status" = 'REJECTED'::"public"."DocumentStatus",
+            "updated_at" = NOW()
+        WHERE "id"::text = $1::text
+        """,
+        document_id,
     )
     return StopOcrResponse(
         status="success",
@@ -2503,7 +2623,18 @@ async def _load_validation_rule_overrides_from_db(prisma) -> None:
 
 
 def _document_is_reviewed(row: Any) -> bool:
-    return "REVIEWED" in str(getattr(row, "status", "") or "").upper()
+    status = row.get("status") if isinstance(row, dict) else getattr(row, "status", "")
+    return "REVIEWED" in str(status or "").upper()
+
+
+def _document_row_doc_type(row: Any) -> str:
+    if isinstance(row, dict):
+        return str(row.get("doc_type") or row.get("docType") or "").upper()
+    return str(getattr(row, "docType", "") or "").upper()
+
+
+def _document_row_id(row: Any) -> str:
+    return str((row.get("id") if isinstance(row, dict) else getattr(row, "id", "")) or "")
 
 
 def _validation_payload_from_serialized(extraction: DocumentExtractionItem | None) -> dict[str, Any]:
@@ -2667,9 +2798,16 @@ async def _collect_reviewed_validation_documents(
     current_payload: dict[str, Any],
     preferred_document_ids_by_type: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, str]]:
-    rows = await prisma.document.find_many(
-        where={"uploadedBy": uploaded_by, "isDeleted": False},
-        order={"updatedAt": "desc"},
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT id::text AS id, doc_type::text AS doc_type, status::text AS status
+        FROM "public"."documents"
+        WHERE uploaded_by::text = $1::text
+          AND is_deleted = FALSE
+        ORDER BY updated_at DESC
+        """,
+        uploaded_by,
     )
     documents_by_type: dict[str, Any] = {current_doc_type: current_payload}
     document_ids_by_type: dict[str, str] = {current_doc_type: current_document_id}
@@ -2681,14 +2819,22 @@ async def _collect_reviewed_validation_documents(
     for preferred_doc_type, preferred_document_id in preferred_types.items():
         if preferred_doc_type in documents_by_type:
             continue
-        row = await prisma.document.find_first(
-            where={
-                "id": preferred_document_id,
-                "uploadedBy": uploaded_by,
-                "isDeleted": False,
-                "docType": preferred_doc_type,
-            },
+        preferred_rows = await _query_raw(
+            prisma,
+            """
+            SELECT id::text AS id, doc_type::text AS doc_type, status::text AS status
+            FROM "public"."documents"
+            WHERE id::text = $1::text
+              AND uploaded_by::text = $2::text
+              AND is_deleted = FALSE
+              AND doc_type::text = $3::text
+            LIMIT 1
+            """,
+            preferred_document_id,
+            uploaded_by,
+            preferred_doc_type,
         )
+        row = preferred_rows[0] if preferred_rows else None
         if not row or not _document_is_reviewed(row):
             continue
         payload = await _validation_payload_for_document(
@@ -2700,8 +2846,8 @@ async def _collect_reviewed_validation_documents(
             documents_by_type[preferred_doc_type] = payload
             document_ids_by_type[preferred_doc_type] = preferred_document_id
     for row in rows or []:
-        doc_type = str(getattr(row, "docType", "") or "")
-        row_document_id = str(getattr(row, "id", "") or "")
+        doc_type = _document_row_doc_type(row)
+        row_document_id = _document_row_id(row)
         if not doc_type or not row_document_id or doc_type in documents_by_type:
             continue
         if doc_type in preferred_types:

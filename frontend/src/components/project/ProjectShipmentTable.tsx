@@ -97,7 +97,7 @@ export function ProjectShipmentTable({ shipments, project }: Props) {
 
   if (shipments.length === 0) {
     return (
-      <div className="bg-card rounded-xl p-8 text-center">
+      <div className="bg-card rounded-lg p-8 text-center">
         <i className={`ti ${ICONS.ship} text-[28px] text-muted-foreground/40 block mb-2`} />
         <p className="text-[14.5px] text-muted-foreground">No shipments added to this project yet</p>
       </div>
@@ -105,7 +105,7 @@ export function ProjectShipmentTable({ shipments, project }: Props) {
   }
 
   return (
-    <div className="bg-card rounded-xl overflow-hidden border border-border/50">
+    <div className="bg-card rounded-lg overflow-hidden border border-border/50">
       {/* Header */}
       <div className="grid grid-cols-[1.8fr_auto_auto_auto_1fr_auto_24px] gap-3 items-center px-4 py-2 border-b border-border/50 bg-muted/20">
         {['Shipment', 'Gates', 'Docs', 'Inventory', 'ETA / Status', 'D&D', ''].map((h, i) => (

@@ -9,7 +9,7 @@ from helpers.config import settings
 from db import close_prisma, get_prisma
 from documents_ocr.queue import (
     DetectWorkerSettings,
-    OcrWorkerSettings,
+    OcrWorkerSettings,  
     UploadWorkerSettings,
     close_arq_redis,
 )

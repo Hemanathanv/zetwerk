@@ -442,14 +442,13 @@ export function LoginPage() {
     if (!isAuthenticated || !user) return;
     const mods = (user as any)?.modules as string[] | undefined ?? [];
     const category = String(user?.role?.category ?? '').toLowerCase();
-    if (mods.includes('portal') && category.includes('customer')) { navigate('/portal'); return; }
     if (mods.includes('partner') && (category.includes('external') || category.includes('partner'))) { navigate('/partner'); return; }
     navigate('/dashboard');
   }, [isAuthenticated, user]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!email || !password) { setError('Please enter your email and password.'); return; }
+    if (!email || !password) { setError('Please enter your username/email and password.'); return; }
     setError('');
     setSubmitting(true);
     const result = await login(email, password);
@@ -459,9 +458,7 @@ export function LoginPage() {
         const freshUser = JSON.parse(localStorage.getItem('ewms_user') ?? '{}');
         const mods: string[] = freshUser.modules ?? [];
         const category = String(freshUser.role?.category ?? '').toLowerCase();
-        if (mods.includes('portal') && category.includes('customer')) {
-          navigate('/portal');
-        } else if (mods.includes('partner') && (category.includes('external') || category.includes('partner'))) {
+        if (mods.includes('partner') && (category.includes('external') || category.includes('partner'))) {
           navigate('/partner');
         } else {
           navigate('/dashboard');
@@ -611,12 +608,12 @@ export function LoginPage() {
             {mode === 'login' && (
               <form onSubmit={handleSubmit} noValidate>
                 <div className="el-field">
-                  <label className={`el-label${focused === 'email' ? ' focused' : ''}`} htmlFor="ewms-email">EMAIL</label>
+                  <label className={`el-label${focused === 'email' ? ' focused' : ''}`} htmlFor="ewms-email">USERNAME / EMAIL</label>
                   <div className="el-input-wrap">
-                    <input id="ewms-email" className="el-input" type="email" placeholder="you@company.com"
+                    <input id="ewms-email" className="el-input" type="text" placeholder="admin or you@company.com"
                       value={email} onChange={e => setEmail(e.target.value)}
                       onFocus={() => setFocused('email')} onBlur={() => setFocused(null)}
-                      autoComplete="email" data-testid="input-email" />
+                      autoComplete="username" data-testid="input-email" />
                   </div>
                 </div>
                 <div className="el-field">

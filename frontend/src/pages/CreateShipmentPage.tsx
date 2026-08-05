@@ -150,25 +150,25 @@ function CreateShipmentForm() {
   const inputCls = 'w-full';
   const selectCls = inputCls;
   const labelStyle: React.CSSProperties = {
-    display: 'block', fontSize: 14.5, fontWeight: 500,
-    color: 'hsl(var(--muted-foreground))', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em',
+    display: 'block', fontSize: 12, fontWeight: 500, lineHeight: 1.4,
+    color: 'hsl(var(--muted-foreground))', marginBottom: 6, letterSpacing: 0,
   };
   const cardStyle: React.CSSProperties = {
-    background: 'hsl(var(--card))', borderRadius: 16, padding: 20, marginBottom: 20,
+    background: 'hsl(var(--card))', borderRadius: 8, padding: 'var(--ewms-card-padding)', marginBottom: 'var(--ewms-content-grid-gap)',
     border: '1px solid hsl(var(--border))',
   };
   const sectionLabelStyle: React.CSSProperties = {
-    fontSize: 14, fontWeight: 600, color: 'hsl(var(--muted-foreground))',
-    textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 14,
+    fontSize: 18, fontWeight: 600, lineHeight: 1.3, color: 'hsl(var(--foreground))',
+    letterSpacing: 0, marginBottom: 14,
   };
 
   // ── render ────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: '28px', maxWidth: 840, margin: '0 auto' }}>
+    <div className="ewms-page-shell" style={{ maxWidth: 960 }}>
 
       {/* ── header ── */}
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 'var(--ewms-page-section-gap)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <a
             href="/dashboard"
@@ -177,7 +177,7 @@ function CreateShipmentForm() {
             ← Back
           </a>
           <span style={{ color: 'hsl(var(--muted-foreground))' }}>/</span>
-          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', margin: 0, color: 'hsl(var(--foreground))', lineHeight: 1.2 }}>Create Shipment</h1>
+          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, margin: 0, color: 'hsl(var(--foreground))', lineHeight: 1.2 }}>Create Shipment</h1>
         </div>
         <p style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', margin: 0 }}>
           Select a workflow template and enter shipment details to begin processing.
@@ -191,7 +191,7 @@ function CreateShipmentForm() {
         {activeTemplates.length === 0 ? (
           <div style={{
             background: 'hsl(38 92% 97%)', border: '1px solid hsl(38 92% 80%)',
-            borderRadius: 12, padding: 16,
+            borderRadius: 8, padding: 16,
           }}>
             <p style={{ fontSize: 14.5, color: 'hsl(38 55% 40%)', margin: 0 }}>
               No active templates available. Contact your administrator to activate a workflow template.
@@ -220,7 +220,7 @@ function CreateShipmentForm() {
                   style={{
                     textAlign: 'left',
                     padding: 16,
-                    borderRadius: 14,
+                    borderRadius: 8,
                     border: isSelected
                       ? '2px solid hsl(173 58% 39%)'
                       : '1px solid hsl(var(--border))',
@@ -331,7 +331,7 @@ function CreateShipmentForm() {
 
               return (
                 <div key={gate.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
-                  <span style={{ fontFamily: 'monospace', fontWeight: 700, width: 20 }}>G{gate.gateNumber}</span>
+                  <span style={{ fontFamily: 'var(--app-font-sans)', fontWeight: 700, width: 20 }}>G{gate.gateNumber}</span>
                   <span style={{ color: 'hsl(var(--muted-foreground))', flex: 1 }}>
                     {gateDocs.length} doc{gateDocs.length !== 1 ? 's' : ''}
                     {criticalCount > 0 && (
@@ -341,7 +341,7 @@ function CreateShipmentForm() {
                       <span style={{ color: 'hsl(38 92% 45%)', marginLeft: 4 }}>({generatedCount} auto-gen)</span>
                     )}
                   </span>
-                  <span style={{ color: 'hsl(var(--muted-foreground) / 0.5)', fontFamily: 'monospace' }}>
+                  <span style={{ color: 'hsl(var(--muted-foreground) / 0.5)', fontFamily: 'var(--app-font-sans)' }}>
                     {gateDocs.map((d: any) => {
                       const dtInfo = (allDocTypes as any[]).find((dt: any) => dt.typeCode === d.docType);
                       return dtInfo?.displayName || '??';
@@ -448,7 +448,7 @@ function CreateShipmentForm() {
                   onChange={e => setField('estimatedValue', e.target.value)}
                   className={inputCls}
                   placeholder="0.00"
-                  style={{ flex: 1, fontFamily: 'monospace' }}
+                  style={{ flex: 1, fontFamily: 'var(--app-font-sans)' }}
                 />
               </div>
             </div>

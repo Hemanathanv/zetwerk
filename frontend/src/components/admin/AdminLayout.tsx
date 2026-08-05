@@ -89,7 +89,7 @@ function AdminNav({ collapsed }: { collapsed: boolean }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Settings size={15} style={{ color: 'hsl(173 58% 39%)' }} />
             <span style={{
-              fontSize: 16, fontWeight: 700, letterSpacing: '-0.01em',
+              fontSize: 16, fontWeight: 700, letterSpacing: 0,
               color: 'hsl(var(--foreground))',
             }}>
               Administration

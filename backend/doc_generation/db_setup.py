@@ -14,6 +14,8 @@ DOC_GENERATION_REQUIRED_COLUMNS: dict[str, set[str]] = {
     "v_us_packing_list_source": {"packing_list_document_id", "bol_document_id"},
     "v_entry_summary_source": {
         "bol_document_id",
+        "broker_extracted_data",
+        "broker_document_id",
         "sales_invoice_document_id",
         "export_shipping_bill_date",
         "taxable_value",

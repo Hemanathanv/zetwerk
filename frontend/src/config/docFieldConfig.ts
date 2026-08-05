@@ -10,7 +10,7 @@
  * Each field has:
  *   - key: the Prisma model field name (camelCase)
  *   - label: human-readable label shown in the approval UI
- *   - mono?: true if the value should render in JetBrains Mono (IDs, numbers, amounts)
+ *   - mono?: true if the value should render in Inter (IDs, numbers, amounts)
  *   - critical?: true if this field is used in cross-validation rules (highlighted in UI)
  */
 

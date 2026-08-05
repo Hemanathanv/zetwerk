@@ -77,7 +77,7 @@ const TYPE_BADGE: Record<string, { label: string; intent: 'neutral' | 'info' | '
   __main: { label: 'Main Org', intent: 'active' },
 };
 
-const MONO = '"JetBrains Mono", "Fira Code", monospace';
+const MONO = 'var(--app-font-sans)';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ function TypeBadge({ typeCode }: { typeCode: string }) {
 function StatCard({ label, value, sub }: { label: string; value: number; sub?: string }) {
   return (
     <div style={{
-      flex: 1, padding: '16px 20px', borderRadius: 10,
+      flex: 1, padding: '16px 20px', borderRadius: 8,
       border: '1px solid hsl(var(--border))',
       background: 'hsl(var(--card))',
     }}>
@@ -610,7 +610,7 @@ export function AdminOrgsPage() {
           <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
             {/* Org icon + slug (read-only identifiers) */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <div style={{ width: 44, height: 44, borderRadius: 10, background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 8, background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Building2 size={20} color="#1e40af" />
               </div>
               <div>

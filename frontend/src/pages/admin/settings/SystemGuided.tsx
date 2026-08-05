@@ -52,7 +52,7 @@ export default function SystemGuided() {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4">
-        <div className="bg-card border rounded-xl p-4" style={{ borderColor: 'hsl(var(--card-border))' }}>
+        <div className="bg-card border rounded-lg p-4" style={{ borderColor: 'hsl(var(--card-border))' }}>
           <div className="flex items-center gap-2 mb-2">
             <Cpu className="w-4 h-4 text-teal-600" />
             <span className="text-[14.5px] font-medium">OCR Service</span>
@@ -65,7 +65,7 @@ export default function SystemGuided() {
           </div>
           <p className="text-[13px] text-muted-foreground mt-1.5">Python OCR engine on port 8099</p>
         </div>
-        <div className="bg-card border rounded-xl p-4" style={{ borderColor: 'hsl(var(--card-border))' }}>
+        <div className="bg-card border rounded-lg p-4" style={{ borderColor: 'hsl(var(--card-border))' }}>
           <div className="flex items-center gap-2 mb-2">
             <Activity className="w-4 h-4 text-teal-600" />
             <span className="text-[14.5px] font-medium">Audit Logging</span>
@@ -78,7 +78,7 @@ export default function SystemGuided() {
         </div>
       </div>
 
-      <div className="bg-card border rounded-xl p-5" style={{ borderColor: 'hsl(var(--card-border))' }}>
+      <div className="bg-card border rounded-lg p-5" style={{ borderColor: 'hsl(var(--card-border))' }}>
         <div className="flex items-center gap-2 mb-4">
           <Clock className="w-4 h-4 text-teal-600" />
           <h3 className="font-semibold text-[14.5px]">Recent Access Changes</h3>

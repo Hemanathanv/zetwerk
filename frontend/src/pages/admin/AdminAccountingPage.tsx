@@ -198,7 +198,7 @@ function EditTriggerModal({
         {!isNew && (
           <div style={fieldStyle}>
             <span style={labelStyle}>Trigger Code</span>
-            <span style={{ fontFamily: 'monospace', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
+            <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
               {trigger?.triggerCode}
             </span>
           </div>
@@ -286,7 +286,7 @@ function TriggerCard({
 
   return (
     <div style={{
-      background: 'hsl(var(--card))', borderRadius: 10,
+      background: 'hsl(var(--card))', borderRadius: 8,
       border: '1px solid hsl(var(--border))',
       padding: 16, marginBottom: 12,
       opacity: trigger.isActive ? 1 : 0.55,
@@ -295,12 +295,12 @@ function TriggerCard({
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontFamily: 'monospace', fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>
+          <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>
             {trigger.triggerCode}
           </span>
           {trigger.systemCode && (
             <span style={{
-              fontFamily: 'monospace', fontSize: 14.5,
+              fontFamily: 'var(--app-font-sans)', fontSize: 14.5,
               padding: '1px 6px', borderRadius: 4,
               background: 'hsl(var(--muted))', color: 'hsl(var(--muted-foreground))',
               border: '1px solid hsl(var(--border))',
@@ -344,7 +344,7 @@ function TriggerCard({
         </div>
         <div>
           <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginBottom: 4 }}>Currency</div>
-          <span style={{ fontFamily: 'monospace', fontSize: 14 }}>{trigger.currency}</span>
+          <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14 }}>{trigger.currency}</span>
         </div>
         <div>
           <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginBottom: 4 }}>Routing</div>
@@ -360,7 +360,7 @@ function TriggerCard({
         </div>
         <div>
           <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginBottom: 4 }}>Default SLA</div>
-          <span style={{ fontFamily: 'monospace', fontSize: 14 }}>{trigger.defaultSlaHours}h</span>
+          <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14 }}>{trigger.defaultSlaHours}h</span>
         </div>
       </div>
 
@@ -434,14 +434,14 @@ function LineEditor({ lines, setLines, side }: LineEditorProps) {
             </div>
             <div>
               <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginBottom: 2 }}>Code</div>
-              <input style={{ ...inputS, fontFamily: 'monospace' }} value={line.code}
+              <input style={{ ...inputS, fontFamily: 'var(--app-font-sans)' }} value={line.code}
                 onChange={e => updateLine(i, 'code', e.target.value)} />
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end' }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginBottom: 2 }}>Amount expression</div>
-              <input style={{ ...inputS, fontFamily: 'monospace', fontSize: 14.5 }}
+              <input style={{ ...inputS, fontFamily: 'var(--app-font-sans)', fontSize: 14.5 }}
                 value={line.amountExpression} placeholder="{sourceField}"
                 onChange={e => updateLine(i, 'amountExpression', e.target.value)} />
             </div>
@@ -544,7 +544,7 @@ function EditMappingModal({ trigger, mapping, onSave, onClose }: EditMappingModa
         </div>
         <div>
           <div style={sectionHead}>Amount source field</div>
-          <input style={{ ...inputS, width: '100%', fontFamily: 'monospace', fontSize: 14.5 }}
+          <input style={{ ...inputS, width: '100%', fontFamily: 'var(--app-font-sans)', fontSize: 14.5 }}
             value={amtField} placeholder="e.g. totalsGrandTotalInr"
             onChange={e => setAmtField(e.target.value)} />
         </div>
@@ -570,7 +570,7 @@ function LedgerMappingCard({ trigger, ticketCategories, onEdit }: LedgerMappingC
 
   return (
     <div style={{
-      background: 'hsl(var(--card))', borderRadius: 10,
+      background: 'hsl(var(--card))', borderRadius: 8,
       border: '1px solid hsl(var(--border))', marginBottom: 16, overflow: 'hidden',
     }}>
       {/* Header */}
@@ -580,12 +580,12 @@ function LedgerMappingCard({ trigger, ticketCategories, onEdit }: LedgerMappingC
         borderBottom: '1px solid hsl(var(--border))',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontFamily: 'monospace', fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>
+          <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>
             {trigger.triggerCode}
           </span>
           <span style={{ fontSize: 14.5, fontWeight: 600 }}>{trigger.description}</span>
           <CategoryBadge name={cat?.displayName ?? trigger.category} />
-          <span style={{ fontFamily: 'monospace', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
+          <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
             {trigger.currency}
           </span>
         </div>
@@ -638,7 +638,7 @@ function LedgerMappingCard({ trigger, ticketCategories, onEdit }: LedgerMappingC
                             {dr.name || <span style={{ color: 'hsl(var(--muted-foreground))' }}>—</span>}
                           </div>
                           {dr.code && (
-                            <div style={{ fontFamily: 'monospace', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
+                            <div style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
                               Account: {dr.code}
                             </div>
                           )}
@@ -660,7 +660,7 @@ function LedgerMappingCard({ trigger, ticketCategories, onEdit }: LedgerMappingC
                             {cr.name || <span style={{ color: 'hsl(var(--muted-foreground))' }}>—</span>}
                           </div>
                           {cr.code && (
-                            <div style={{ fontFamily: 'monospace', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
+                            <div style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
                               Account: {cr.code}
                             </div>
                           )}
@@ -688,14 +688,14 @@ function LedgerMappingCard({ trigger, ticketCategories, onEdit }: LedgerMappingC
                     {mapping.taxTreatment}
                   </span>
                   {mapping.taxRate && (
-                    <span style={{ fontFamily: 'monospace', fontSize: 14.5 }}>{mapping.taxRate}%</span>
+                    <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14.5 }}>{mapping.taxRate}%</span>
                   )}
                 </div>
               )}
               {mapping.amountSourceField && (
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <span style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>Amount source:</span>
-                  <span style={{ fontFamily: 'monospace', fontSize: 14.5 }}>{mapping.amountSourceField}</span>
+                  <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14.5 }}>{mapping.amountSourceField}</span>
                 </div>
               )}
             </div>
@@ -745,7 +745,7 @@ function ThresholdCurrencyCard({ currency, symbol, initialL2, initialL3, onSave 
 
   const inputS: React.CSSProperties = {
     padding: '6px 10px', borderRadius: 6, border: '1px solid hsl(var(--border))',
-    background: 'hsl(var(--background))', fontSize: 14.5, fontFamily: 'monospace',
+    background: 'hsl(var(--background))', fontSize: 14.5, fontFamily: 'var(--app-font-sans)',
     color: 'hsl(var(--foreground))', width: 160,
   };
   const labelS: React.CSSProperties = {
@@ -756,7 +756,7 @@ function ThresholdCurrencyCard({ currency, symbol, initialL2, initialL3, onSave 
 
   return (
     <div style={{
-      background: 'hsl(var(--card))', borderRadius: 12,
+      background: 'hsl(var(--card))', borderRadius: 8,
       padding: 24, border: '1px solid hsl(var(--border))',
     }}>
       <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{flag} {name}</div>
@@ -768,7 +768,7 @@ function ThresholdCurrencyCard({ currency, symbol, initialL2, initialL3, onSave 
         <div>
           <label style={labelS}>L2 Senior can self-approve up to</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontFamily: 'monospace', fontSize: 14.5 }}>{symbol}</span>
+            <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14.5 }}>{symbol}</span>
             <input style={inputS} type="number" min={0} value={l2} onChange={e => setL2(e.target.value)} />
           </div>
           <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginTop: 4 }}>
@@ -781,7 +781,7 @@ function ThresholdCurrencyCard({ currency, symbol, initialL2, initialL3, onSave 
             <span style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>
               {symbol}{l2 || '0'} up to
             </span>
-            <span style={{ fontFamily: 'monospace', fontSize: 14.5 }}>{symbol}</span>
+            <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14.5 }}>{symbol}</span>
             <input style={inputS} type="number" min={0} value={l3} onChange={e => setL3(e.target.value)} />
           </div>
           <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginTop: 4 }}>
@@ -790,7 +790,7 @@ function ThresholdCurrencyCard({ currency, symbol, initialL2, initialL3, onSave 
         </div>
         <div>
           <label style={labelS}>L4 Director approval required above</label>
-          <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', fontFamily: 'monospace' }}>
+          <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', fontFamily: 'var(--app-font-sans)' }}>
             Above {symbol}{l3 || '0'}
           </div>
           <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginTop: 4 }}>
@@ -1130,13 +1130,13 @@ function ERPTab({ initialData, onSave }: ERPTabProps) {
         </div>
         <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
-            Last successful post: <span style={{ fontFamily: 'monospace' }}>Never</span>
+            Last successful post: <span style={{ fontFamily: 'var(--app-font-sans)' }}>Never</span>
           </span>
           <span style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
-            Posts this month: <span style={{ fontFamily: 'monospace' }}>0</span>
+            Posts this month: <span style={{ fontFamily: 'var(--app-font-sans)' }}>0</span>
           </span>
           <span style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
-            Failed posts: <span style={{ fontFamily: 'monospace', color: '#dc2626' }}>0</span>
+            Failed posts: <span style={{ fontFamily: 'var(--app-font-sans)', color: '#dc2626' }}>0</span>
           </span>
         </div>
       </AdminFormSection>

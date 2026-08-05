@@ -145,7 +145,7 @@ export default function SettingsView() {
         </div>
       ) : (
         <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-          <section className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <section className="rounded-lg border border-border bg-card p-5 space-y-4">
             <div>
               <h3 className="text-base font-semibold">Profile</h3>
               <p className="text-sm text-muted-foreground">These fields map to the auth profile record.</p>
@@ -168,7 +168,7 @@ export default function SettingsView() {
             </Button>
           </section>
 
-          <section className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <section className="rounded-lg border border-border bg-card p-5 space-y-4">
             <div>
               <h3 className="text-base font-semibold">Security</h3>
               <p className="text-sm text-muted-foreground">Use your current password to set a new one.</p>

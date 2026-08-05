@@ -1290,7 +1290,7 @@ function TypePill({ type }: { type: string }) {
     <span style={{
       display: 'inline-block', padding: '1px 7px', borderRadius: 4,
       background: s.bg, color: s.color, fontSize: 14.5, fontWeight: 600,
-      fontFamily: 'var(--app-font-mono, monospace)',
+      fontFamily: 'var(--app-font-sans)',
     }}>
       {type}
     </span>
@@ -1320,7 +1320,7 @@ function FieldTable({ fields }: { fields: FieldDef[] }) {
           }}>
             <td style={{
               padding: '6px 12px',
-              fontFamily: 'var(--app-font-mono, monospace)',
+              fontFamily: 'var(--app-font-sans)',
               fontWeight: field.pk ? 700 : 400,
               color: field.pk ? '#b45309' : 'hsl(220 14% 20%)',
             }}>
@@ -1333,11 +1333,11 @@ function FieldTable({ fields }: { fields: FieldDef[] }) {
                 ? <span style={{ color: '#94a3b8' }}>yes</span>
                 : <strong style={{ color: '#ef4444' }}>no</strong>}
             </td>
-            <td style={{ padding: '6px 12px', fontFamily: 'var(--app-font-mono, monospace)', fontSize: 14.5, color: 'hsl(220 14% 55%)' }}>
+            <td style={{ padding: '6px 12px', fontFamily: 'var(--app-font-sans)', fontSize: 14.5, color: 'hsl(220 14% 55%)' }}>
               {field.dbCol}
             </td>
             <td style={{ padding: '6px 12px', fontSize: 14, color: 'hsl(220 14% 45%)' }}>
-              {field.fk && <span style={{ color: '#7c3aed', fontFamily: 'var(--app-font-mono, monospace)', fontSize: 14.5 }}>→ {field.fk}</span>}
+              {field.fk && <span style={{ color: '#7c3aed', fontFamily: 'var(--app-font-sans)', fontSize: 14.5 }}>→ {field.fk}</span>}
               {field.fk && field.notes && <span style={{ color: '#cbd5e1', margin: '0 4px' }}>·</span>}
               {field.notes}
               {field.unique && <Badge variant="outline" className="ml-1 text-[12px] py-0 h-4">unique</Badge>}
@@ -1470,7 +1470,7 @@ export function SchemaReferencePage() {
                         </div>
                         <div style={{
                           fontSize: 14, color: 'hsl(220 14% 60%)',
-                          fontFamily: 'var(--app-font-mono, monospace)',
+                          fontFamily: 'var(--app-font-sans)',
                           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                         }}>
                           {m.table}
@@ -1504,7 +1504,7 @@ export function SchemaReferencePage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
                 <span style={{
                   fontSize: 17, fontWeight: 700, color: 'hsl(220 14% 12%)',
-                  fontFamily: 'var(--app-font-mono, monospace)',
+                  fontFamily: 'var(--app-font-sans)',
                 }}>
                   {activeModel.name}
                 </span>

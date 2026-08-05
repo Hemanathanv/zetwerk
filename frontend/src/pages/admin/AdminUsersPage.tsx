@@ -111,7 +111,7 @@ function StatCard({ label, value, sub, color, loading = false }: {
 }) {
   return (
     <div style={{
-      background: 'hsl(var(--card))', borderRadius: 10, padding: '12px 16px',
+      background: 'hsl(var(--card))', borderRadius: 8, padding: '12px 16px',
       border: '1px solid hsl(var(--border))', flex: 1, minWidth: 0,
     }}>
       <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', fontWeight: 600,
@@ -142,7 +142,7 @@ function Avatar({ user, role, size = 36 }: { user: User; role?: Role; size?: num
       width: size, height: size, borderRadius: size / 2, flexShrink: 0,
       background: avatarBg(role), color: '#fff',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: size * 0.38, fontWeight: 700, letterSpacing: '-0.02em',
+      fontSize: size * 0.38, fontWeight: 700, letterSpacing: 0,
     }}>
       {initials(user.fullName)}
     </div>
@@ -152,7 +152,7 @@ function Avatar({ user, role, size = 36 }: { user: User; role?: Role; size?: num
 function LevelBadge({ level }: { level: string }) {
   return (
     <span style={{
-      fontFamily: '"JetBrains Mono", monospace', fontSize: 14.5, fontWeight: 600,
+      fontFamily: 'var(--app-font-sans)', fontSize: 14.5, fontWeight: 600,
       background: 'hsl(var(--muted))', color: 'hsl(var(--foreground))',
       borderRadius: 4, padding: '2px 8px',
     }}>

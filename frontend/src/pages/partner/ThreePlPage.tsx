@@ -300,7 +300,7 @@ function InboundCard({ container, qcChecklist, warehouse, onRefresh, isInternal 
   // ── Success state ──────────────────────────────────────────────────────────
   if (success) {
     return (
-      <div className="bg-card rounded-xl border border-teal-200 dark:border-teal-800 p-6 text-center">
+      <div className="bg-card rounded-lg border border-teal-200 dark:border-teal-800 p-6 text-center">
         <CheckCircle2 className="w-10 h-10 mx-auto text-teal-500 mb-3" />
         <h3 className="text-[14.5px] font-semibold text-foreground mb-1">Inward GRN Complete</h3>
         <p className="text-[13px] text-muted-foreground mb-3">
@@ -322,7 +322,7 @@ function InboundCard({ container, qcChecklist, warehouse, onRefresh, isInternal 
   }
 
   return (
-    <div className="bg-card rounded-xl border border-border p-5">
+    <div className="bg-card rounded-lg border border-border p-5">
       {/* OCR pre-fill banner */}
       {ocrExtraction && !ocrDismissed && !alreadyDone && (
         <div className="mb-3 flex items-start gap-2 text-[12px] text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/20 rounded-lg px-3 py-2 border border-teal-200 dark:border-teal-800">
@@ -603,7 +603,7 @@ function InboundTab({ pending, qcChecklist, warehouse, onRefresh, isInternal }: 
 }) {
   if (pending.length === 0) {
     return (
-      <div className="bg-card rounded-xl border border-border p-8 text-center">
+      <div className="bg-card rounded-lg border border-border p-8 text-center">
         <Truck className="w-8 h-8 mx-auto text-muted-foreground/40" />
         <p className="text-[14.5px] text-muted-foreground mt-3">No containers pending inward QC</p>
         <p className="text-[13px] text-muted-foreground/70 mt-1">
@@ -634,7 +634,7 @@ function StockTab({ containers }: { containers: any[] }) {
   const inStock = containers.filter(c => c.stage === 'in_stock');
   if (inStock.length === 0) {
     return (
-      <div className="bg-card rounded-xl border border-border p-8 text-center">
+      <div className="bg-card rounded-lg border border-border p-8 text-center">
         <Package className="w-8 h-8 mx-auto text-muted-foreground/40" />
         <p className="text-[14.5px] text-muted-foreground mt-3">No containers in stock</p>
       </div>
@@ -680,7 +680,7 @@ function OutboundTab({ containers }: { containers: any[] }) {
   const outbound = containers.filter(c => ['dispatched', 'delivered'].includes(c.stage));
   if (outbound.length === 0) {
     return (
-      <div className="bg-card rounded-xl border border-border p-8 text-center">
+      <div className="bg-card rounded-lg border border-border p-8 text-center">
         <Send className="w-8 h-8 mx-auto text-muted-foreground/40" />
         <p className="text-[14.5px] text-muted-foreground mt-3">No outbound containers</p>
       </div>
@@ -798,9 +798,9 @@ export default function ThreePlPage() {
     return (
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
         <div className="h-8 bg-muted rounded animate-pulse w-48" />
-        <div className="h-12 bg-muted rounded-xl animate-pulse" />
-        <div className="h-32 bg-muted rounded-xl animate-pulse" />
-        <div className="h-32 bg-muted rounded-xl animate-pulse" />
+        <div className="h-12 bg-muted rounded-lg animate-pulse" />
+        <div className="h-32 bg-muted rounded-lg animate-pulse" />
+        <div className="h-32 bg-muted rounded-lg animate-pulse" />
       </div>
     );
   }
@@ -813,7 +813,7 @@ export default function ThreePlPage() {
             ← Home
           </a>
         </div>
-        <div className="bg-card rounded-xl border border-border p-10 text-center">
+        <div className="bg-card rounded-lg border border-border p-10 text-center">
           <Warehouse className="w-10 h-10 mx-auto text-muted-foreground/30 mb-3" />
           <h2 className="text-[14.5px] font-semibold">No warehouse assigned</h2>
           <p className="text-[13px] text-muted-foreground mt-1 max-w-xs mx-auto">
@@ -834,7 +834,7 @@ export default function ThreePlPage() {
             ← Home
           </a>
           <span className="text-muted-foreground">/</span>
-          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>{warehouse.name}</h1>
+          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>{warehouse.name}</h1>
         </div>
         {warehouse.address && (
           <p className="text-[14.5px] text-muted-foreground">{warehouse.address}</p>
@@ -842,7 +842,7 @@ export default function ThreePlPage() {
       </div>
 
       {/* Tab bar — only show tabs the user has permission to view */}
-      <div className="flex gap-1 mb-6 bg-muted/30 rounded-xl p-1 border border-border">
+      <div className="flex gap-1 mb-6 bg-muted/30 rounded-lg p-1 border border-border">
         {visibleTabs.map(tab => {
           const count = tabCounts[tab.value];
           return (

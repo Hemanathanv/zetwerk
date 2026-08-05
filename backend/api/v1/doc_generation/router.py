@@ -49,6 +49,10 @@ def _has_shared_docgen_access(user: Any) -> bool:
     return access_role(user).upper().replace("-", "_").replace(" ", "_") in SHARED_DOCGEN_SOURCE_ROLES
 
 
+def _normalize_bol_link(value: Any) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
 class FieldValue(BaseModel):
     targetField: str
     targetLabel: str
@@ -77,6 +81,7 @@ class DraftPayload(BaseModel):
     schemaVersion: int
     sourceDocs: list[str]
     sourceDocumentIds: dict[str, str]
+    sourceExtractedData: dict[str, Any] = Field(default_factory=dict)
     sections: list[SectionValue]
     lineItems: list[dict[str, Any]]
     containers: list[dict[str, Any]]
@@ -528,6 +533,210 @@ async def _execute_raw(prisma, sql: str, *params) -> Any:
     return await execute_raw(sql, *params)
 
 
+async def _find_entry_summary_broker_document_id(
+    prisma,
+    *,
+    row: dict[str, Any] | None = None,
+    payload: dict[str, Any] | None = None,
+    user_id: str,
+    shared_sources: bool,
+) -> str | None:
+    candidates: list[str] = []
+    if row:
+        if row.get("broker_document_id"):
+            return str(row["broker_document_id"])
+        candidates.extend([
+            row.get("bol_number"),
+            row.get("mbl_number"),
+            row.get("booking_reference_number"),
+            row.get("bl_or_awb_number"),
+            row.get("house_bill"),
+        ])
+    for section in (payload or {}).get("sections", []):
+        for field in section.get("fields", []):
+            if field.get("targetField") in {"blOrAwbNumber", "houseBill", "masterBol", "houseBol"}:
+                candidates.append(field.get("value"))
+    links = sorted({link for link in (_normalize_bol_link(value) for value in candidates) if link})
+    if not links:
+        return None
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT d.id::text AS document_id
+        FROM public.documents d
+        JOIN aiextraction.entry_summary_extractions e ON e.document_id::text = d.id::text
+        WHERE d.doc_type::text = 'DRAFT_CBP_FORM_7501_BROKER'
+          AND d.status::text IN ('EXTRACTED', 'REVIEWED', 'ARCHIVED')
+          AND d.is_deleted = false
+          AND ($3::boolean OR d.uploaded_by::text = $2::text)
+          AND (
+            regexp_replace(upper(coalesce(e.bl_or_awb_number, '')), '[^A-Z0-9]', '', 'g') = ANY($1::text[])
+            OR regexp_replace(upper(coalesce(e.house_bill, '')), '[^A-Z0-9]', '', 'g') = ANY($1::text[])
+            OR regexp_replace(upper(coalesce(e.raw_data #>> '{shipment,additionalBLs}', '')), '[^A-Z0-9]', '', 'g') = ANY($1::text[])
+            OR regexp_replace(upper(coalesce(e.raw_data #>> '{entities,brokerImporterFileNumber}', '')), '[^A-Z0-9]', '', 'g') LIKE ANY(ARRAY(
+              SELECT '%' || link || '%' FROM unnest($1::text[]) AS link
+            ))
+          )
+        ORDER BY d.updated_at DESC
+        LIMIT 1
+        """,
+        links,
+        user_id,
+        shared_sources,
+    )
+    return str(rows[0]["document_id"]) if rows else None
+
+
+async def _entry_summary_broker_snapshot(prisma, document_id: str) -> dict[str, Any] | None:
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT jsonb_build_object(
+          'documentId', d.id::text,
+          'docType', d.doc_type::text,
+          'fileName', d.file_name,
+          'contentType', d.content_type,
+          'rawData', COALESCE(e.raw_data, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object(
+            'filerCodeEntryNumber', e.filer_code_entry_number,
+            'entryType', e.entry_type,
+            'summaryDate', e.summary_date,
+            'suretyNumber', e.surety_number,
+            'bondType', e.bond_type,
+            'portCode', e.port_code,
+            'entryDate', e.entry_date,
+            'teamNumber', e.team_number,
+            'summaryStatus', e.summary_status,
+            'formVersion', e.form_version,
+            'formNumber', e.form_number,
+            'importingCarrier', e.importing_carrier,
+            'modeOfTransport', e.mode_of_transport,
+            'importDate', e.import_date,
+            'blOrAwbNumber', e.bl_or_awb_number,
+            'additionalBLs', e.additional_bls,
+            'houseBill', e.house_bill,
+            'subhouseBill', e.subhouse_bill,
+            'billQty', e.bill_qty,
+            'billQtyUnit', e.bill_qty_unit,
+            'manufacturerId', e.manufacturer_id,
+            'exportingCountry', e.exporting_country,
+            'exportDate', e.export_date,
+            'itNumber', e.it_number,
+            'itDate', e.it_date,
+            'missingDocs', e.missing_docs,
+            'foreignPortOfLading', e.foreign_port_of_lading,
+            'usPortOfUnlading', e.us_port_of_unlading,
+            'countryOfOrigin', e.country_of_origin,
+            'locationOfGoods', e.location_of_goods,
+            'consigneeNumber', e.consignee_number,
+            'importerNumber', e.importer_number,
+            'referenceNumber', e.reference_number,
+            'ultimateConsigneeName', e.ultimate_consignee_name,
+            'ultimateConsigneeAddress', e.ultimate_consignee_address,
+            'importerOfRecordName', e.importer_of_record_name,
+            'importerOfRecordAddress', e.importer_of_record_address
+          ) || jsonb_build_object(
+            'countryOfMeltAndPour', e.country_of_melt_and_pour,
+            'primaryCountryOfSmelt', e.primary_country_of_smelt,
+            'secondaryCountryOfSmelt', e.secondary_country_of_smelt,
+            'countryOfCast', e.country_of_cast,
+            'mpfTotal', e.mpf_total,
+            'hmfTotal', e.hmf_total,
+            'totalOtherFees', e.total_other_fees,
+            'totalEnteredValue', e.total_entered_value,
+            'totalDuty', e.total_duty,
+            'totalTax', e.total_tax,
+            'totalOther', e.total_other,
+            'grandTotal', e.grand_total,
+            'declarantName', e.declarant_name,
+            'declarantCompany', e.declarant_company,
+            'declarantTitle', e.declarant_title,
+            'declarantDate', e.declarant_date,
+            'isOwner', e.is_owner,
+            'isPurchase', e.is_purchase,
+            'brokerName', e.broker_name,
+            'brokerAddress', e.broker_address,
+            'brokerPhone', e.broker_phone,
+            'brokerImporterFileNumber', e.broker_importer_file_number
+          )),
+          'lineItems', COALESCE((
+            SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+              'lineNo', li.line_no,
+              'invoiceNumber', li.invoice_number,
+              'units', li.units,
+              'merchandiseDescription', li.merchandise_description,
+              'htsusNumber', li.htsus_number,
+              'grossWeightKg', li.gross_weight_kg,
+              'netQuantity', li.net_quantity,
+              'netQuantityUnit', li.net_quantity_unit,
+              'enteredValue', li.entered_value,
+              'charges', li.charges,
+              'relationship', li.relationship,
+              'htsusRate', li.htsus_rate,
+              'htsusDuty', li.htsus_duty,
+              'invoiceValueUsd', li.invoice_value_usd,
+              'deductionCharge', li.deduction_charge,
+              'totalEnteredValueInvoice', li.total_entered_value_invoice,
+              'mpfRate', li.mpf_rate,
+              'mpfAmount', li.mpf_amount,
+              'hmfRate', li.hmf_rate,
+              'hmfAmount', li.hmf_amount
+            )) ORDER BY li.id)
+            FROM aiextraction.entry_summary_line_items li
+            WHERE li.entry_summary_id = e.id
+          ), '[]'::jsonb),
+          'arrays', jsonb_build_object(
+            'tariffLines', COALESCE((
+              SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+                'lineNo', tl.line_no,
+                'htsusNumber', tl.htsus_number,
+                'description', tl.description,
+                'grossWeight', tl.gross_weight,
+                'netQuantity', tl.net_quantity,
+                'netQuantityUnit', tl.net_quantity_unit,
+                'enteredValue', tl.entered_value,
+                'rate', tl.rate,
+                'dutyAmount', tl.duty_amount
+              )) ORDER BY tl.id)
+              FROM aiextraction.entry_summary_tariff_line_items tl
+              WHERE tl.entry_summary_id = e.id
+            ), '[]'::jsonb)
+          )
+        ) AS snapshot
+        FROM public.documents d
+        JOIN aiextraction.entry_summary_extractions e ON e.document_id::text = d.id::text
+        WHERE d.id::text = $1::text
+          AND d.doc_type::text = 'DRAFT_CBP_FORM_7501_BROKER'
+          AND d.is_deleted = false
+        LIMIT 1
+        """,
+        document_id,
+    )
+    if not rows:
+        return None
+    snapshot = _coerce_json(rows[0].get("snapshot"))
+    return snapshot if isinstance(snapshot, dict) else None
+
+
+async def _hydrate_entry_summary_broker_payload(prisma, payload: dict[str, Any]) -> None:
+    if payload.get("generatedDocType") != "ENTRY_SUMMARY":
+        return
+    source_ids = payload.get("sourceDocumentIds")
+    if not isinstance(source_ids, dict):
+        return
+    broker_document_id = source_ids.get("DRAFT_CBP_FORM_7501_BROKER")
+    if not broker_document_id:
+        return
+    source_extracted_data = payload.get("sourceExtractedData")
+    if not isinstance(source_extracted_data, dict):
+        source_extracted_data = {}
+        payload["sourceExtractedData"] = source_extracted_data
+    if source_extracted_data.get("DRAFT_CBP_FORM_7501_BROKER"):
+        return
+    snapshot = await _entry_summary_broker_snapshot(prisma, str(broker_document_id))
+    if snapshot:
+        source_extracted_data["DRAFT_CBP_FORM_7501_BROKER"] = snapshot
+
+
 async def _select_source_row(
     prisma,
     generated_doc_type: str,
@@ -676,6 +885,14 @@ async def _select_source_row(
                 "BILL_OF_LADING": str(rows[0]["bol_document_id"]),
                 "SALES_INVOICE": str(rows[0]["sales_invoice_document_id"]),
             }
+            broker_document_id = rows[0].get("broker_document_id") or await _find_entry_summary_broker_document_id(
+                prisma,
+                row=rows[0],
+                user_id=user_id,
+                shared_sources=shared_sources,
+            )
+            if broker_document_id:
+                rows[0]["_source_document_ids"]["DRAFT_CBP_FORM_7501_BROKER"] = broker_document_id
             return rows[0]
 
     raise HTTPException(
@@ -1066,6 +1283,11 @@ def _build_payload(generated_doc_type: str, draft_id: str, row: dict[str, Any]) 
         raise HTTPException(status_code=400, detail="Unsupported generated document type")
 
     source_document_ids = row.get("_source_document_ids") or {}
+    source_extracted_data = row.get("_source_extracted_data") or {}
+    broker_extracted_data = _coerce_json(row.get("broker_extracted_data"))
+    if generated_doc_type == "ENTRY_SUMMARY" and isinstance(broker_extracted_data, dict):
+        source_extracted_data = dict(source_extracted_data)
+        source_extracted_data["DRAFT_CBP_FORM_7501_BROKER"] = broker_extracted_data
     sections = _build_sections(
         generated_doc_type=generated_doc_type,
         row=row,
@@ -1080,6 +1302,7 @@ def _build_payload(generated_doc_type: str, draft_id: str, row: dict[str, Any]) 
         schemaVersion=2 if generated_doc_type == "ENTRY_SUMMARY" else 1,
         sourceDocs=schema["sourceDocs"],
         sourceDocumentIds=source_document_ids,
+        sourceExtractedData=source_extracted_data,
         sections=sections,
         lineItems=_build_line_items(generated_doc_type, row),
         containers=_as_list(row.get("containers")),
@@ -1195,17 +1418,12 @@ async def list_doc_generation_drafts(
             prisma,
             """
             SELECT rendered_payload, created_at, updated_at
-            FROM (
-                SELECT DISTINCT ON (source_document_ids ->> $3)
-                       rendered_payload, created_at, updated_at
-                FROM docgen.drafts
-                WHERE generated_doc_type = $1
-                  AND ($4::boolean OR created_by::text = $2::text)
-                  AND ($1 <> 'ENTRY_SUMMARY' OR schema_version >= 2)
-                  AND source_document_ids ->> $3 IS NOT NULL
-                ORDER BY source_document_ids ->> $3, updated_at DESC
-            ) latest_drafts
-            ORDER BY created_at DESC, updated_at DESC
+            FROM docgen.drafts
+            WHERE generated_doc_type = $1
+              AND ($4::boolean OR created_by::text = $2::text)
+              AND ($1 <> 'ENTRY_SUMMARY' OR schema_version >= 2)
+              AND source_document_ids ->> $3 IS NOT NULL
+            ORDER BY updated_at DESC, created_at DESC
             """,
             generatedDocType,
             str(user.id),
@@ -1220,6 +1438,18 @@ async def list_doc_generation_drafts(
         payload = _coerce_json(row.get("rendered_payload"))
         if not isinstance(payload, dict):
             continue
+        if generatedDocType == "ENTRY_SUMMARY":
+            source_ids = payload.get("sourceDocumentIds")
+            if isinstance(source_ids, dict) and not source_ids.get("DRAFT_CBP_FORM_7501_BROKER"):
+                broker_document_id = await _find_entry_summary_broker_document_id(
+                    prisma,
+                    payload=payload,
+                    user_id=str(user.id),
+                    shared_sources=shared_sources,
+                )
+                if broker_document_id:
+                    source_ids["DRAFT_CBP_FORM_7501_BROKER"] = broker_document_id
+            await _hydrate_entry_summary_broker_payload(prisma, payload)
         payload["createdAt"] = str(row.get("created_at")) if row.get("created_at") else None
         payload["updatedAt"] = str(row.get("updated_at")) if row.get("updated_at") else None
         drafts.append(DraftPayload.model_validate(payload))
@@ -1259,6 +1489,17 @@ async def get_doc_generation_draft(
         raise HTTPException(status_code=500, detail="Draft payload is invalid")
     if not can_generate_document_type(user, payload.get("generatedDocType")):
         raise HTTPException(status_code=403, detail="Not allowed to generate this document type")
+    source_ids = payload.get("sourceDocumentIds")
+    if payload.get("generatedDocType") == "ENTRY_SUMMARY" and isinstance(source_ids, dict) and not source_ids.get("DRAFT_CBP_FORM_7501_BROKER"):
+        broker_document_id = await _find_entry_summary_broker_document_id(
+            prisma,
+            payload=payload,
+            user_id=str(user.id),
+            shared_sources=shared_sources,
+        )
+        if broker_document_id:
+            source_ids["DRAFT_CBP_FORM_7501_BROKER"] = broker_document_id
+    await _hydrate_entry_summary_broker_payload(prisma, payload)
 
     payload["createdAt"] = str(rows[0].get("created_at")) if rows[0].get("created_at") else None
     payload["updatedAt"] = str(rows[0].get("updated_at")) if rows[0].get("updated_at") else None

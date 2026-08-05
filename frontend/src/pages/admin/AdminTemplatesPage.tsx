@@ -82,7 +82,7 @@ type GeneralState = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const MONO = '"JetBrains Mono", "Fira Code", monospace';
+const MONO = 'var(--app-font-sans)';
 const TEAL = 'hsl(173 58% 39%)';
 const TEAL_BG = 'hsla(173,58%,39%,0.1)';
 
@@ -759,7 +759,7 @@ export function AdminTemplatesPage() {
                 onClick={() => { setEditingTemplateId(tmpl.id); setActiveTab('general'); }}
                 style={{
                   background: 'hsl(var(--card))',
-                  borderRadius: 12, padding: 20,
+                  borderRadius: 8, padding: 20,
                   border: '1px solid hsl(var(--border))',
                   cursor: 'pointer',
                   transition: 'box-shadow 0.15s',
@@ -1108,7 +1108,7 @@ export function AdminTemplatesPage() {
                 )}
                 {gates.map((gate, idx) => (
                   <div key={gate.id} style={{
-                    borderRadius: 10, border: '1px solid hsl(var(--border))',
+                    borderRadius: 8, border: '1px solid hsl(var(--border))',
                     background: 'hsl(var(--card))', overflow: 'hidden',
                   }}>
                     {/* Gate header */}
@@ -1119,7 +1119,7 @@ export function AdminTemplatesPage() {
                     }}>
                       <GripVertical size={15} color="hsl(var(--muted-foreground))" />
                       <div style={{
-                        width: 28, height: 28, borderRadius: 14,
+                        width: 28, height: 28, borderRadius: 8,
                         background: gate.isIdentityGate ? TEAL : 'hsl(var(--muted))',
                         color: gate.isIdentityGate ? '#fff' : 'hsl(var(--muted-foreground))',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1230,7 +1230,7 @@ export function AdminTemplatesPage() {
                   style={{
                     width: '100%', padding: '12px 0',
                     border: '2px dashed hsl(var(--border))',
-                    borderRadius: 10, cursor: 'pointer',
+                    borderRadius: 8, cursor: 'pointer',
                     background: 'transparent', color: 'hsl(var(--muted-foreground))',
                     fontSize: 14.5, fontWeight: 500,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -1384,7 +1384,7 @@ export function AdminTemplatesPage() {
           {activeTab === 'identity' && (
             <div style={{ maxWidth: 640, paddingBottom: 32 }}>
               <div style={{
-                background: 'hsl(var(--card))', borderRadius: 12,
+                background: 'hsl(var(--card))', borderRadius: 8,
                 padding: 24, border: '1px solid hsl(var(--border))',
               }}>
                 <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>
@@ -1622,7 +1622,7 @@ export function AdminTemplatesPage() {
               {/* Role rows */}
               <div style={{
                 border: '1px solid hsl(var(--border))',
-                borderRadius: 10, overflow: 'hidden',
+                borderRadius: 8, overflow: 'hidden',
                 background: 'hsl(var(--card))',
               }}>
                 {roles.length === 0 && (
@@ -1723,7 +1723,7 @@ export function AdminTemplatesPage() {
                 {/* ── Score header ── */}
                 <div style={{
                   padding: '18px 20px',
-                  borderRadius: 12,
+                  borderRadius: 8,
                   marginBottom: 24,
                   background: allPass ? 'rgba(22,163,74,0.08)' : 'rgba(245,158,11,0.08)',
                   border: `1px solid ${allPass ? 'rgba(22,163,74,0.25)' : 'rgba(245,158,11,0.25)'}`,
@@ -1771,7 +1771,7 @@ export function AdminTemplatesPage() {
                       {failing.map((check, i) => (
                         <div key={i} style={{
                           padding: '14px 16px',
-                          borderRadius: 10,
+                          borderRadius: 8,
                           border: '1px solid rgba(239,68,68,0.25)',
                           background: 'hsl(var(--card))',
                           display: 'flex', alignItems: 'flex-start', gap: 12,
@@ -1820,7 +1820,7 @@ export function AdminTemplatesPage() {
                     </div>
                     <div style={{
                       border: '1px solid rgba(22,163,74,0.25)',
-                      borderRadius: 10, overflow: 'hidden',
+                      borderRadius: 8, overflow: 'hidden',
                       background: 'rgba(22,163,74,0.06)',
                     }}>
                       {passing.map((check, i) => (
@@ -1841,7 +1841,7 @@ export function AdminTemplatesPage() {
                 {general.status === 'DRAFT' && allPass && (
                   <div style={{
                     marginTop: 24, padding: '16px 20px',
-                    borderRadius: 10, background: 'rgba(22,163,74,0.08)',
+                    borderRadius: 8, background: 'rgba(22,163,74,0.08)',
                     border: '1px solid rgba(22,163,74,0.25)',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16,
                   }}>
@@ -1906,7 +1906,7 @@ function GateDocGroup({
   const [addDocType, setAddDocType] = useState('');
   const isParallel = !gate.id;
   const assignedCodes = new Set(docs.map((d) => d.docType));
-  const MONO = '"JetBrains Mono", "Fira Code", monospace';
+  const MONO = 'var(--app-font-sans)';
   const TEAL = 'hsl(173 58% 39%)';
 
   return (
@@ -1917,7 +1917,7 @@ function GateDocGroup({
       }}>
         {gate.id && (
           <span style={{
-            width: 22, height: 22, borderRadius: 11,
+            width: 22, height: 22, borderRadius: 8,
             background: 'hsl(173 58% 39% / 0.15)', color: TEAL,
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 14.5, fontWeight: 700, fontFamily: MONO,

@@ -31,7 +31,7 @@ export function InvoicesPage() {
   return (
     <div className="p-6 space-y-5">
       <div>
-        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Invoices</h1>
+        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Invoices</h1>
         <p className="text-[13px] text-muted-foreground mt-0.5">Sales, freight, CHA, and forwarder invoices across all shipments</p>
       </div>
 

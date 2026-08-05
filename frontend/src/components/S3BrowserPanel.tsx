@@ -304,7 +304,7 @@ export function S3BrowserPanel({ initialBucket }: Props) {
                         <span
                           style={{
                             display: 'inline-flex', alignItems: 'center', gap: 4,
-                            padding: '2px 8px', borderRadius: 12,
+                            padding: '2px 8px', borderRadius: 8,
                             background: TEAL_BG, color: TEAL,
                             fontSize: 14, fontWeight: 600,
                           }}

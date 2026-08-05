@@ -62,7 +62,7 @@ export function AdminSectionTabs({ tabs, activeTab, onTabChange }: AdminSectionT
                   justifyContent: 'center',
                   minWidth: 20,
                   height: 20,
-                  borderRadius: 10,
+                  borderRadius: 8,
                   background: 'hsl(var(--muted))',
                   color: 'hsl(var(--muted-foreground))',
                   fontSize: 14,

@@ -14,6 +14,7 @@ import {
   AlertTriangle, Clock3, Loader2,
 } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
 import { PageHeader }    from '@/components/vs/PageHeader';
 import { StatusPill }    from '@/components/vs/StatusPill';
 import { DocBadge }      from '@/components/vs/DocBadge';
@@ -21,6 +22,7 @@ import { ConfidenceBar } from '@/components/vs/ConfidenceBar';
 import { FilterChips }   from '@/components/vs/FilterChips';
 import { useToast } from '@/hooks/use-toast';
 import type { ContainerMappingResponse, ContainerMappingRow } from '@/types/backend';
+import { ShipmentDndInputsDialog } from '@/pages/ShipmentDetailPage';
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const TEAL   = 'hsl(173 58% 39%)';
@@ -122,6 +124,19 @@ function useNow(): number {
 
 // ─── Pipeline dots ────────────────────────────────────────────────────────────
 type DotState = 'done' | 'current' | 'current-spin' | 'future';
+
+function uploadErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'response' in err) {
+    const response = (err as { response?: { data?: unknown } }).response;
+    const data = response?.data;
+    if (data && typeof data === 'object' && 'detail' in data) {
+      const detail = (data as { detail?: unknown }).detail;
+      if (typeof detail === 'string' && detail.trim()) return detail;
+    }
+  }
+  return err instanceof Error ? err.message : 'Unable to upload right now.';
+}
+
 const STAGE_LABELS = ['Upload', 'Extract', 'Approve', 'Cross-val', 'Close'];
 
 function PipelineDots({ dots, gold }: { dots: DotState[]; gold?: boolean }) {
@@ -233,7 +248,7 @@ function WaitingGroupEl({ si, pl, solo, now }: {
   }
 
   return (
-    <div style={{ backgroundColor: 'hsl(var(--card))', borderRadius: 10, border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
+    <div style={{ backgroundColor: 'hsl(var(--card))', borderRadius: 8, border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
       {/* Group header row */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,
@@ -321,7 +336,7 @@ function BolWaitingCard({
   return (
     <div style={{
       backgroundColor: 'hsl(var(--card))',
-      borderRadius: 10,
+      borderRadius: 8,
       border: `1px solid ${isTerminal ? AMBER + '60' : BORDER}`,
       overflow: 'hidden',
       marginBottom: 4,
@@ -484,6 +499,7 @@ type QueueCard = {
   sourceDocId?: string;
   provenanceLabel?: string;
   containerMappingAction?: () => void;
+  dndInputsAction?: () => void;
 };
 
 type ValidationSummary = {
@@ -556,7 +572,7 @@ function QueueCardEl({ card, onApproveClick, onStopClick, onRetryClick, onCardCl
       onClick={onCardClick}
       style={{
         backgroundColor: 'hsl(var(--card))',
-        borderRadius: 12, overflow: 'hidden',
+        borderRadius: 8, overflow: 'hidden',
         border: `1px solid ${BORDER}`,
         transform: hovered ? 'translateY(-1px)' : 'translateY(0)',
         transition: 'transform 0.15s ease, box-shadow 0.15s ease, border-color 0.12s',
@@ -789,14 +805,28 @@ function QueueCardEl({ card, onApproveClick, onStopClick, onRetryClick, onCardCl
             )}
           </div>
         )}
-        {card.containerMappingAction && (
-          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
-            <button
-              onClick={(event) => { event.stopPropagation(); card.containerMappingAction?.(); }}
-              style={{ fontSize: 14, fontWeight: 700, color: TEAL, background: 'transparent', border: `1px solid ${TEAL}60`, borderRadius: 6, padding: '7px 14px', cursor: 'pointer' }}
-            >
-              Container Mapping
-            </button>
+        {(card.containerMappingAction || card.dndInputsAction) && (
+          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+            {card.dndInputsAction && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={(event) => { event.stopPropagation(); card.dndInputsAction?.(); }}
+              >
+                D&D Inputs
+              </Button>
+            )}
+            {card.containerMappingAction && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={(event) => { event.stopPropagation(); card.containerMappingAction?.(); }}
+              >
+                Container Mapping
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -1068,75 +1098,58 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
       </div>
 
       {/* Action button */}
-      <div style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>
+      <div style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
         {onStopClick && (
-          <button
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
             onClick={(event) => { event.stopPropagation(); onStopClick(); }}
-            style={{
-              fontSize: 14, fontWeight: 600, color: RED, background: 'transparent',
-              border: `1px solid ${RED}60`, borderRadius: 6,
-              padding: '5px 10px', cursor: 'pointer', whiteSpace: 'nowrap',
-            }}
+            className="h-8 whitespace-nowrap border-red-300 text-red-600 hover:text-red-700"
           >
             Stop
-          </button>
+          </Button>
         )}
         {onRetryClick && (
-          <button
+          <Button
+            type="button"
+            size="sm"
             onClick={(event) => { event.stopPropagation(); onRetryClick(); }}
-            style={{
-              fontSize: 14, fontWeight: 600, color: '#fff', backgroundColor: BLUE,
-              border: 'none', borderRadius: 6, padding: '6px 10px',
-              cursor: 'pointer', whiteSpace: 'nowrap',
-            }}
+            className="h-8 whitespace-nowrap"
           >
             Retry
-          </button>
+          </Button>
         )}
         {card.action && (
           card.action.label === 'Approve extraction →' ? (
-            <button
+            <Button
+              type="button"
+              size="sm"
               onClick={(e) => { e.stopPropagation(); (onApproveClick ?? card.action?.onClick)?.(); }}
-              style={{
-                fontSize: 14, fontWeight: 600, color: '#fff',
-                backgroundColor: BLUE, border: 'none', borderRadius: 6,
-                padding: '6px 14px', cursor: 'pointer', whiteSpace: 'nowrap',
-              }}
+              className="h-8 whitespace-nowrap"
             >
               Approve
-            </button>
+            </Button>
           ) : card.action.teal ? (
-            <button
+            <Button
+              type="button"
+              size="sm"
               onClick={(e) => { e.stopPropagation(); card.action?.href ? navigate(card.action.href) : card.action?.onClick?.(); }}
-              style={{
-                fontSize: 14, fontWeight: 600, color: '#fff',
-                backgroundColor: TEAL, border: 'none', borderRadius: 6,
-                padding: '6px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
-              }}
+              className="h-8 gap-1 whitespace-nowrap"
             >
               <Sparkles size={9} /> Review
-            </button>
+            </Button>
           ) : (
-            <button
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
               onClick={(e) => { e.stopPropagation(); onDetailsClick?.(); }}
-              style={{
-                fontSize: 14, color: TEAL, background: 'none',
-                border: `1px solid ${TEAL}40`, borderRadius: 6,
-                padding: '5px 10px', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: 3,
-              }}
+              className="h-8 gap-1 whitespace-nowrap"
             >
               Details <ArrowRight size={10} />
-            </button>
+            </Button>
           )
-        )}
-        {card.containerMappingAction && (
-          <button
-            onClick={(event) => { event.stopPropagation(); card.containerMappingAction?.(); }}
-            style={{ fontSize: 14, fontWeight: 600, color: TEAL, background: 'transparent', border: `1px solid ${TEAL}60`, borderRadius: 6, padding: '5px 10px', cursor: 'pointer', whiteSpace: 'nowrap' }}
-          >
-            Map containers
-          </button>
         )}
       </div>
     </div>
@@ -1333,7 +1346,7 @@ function ValidationDetailSheet({ card, open, onOpenChange, onReupload }: {
         />
         {pendingAction && (
           <div style={{ position: 'absolute', inset: 0, zIndex: 5, background: 'hsla(220,18%,8%,0.42)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18 }}>
-            <div style={{ width: '100%', maxWidth: 420, borderRadius: 10, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, boxShadow: '0 20px 60px hsla(220,20%,10%,0.28)', padding: 18 }}>
+            <div style={{ width: '100%', maxWidth: 420, borderRadius: 8, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, boxShadow: '0 20px 60px hsla(220,20%,10%,0.28)', padding: 18 }}>
               <div style={{ fontSize: 16, fontWeight: 750, color: FG }}>{confirmTitle}</div>
               <div style={{ marginTop: 8, fontSize: 14.5, color: MUTED, lineHeight: 1.5 }}>{confirmBody}</div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
@@ -1561,6 +1574,7 @@ function apiDocToQueueCard(d: any): QueueCard {
   const counts = validationCounts(validationSummary, validationResults);
   const isExtracted = ['EXTRACTED', 'REVIEWED'].includes(dbStatus);
   const isApproved  = !!d.approvedAt || dbStatus === 'REVIEWED';
+  const validationActive = ['BLOCKED', 'WAITING'].includes(validationStatus);
   const hasPriorValidation = !!validationStatus || counts.total > 0 || validationResults.length > 0;
 
   let statusCategory: StatusCategory, status: string, resolvedColor: string;
@@ -1574,14 +1588,20 @@ function apiDocToQueueCard(d: any): QueueCard {
     statusCategory = 'done'; status = dbStatus;
     resolvedColor = GREEN; dots = ['done', 'done', 'done', 'done', 'done'];
     detail = `Database status: ${dbStatus}`;
-  } else if (isApproved && (validationStatus === 'PASSED' || validationStatus === 'WARNING')) {
+  } else if (isApproved && !validationActive) {
     statusCategory = 'done';
-    status = validationStatus === 'WARNING' ? 'Validated with warnings' : 'Validated';
+    status = validationStatus === 'WARNING'
+      ? 'Validated with warnings'
+      : validationStatus === 'PASSED'
+        ? 'Validated'
+        : 'Approved';
     resolvedColor = validationStatus === 'WARNING' ? AMBER : GREEN;
     dots = ['done', 'done', 'done', 'done', 'done'];
     detail = validationStatus === 'WARNING'
       ? `Cross-validation completed with ${counts.warnings} warning${counts.warnings === 1 ? '' : 's'}`
-      : `Cross-validation passed: ${counts.passed}/${counts.total || counts.passed} checks passed`;
+      : validationStatus === 'PASSED'
+        ? `Cross-validation passed: ${counts.passed}/${counts.total || counts.passed} checks passed`
+        : `Database status: ${dbStatus}`;
     action = { label: 'View details →' };
   } else if (isApproved) {
     statusCategory = 'cross-validating';
@@ -1620,7 +1640,7 @@ function apiDocToQueueCard(d: any): QueueCard {
     documentTypeCode: dt,
     issuer: d.issuerName ?? d.bucket ?? d.uploadedBy?.fullName ?? 'Uploaded',
     docNumber: d.documentNumber ?? d.fileName ?? '—',
-    status, statusVariant: !isApproved ? 'info' : validationStatus === 'PASSED' ? 'success' : validationStatus === 'BLOCKED' ? 'danger' : validationStatus === 'WARNING' ? 'warning' : 'pending',
+    status, statusVariant: !isApproved ? 'info' : validationStatus === 'PASSED' ? 'success' : validationStatus === 'BLOCKED' ? 'danger' : validationStatus === 'WARNING' ? 'warning' : statusCategory === 'done' ? 'success' : 'pending',
     statusCategory, avgConfidence: conf, dots,
     detail, action,
     validationSummary,
@@ -1692,10 +1712,10 @@ function apiGeneratedDocToQueueCard(d: any): QueueCard {
   let goldDots: boolean;
 
   if (isApproved) {
-    // Approved → moved to cross-validation
-    statusCategory = 'cross-validating'; status = 'Cross-validating';
-    statusVariant = 'pending'; dots = ['done', 'done', 'done', 'current', 'future'];
-    headerColor = TEAL; goldDots = false;
+    // Approved with no active validation blocker is terminal for the queue.
+    statusCategory = 'done'; status = 'Approved';
+    statusVariant = 'success'; dots = ['done', 'done', 'done', 'done', 'done'];
+    headerColor = GREEN; goldDots = false;
   } else if (ocr === 'discarded') {
     // Discarded — hide by mapping to done so it's filtered out
     statusCategory = 'done'; status = 'Discarded';
@@ -1795,7 +1815,8 @@ function apiDraftToQueueCard(d: DraftPayload, validation?: GeneratedDraftValidat
   const validationResults: ValidationResultRow[] = Array.isArray(validation?.results) ? validation.results : [];
   const validationSummary: ValidationSummary | null = validation ? validation : null;
   const counts = validationCounts(validationSummary, validationResults);
-  const validationPassed = isApproved && ['PASSED', 'WARNING'].includes(validationStatus) && counts.total > 0;
+  const validationActive = isApproved && ['BLOCKED', 'WAITING'].includes(validationStatus);
+  const validationPassed = isApproved && !validationActive;
   const validationBlocked = isApproved && validationStatus === 'BLOCKED';
   const validationWarning = isApproved && validationStatus === 'WARNING';
   const validationWaiting = isApproved && validationStatus === 'WAITING';
@@ -1810,7 +1831,7 @@ function apiDraftToQueueCard(d: DraftPayload, validation?: GeneratedDraftValidat
           : 'draft-review';
   const status = isApproved ? 'Cross-validating' : isFailed ? 'Generation failed' : isProcessing ? 'Generating...' : 'Draft — review needed';
   const resolvedStatus = validationPassed
-    ? validationWarning ? 'Validated with warnings' : 'Validated'
+    ? validationWarning ? 'Validated with warnings' : validationStatus === 'PASSED' ? 'Validated' : 'Approved'
     : validationBlocked
       ? 'Validation blocked'
       : validationWarning
@@ -1894,7 +1915,7 @@ function ContainerMappingModal({
       onClick={onClose}
       style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'hsla(220,20%,10%,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
     >
-      <div onClick={(event) => event.stopPropagation()} style={{ width: 'min(1500px, 96vw)', maxHeight: '88vh', overflow: 'hidden', borderRadius: 12, background: 'hsl(var(--background))', border: `1px solid ${BORDER}`, boxShadow: '0 24px 70px hsla(220,20%,10%,0.3)', display: 'flex', flexDirection: 'column' }}>
+      <div onClick={(event) => event.stopPropagation()} style={{ width: 'min(1500px, 96vw)', maxHeight: '88vh', overflow: 'hidden', borderRadius: 8, background: 'hsl(var(--background))', border: `1px solid ${BORDER}`, boxShadow: '0 24px 70px hsla(220,20%,10%,0.3)', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '16px 18px', borderBottom: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 750, color: FG }}>Container Mapping</div>
@@ -1981,6 +2002,8 @@ export function UploadProcessPage() {
   const [bolInboxDocs,      setBolInboxDocs]      = useState<WaitingDoc[]>([]);
   const [containerMappingOpen, setContainerMappingOpen] = useState(false);
   const [containerMappingDocumentId, setContainerMappingDocumentId] = useState<string | null>(null);
+  const [dndInputsOpen, setDndInputsOpen] = useState(false);
+  const [dndInputsDocumentId, setDndInputsDocumentId] = useState<string | null>(null);
   const now = useNow();
   const routedDetail = useMemo(() => parseValidationDetailsRoute(location), [location]);
   const queueSection = activeChip === WAITING_FOR_BOL_CHIP_INDEX
@@ -2033,7 +2056,19 @@ export function UploadProcessPage() {
   });
 
   const liveDocs = useMemo(
-    () => (documentsQuery.data?.documents ?? []).map(apiDocToQueueCard),
+    () => (documentsQuery.data?.documents ?? []).map((doc: any) => {
+      const card = apiDocToQueueCard(doc);
+      const docType = String(doc.documentType ?? doc.docType ?? '').toUpperCase();
+      const isBol = docType === 'BILL_OF_LADING' || docType === 'BOL' || docType === 'BL';
+      if (isBol && card.docId) {
+        return {
+          ...card,
+          containerMappingAction: () => openContainerMapping(card.docId!),
+          dndInputsAction: () => openDndInputs(card.docId!),
+        };
+      }
+      return card;
+    }),
     [documentsQuery.data],
   );
   const queuePagination = documentsQuery.data?.pagination ?? null;
@@ -2382,7 +2417,7 @@ export function UploadProcessPage() {
       chooseFile(null);
       setQueuePage(1);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unable to upload right now.';
+      const message = uploadErrorMessage(err);
       const isAccessDenied = message.toLowerCase().includes('access denied') || message.toLowerCase().includes('permission denied');
       toast({
         title: isAccessDenied ? 'Access denied for this doc' : 'Upload failed',
@@ -2533,6 +2568,11 @@ export function UploadProcessPage() {
     setContainerMappingOpen(true);
   }
 
+  function openDndInputs(documentId: string) {
+    setDndInputsDocumentId(documentId);
+    setDndInputsOpen(true);
+  }
+
   async function saveContainerMappingRows(rows: ContainerMappingRow[]) {
     if (!containerMappingDocumentId) return;
     try {
@@ -2595,7 +2635,7 @@ export function UploadProcessPage() {
   };
 
   return (
-    <div style={{ padding: '28px 32px', maxWidth: 'none' }}>
+    <div className="ewms-page-shell">
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes recentUploadMarquee {
@@ -2631,6 +2671,11 @@ export function UploadProcessPage() {
           onSave={saveContainerMappingRows}
         />
       )}
+      <ShipmentDndInputsDialog
+        open={dndInputsOpen}
+        shipmentId={dndInputsDocumentId ? `bol-${dndInputsDocumentId}` : 'bol'}
+        onOpenChange={setDndInputsOpen}
+      />
       <ValidationDetailSheet
         card={detailCard}
         open={!!detailCard}
@@ -2689,7 +2734,7 @@ export function UploadProcessPage() {
           {/* ─ Success card (shown after upload) ─ */}
           {uploadSuccess && (
             <div style={{
-              backgroundColor: 'hsl(var(--card))', borderRadius: 14,
+              backgroundColor: 'hsl(var(--card))', borderRadius: 8,
               border: `2px solid ${GREEN}`, padding: '32px 36px', marginBottom: 28,
               boxShadow: 'var(--vs-shadow-card)', textAlign: 'center',
             }}>
@@ -2723,7 +2768,7 @@ export function UploadProcessPage() {
 
           {/* ─ Upload zone + form card ─ */}
           {!uploadSuccess && (
-            <div style={{ backgroundColor: 'hsl(var(--card))', borderRadius: 14, border: `1px solid ${BORDER}`, boxShadow: 'var(--vs-shadow-card)', overflow: 'hidden' }}>
+            <div style={{ backgroundColor: 'hsl(var(--card))', borderRadius: 8, border: `1px solid ${BORDER}`, boxShadow: 'var(--vs-shadow-card)', overflow: 'hidden' }}>
               {/* Card header */}
               <div style={{ padding: '16px 24px 15px', borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: `${TEAL}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -2779,7 +2824,7 @@ export function UploadProcessPage() {
                   onDragLeave={() => setIsDragOver(false)}
                   onDrop={(e) => { e.preventDefault(); setIsDragOver(false); const f = e.dataTransfer.files[0]; if (f) chooseFile(f); }}
                   style={{
-                    height: selectedFile ? 88 : 220, borderRadius: 12, cursor: 'pointer',
+                    height: selectedFile ? 88 : 220, borderRadius: 8, cursor: 'pointer',
                     border: `2px dashed ${isDragOver ? TEAL : selectedFile ? GREEN : BORDER}`,
                     backgroundColor: isDragOver ? 'hsla(173,58%,39%,0.06)' : selectedFile ? 'hsla(152,69%,31%,0.05)' : 'hsl(var(--background))',
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8,
@@ -2810,7 +2855,7 @@ export function UploadProcessPage() {
                   {/* Corridor row — full width, only shown when org has 2+ corridors */}
                   {corridors.length >= 2 && (
                     <div style={{ gridColumn: '1 / -1' }}>
-                      <label style={{ display: 'block', fontSize: 14.5, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Corridor</label>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: MUTED, letterSpacing: 0, marginBottom: 5 }}>Corridor</label>
                       <select value={corridorVal} onChange={(e) => setCorridorVal(e.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${BORDER}`, backgroundColor: 'hsl(var(--background))', fontSize: 14.5, color: FG, cursor: 'pointer' }}>
                         <option value="">Select corridor…</option>
                         {corridors.map(c => <option key={c} value={c}>{c}</option>)}
@@ -2819,7 +2864,7 @@ export function UploadProcessPage() {
                     </div>
                   )}
                   <div>
-                    <label style={{ display: 'block', fontSize: 14.5, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Document type</label>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: MUTED, letterSpacing: 0, marginBottom: 5 }}>Document type</label>
                     <select value={docType} onChange={(e) => { setDocType(e.target.value); setClassification(null); }} style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${BORDER}`, backgroundColor: 'hsl(var(--background))', fontSize: 14.5, color: FG, cursor: 'pointer' }}>
                       <option value="auto">Auto-detect</option>
                       {configLoading && !docTypeFlat.length
@@ -2858,7 +2903,7 @@ export function UploadProcessPage() {
                     <p style={{ fontSize: 14, color: MUTED, margin: '4px 0 0' }}>Leave on Auto-detect to let OCR identify</p>
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: 14.5, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Assign to shipment</label>
+                    <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: MUTED, letterSpacing: 0, marginBottom: 5 }}>Assign to shipment</label>
                     <select value={shipmentVal} onChange={(e) => setShipmentVal(e.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${BORDER}`, backgroundColor: 'hsl(var(--background))', fontSize: 14.5, color: FG, cursor: 'pointer' }}>
                       <option value="">Auto-match after OCR</option>
                       {shipmentOpts.map(s => (<option key={s.id} value={s.id}>{s.label}</option>))}
@@ -2867,7 +2912,7 @@ export function UploadProcessPage() {
                   </div>
                 </div>
                 {classification && (
-                  <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: 10, border: `1px solid ${GREEN}55`, backgroundColor: `${GREEN}0D`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                  <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: 8, border: `1px solid ${GREEN}55`, backgroundColor: `${GREEN}0D`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                     <div>
                       <div style={{ fontSize: 14, color: MUTED }}>Verified document type</div>
                       <div style={{ fontSize: 15, fontWeight: 700, color: FG }}>{classification.label}</div>
@@ -2879,7 +2924,7 @@ export function UploadProcessPage() {
                 <button
                   onClick={docType === 'auto' && !classification ? runAutoDetect : runPageUpload}
                   disabled={!selectedFile || isUploading || isClassifying}
-                  style={{ marginTop: 16, width: '100%', padding: '12px 16px', borderRadius: 10, border: 'none', cursor: selectedFile && !isUploading && !isClassifying ? 'pointer' : 'not-allowed', backgroundColor: selectedFile && !isUploading && !isClassifying ? (classification || docType !== 'auto' ? GREEN : TEAL) : 'hsl(var(--border))', color: selectedFile && !isUploading && !isClassifying ? '#fff' : MUTED, fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, transition: 'background-color 0.15s' }}
+                  style={{ marginTop: 16, width: '100%', padding: '12px 16px', borderRadius: 8, border: 'none', cursor: selectedFile && !isUploading && !isClassifying ? 'pointer' : 'not-allowed', backgroundColor: selectedFile && !isUploading && !isClassifying ? (classification || docType !== 'auto' ? GREEN : TEAL) : 'hsl(var(--border))', color: selectedFile && !isUploading && !isClassifying ? '#fff' : MUTED, fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, transition: 'background-color 0.15s' }}
                 >
                   {isUploading ? (
                     <><span style={{ width: 16, height: 16, borderRadius: '50%', border: '2px solid #fff4', borderTopColor: '#fff', animation: 'spin 0.7s linear infinite', display: 'inline-block' }} />Uploading & starting OCR…</>
@@ -2927,7 +2972,7 @@ export function UploadProcessPage() {
                     width: 210,
                     flex: '0 0 210px',
                     backgroundColor: 'hsl(var(--card))',
-                    borderRadius: 12,
+                    borderRadius: 8,
                     border: `1px solid ${BORDER}`,
                     borderLeft: `3px solid ${card.headerColor}`,
                     padding: '14px 16px',
@@ -3139,7 +3184,7 @@ export function UploadProcessPage() {
               Loading document queue...
             </div>
           ) : queueError ? (
-            <div style={{ padding: 24, border: `1px solid ${RED}40`, borderRadius: 10, color: RED }}>{queueError}</div>
+            <div style={{ padding: 24, border: `1px solid ${RED}40`, borderRadius: 8, color: RED }}>{queueError}</div>
           ) : activeChip !== WAITING_FOR_BOL_CHIP_INDEX && filteredCards.length === 0 ? (
             <div style={{ padding: 32, textAlign: 'center', color: MUTED }}>No database documents found for this section.</div>
           ) : activeChip === WAITING_FOR_BOL_CHIP_INDEX ? (
@@ -3179,7 +3224,7 @@ export function UploadProcessPage() {
                       }}>({sectionCards.length})</span>
                     </div>
                     <div style={{
-                      backgroundColor: 'hsl(var(--card))', borderRadius: 10,
+                      backgroundColor: 'hsl(var(--card))', borderRadius: 8,
                       border: `1px solid ${color}28`, overflow: 'hidden',
                     }}>
                       <QueueRowHeader />
@@ -3209,7 +3254,7 @@ export function UploadProcessPage() {
           ) : (
             /* Row view with virtual scroll */
             <div style={{
-              backgroundColor: 'hsl(var(--card))', borderRadius: 12,
+              backgroundColor: 'hsl(var(--card))', borderRadius: 8,
               border: `1px solid ${BORDER}`, overflow: 'hidden',
             }}>
               <QueueRowHeader />
@@ -3318,7 +3363,7 @@ export function UploadProcessPage() {
 
         {recentExpanded && (
           <div style={{
-            backgroundColor: 'hsl(var(--card))', borderRadius: 12,
+            backgroundColor: 'hsl(var(--card))', borderRadius: 8,
             border: `1px solid ${BORDER}`, overflow: 'hidden', marginTop: 12,
           }}>
             <QueueRowHeader />

@@ -29,7 +29,7 @@ export default function PageLayout({
               />
           <div
             className={cn(
-              "w-10 h-10 rounded-xl flex items-center justify-center",
+              "w-10 h-10 rounded-lg flex items-center justify-center",
               accentColor
             )}
           >

@@ -29,7 +29,7 @@ router = APIRouter(prefix=settings.API_SLUG + "/auth", tags=["Auth"])
 # =================================================================
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 class RefreshRequest(BaseModel):
@@ -287,7 +287,7 @@ async def login(request: LoginRequest):
     Login using Keycloak credentials
     """
     try:
-        token_response = await get_keycloak_token(request.email, request.password)
+        token_response = await get_keycloak_token(request.email.strip(), request.password)
         return {
             "status": "success",
             "access_token": token_response["access_token"],

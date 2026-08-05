@@ -61,7 +61,7 @@ export function DocumentStatusBoard({ documents }: DocumentStatusBoardProps) {
           style={{
             backgroundColor: 'hsl(var(--muted))',
             color: 'hsl(var(--muted-foreground))',
-            fontFamily: 'var(--app-font-mono)',
+            fontFamily: 'var(--app-font-sans)',
           }}
         >
           {extractedJson}

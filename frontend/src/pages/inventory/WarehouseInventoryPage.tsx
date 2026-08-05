@@ -55,7 +55,7 @@ function StageBadge({ stage }: { stage: string }) {
 function ContainerRow({ c }: { c: any }) {
   return (
     <Link href={`/inventory/containers/${c.id}`}>
-      <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-card hover:bg-muted/50 transition-colors cursor-pointer border border-transparent hover:border-border">
+      <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-card hover:bg-muted/50 transition-colors cursor-pointer border border-transparent hover:border-border">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-mono font-semibold text-[14.5px]">{c.containerNumber}</span>
@@ -470,7 +470,7 @@ function SkuView({ skuSummary, warehouseId }: { skuSummary: any[]; warehouseId: 
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border">
+      <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-[13px]">
           <thead>
             <tr className="bg-muted/50 border-b text-muted-foreground">
@@ -691,32 +691,32 @@ function WarehouseStockPositionScreen() {
   const selectedLocation = locationOptions.find((option) => option.id === selectedLocationId);
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="ewms-page-shell">
       <div className="text-[13px] text-muted-foreground mb-6">
         <span>Warehouse</span>
         <span className="mx-2">›</span>
         <span className="font-medium text-foreground">Stock</span>
       </div>
 
-      <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+      <div className="flex items-start justify-between gap-4 flex-wrap" style={{ marginBottom: 'var(--ewms-page-section-gap)' }}>
         <div>
-          <h1 className="text-xl font-semibold text-foreground">Stock Position</h1>
+          <h1 className="text-xl font-semibold text-foreground" style={{ letterSpacing: 0 }}>Stock Position</h1>
           <p className="text-[14.5px] text-muted-foreground mt-0.5">Current on-hand inventory at your warehouse</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="ewms-toolbar">
           <select
             value={selectedLocationId}
             onChange={(event) => setSelectedLocationId(event.target.value)}
             aria-label="Warehouse or port location"
             title={selectedLocation?.name}
-            className="h-9 w-full min-w-[320px] max-w-[390px] rounded-lg border border-teal-500 bg-background px-3 text-[14.5px] text-foreground outline-none focus:ring-2 focus:ring-teal-500/30"
+            className="h-8 w-full min-w-[320px] max-w-[390px] rounded-lg border border-primary bg-background px-4 text-sm text-foreground outline-none"
           >
             {locationOptions.map((option) => (
               <option key={option.id} value={option.id}>{option.name}</option>
             ))}
           </select>
           <Link href="/documents/generate/outward-grn">
-            <button className="flex items-center gap-1.5 text-[13px] px-3 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition-colors font-medium">
+            <button className="inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-primary bg-primary px-4 text-sm font-medium leading-none text-primary-foreground transition-colors hover:bg-[hsl(var(--vs-teal-dark))]">
               <ArrowRight className="w-3.5 h-3.5" />
               Outward Dispatch
             </button>
@@ -724,7 +724,7 @@ function WarehouseStockPositionScreen() {
           <button
             onClick={() => setRefreshKey(k => k + 1)}
             disabled={loading}
-            className="flex items-center gap-1.5 text-[13px] px-3 py-2 rounded-lg border border-border bg-card hover:bg-muted transition-colors text-muted-foreground disabled:opacity-50"
+            className="inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-input bg-transparent px-4 text-sm font-medium leading-none text-foreground transition-colors hover:bg-muted disabled:pointer-events-none disabled:bg-muted disabled:text-muted-foreground"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -732,13 +732,13 @@ function WarehouseStockPositionScreen() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+      <div className="ewms-metric-grid grid-cols-1 sm:grid-cols-3" style={{ marginBottom: 'var(--ewms-page-section-gap)' }}>
         {[
           ['Total SKUs', meta.total.toLocaleString(), 'product lines on hand'],
           ['Available Units', fmtStockNum(meta.totalAvailable), 'free to dispatch'],
           ['Reserved Units', fmtStockNum(meta.totalReserved), 'in pending dispatches'],
         ].map(([label, value, sub]) => (
-          <div key={label} className="bg-card rounded-xl border border-border p-4">
+          <div key={label} className="ewms-surface ewms-card-compact">
             <p className="text-[13px] font-medium text-muted-foreground uppercase tracking-wide mb-1">{label}</p>
             <p className="text-2xl font-semibold text-foreground">{value}</p>
             <p className="text-[13px] text-muted-foreground mt-0.5">{sub}</p>
@@ -746,13 +746,13 @@ function WarehouseStockPositionScreen() {
         ))}
       </div>
 
-      <div className="relative mb-5">
+      <div className="relative" style={{ marginBottom: 'var(--ewms-content-grid-gap)' }}>
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by product code, description, or HS code..."
-          className="w-full pl-9 pr-4 py-2 text-[14.5px] border border-border rounded-xl bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+          className="h-8 w-full rounded-lg border border-input bg-background pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
         />
       </div>
 
@@ -765,10 +765,10 @@ function WarehouseStockPositionScreen() {
 
       {loading ? (
         <div className="space-y-2">
-          {[1, 2, 3, 4].map(i => <div key={i} className="h-16 rounded-xl bg-muted/40 animate-pulse" />)}
+          {[1, 2, 3, 4].map(i => <div key={i} className="h-16 rounded-lg bg-muted/40 animate-pulse" />)}
         </div>
       ) : (
-        <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="ewms-surface overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-[14.5px]">
               <thead>
@@ -942,8 +942,8 @@ function LegacyWarehouseInventoryPage() {
   if (warehouses.length === 0) {
     return (
       <div className="p-6">
-        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: '0 0 16px', lineHeight: 1.2 }}>Warehouse Inventory</h1>
-        <div className="bg-card rounded-xl p-8 text-center">
+        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: '0 0 16px', lineHeight: 1.2 }}>Warehouse Inventory</h1>
+        <div className="bg-card rounded-lg p-8 text-center">
           <Package className="w-10 h-10 mx-auto text-muted-foreground mb-3 opacity-50" />
           <p className="text-[14.5px] font-medium mb-1">No warehouses configured</p>
           <p className="text-[13px] text-muted-foreground">
@@ -969,7 +969,7 @@ function LegacyWarehouseInventoryPage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
         <div>
-          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Stock Position</h1>
+          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Stock Position</h1>
           <p className="text-[14.5px] text-muted-foreground mt-0.5">
             {selectedWarehouse ? selectedWarehouse.name : 'Select a warehouse'}
             {selectedWarehouse?.address && (
@@ -1013,7 +1013,7 @@ function LegacyWarehouseInventoryPage() {
             <button
               key={key}
               onClick={() => setStageFilter(stageFilter === key ? 'all' : key)}
-              className={`rounded-xl p-3 text-center transition-all ${bg} ${
+              className={`rounded-lg p-3 text-center transition-all ${bg} ${
                 stageFilter === key ? `ring-2 ${ring}` : ''
               }`}
             >

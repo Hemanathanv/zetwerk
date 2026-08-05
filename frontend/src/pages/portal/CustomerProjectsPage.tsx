@@ -80,7 +80,7 @@ function CustomerProjectCard({ project }: { project: any }) {
   const [expanded, setExpanded] = useState(project.status === 'ACTIVE');
 
   return (
-    <div className="bg-card rounded-xl overflow-hidden border border-border">
+    <div className="bg-card rounded-lg overflow-hidden border border-border">
       <button onClick={() => setExpanded(!expanded)} className="w-full p-5 text-left">
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
@@ -179,7 +179,7 @@ export default function CustomerProjectsPage() {
     <div className="max-w-4xl mx-auto px-4 py-6">
       {/* Header */}
       <div className="mb-8">
-        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Your Orders</h1>
+        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Your Orders</h1>
         <p className="text-[14.5px] text-muted-foreground mt-1">
           Track the status of your purchase orders and shipments
         </p>
@@ -187,15 +187,15 @@ export default function CustomerProjectsPage() {
 
       {/* Summary */}
       <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-card rounded-xl border border-border p-4 text-center">
+        <div className="bg-card rounded-lg border border-border p-4 text-center">
           <div className="text-3xl font-bold font-mono">{summary.active}</div>
           <div className="text-[13px] text-muted-foreground mt-1">Active Orders</div>
         </div>
-        <div className="bg-card rounded-xl border border-border p-4 text-center">
+        <div className="bg-card rounded-lg border border-border p-4 text-center">
           <div className="text-3xl font-bold font-mono text-teal-600">{summary.completed}</div>
           <div className="text-[13px] text-muted-foreground mt-1">Completed</div>
         </div>
-        <div className="bg-card rounded-xl border border-border p-4 text-center">
+        <div className="bg-card rounded-lg border border-border p-4 text-center">
           <div className="text-3xl font-bold font-mono">{summary.totalShipments}</div>
           <div className="text-[13px] text-muted-foreground mt-1">Total Shipments</div>
         </div>
@@ -209,13 +209,13 @@ export default function CustomerProjectsPage() {
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search by PO number..."
-            className="w-full text-[14.5px] border border-border rounded-xl pl-9 pr-4 py-2.5 bg-background text-foreground"
+            className="w-full text-[14.5px] border border-border rounded-lg pl-9 pr-4 py-2.5 bg-background text-foreground"
           />
         </div>
         <select
           value={statusFilter}
           onChange={e => setStatusFilter(e.target.value)}
-          className="text-[14.5px] border border-border rounded-xl px-3 py-2.5 bg-background text-foreground"
+          className="text-[14.5px] border border-border rounded-lg px-3 py-2.5 bg-background text-foreground"
         >
           <option value="all">All orders</option>
           <option value="active">In progress</option>
@@ -227,7 +227,7 @@ export default function CustomerProjectsPage() {
       {loading && (
         <div className="space-y-4">
           {[1, 2, 3].map(i => (
-            <div key={i} className="bg-card rounded-xl border border-border p-5 animate-pulse h-28" />
+            <div key={i} className="bg-card rounded-lg border border-border p-5 animate-pulse h-28" />
           ))}
         </div>
       )}
@@ -240,7 +240,7 @@ export default function CustomerProjectsPage() {
           ))}
 
           {projects.length === 0 && (
-            <div className="bg-card rounded-xl border border-border p-12 text-center">
+            <div className="bg-card rounded-lg border border-border p-12 text-center">
               <Package className="w-10 h-10 mx-auto text-muted-foreground/40" />
               <h3 className="text-[14.5px] font-semibold mt-3">No orders found</h3>
               <p className="text-[13px] text-muted-foreground mt-1">

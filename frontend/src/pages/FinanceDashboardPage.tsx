@@ -41,7 +41,7 @@ function OverviewTab({ data }: { data: any }) {
     <div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         {cards.map(c => (
-          <div key={c.label} className={`rounded-xl p-4 border ${colorBg[c.color]}`}>
+          <div key={c.label} className={`rounded-lg p-4 border ${colorBg[c.color]}`}>
             <div className="text-3xl font-bold font-mono">{c.value}</div>
             <div className="text-[12px] font-medium opacity-70 mt-0.5">{c.label}</div>
           </div>
@@ -49,7 +49,7 @@ function OverviewTab({ data }: { data: any }) {
       </div>
 
       {(data.summary.pendingByCurrency?.length > 0) && (
-        <div className="bg-card rounded-xl p-5 mb-4 border">
+        <div className="bg-card rounded-lg p-5 mb-4 border">
           <h3 className="text-[15px] font-semibold mb-4">Pending Amount by Currency</h3>
           <div className="flex flex-wrap gap-6">
             {data.summary.pendingByCurrency.map((c: any) => (
@@ -65,12 +65,12 @@ function OverviewTab({ data }: { data: any }) {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-        <div className="bg-card rounded-xl p-5 border">
+        <div className="bg-card rounded-lg p-5 border">
           <h3 className="text-[15px] font-semibold mb-4">Total Tickets</h3>
           <div className="text-3xl font-bold font-mono">{totalTickets}</div>
           <div className="text-[12px] text-muted-foreground mt-1">across all statuses</div>
         </div>
-        <div className="bg-card rounded-xl p-5 border">
+        <div className="bg-card rounded-lg p-5 border">
           <h3 className="text-[15px] font-semibold mb-4">Shipments with Costs</h3>
           <div className="text-3xl font-bold font-mono">{(data.shipmentCosts || []).filter((s: any) => s.totalCost > 0).length}</div>
           <div className="text-[12px] text-muted-foreground mt-1">of {(data.shipmentCosts || []).length} total</div>
@@ -108,7 +108,7 @@ function ShipmentCostTab({ data }: { data: any }) {
 
   if (shipments.length === 0) {
     return (
-      <div className="bg-card rounded-xl p-8 text-center border">
+      <div className="bg-card rounded-lg p-8 text-center border">
         <BarChart3 className="w-8 h-8 mx-auto text-muted-foreground/30" />
         <p className="text-[14.5px] text-muted-foreground mt-3">No shipment cost data yet</p>
       </div>
@@ -126,7 +126,7 @@ function ShipmentCostTab({ data }: { data: any }) {
         </select>
       </div>
 
-      <div className="bg-card rounded-xl overflow-hidden border">
+      <div className="bg-card rounded-lg overflow-hidden border">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
@@ -209,7 +209,7 @@ function PaymentUrgencyTab({ data }: { data: any }) {
 
   if (tickets.length === 0) {
     return (
-      <div className="bg-card rounded-xl p-8 text-center border">
+      <div className="bg-card rounded-lg p-8 text-center border">
         <CheckCircle className="w-8 h-8 mx-auto text-teal-500/40" />
         <p className="text-[14.5px] text-muted-foreground mt-3">No payment urgency — all dues are clear</p>
       </div>
@@ -289,7 +289,7 @@ function ApAgingTab({ data }: { data: any }) {
 
   if (vendors.length === 0) {
     return (
-      <div className="bg-card rounded-xl p-8 text-center border">
+      <div className="bg-card rounded-lg p-8 text-center border">
         <CheckCircle className="w-8 h-8 mx-auto text-teal-500/40" />
         <p className="text-[14.5px] text-muted-foreground mt-3">No outstanding payables</p>
       </div>
@@ -303,7 +303,7 @@ function ApAgingTab({ data }: { data: any }) {
   const grandTotal = vendors.reduce((s, [, v]: any) => s + Number(v.total || 0), 0);
 
   return (
-    <div className="bg-card rounded-xl overflow-hidden border">
+    <div className="bg-card rounded-lg overflow-hidden border">
       <div className="overflow-x-auto">
         <table className="w-full text-[13px]">
           <thead>
@@ -360,7 +360,7 @@ function ProjectPnlTable({ projects }: { projects: any[] }) {
   if (!hasData) return <p className="text-[13px] text-muted-foreground py-4">No projects with cost data yet.</p>;
 
   return (
-    <div className="bg-card rounded-xl overflow-hidden border">
+    <div className="bg-card rounded-lg overflow-hidden border">
       <div className="overflow-x-auto">
         <table className="w-full text-[13px]">
           <thead>
@@ -403,7 +403,7 @@ function ShipmentPnlTable({ shipments }: { shipments: any[] }) {
   if (shipments.length === 0) return <p className="text-[13px] text-muted-foreground py-4">No shipments with cost data yet.</p>;
 
   return (
-    <div className="bg-card rounded-xl overflow-hidden border">
+    <div className="bg-card rounded-lg overflow-hidden border">
       <div className="overflow-x-auto">
         <table className="w-full text-[13px]">
           <thead>
@@ -477,7 +477,7 @@ function CostAnalyticsTab({ data }: { data: any }) {
 
   if (months.length === 0) {
     return (
-      <div className="bg-card rounded-xl p-8 text-center border">
+      <div className="bg-card rounded-lg p-8 text-center border">
         <BarChart3 className="w-8 h-8 mx-auto text-muted-foreground/30" />
         <p className="text-[14.5px] text-muted-foreground mt-3">No posted tickets to analyze yet</p>
         <p className="text-[13px] text-muted-foreground mt-1">Cost analytics appears once tickets are posted to ERP</p>
@@ -501,7 +501,7 @@ function CostAnalyticsTab({ data }: { data: any }) {
       </div>
 
       {/* Stacked bar chart */}
-      <div className="bg-card rounded-xl p-5 mb-4 border">
+      <div className="bg-card rounded-lg p-5 mb-4 border">
         <h3 className="text-[13px] font-semibold text-muted-foreground mb-4 uppercase tracking-wide">Monthly Posted Costs</h3>
         <div className="space-y-2.5">
           {months.map((month, mi) => {
@@ -547,7 +547,7 @@ function CostAnalyticsTab({ data }: { data: any }) {
       </div>
 
       {/* Data table */}
-      <div className="bg-card rounded-xl overflow-hidden border">
+      <div className="bg-card rounded-lg overflow-hidden border">
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
@@ -618,7 +618,7 @@ export function FinanceDashboardPage() {
     <div className="p-6 max-w-6xl mx-auto">
       {/* Header */}
       <div className="mb-6">
-        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Finance Dashboard</h1>
+        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Finance Dashboard</h1>
         <p className="text-[14.5px] text-muted-foreground mt-0.5">Analytics across accounting tickets, shipment costs, and project P&L</p>
       </div>
 
@@ -649,13 +649,13 @@ export function FinanceDashboardPage() {
       {loading && (
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="rounded-xl h-24 bg-muted/20 animate-pulse" />
+            <div key={i} className="rounded-lg h-24 bg-muted/20 animate-pulse" />
           ))}
         </div>
       )}
 
       {!loading && error && (
-        <div className="bg-red-50 rounded-xl p-6 border border-red-200 text-center">
+        <div className="bg-red-50 rounded-lg p-6 border border-red-200 text-center">
           <p className="text-[14.5px] text-red-700 font-medium">{error}</p>
         </div>
       )}

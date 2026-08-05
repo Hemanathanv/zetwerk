@@ -190,7 +190,7 @@ function ExpandedSection({ ticket }: { ticket: TicketData }) {
           className="bg-card"
           style={{
             border: '1px solid hsl(var(--border))',
-            borderRadius: 10,
+            borderRadius: 8,
             padding: 16,
             marginTop: 6,
           }}
@@ -309,7 +309,7 @@ function TicketCard({
 
   return (
     <div
-      className="bg-card rounded-xl overflow-hidden"
+      className="bg-card rounded-lg overflow-hidden"
       style={{
         borderLeft,
         marginBottom: 10,

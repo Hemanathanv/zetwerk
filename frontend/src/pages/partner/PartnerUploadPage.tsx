@@ -114,7 +114,7 @@ function ShipmentUploadCard({ shipment, uploadableTypes, allDocTypes, onUploaded
   }, [file, uploadingDocType, shipment.id, refetchDocs]);
 
   return (
-    <div className="bg-card rounded-xl border border-border p-5">
+    <div className="bg-card rounded-lg border border-border p-5">
       {/* Header */}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="min-w-0">
@@ -356,7 +356,7 @@ export default function PartnerUploadPage() {
     <div className="max-w-2xl mx-auto px-4 py-8">
       {/* ── Welcome header ── */}
       <div className="mb-8">
-        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>
+        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>
           Welcome, {firstName}
         </h1>
         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
@@ -393,14 +393,14 @@ export default function PartnerUploadPage() {
       {shipmentsLoading ? (
         <div className="space-y-3 mb-8">
           {[1, 2].map(i => (
-            <div key={i} className="bg-card rounded-xl border border-border p-5 animate-pulse">
+            <div key={i} className="bg-card rounded-lg border border-border p-5 animate-pulse">
               <div className="h-4 bg-muted rounded w-32 mb-2" />
               <div className="h-3 bg-muted rounded w-48" />
             </div>
           ))}
         </div>
       ) : activeShipments.length === 0 ? (
-        <div className="bg-card rounded-xl border border-border p-10 text-center mb-8">
+        <div className="bg-card rounded-lg border border-border p-10 text-center mb-8">
           <Ship className="w-8 h-8 mx-auto text-muted-foreground/30 mb-3" />
           <h3 className="text-[14.5px] font-semibold">No assigned shipments</h3>
           <p className="text-[13px] text-muted-foreground mt-1">

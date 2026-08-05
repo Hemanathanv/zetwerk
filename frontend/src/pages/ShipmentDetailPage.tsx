@@ -6,12 +6,18 @@ import { StatusPill } from '@/components/vs';
 import { getAuthToken } from '@/lib/api';
 import { useShipmentDocuments, useAccountingTickets } from '@/hooks/useOperationalData';
 import { RequireActivity } from '@/components/PermissionGate';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   AlertCircle, Check, ChevronDown, ChevronRight,
   SkipForward, RotateCcw, PauseCircle, XCircle, PlayCircle,
   Package, Users, CreditCard, FileText, Navigation, Truck,
   FolderOpen, AlertTriangle, Lock, MapPin, CheckCircle2,
-  Anchor, Clock, Box,
+  Anchor, Clock, Box, Calculator,
 } from 'lucide-react';
 import { useSafeCubeTracking } from '@/hooks/useSafeCubeTracking';
 import type { SafeCubeData, SafeCubeEvent } from '@/hooks/useSafeCubeTracking';
@@ -276,12 +282,12 @@ function deriveVoyageSteps(scData: SafeCubeData | null, gates: ApiGate[], shipme
 
 // ─── Shared small components ──────────────────────────────────────────────────
 function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return <div style={{ backgroundColor: CARD, borderRadius: 12, padding: '20px 24px', boxShadow: 'var(--vs-shadow-card)', border: '1px solid hsl(var(--card-border))', ...style }}>{children}</div>;
+  return <div style={{ backgroundColor: CARD, borderRadius: 8, padding: '20px 24px', boxShadow: 'var(--vs-shadow-card)', border: '1px solid hsl(var(--card-border))', ...style }}>{children}</div>;
 }
 function SectionLabel({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-      <div style={{ fontSize: 18, fontWeight: 700, color: FG, letterSpacing: '-0.01em', display: 'flex', alignItems: 'center', gap: 7 }}>{children}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: FG, letterSpacing: 0, display: 'flex', alignItems: 'center', gap: 7 }}>{children}</div>
       {right && <div style={{ fontSize: 14.5, fontWeight: 600, color: MUTED }}>{right}</div>}
     </div>
   );
@@ -332,7 +338,7 @@ function VoyageStepper({ steps, eta, scheduleStatus }: {
       {/* ETA chip — only when data is available */}
       {etaValue && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 20, background: 'hsl(var(--muted)/0.45)', border: `1px solid ${BDR}`, fontSize: 14.5 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 999, background: 'hsl(var(--muted)/0.45)', border: `1px solid ${BDR}`, fontSize: 14.5 }}>
             <span style={{ color: MUTED, fontWeight: 500 }}>ETA</span>
             <span style={{ color: FG, fontWeight: 700 }}>{fmtDate(etaValue)}</span>
             {scheduleStatus && (
@@ -428,7 +434,7 @@ function ContextStrip({ shipment, gates, scData, documents }: {
         const isOnTime = chip.variant === 'ontime';
         return (
           <span key={i} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 14, fontWeight: 500, padding: '4px 10px', borderRadius: 20,
+            display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 14, fontWeight: 500, padding: '4px 10px', borderRadius: 999,
             backgroundColor: isDelay ? 'hsla(38,92%,50%,0.12)' : isOnTime ? 'hsla(142,71%,45%,0.1)' : 'hsl(var(--muted)/0.5)',
             color:           isDelay ? AMBER : isOnTime ? GREEN : FG,
             border:          `1px solid ${isDelay ? 'hsl(38 92% 50% / 0.3)' : isOnTime ? 'hsla(142,71%,45%,0.3)' : BDR}`,
@@ -466,7 +472,7 @@ function AlertsBanner({ scData }: { scData: SafeCubeData | null }) {
     cat === 'WEATHER' ? '🌩' : cat === 'PORT' ? '⚓' : cat === 'CUSTOMS' ? '🛂' : cat === 'VESSEL' ? '🚢' : cat === 'DELAY' ? '⏱' : '⚠';
 
   return (
-    <div style={{ backgroundColor: mainBg, border: `1px solid ${mainBdr}`, borderRadius: 10, padding: '10px 16px', marginBottom: 12 }}>
+    <div style={{ backgroundColor: mainBg, border: `1px solid ${mainBdr}`, borderRadius: 8, padding: '10px 16px', marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
         <AlertTriangle size={14} color={mainColor} style={{ flexShrink: 0, marginTop: 2 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -587,7 +593,7 @@ function InventoryJourneyPanel({ scData, milestones, shipment, inventoryItems, p
             { val: totalKg > 0 ? `${(totalKg / 1000).toFixed(1)}t` : '—', label: 'GROSS WT' },
           ].map((k, i) => (
             <div key={i} style={{ flex: 1, textAlign: 'center', borderRight: i < 2 ? `1px solid ${BDR}` : 'none' }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: FG, fontFamily: 'var(--font-mono, monospace)' }}>{k.val}</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: FG, fontFamily: 'var(--app-font-sans)' }}>{k.val}</div>
               <div style={{ fontSize: 13, fontWeight: 600, color: MUTED, letterSpacing: '0.08em', marginTop: 2 }}>{k.label}</div>
             </div>
           ))}
@@ -721,9 +727,9 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
   };
 
   const headerRight = viewState === 'active' && dndAlerts.some(a => a.status === 'ACCRUING')
-    ? <span style={{ fontSize: 14, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: 'hsla(0,72%,51%,0.1)', color: 'hsl(var(--vs-danger))' }}>D&amp;D ACCRUING</span>
+    ? <span style={{ fontSize: 14, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: 'hsla(0,72%,51%,0.1)', color: 'hsl(var(--vs-danger))' }}>D&amp;D ACCRUING</span>
     : viewState === 'approaching'
-    ? <span style={{ fontSize: 14, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: 'hsla(38,92%,50%,0.12)', color: AMBER }}>ARRIVING SOON</span>
+    ? <span style={{ fontSize: 14, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: 'hsla(38,92%,50%,0.12)', color: AMBER }}>ARRIVING SOON</span>
     : null;
 
   const rowLink = (id: string) => `/inventory/containers/${id}`;
@@ -804,7 +810,7 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
             const ms         = containerMilestones(c);
             const isAccruing = dnd?.status === 'ACCRUING';
             return (
-              <Link key={c.id} href={rowLink(c.id)} style={{ display: 'block', borderRadius: 9, border: `1px solid ${isAccruing ? 'hsl(var(--vs-danger)/0.3)' : BDR}`, background: isAccruing ? 'hsla(0,72%,51%,0.03)' : 'hsl(var(--background))', padding: '10px 14px', textDecoration: 'none' }}>
+              <Link key={c.id} href={rowLink(c.id)} style={{ display: 'block', borderRadius: 8, border: `1px solid ${isAccruing ? 'hsl(var(--vs-danger)/0.3)' : BDR}`, background: isAccruing ? 'hsla(0,72%,51%,0.03)' : 'hsl(var(--background))', padding: '10px 14px', textDecoration: 'none' }}>
                 {/* header row */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1004,7 +1010,7 @@ function DocRow360({ docType, docs, isLast }: { docType: string; docs: any[]; is
   const label = `${docLabel(docType)}${count > 1 ? ` (${count})` : ''}`;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', borderBottom: isLast ? 'none' : `1px solid ${BDR}` }}>
-      <div style={{ width: 44, height: 44, borderRadius: 8, background: 'hsl(var(--muted)/0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'monospace', letterSpacing: '0.02em' }}>
+      <div style={{ width: 44, height: 44, borderRadius: 8, background: 'hsl(var(--muted)/0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'var(--app-font-sans)', letterSpacing: '0.02em' }}>
         {dtShort(docType)}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -1012,7 +1018,7 @@ function DocRow360({ docType, docs, isLast }: { docType: string; docs: any[]; is
           {label}
         </div>
       </div>
-      <span style={{ fontSize: 14, fontWeight: 600, padding: '4px 12px', borderRadius: 20, flexShrink: 0, background: pill.bg, color: pill.color }}>
+      <span style={{ fontSize: 14, fontWeight: 600, padding: '4px 12px', borderRadius: 999, flexShrink: 0, background: pill.bg, color: pill.color }}>
         {pill.label}
       </span>
     </div>
@@ -1022,13 +1028,13 @@ function DocRow360({ docType, docs, isLast }: { docType: string; docs: any[]; is
 function AwaitedRow360({ docType, isLast }: { docType: string; isLast: boolean }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', borderBottom: isLast ? 'none' : `1px solid ${BDR}`, opacity: 0.45 }}>
-      <div style={{ width: 44, height: 44, borderRadius: 8, background: 'hsl(var(--muted)/0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'monospace', letterSpacing: '0.02em' }}>
+      <div style={{ width: 44, height: 44, borderRadius: 8, background: 'hsl(var(--muted)/0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'var(--app-font-sans)', letterSpacing: '0.02em' }}>
         {dtShort(docType)}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 15, fontWeight: 600, color: MUTED }}>{docLabel(docType)}</div>
       </div>
-      <span style={{ fontSize: 14, fontWeight: 600, padding: '4px 12px', borderRadius: 20, flexShrink: 0, background: 'hsl(var(--muted)/0.3)', color: MUTED }}>
+      <span style={{ fontSize: 14, fontWeight: 600, padding: '4px 12px', borderRadius: 999, flexShrink: 0, background: 'hsl(var(--muted)/0.3)', color: MUTED }}>
         Awaited
       </span>
     </div>
@@ -1414,7 +1420,7 @@ function OutwardPlCta({ shipment, documents, milestones, gates, onRefresh }: {
       && d.ocrStatus !== 'discarded',
     );
     return (
-      <div style={{ marginBottom: 16, padding: '14px 18px', borderRadius: 10, border: `1px solid ${BDR}`, background: CARD, boxShadow: 'var(--vs-shadow-card)' }}>
+      <div style={{ marginBottom: 16, padding: '14px 18px', borderRadius: 8, border: `1px solid ${BDR}`, background: CARD, boxShadow: 'var(--vs-shadow-card)' }}>
         <div style={{ fontSize: 14.5, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
           <Truck size={11} style={{ display: 'inline', marginRight: 5 }} />Proof of Delivery
         </div>
@@ -1463,7 +1469,7 @@ function OutwardPlCta({ shipment, documents, milestones, gates, onRefresh }: {
   }
 
   return (
-    <div style={{ marginBottom: 16, padding: '14px 18px', borderRadius: 10, border: `1px solid ${ctaState === 'done' ? 'hsla(142,71%,45%,0.3)' : ctaState === 'ready' ? 'hsl(var(--primary)/0.3)' : BDR}`, background: CARD, boxShadow: 'var(--vs-shadow-card)' }}>
+    <div style={{ marginBottom: 16, padding: '14px 18px', borderRadius: 8, border: `1px solid ${ctaState === 'done' ? 'hsla(142,71%,45%,0.3)' : ctaState === 'ready' ? 'hsl(var(--primary)/0.3)' : BDR}`, background: CARD, boxShadow: 'var(--vs-shadow-card)' }}>
       <div style={{ fontSize: 14.5, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
         <Box size={11} style={{ display: 'inline', marginRight: 5 }} />Outward GRN / Packing List
       </div>
@@ -1613,7 +1619,7 @@ function GateRow({ gate, milestones, documents, shipmentId, onGateAction, onMile
   const coveredCodes  = new Set(documents.filter(d => d.approvedAt).map((d: any) => dtShort(d.documentType)));
 
   return (
-    <div style={{ borderRadius: 10, border: `1px solid ${status === 'OPEN' ? 'hsl(var(--vs-teal)/0.3)' : BDR}`, overflow: 'hidden', marginBottom: 8 }}>
+    <div style={{ borderRadius: 8, border: `1px solid ${status === 'OPEN' ? 'hsl(var(--vs-teal)/0.3)' : BDR}`, overflow: 'hidden', marginBottom: 8 }}>
       <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', backgroundColor: isExpanded ? gateStatusBg(status) : CARD, cursor: 'pointer', transition: 'background 0.15s', borderBottom: isExpanded ? `1px solid ${BDR}` : 'none' }}>
         <div style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: gateStatusColor(status), color: '#fff', fontSize: 14, fontWeight: 700 }}>{gc.gateNumber}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -1628,7 +1634,7 @@ function GateRow({ gate, milestones, documents, shipmentId, onGateAction, onMile
           {requiredDocs.map(dt => {
             const code = dtShort(dt.docType);
             const ok   = coveredCodes.has(code);
-            return <span key={dt.id} style={{ fontSize: 14.5, fontWeight: 700, padding: '2px 7px', borderRadius: 5, fontFamily: 'monospace', background: ok ? 'hsla(142,71%,45%,0.12)' : 'hsl(var(--muted)/0.5)', color: ok ? 'hsl(142 71% 30%)' : MUTED }}>{code}</span>;
+            return <span key={dt.id} style={{ fontSize: 14.5, fontWeight: 700, padding: '2px 7px', borderRadius: 5, fontFamily: 'var(--app-font-sans)', background: ok ? 'hsla(142,71%,45%,0.12)' : 'hsl(var(--muted)/0.5)', color: ok ? 'hsl(142 71% 30%)' : MUTED }}>{code}</span>;
           })}
         </div>
         {isExpanded ? <ChevronDown size={16} color={MUTED} /> : <ChevronRight size={16} color={MUTED} />}
@@ -1737,6 +1743,202 @@ function GateRow({ gate, milestones, documents, shipmentId, onGateAction, onMile
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
+type DndInputsDraft = {
+  startEvent: string;
+  freeDays: string;
+  pricingMethod: string;
+  startDate: string;
+  endDate: string;
+  excludeWeekends: boolean;
+  excludeHolidays: boolean;
+  carrierState: 'matched' | 'unrecognized' | 'no-tariff';
+};
+
+const DND_EVENTS = ['Container Discharge', 'Container Available', 'Gate Out', 'Rail Ramp Arrival'];
+const DND_FREE_DAYS = ['7 Free Days', '10 Free Days', '14 Free Days', '21 Free Days'];
+const DND_PRICING_METHODS = ['Flat', 'Tier', 'Slab'];
+
+function blankDndInputsDraft(): DndInputsDraft {
+  return {
+    startEvent: '',
+    freeDays: '',
+    pricingMethod: '',
+    startDate: '',
+    endDate: '',
+    excludeWeekends: true,
+    excludeHolidays: true,
+    carrierState: 'matched',
+  };
+}
+
+function DndFieldLabel({ children }: { children: React.ReactNode }) {
+  return <div className="mb-1 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">{children}</div>;
+}
+
+function DndSectionTitle({ title, desc }: { title: string; desc: string }) {
+  return <div className="mb-3"><h3 className="m-0 text-[14px] font-semibold">{title}</h3><p className="m-0 mt-1 text-[12px] text-muted-foreground">{desc}</p></div>;
+}
+
+function daysBetween(startDate: string, endDate: string) {
+  if (!startDate || !endDate) return 0;
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+  return Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
+}
+
+function addDays(date: string, days: number) {
+  if (!date || days < 1) return '';
+  const value = new Date(`${date}T00:00:00`);
+  value.setDate(value.getDate() + days - 1);
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${value.getFullYear()}-${month}-${day}`;
+}
+
+function freeDayCount(value: string) {
+  const match = value.match(/\d+/);
+  return match ? Number(match[0]) : 0;
+}
+
+export function ShipmentDndInputsDialog({ open, shipmentId, onOpenChange }: { open: boolean; shipmentId: string; onOpenChange: (open: boolean) => void }) {
+  const storageKey = `ewms:dnd-inputs:${shipmentId}`;
+  const [draft, setDraft] = useState<DndInputsDraft>(blankDndInputsDraft);
+  const [saveNote, setSaveNote] = useState<string | null>(null);
+  const [showRules, setShowRules] = useState(false);
+  const totalDays = daysBetween(draft.startDate, draft.endDate);
+  const freeDays = freeDayCount(draft.freeDays);
+  const chargeableDays = Math.max(totalDays - freeDays, 0);
+  const lastFreeDay = addDays(draft.startDate, freeDays);
+  const isActivated = draft.startEvent && draft.freeDays && draft.pricingMethod;
+
+  useEffect(() => {
+    if (!open) return;
+    try {
+      const stored = window.localStorage.getItem(storageKey);
+      setDraft(stored ? { ...blankDndInputsDraft(), ...JSON.parse(stored) } : blankDndInputsDraft());
+    } catch {
+      setDraft(blankDndInputsDraft());
+    }
+    setSaveNote(null);
+    setShowRules(false);
+  }, [open, storageKey]);
+
+  function saveInputs() {
+    window.localStorage.setItem(storageKey, JSON.stringify(draft));
+    setSaveNote('D&D inputs saved for this BOL upload.');
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] w-[calc(100vw-48px)] max-w-4xl overflow-y-auto p-0">
+        <DialogHeader className="border-b border-border px-6 py-4">
+          <DialogTitle>Shipment - BOL Upload</DialogTitle>
+          <DialogDescription>Operations shipment console inputs for D&D applicability, free time and day-count rules.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-5 bg-muted/20 px-6 py-5">
+          <section className="rounded-md border border-border p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <DndFieldLabel>Shipment</DndFieldLabel>
+                <div className="text-[22px] font-semibold leading-tight">BOL Upload</div>
+                <div className="mt-1 text-[13px] text-muted-foreground">Document {shipmentId.replace(/^bol-/, '')}</div>
+              </div>
+              <Badge intent={draft.carrierState === 'matched' ? 'success' : 'warning'} size="sm">
+                {draft.carrierState === 'matched' ? 'Auto Detected' : draft.carrierState === 'unrecognized' ? 'Carrier Review' : 'No Matching Tariff'}
+              </Badge>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setDraft({ ...draft, carrierState: 'unrecognized' })}>Mark Carrier Review</Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => setDraft({ ...draft, carrierState: 'no-tariff' })}>Mark No Tariff</Button>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setDraft(blankDndInputsDraft())}>Reset</Button>
+            </div>
+          </section>
+
+          <section className="rounded-md border border-border p-4">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <DndSectionTitle title="D&D Configuration" desc="Select only the applicable free-time window and chargeable-day rules for this shipment." />
+              <Badge intent={isActivated ? 'success' : 'neutral'} size="sm">{isActivated ? 'D&D Activated' : 'Awaiting Inputs'}</Badge>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <DndFieldLabel>Start Event *</DndFieldLabel>
+                <Select value={draft.startEvent || undefined} onValueChange={(startEvent) => setDraft({ ...draft, startEvent })}>
+                  <SelectTrigger><SelectValue placeholder="Select start event" /></SelectTrigger>
+                  <SelectContent>{DND_EVENTS.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <DndFieldLabel>Free Days *</DndFieldLabel>
+                <Select value={draft.freeDays || undefined} onValueChange={(freeDays) => setDraft({ ...draft, freeDays })}>
+                  <SelectTrigger><SelectValue placeholder="Select free days" /></SelectTrigger>
+                  <SelectContent>{DND_FREE_DAYS.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
+                </Select>
+                <p className="m-0 mt-1 text-[12px] text-muted-foreground">Options are Admin-curated master data from the matching Published tariff.</p>
+              </div>
+              <div>
+                <DndFieldLabel>Pricing Method *</DndFieldLabel>
+                <Select value={draft.pricingMethod || undefined} onValueChange={(pricingMethod) => setDraft({ ...draft, pricingMethod })}>
+                  <SelectTrigger><SelectValue placeholder="Select pricing method" /></SelectTrigger>
+                  <SelectContent>{DND_PRICING_METHODS.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-3">
+                <DndFieldLabel>Day Count Basis</DndFieldLabel>
+                <label className="flex items-center gap-2 text-[13px]">
+                  <Checkbox checked={draft.excludeWeekends} onCheckedChange={(checked) => setDraft({ ...draft, excludeWeekends: checked === true })} />
+                  Exclude weekends from chargeable day count
+                </label>
+                <label className="flex items-center gap-2 text-[13px]">
+                  <Checkbox checked={draft.excludeHolidays} onCheckedChange={(checked) => setDraft({ ...draft, excludeHolidays: checked === true })} />
+                  Exclude public holidays from chargeable day count
+                </label>
+              </div>
+              <div>
+                <DndFieldLabel>Start Date *</DndFieldLabel>
+                <Input type="date" value={draft.startDate} onChange={(event) => setDraft({ ...draft, startDate: event.target.value })} />
+              </div>
+              <div>
+                <DndFieldLabel>Return / End Date</DndFieldLabel>
+                <Input type="date" value={draft.endDate} onChange={(event) => setDraft({ ...draft, endDate: event.target.value })} />
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-md border border-border p-4">
+            <DndSectionTitle title="LFD Preview" desc="Preview uses the same selected rule inputs that will be saved for the shipment." />
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-md border border-border bg-background p-3">
+                <div className="text-[12px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">Last Free Day</div>
+                <div className="mt-2 text-[18px] font-semibold">{lastFreeDay || '-'}</div>
+              </div>
+              <div className="rounded-md border border-border bg-background p-3">
+                <div className="text-[12px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">Chargeable Days</div>
+                <div className="mt-2 text-[18px] font-semibold">{chargeableDays}</div>
+              </div>
+              <div className="rounded-md border border-border bg-background p-3">
+                <div className="text-[12px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">D&D Status</div>
+                <div className="mt-2 text-[18px] font-semibold">{chargeableDays > 0 ? 'Accruing' : isActivated ? 'Within Free Time' : '-'}</div>
+              </div>
+            </div>
+            {showRules && (
+              <div className="mt-3 rounded-md border border-primary/20 bg-primary/5 p-3 text-[13px] text-foreground">
+                Rates, thresholds and slabs stay in D&D Tariff Master. Operations selects the matched event, free days, pricing method and exclusions; those inputs drive LFD and chargeable-day calculation.
+              </div>
+            )}
+            {saveNote && <div className="mt-3 rounded-md border border-primary/20 bg-primary/5 p-3 text-[13px]">{saveNote}</div>}
+          </section>
+        </div>
+        <DialogFooter className="border-t border-border px-6 py-4">
+          <Button type="button" variant="outline" onClick={() => setShowRules((value) => !value)} className="mr-auto gap-2"><FileText className="size-4" /> Rules & Logic</Button>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="button" onClick={saveInputs} className="gap-2"><CheckCircle2 className="size-4" /> Save D&D Inputs</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function ShipmentDetailPage() {
   const params = useParams<{ id: string }>();
   const shipmentId = params.id ?? '';
@@ -1761,6 +1963,7 @@ export function ShipmentDetailPage() {
   const [error,      setError]      = useState<string | null>(null);
   const [acting,        setActing]        = useState(false);
   const [trackingMessage, setTrackingMessage] = useState<string | null>(null);
+  const [dndInputsOpen, setDndInputsOpen] = useState(false);
 
   const { data: scData, loading: scLoading, refetch: scRefetch } = useSafeCubeTracking(shipmentId);
   const { documents, loading: docsLoading, refetch: refetchDocs } = useShipmentDocuments(shipmentId);
@@ -1874,7 +2077,7 @@ export function ShipmentDetailPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '10px 14px', marginBottom: 12,
           background: 'hsl(var(--card))', border: `1px solid ${BDR}`,
-          borderRadius: 10, gap: 12, flexWrap: 'wrap',
+          borderRadius: 8, gap: 12, flexWrap: 'wrap',
         }}>
           {/* Left — project identity */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -1978,7 +2181,7 @@ export function ShipmentDetailPage() {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
-              <h2 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: FG, margin: 0, lineHeight: 1.15 }}>
+              <h2 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: FG, margin: 0, lineHeight: 1.15 }}>
                 {loading ? 'Loading…' : (shipment?.shipmentNumber ?? shipmentId)}
               </h2>
               {shipment && !loading && <StatusPill status={shipment.currentStageName ?? shipment.status} variant="transit" />}
@@ -1999,6 +2202,7 @@ export function ShipmentDetailPage() {
           </div>
 
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
+            <ActionBtn onClick={() => setDndInputsOpen(true)} icon={<Calculator size={14} />} label="D&D Inputs" variant="outline" />
             <RequireActivity code="GATE-002">
               {isOnHold
                 ? <ActionBtn onClick={() => handleShipmentAction('resume')} icon={<PlayCircle size={14} />} label="Resume" variant="success" disabled={acting} />
@@ -2014,6 +2218,8 @@ export function ShipmentDetailPage() {
       </div>
 
       {/* ── Vessel route map ── */}
+      <ShipmentDndInputsDialog open={dndInputsOpen} shipmentId={shipmentId} onOpenChange={setDndInputsOpen} />
+
       {!scLoading && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -2025,7 +2231,7 @@ export function ShipmentDetailPage() {
           {mapProps ? (
             <VesselRouteMap {...mapProps} />
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 260, borderRadius: 14, background: '#071e32', border: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 260, borderRadius: 8, background: '#071e32', border: '1px solid rgba(255,255,255,0.05)' }}>
               <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.38)' }}>
                 {trackingMessage ?? 'Waiting for SafeCube tracking from MBL or booking reference'}
               </p>
@@ -2077,7 +2283,7 @@ export function ShipmentDetailPage() {
               (sum: number, item: { bundleCount?: number | null }) => sum + (item.bundleCount ?? 0), 0
             );
             return (
-              <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 10, border: '1px solid hsla(142,71%,45%,0.3)', background: 'hsla(142,71%,45%,0.06)', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 8, border: '1px solid hsla(142,71%,45%,0.3)', background: 'hsla(142,71%,45%,0.06)', display: 'flex', alignItems: 'center', gap: 10 }}>
                 <CheckCircle2 size={15} color={GREEN} />
                 <div>
                   <div style={{ fontSize: 14.5, fontWeight: 600, color: 'hsl(142 71% 30%)' }}>

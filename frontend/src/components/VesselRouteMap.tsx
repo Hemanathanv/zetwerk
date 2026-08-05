@@ -211,7 +211,7 @@ export default function VesselRouteMap({
 
   if (portCoords.length === 0 && seaRouteLine.length === 0 && liveLat == null) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 320, borderRadius: 14, background: '#071e32', border: '1px solid rgba(255,255,255,0.05)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 320, borderRadius: 8, background: '#071e32', border: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ textAlign: 'center' }}>
           <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', margin: 0 }}>Awaiting tracking data</p>
           <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 4 }}>Vessel position will appear once SafeCube sync runs</p>
@@ -347,7 +347,7 @@ export default function VesselRouteMap({
         }
       `}</style>
 
-      <div className="ewms-vessel-route-map" style={{ position: 'relative', height: 320, borderRadius: 14, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+      <div className="ewms-vessel-route-map" style={{ position: 'relative', height: 320, borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
         <MapContainer
           center={liveLat != null && liveLng != null ? [liveLat, liveLng] : [25, 90]}
           zoom={liveLat != null && liveLng != null ? 5 : 2}

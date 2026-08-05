@@ -150,7 +150,7 @@ function SafeCubeTimeline({ events, scShipment, embedded }: { events: any[]; scS
   if (embedded) return inner;
 
   return (
-    <div style={{ background: 'hsl(var(--card))', borderRadius: 12, padding: '20px 24px' }}>
+    <div style={{ background: 'hsl(var(--card))', borderRadius: 8, padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <div style={{ fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
           Live Tracking Events
@@ -214,7 +214,7 @@ function InventoryPositionBanner({ movements, containerNumber }: {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10,
-      padding: '10px 14px', borderRadius: 10,
+      padding: '10px 14px', borderRadius: 8,
       background: meta.bg, color: meta.color,
       marginBottom: 16,
     }}>
@@ -289,7 +289,7 @@ function MovementLedgerPanel({ movements, containerNumber }: {
   const headers = ['Date & Time', 'Type', 'Qty', 'Weight', 'Performed By', 'Notes'];
 
   return (
-    <div style={{ background: 'hsl(var(--card))', borderRadius: 12, padding: '20px 24px' }}>
+    <div style={{ background: 'hsl(var(--card))', borderRadius: 8, padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
         <List size={14} style={{ color: muted }} />
         <span style={{ fontSize: 14, fontWeight: 600 }}>Movement Ledger</span>
@@ -326,16 +326,16 @@ function MovementLedgerPanel({ movements, containerNumber }: {
 
                   return (
                     <tr key={idx} style={{ borderBottom: '1px solid hsl(var(--border) / 0.4)' }}>
-                      <td style={{ padding: '16px 20px 16px 0', fontFamily: 'monospace', whiteSpace: 'nowrap', color: muted, fontSize: 14.5 }}>
+                      <td style={{ padding: '16px 20px 16px 0', fontFamily: 'var(--app-font-sans)', whiteSpace: 'nowrap', color: muted, fontSize: 14.5 }}>
                         {movedAt ? fmtTime(movedAt) : '—'}
                       </td>
                       <td style={{ padding: '16px 20px 16px 0' }}>
                         <MovementTypeBadge type={type} />
                       </td>
-                      <td style={{ padding: '16px 20px 16px 0', fontFamily: 'monospace', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '16px 20px 16px 0', fontFamily: 'var(--app-font-sans)', textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {qty != null ? qty.toLocaleString() : <span style={{ color: muted }}>—</span>}
                       </td>
-                      <td style={{ padding: '16px 20px 16px 0', fontFamily: 'monospace', textAlign: 'right', whiteSpace: 'nowrap', color: muted }}>
+                      <td style={{ padding: '16px 20px 16px 0', fontFamily: 'var(--app-font-sans)', textAlign: 'right', whiteSpace: 'nowrap', color: muted }}>
                         {weightKg != null ? `${weightKg.toLocaleString()} kg` : '—'}
                       </td>
                       <td style={{ padding: '16px 20px 16px 0' }}>
@@ -391,7 +391,7 @@ function GrnInwardPanel({ movements, containerNumber, shipmentId, currentStatus,
     if (!isEnRoute) return null;
     // En route: show awaiting state
     return (
-      <div style={{ background: 'hsl(var(--card))', borderRadius: 12, padding: '20px 24px' }}>
+      <div style={{ background: 'hsl(var(--card))', borderRadius: 8, padding: '20px 24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <ClipboardCheck size={14} style={{ color: 'hsl(var(--muted-foreground))' }} />
           <span style={{ fontSize: 14, fontWeight: 600 }}>3PL Inward GRN</span>
@@ -414,7 +414,7 @@ function GrnInwardPanel({ movements, containerNumber, shipmentId, currentStatus,
 
   return (
     <div style={{
-      background: 'hsl(var(--card))', borderRadius: 12, padding: '20px 24px',
+      background: 'hsl(var(--card))', borderRadius: 8, padding: '20px 24px',
       borderLeft: '3px solid hsl(173 58% 39%)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
@@ -454,7 +454,7 @@ function GrnInwardPanel({ movements, containerNumber, shipmentId, currentStatus,
         {receivedAt && (
           <div>
             <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginBottom: 2 }}>Received</div>
-            <div style={{ fontFamily: 'monospace' }}>{fmtTime(receivedAt)}</div>
+            <div style={{ fontFamily: 'var(--app-font-sans)' }}>{fmtTime(receivedAt)}</div>
           </div>
         )}
         {warehouseName && (
@@ -472,7 +472,7 @@ function GrnInwardPanel({ movements, containerNumber, shipmentId, currentStatus,
         {inwardMovement?.quantity_mt != null && (
           <div>
             <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginBottom: 2 }}>Received (MT)</div>
-            <div style={{ fontFamily: 'monospace', fontWeight: 500 }}>
+            <div style={{ fontFamily: 'var(--app-font-sans)', fontWeight: 500 }}>
               {Number(inwardMovement.quantity_mt ?? inwardMovement.quantityMt).toLocaleString()} MT
             </div>
           </div>
@@ -502,13 +502,13 @@ function GrnInwardPanel({ movements, containerNumber, shipmentId, currentStatus,
                 const weight    = item.net_weight_kg ?? item.netWeightKg;
                 return (
                   <tr key={i} style={{ borderBottom: '1px solid hsl(var(--border) / 0.5)' }}>
-                    <td style={{ padding: '4px 8px', fontFamily: 'monospace' }}>
+                    <td style={{ padding: '4px 8px', fontFamily: 'var(--app-font-sans)' }}>
                       {item.product_code ?? item.productCode ?? '—'}
                     </td>
-                    <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600 }}>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'var(--app-font-sans)', fontWeight: 600 }}>
                       {received.toLocaleString()}
                     </td>
-                    <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'monospace', color: 'hsl(var(--muted-foreground))' }}>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'var(--app-font-sans)', color: 'hsl(var(--muted-foreground))' }}>
                       {declared.toLocaleString()}
                       {variance !== 0 && (
                         <span style={{ marginLeft: 4, color: variance > 0 ? 'hsl(143 50% 38%)' : 'hsl(0 60% 45%)', fontWeight: 600 }}>
@@ -516,7 +516,7 @@ function GrnInwardPanel({ movements, containerNumber, shipmentId, currentStatus,
                         </span>
                       )}
                     </td>
-                    <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'monospace', color: 'hsl(var(--muted-foreground))' }}>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', fontFamily: 'var(--app-font-sans)', color: 'hsl(var(--muted-foreground))' }}>
                       {weight != null ? `${Number(weight).toLocaleString()} kg` : '—'}
                     </td>
                   </tr>
@@ -537,7 +537,7 @@ function ContentsPanel({ contents }: { contents: any[] }) {
 
   if (contents.length === 0) {
     return (
-      <div style={{ background: 'hsl(var(--card))', borderRadius: 12, padding: '20px 24px' }}>
+      <div style={{ background: 'hsl(var(--card))', borderRadius: 8, padding: '20px 24px' }}>
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Contents</div>
         <p style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', margin: 0 }}>
           No packing list data available for this container.
@@ -555,7 +555,7 @@ function ContentsPanel({ contents }: { contents: any[] }) {
   }, 0);
 
   return (
-    <div style={{ background: 'hsl(var(--card))', borderRadius: 12, padding: '20px 24px' }}>
+    <div style={{ background: 'hsl(var(--card))', borderRadius: 8, padding: '20px 24px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <div style={{ fontSize: 14, fontWeight: 600 }}>Contents</div>
         <span style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>
@@ -586,7 +586,7 @@ function ContentsPanel({ contents }: { contents: any[] }) {
                       ? <CheckCircle size={11} style={{ color: 'hsl(173 58% 39%)', flexShrink: 0 }} />
                       : <AlertCircle size={11} style={{ color: 'hsl(38 55% 40%)', flexShrink: 0 }} />}
                     <div>
-                      <div style={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                      <div style={{ fontFamily: 'var(--app-font-sans)', fontWeight: 600 }}>
                         {item.masterData?.productCode || item.productCode || '—'}
                       </div>
                       <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
@@ -595,15 +595,15 @@ function ContentsPanel({ contents }: { contents: any[] }) {
                     </div>
                   </div>
                 </td>
-                <td style={{ padding: '8px 8px 8px 0', textAlign: 'right', fontFamily: 'monospace' }}>
+                <td style={{ padding: '8px 8px 8px 0', textAlign: 'right', fontFamily: 'var(--app-font-sans)' }}>
                   {parseFloat(item.quantity || 0).toLocaleString()}
                 </td>
-                <td style={{ padding: '8px 8px 8px 0', textAlign: 'right', fontFamily: 'monospace' }}>
+                <td style={{ padding: '8px 8px 8px 0', textAlign: 'right', fontFamily: 'var(--app-font-sans)' }}>
                   {item.masterData?.unitWeightKg
                     ? `${(parseFloat(item.quantity || 0) * Number(item.masterData.unitWeightKg)).toLocaleString()} kg`
                     : item.grossWeight ? `${parseFloat(item.grossWeight).toLocaleString()} kg` : '—'}
                 </td>
-                <td style={{ padding: '8px 8px 8px 0', fontFamily: 'monospace', color: 'hsl(var(--muted-foreground))' }}>
+                <td style={{ padding: '8px 8px 8px 0', fontFamily: 'var(--app-font-sans)', color: 'hsl(var(--muted-foreground))' }}>
                   {item.masterData?.hsCode || item.hsCode || '—'}
                 </td>
                 <td style={{ padding: '8px 0 8px 0' }}>
@@ -621,8 +621,8 @@ function ContentsPanel({ contents }: { contents: any[] }) {
           <tfoot>
             <tr style={{ borderTop: '1px solid hsl(var(--border))' }}>
               <td style={{ padding: '8px 8px 4px 0', fontWeight: 600 }}>Total</td>
-              <td style={{ padding: '8px 8px 4px 0', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600 }}>{totalQty.toLocaleString()}</td>
-              <td style={{ padding: '8px 8px 4px 0', textAlign: 'right', fontFamily: 'monospace', fontWeight: 600 }}>{totalWeight.toLocaleString()} kg</td>
+              <td style={{ padding: '8px 8px 4px 0', textAlign: 'right', fontFamily: 'var(--app-font-sans)', fontWeight: 600 }}>{totalQty.toLocaleString()}</td>
+              <td style={{ padding: '8px 8px 4px 0', textAlign: 'right', fontFamily: 'var(--app-font-sans)', fontWeight: 600 }}>{totalWeight.toLocaleString()} kg</td>
               <td colSpan={2} />
             </tr>
           </tfoot>
@@ -656,7 +656,7 @@ function DndPanel({ charge }: { charge: any }) {
 
   if (!charge) {
     return (
-      <div style={{ background: 'hsl(var(--card))', borderRadius: 12, padding: '20px 24px' }}>
+      <div style={{ background: 'hsl(var(--card))', borderRadius: 8, padding: '20px 24px' }}>
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>D&D Charges</div>
         <p style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', margin: 0 }}>
           No D&D monitoring (not yet discharged or no rate configured).
@@ -667,7 +667,7 @@ function DndPanel({ charge }: { charge: any }) {
 
   return (
     <div style={{
-      background: 'hsl(var(--card))', borderRadius: 12, padding: '20px 24px',
+      background: 'hsl(var(--card))', borderRadius: 8, padding: '20px 24px',
       borderLeft: isAccruing ? '3px solid hsl(0 72% 50%)' : isClosed ? '3px solid hsl(173 58% 39%)' : '3px solid transparent',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -706,7 +706,7 @@ function DndPanel({ charge }: { charge: any }) {
         ].map(([label, val]) => (
           <div key={label}>
             <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginBottom: 2 }}>{label}</div>
-            <div style={{ fontSize: 14.5, fontFamily: 'monospace', fontWeight: label === 'Last Free Day' && isAccruing ? 600 : 400, color: label === 'Last Free Day' && isAccruing ? 'hsl(0 60% 45%)' : 'inherit' }}>
+            <div style={{ fontSize: 14.5, fontFamily: 'var(--app-font-sans)', fontWeight: label === 'Last Free Day' && isAccruing ? 600 : 400, color: label === 'Last Free Day' && isAccruing ? 'hsl(0 60% 45%)' : 'inherit' }}>
               {val}
             </div>
           </div>
@@ -721,14 +721,14 @@ function DndPanel({ charge }: { charge: any }) {
           ].map(([label, formula, total]) => (
             <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8, fontSize: 14.5 }}>
               <span style={{ color: 'hsl(var(--muted-foreground))' }}>{label}</span>
-              <span style={{ fontFamily: 'monospace', fontSize: 14,}}>
+              <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14,}}>
                 {formula} = <span style={{ fontWeight: 600 }}>{total}</span>
               </span>
             </div>
           ))}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid hsl(var(--border))', paddingTop: 8, marginTop: 4 }}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>Total</span>
-            <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 15, color: isAccruing ? 'hsl(0 60% 45%)' : 'inherit' }}>
+            <span style={{ fontFamily: 'var(--app-font-sans)', fontWeight: 700, fontSize: 15, color: isAccruing ? 'hsl(0 60% 45%)' : 'inherit' }}>
               {charge.currency} {Number(charge.totalCharge).toLocaleString()}
             </span>
           </div>
@@ -774,7 +774,7 @@ function MilestoneJourneyTimeline({ milestones }: { milestones: any[] }) {
   };
 
   return (
-    <div style={{ background: 'hsl(var(--card))', borderRadius: 12, padding: '20px 24px' }}>
+    <div style={{ background: 'hsl(var(--card))', borderRadius: 8, padding: '20px 24px' }}>
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
@@ -786,7 +786,7 @@ function MilestoneJourneyTimeline({ milestones }: { milestones: any[] }) {
             Inventory Journey
           </span>
           <span style={{
-            fontSize: 14.5, fontWeight: 600, padding: '2px 8px', borderRadius: 20,
+            fontSize: 14.5, fontWeight: 600, padding: '2px 8px', borderRadius: 999,
             background: 'hsl(var(--muted))', color: muted,
           }}>
             {milestones.length} milestones
@@ -930,7 +930,7 @@ function LiveTrackingCard({ events, scShipment }: { events: any[]; scShipment: a
   const muted = 'hsl(var(--muted-foreground))';
 
   return (
-    <div style={{ background: 'hsl(var(--card))', borderRadius: 12, padding: '14px 20px' }}>
+    <div style={{ background: 'hsl(var(--card))', borderRadius: 8, padding: '14px 20px' }}>
       <button
         onClick={() => setOpen(o => !o)}
         style={{
@@ -985,13 +985,13 @@ function EmptyReturnPanel({ container, charge }: { container: any; charge: any }
   if (!isDelivered && !isReturned && !container.returnDate) return null;
 
   return (
-    <div style={{ background: 'hsl(var(--card))', borderRadius: 12, padding: '20px 24px' }}>
+    <div style={{ background: 'hsl(var(--card))', borderRadius: 8, padding: '20px 24px' }}>
       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Empty Container Return</div>
       {isReturned || container.returnDate ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14.5 }}>
             <span style={{ color: 'hsl(var(--muted-foreground))' }}>Return Date</span>
-            <span style={{ fontFamily: 'monospace' }}>{fmt(container.returnDate)}</span>
+            <span style={{ fontFamily: 'var(--app-font-sans)' }}>{fmt(container.returnDate)}</span>
           </div>
           {container.returnDepot && (
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14.5 }}>
@@ -1012,7 +1012,7 @@ function EmptyReturnPanel({ container, charge }: { container: any; charge: any }
           {container.deliveryDate && (
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14.5 }}>
               <span style={{ color: 'hsl(var(--muted-foreground))' }}>Days since delivery</span>
-              <span style={{ fontFamily: 'monospace' }}>
+              <span style={{ fontFamily: 'var(--app-font-sans)' }}>
                 {Math.floor((Date.now() - new Date(container.deliveryDate).getTime()) / 86400000)}d
               </span>
             </div>
@@ -1086,7 +1086,7 @@ export function ContainerDetailPage() {
 
   if (loading) {
     return (
-      <div style={{ padding: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
+      <div className="ewms-page-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
         <span style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>Loading container…</span>
       </div>
     );
@@ -1094,7 +1094,7 @@ export function ContainerDetailPage() {
 
   if (error || !container) {
     return (
-      <div style={{ padding: 28 }}>
+      <div className="ewms-page-shell">
         <div style={{ fontSize: 14.5, color: 'hsl(var(--destructive))' }}>{error || 'Container not found'}</div>
         <Link href="/inventory/containers" style={{ fontSize: 14.5, color: 'hsl(173 58% 39%)', display: 'inline-block', marginTop: 8 }}>
           ← Back to containers
@@ -1114,7 +1114,7 @@ export function ContainerDetailPage() {
     : (container.currentLocation || null);
 
   return (
-    <div style={{ padding: '24px 32px' }}>
+    <div className="ewms-page-shell">
 
       {/* Back nav */}
       <Link
@@ -1134,11 +1134,11 @@ export function ContainerDetailPage() {
       )}
 
       {/* Header */}
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 'var(--ewms-page-section-gap)' }}>
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
           <h1 style={{
             fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)',
-            fontFamily: 'var(--app-font-mono)', letterSpacing: '-0.025em',
+            fontFamily: 'var(--app-font-sans)', letterSpacing: 0,
             margin: 0, color: 'hsl(var(--foreground))', lineHeight: 1.2,
           }}>
             {container.containerNumber}
@@ -1146,7 +1146,7 @@ export function ContainerDetailPage() {
           <StatusBadge status={container.currentStatus} />
           {scContainer?.isoCode && (
             <span style={{
-              fontSize: 14.5, fontWeight: 500, padding: '2px 8px', borderRadius: 20,
+              fontSize: 14.5, fontWeight: 500, padding: '2px 8px', borderRadius: 999,
               background: 'hsl(var(--muted))', color: 'hsl(var(--muted-foreground))',
             }}>
               {scContainer.isoCode}
@@ -1163,7 +1163,7 @@ export function ContainerDetailPage() {
               <span style={{ color: 'hsl(var(--foreground))', fontWeight: 500 }}>
                 {scShipment?.vesselName || container.vesselName}
               </span>
-              {container.voyageNumber && <span style={{ fontFamily: 'monospace' }}>V.{container.voyageNumber}</span>}
+              {container.voyageNumber && <span style={{ fontFamily: 'var(--app-font-sans)' }}>V.{container.voyageNumber}</span>}
             </span>
           )}
           {lastKnownLocation && (
@@ -1176,7 +1176,7 @@ export function ContainerDetailPage() {
             </span>
           )}
           {container.sealNumber && (
-            <span>Seal: <span style={{ fontFamily: 'monospace', color: 'hsl(var(--foreground))' }}>{container.sealNumber}</span></span>
+            <span>Seal: <span style={{ fontFamily: 'var(--app-font-sans)', color: 'hsl(var(--foreground))' }}>{container.sealNumber}</span></span>
           )}
           {container.containerType && (
             <span>Type: <span style={{ color: 'hsl(var(--foreground))', fontWeight: 500 }}>{container.containerType}</span></span>
@@ -1186,7 +1186,7 @@ export function ContainerDetailPage() {
               Shipment:{' '}
               <Link
                 href={`/shipments/${container.shipment.id}`}
-                style={{ color: 'hsl(173 58% 39%)', fontFamily: 'monospace', textDecoration: 'none' }}
+                style={{ color: 'hsl(173 58% 39%)', fontFamily: 'var(--app-font-sans)', textDecoration: 'none' }}
               >
                 {container.shipment.shipmentNumber || 'Pending ID'}
               </Link>
@@ -1199,7 +1199,7 @@ export function ContainerDetailPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
             {(scShipment.delayDays ?? 0) > 0 ? (
               <span style={{
-                fontSize: 14.5, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
+                fontSize: 14.5, fontWeight: 600, padding: '3px 10px', borderRadius: 999,
                 background: 'hsl(38 92% 93%)', color: 'hsl(38 55% 38%)',
                 border: '1px solid hsl(38 80% 80%)',
                 display: 'flex', alignItems: 'center', gap: 4,
@@ -1208,7 +1208,7 @@ export function ContainerDetailPage() {
               </span>
             ) : (
               <span style={{
-                fontSize: 14.5, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
+                fontSize: 14.5, fontWeight: 600, padding: '3px 10px', borderRadius: 999,
                 background: 'hsl(143 60% 93%)', color: 'hsl(143 50% 32%)',
                 border: '1px solid hsl(143 50% 78%)',
               }}>
@@ -1230,7 +1230,7 @@ export function ContainerDetailPage() {
       </div>
 
       {/* Two-column layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 'var(--ewms-content-grid-gap)', marginBottom: 16 }}>
         {/* Left: Inventory Journey (milestones) + Live Tracking + Contents */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <MilestoneJourneyTimeline milestones={milestones} />

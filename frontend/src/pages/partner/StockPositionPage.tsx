@@ -54,7 +54,7 @@ function AvailabilityBar({ available, onHand }: { available: number; onHand: num
 
 function EmptyState() {
   return (
-    <div className="bg-card rounded-xl border border-border p-12 text-center">
+    <div className="bg-card rounded-lg border border-border p-12 text-center">
       <Warehouse className="w-10 h-10 mx-auto text-muted-foreground/30 mb-3" />
       <p className="text-[14.5px] font-medium text-foreground mb-1">No stock on hand</p>
       <p className="text-[13px] text-muted-foreground max-w-xs mx-auto">
@@ -143,7 +143,7 @@ export default function StockPositionPage() {
               sub: 'in pending dispatches',
             },
           ].map((card) => (
-            <div key={card.label} className="bg-card rounded-xl border border-border p-4">
+            <div key={card.label} className="bg-card rounded-lg border border-border p-4">
               <p className="text-[13px] font-medium text-muted-foreground uppercase tracking-wide mb-1">
                 {card.label}
               </p>
@@ -161,7 +161,7 @@ export default function StockPositionPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by product code, description, or HS code…"
-          className="w-full pl-9 pr-4 py-2 text-[14.5px] border border-border rounded-xl bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+          className="w-full pl-9 pr-4 py-2 text-[14.5px] border border-border rounded-lg bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-teal-500/30"
         />
       </div>
 
@@ -177,7 +177,7 @@ export default function StockPositionPage() {
       {loading && (
         <div className="space-y-2">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-16 rounded-xl bg-muted/40 animate-pulse" />
+            <div key={i} className="h-16 rounded-lg bg-muted/40 animate-pulse" />
           ))}
         </div>
       )}
@@ -187,7 +187,7 @@ export default function StockPositionPage() {
 
       {/* ── Table ── */}
       {!loading && !error && stock.length > 0 && (
-        <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="bg-card rounded-lg border border-border overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-[14.5px]">
               <thead>
