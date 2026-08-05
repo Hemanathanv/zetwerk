@@ -4,22 +4,9 @@ services:
     container_name: redis
     restart: unless-stopped
 
-    command:
-      - redis-server
-      - --appendonly
-      - yes
-      - --save
-      - "60"
-      - "1000"
-      - --maxmemory
-      - 2gb
-      - --maxmemory-policy
-      - allkeys-lru
-
     ports:
-      - "127.0.0.1:6379:6379"
-      - "127.0.0.1:8001:8001"
-
+      - "6379:6379"
+    
     volumes:
       - redis_data:/data
 

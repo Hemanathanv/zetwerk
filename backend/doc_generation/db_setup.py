@@ -153,28 +153,39 @@ async def incompatible_doc_generation_views(prisma: Any, existing_views: set[str
     return incompatible
 
 
+async def _drop_relation_if_exists(prisma: Any, schema: str, name: str) -> None:
+    try:
+        rows = await _query_raw(
+            prisma,
+            """
+            SELECT c.relkind
+            FROM pg_catalog.pg_class c
+            JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = $1 AND c.relname = $2
+            """,
+            schema,
+            name,
+        )
+        if not rows:
+            return
+        relkind = str(rows[0].get("relkind") or "")
+        if relkind == "r":
+            await _execute_raw(prisma, f'DROP TABLE IF EXISTS "{schema}"."{name}" CASCADE;')
+        else:
+            await _execute_raw(prisma, f'DROP VIEW IF EXISTS "{schema}"."{name}" CASCADE;')
+    except Exception:
+        pass
+
+
 async def ensure_doc_generation_views(prisma: Any) -> set[str]:
     if not DOC_GENERATION_SQL_PATH.exists():
         raise RuntimeError(f"Missing document generation SQL file: {DOC_GENERATION_SQL_PATH}")
 
-    existing_views = await existing_doc_generation_views(prisma)
-    incompatible_views = await incompatible_doc_generation_views(prisma, existing_views)
-    valid_existing_views = existing_views - incompatible_views
-    if valid_existing_views.issuperset(DOC_GENERATION_VIEWS):
-        return existing_views
-
-    for view_name in incompatible_views:
-        await _execute_raw(prisma, f"DROP VIEW IF EXISTS docgen.{view_name} CASCADE;")
-        await _execute_raw(prisma, f"DROP TABLE IF EXISTS docgen.{view_name} CASCADE;")
+    for view_name in DOC_GENERATION_VIEWS:
+        await _drop_relation_if_exists(prisma, "docgen", view_name)
 
     statements = _split_sql_statements(DOC_GENERATION_SQL_PATH.read_text(encoding="utf-8"))
-    created_or_existing = set(valid_existing_views)
     for statement in statements:
-        view_name = _view_name_from_statement(statement)
-        if view_name and view_name in created_or_existing:
-            continue
         await _execute_raw(prisma, statement)
-        if view_name:
-            created_or_existing.add(view_name)
 
     return await existing_doc_generation_views(prisma)

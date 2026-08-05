@@ -15,13 +15,13 @@ class Settings(BaseSettings):
     
     # Database
     DATABASE_URL: str
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str = "redis://redis:6379/0"
     APP_ENVIRONMENT: str = "dev"
     S3_DEFAULT_BUCKET: str = "ewms-invoices"
     S3_REGION: str = "ap-south-1"
-    S3_KEY_PREFIX: str = "spr-ewms-zata-files"
+    S3_KEY_PREFIX: str = "zw-ewms-zata-files"
     # LLM Configuration
-    BASE_URL: str ="http://192.168.10.100:8000"  # Base URL for the API
+    BASE_URL: str ="http://backend-api:8000"  # Base URL for the API
     LLM_MODEL: str = "local-model"  # Model name for OpenAI-compatible API
     LLM_TEMPERATURE: float = 0.7
     LLM_MAX_TOKENS: int = 2048

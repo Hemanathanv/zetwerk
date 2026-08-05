@@ -8,9 +8,12 @@ from fastapi.security import OAuth2PasswordBearer
 from helpers.config import settings
 from typing import Optional, List
 
+KEYCLOAK_URL_BASE = settings.KEYCLOAK_URL.rstrip("/")
+KEYCLOAK_SERVER_URL = f"{KEYCLOAK_URL_BASE}/"
+
 # Keycloak OpenID client for authentication
 keycloak_openid = KeycloakOpenID(
-    server_url=settings.KEYCLOAK_URL,
+    server_url=KEYCLOAK_SERVER_URL,
     client_id=settings.KEYCLOAK_CLIENT_ID,
     realm_name=settings.KEYCLOAK_REALM,
     client_secret_key=settings.KEYCLOAK_CLIENT_SECRET
@@ -18,7 +21,7 @@ keycloak_openid = KeycloakOpenID(
 
 # OAuth2 scheme for token authentication
 oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.KEYCLOAK_URL}/realms/{settings.KEYCLOAK_REALM}/protocol/openid-connect/token"
+    tokenUrl=f"{KEYCLOAK_URL_BASE}/realms/{settings.KEYCLOAK_REALM}/protocol/openid-connect/token"
 )
 
 
@@ -38,7 +41,7 @@ def _has_role(roles: List[str], required_role: str) -> bool:
 def get_keycloak_admin():
     """Get Keycloak admin client for user management"""
     return KeycloakAdmin(
-        server_url=settings.KEYCLOAK_URL,
+        server_url=KEYCLOAK_SERVER_URL,
         username=settings.KEYCLOAK_ADMIN_USERNAME,
         password=settings.KEYCLOAK_ADMIN_PASSWORD,
         realm_name=settings.KEYCLOAK_REALM,
