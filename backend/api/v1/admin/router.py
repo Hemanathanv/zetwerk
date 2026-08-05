@@ -23,7 +23,7 @@ from helpers.utils import hash_password
 from objectstore import delete_document_object, get_download_url, list_buckets, list_prefix
 
 router = APIRouter(prefix=settings.API_SLUG + "/admin", tags=["Admin"])
-legacy_router = APIRouter(prefix="/api/admin", tags=["Admin"])
+legacy_router = APIRouter(prefix=settings.API_SLUG + "/admin", tags=["Admin"])
 
 
 ROLE_DEFINITIONS = [
@@ -240,6 +240,12 @@ SHEET_ACTIVITY_SETS = {
     "warehouse": [
         "inventory.view_warehouse", "inventory.warehouse_inventory_stock_position",
     ],
+    "dnd": [
+        "dnd.activate", "dnd.activate.start_event_date",
+        "dnd.activate.holiday_days", "dnd.activate.weekends",
+        "dnd.tariff.create", "dnd.tariff.edit", "dnd.tariff.view",
+        "dnd.tariff.force_expire", "dnd.holiday_calendar.upload",
+    ],
     "admin": [
         "admin.manage", "users.manage", "roles.view", "roles.manage",
         "admin.manage_users", "admin.configure_roles", "admin.edit_workflows",
@@ -267,7 +273,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L4"],
         "defaultDataScope": "ALL",
         "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "warehouse", "dnd", "accounting", "reports", "admin", "settings"],
-        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "admin"),
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "dnd", "admin"),
     },
     "Org Admin": {
         "name": "Org Admin",
@@ -277,7 +283,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L4"],
         "defaultDataScope": "ALL",
         "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "warehouse", "dnd", "accounting", "reports", "admin", "settings"],
-        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "admin"),
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "dnd", "admin"),
     },
     "Ops Manager": {
         "name": "Ops Manager",
@@ -287,7 +293,11 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L3"],
         "defaultDataScope": "ALL",
         "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "warehouse", "dnd", "accounting", "reports", "admin", "settings"],
-        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "admin"),
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "admin") + [
+            "dnd.activate", "dnd.activate.start_event_date", "dnd.activate.holiday_days",
+            "dnd.activate.weekends", "dnd.tariff.create", "dnd.tariff.edit",
+            "dnd.tariff.view", "dnd.holiday_calendar.upload",
+        ],
     },
     "India Logistics": {
         "name": "India Logistics",
@@ -296,8 +306,11 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "color": "#0EA5A0",
         "allowedLevels": ["L1", "L2"],
         "defaultDataScope": "TEAM",
-        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory"],
-        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "shipments", "inventory"),
+        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "dnd"],
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "shipments", "inventory") + [
+            "dnd.activate", "dnd.activate.start_event_date", "dnd.activate.holiday_days",
+            "dnd.activate.weekends", "dnd.tariff.view",
+        ],
     },
     "US Logistics": {
         "name": "US Logistics",
@@ -306,8 +319,11 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "color": "#0284C7",
         "allowedLevels": ["L1", "L2"],
         "defaultDataScope": "TEAM",
-        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory"],
-        "activityCodes": _activities_for("documents_basic", "validation", "shipments", "inventory"),
+        "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "dnd"],
+        "activityCodes": _activities_for("documents_basic", "validation", "shipments", "inventory") + [
+            "dnd.activate", "dnd.activate.start_event_date", "dnd.activate.holiday_days",
+            "dnd.activate.weekends", "dnd.tariff.view",
+        ],
     },
     "Finance AP India": {
         "name": "Finance AP India",
@@ -510,6 +526,15 @@ ACTIVITY_DEFINITIONS = [
     {"id": "activity-inventory-update-milestone", "activityCode": "inventory.update_milestone", "name": "Update milestones", "category": "inventory", "minLevel": "L2"},
     {"id": "activity-inventory-upload-pod", "activityCode": "inventory.upload_pod", "name": "Upload POD", "category": "inventory", "minLevel": "L2"},
     {"id": "activity-inventory-acknowledge-dnd", "activityCode": "inventory.acknowledge_dnd", "name": "Acknowledge D&D", "category": "inventory", "minLevel": "L2"},
+    {"id": "activity-dnd-activate", "activityCode": "dnd.activate", "name": "Activate D&D", "category": "dnd_activate", "displayGroup": "Demurrage and detention", "subModule": "Activate D&D", "moduleCode": "dnd", "minLevel": "L2"},
+    {"id": "activity-dnd-activate-start-event-date", "activityCode": "dnd.activate.start_event_date", "name": "Start event date", "category": "dnd_activate", "displayGroup": "Demurrage and detention", "subModule": "Activate D&D", "moduleCode": "dnd", "scope": "Dropdown", "minLevel": "L2"},
+    {"id": "activity-dnd-activate-holiday-days", "activityCode": "dnd.activate.holiday_days", "name": "Holiday days", "category": "dnd_activate", "displayGroup": "Demurrage and detention", "subModule": "Activate D&D", "moduleCode": "dnd", "scope": "Checkbox", "minLevel": "L2"},
+    {"id": "activity-dnd-activate-weekends", "activityCode": "dnd.activate.weekends", "name": "Weekends", "category": "dnd_activate", "displayGroup": "Demurrage and detention", "subModule": "Activate D&D", "moduleCode": "dnd", "scope": "Checkbox", "minLevel": "L2"},
+    {"id": "activity-dnd-tariff-create", "activityCode": "dnd.tariff.create", "name": "Create a Tariff master", "category": "dnd_tariff_master", "displayGroup": "Demurrage and detention", "subModule": "Tariff master", "moduleCode": "dnd", "minLevel": "L3"},
+    {"id": "activity-dnd-tariff-edit", "activityCode": "dnd.tariff.edit", "name": "Edit Tariff master", "category": "dnd_tariff_master", "displayGroup": "Demurrage and detention", "subModule": "Tariff master", "moduleCode": "dnd", "minLevel": "L3"},
+    {"id": "activity-dnd-tariff-view", "activityCode": "dnd.tariff.view", "name": "View tariff master", "category": "dnd_tariff_master", "displayGroup": "Demurrage and detention", "subModule": "Tariff master", "moduleCode": "dnd", "minLevel": "L1"},
+    {"id": "activity-dnd-tariff-force-expire", "activityCode": "dnd.tariff.force_expire", "name": "Force expire Tariff master", "category": "dnd_tariff_master", "displayGroup": "Demurrage and detention", "subModule": "Tariff master", "moduleCode": "dnd", "minLevel": "L4"},
+    {"id": "activity-dnd-holiday-calendar-upload", "activityCode": "dnd.holiday_calendar.upload", "name": "Upload Holiday calendar master", "category": "dnd_holiday_calendar", "displayGroup": "Demurrage and detention", "subModule": "Holiday calendar master", "moduleCode": "dnd", "minLevel": "L3"},
     {"id": "activity-inventory-view-container", "activityCode": "inventory.view_container", "name": "View containers", "category": "inventory", "minLevel": "L1"},
     {"id": "activity-accounting-view-queue", "activityCode": "accounting.view_queue", "name": "View accounting queue", "category": "accounting", "minLevel": "L1"},
     {"id": "activity-accounting-review-ticket", "activityCode": "accounting.review_ticket", "name": "Review tickets", "category": "accounting", "minLevel": "L2"},
@@ -549,6 +574,15 @@ ACTIVITY_MODULE_OVERRIDES = {
     "inventory.view_last_free_days_shipment_based": "dnd",
     "inventory.view_lfd_calendar": "dnd",
     "inventory.modify_lfd": "dnd",
+    "dnd.activate": "dnd",
+    "dnd.activate.start_event_date": "dnd",
+    "dnd.activate.holiday_days": "dnd",
+    "dnd.activate.weekends": "dnd",
+    "dnd.tariff.create": "dnd",
+    "dnd.tariff.edit": "dnd",
+    "dnd.tariff.view": "dnd",
+    "dnd.tariff.force_expire": "dnd",
+    "dnd.holiday_calendar.upload": "dnd",
 }
 
 KEYCLOAK_ROLE_ATTRIBUTE_VALUE_MAX = 250
@@ -2575,7 +2609,49 @@ async def get_team_overview(_user=Depends(get_admin_user)):
 @router.get("/settings/access-audit")
 @legacy_router.get("/settings/access-audit")
 async def list_access_audit(_user=Depends(get_admin_user)):
-    return {"ok": True, "data": []}
+    prisma = await get_prisma()
+    try:
+        await prisma.execute_raw(
+            """
+            CREATE TABLE IF NOT EXISTS public.dnd_activity_audit (
+              id TEXT PRIMARY KEY,
+              action TEXT NOT NULL,
+              description TEXT NOT NULL,
+              entity_type TEXT,
+              entity_id TEXT,
+              user_id TEXT,
+              metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        rows = await prisma.query_raw(
+            """
+            SELECT id, action, description, entity_type, entity_id, user_id, metadata, created_at
+            FROM public.dnd_activity_audit
+            ORDER BY created_at DESC
+            LIMIT 100
+            """
+        )
+        return {
+            "ok": True,
+            "data": [
+                {
+                    "id": str(row.get("id")),
+                    "action": str(row.get("action") or ""),
+                    "description": str(row.get("description") or ""),
+                    "userName": str(row.get("user_id") or "system"),
+                    "module": "dnd",
+                    "entityType": row.get("entity_type"),
+                    "entityId": row.get("entity_id"),
+                    "createdAt": row.get("created_at").isoformat() if hasattr(row.get("created_at"), "isoformat") else str(row.get("created_at") or ""),
+                    "metadata": row.get("metadata") if isinstance(row.get("metadata"), dict) else {},
+                }
+                for row in rows
+            ],
+        }
+    except Exception:
+        return {"ok": True, "data": []}
 
 
 @router.get("/delegations")

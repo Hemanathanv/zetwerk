@@ -60,8 +60,8 @@ from objectstore import (
 )
 
 router = APIRouter(prefix=settings.API_SLUG + "/uploads", tags=["Uploads"])
-legacy_router = APIRouter(prefix="/api/uploads", tags=["Uploads"])
-validation_router = APIRouter(prefix="/api/validation", tags=["Validation"])
+legacy_router = APIRouter(prefix=settings.API_SLUG + "/uploads", tags=["Uploads"])
+validation_router = APIRouter(prefix=settings.API_SLUG + "/validation", tags=["Validation"])
 
 BACKEND_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_MODULE = "uploads"

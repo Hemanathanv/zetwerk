@@ -37,6 +37,7 @@ type PricingMethodKey = 'flat' | 'tier' | 'slab';
 type FreeTimeGroup = { event: string; days: number[] };
 type SlabRow = { from: number; to: number; rate: number };
 type LanePair = { origin: string; originName: string; dest: string; destName: string };
+type CarrierMaster = { id: string; carrierName: string; scac: string; isActive?: boolean };
 type TariffDraft = {
   carrier: string;
   scac: string;
@@ -91,9 +92,9 @@ const MODULE_MODES = [
 ] as const;
 
 const EVENT_OPTIONS = ['Container Discharge', 'Container Available', 'Gate Out', 'Rail Ramp Arrival'] as const;
-const CARRIER_OPTIONS = ['MAERSK', 'MSC', 'CMA CGM', 'ONE'] as const;
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'INR'] as const;
 const CONTAINER_OPTIONS = ['20GP', '40GP', '40HC', 'Reefer'] as const;
+const ADD_NEW_CARRIER_VALUE = '__add_new_carrier__';
 
 function createBlankTariffDraft(): TariffDraft {
   return {
@@ -116,7 +117,7 @@ function createBlankTariffDraft(): TariffDraft {
     tier: { enabled: false, rate: 0, threshold: 0, mult: 0, currency: 'USD' },
     slab: { enabled: false, rows: [] },
   },
-  exclusionDefault: { weekends: false, holidays: false },
+  exclusionDefault: { weekends: true, holidays: false },
   };
 }
 
@@ -165,6 +166,7 @@ function normalizeTariffRecord(record: TariffRecord): TariffRecord {
 
 function TariffMasterConsole() {
   const [tariffs, setTariffs] = useState<TariffRecord[]>([]);
+  const [carriers, setCarriers] = useState<CarrierMaster[]>([]);
   const [tariffsLoading, setTariffsLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | TariffStatus>('all');
@@ -208,8 +210,19 @@ function TariffMasterConsole() {
     }
   }
 
+  async function loadCarriers() {
+    try {
+      const response = await apiGet<ApiData<CarrierMaster[]>>('/dnd/carriers');
+      setCarriers(response.data ?? []);
+    } catch (error) {
+      setPublishNote(error instanceof Error ? error.message : 'Could not load D&D carrier master');
+      setCarriers([]);
+    }
+  }
+
   useEffect(() => {
     void loadTariffs();
+    void loadCarriers();
   }, []);
 
   async function publishTariff() {
@@ -258,6 +271,17 @@ function TariffMasterConsole() {
     }
   }
 
+  async function forceExpireTariff(tariff: TariffRecord) {
+    if (!confirm(`Force expire ${tariff.id} v${tariff.version}?`)) return;
+    try {
+      const response = await apiPost<ApiData<TariffRecord>>(`/dnd/tariffs/${tariff.id}/force-expire`, {});
+      setTariffs((items) => items.map((item) => (item.id === tariff.id ? normalizeTariffRecord(response.data) : item)));
+      setPublishNote(`${tariff.id} moved to Expired.`);
+    } catch (error) {
+      setPublishNote(error instanceof Error ? error.message : 'Could not force-expire tariff');
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div className="grid gap-3 md:grid-cols-4">
@@ -295,17 +319,19 @@ function TariffMasterConsole() {
                 onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}
                 options={['all', 'Active', 'Sunsetting', 'Draft'].map((value) => ({ value, label: value }))}
               />
-              <Button
-                type="button"
-                onClick={() => {
-                  setDraft(createBlankTariffDraft());
-                  setPublishNote(null);
-                  setCreateOpen(true);
-                }}
-                className="gap-2"
-              >
-                <Plus className="size-4" /> Create Tariff
-              </Button>
+              <RequireActivity code="dnd.tariff.create">
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setDraft(createBlankTariffDraft());
+                    setPublishNote(null);
+                    setCreateOpen(true);
+                  }}
+                  className="gap-2"
+                >
+                  <Plus className="size-4" /> Create Tariff
+                </Button>
+              </RequireActivity>
             </div>
           </div>
 
@@ -319,6 +345,7 @@ function TariffMasterConsole() {
                   <th className="px-3 py-2 text-left font-semibold">Pricing</th>
                   <th className="px-3 py-2 text-left font-semibold">Status</th>
                   <th className="px-3 py-2 text-right font-semibold">Shipments</th>
+                  <th className="px-3 py-2 text-right font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -342,11 +369,20 @@ function TariffMasterConsole() {
                     </td>
                     <td className="px-3 py-3"><Badge intent={tariffStatusIntent(tariff.status)} size="sm" hasDot>{tariff.status}</Badge></td>
                     <td className="px-3 py-3 text-right font-mono">{tariff.linkedShipments}</td>
+                    <td className="px-3 py-3 text-right">
+                      {tariff.status !== 'Expired' && (
+                        <RequireActivity code="dnd.tariff.force_expire">
+                        <Button type="button" variant="outline" size="sm" onClick={() => forceExpireTariff(tariff)}>
+                          Force Expire
+                        </Button>
+                        </RequireActivity>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {!tariffsLoading && filteredTariffs.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-3 py-8 text-center text-[13px] text-muted-foreground">
+                    <td colSpan={7} className="px-3 py-8 text-center text-[13px] text-muted-foreground">
                       No D&D tariffs found. Publish a tariff to create the first Active version.
                     </td>
                   </tr>
@@ -360,9 +396,11 @@ function TariffMasterConsole() {
       <TariffCreateDialog
         open={createOpen}
         draft={draft}
+        carriers={carriers}
         publishNote={publishNote}
         onOpenChange={setCreateOpen}
         onDraftChange={setDraft}
+        onCarriersChange={setCarriers}
         onPublish={publishTariff}
       />
     </div>
@@ -404,21 +442,74 @@ function SectionTitle({ title, desc }: { title: string; desc: string }) {
 function TariffCreateDialog({
   open,
   draft,
+  carriers,
   publishNote,
   onOpenChange,
   onDraftChange,
+  onCarriersChange,
   onPublish,
 }: {
   open: boolean;
   draft: TariffDraft;
+  carriers: CarrierMaster[];
   publishNote: string | null;
   onOpenChange: (open: boolean) => void;
   onDraftChange: (draft: TariffDraft) => void;
+  onCarriersChange: (carriers: CarrierMaster[]) => void;
   onPublish: () => void;
 }) {
   const usaScope = isUsaScope(draft);
   const methods = enabledPricingMethods(draft);
   const warnings = slabWarnings(draft.pricingMethods.slab.rows ?? []);
+  const [newCarrierOpen, setNewCarrierOpen] = useState(false);
+  const [newCarrierName, setNewCarrierName] = useState('');
+  const [newScac, setNewScac] = useState('');
+  const [carrierNote, setCarrierNote] = useState<string | null>(null);
+  const carrierNames = useMemo(
+    () => Array.from(new Set(carriers.map((carrier) => carrier.carrierName).filter(Boolean))).sort(),
+    [carriers],
+  );
+  const scacOptions = useMemo(
+    () => carriers
+      .filter((carrier) => carrier.carrierName === draft.carrier)
+      .map((carrier) => carrier.scac)
+      .filter(Boolean),
+    [carriers, draft.carrier],
+  );
+
+  function selectCarrier(carrier: string) {
+    if (carrier === ADD_NEW_CARRIER_VALUE) {
+      setNewCarrierName('');
+      setNewScac('');
+      setCarrierNote(null);
+      setNewCarrierOpen(true);
+      return;
+    }
+    const firstScac = carriers.find((item) => item.carrierName === carrier)?.scac ?? '';
+    onDraftChange({ ...draft, carrier, scac: firstScac });
+  }
+
+  async function saveNewCarrier() {
+    const carrierName = newCarrierName.trim().toUpperCase();
+    const scac = newScac.trim().toUpperCase();
+    if (!carrierName || !scac) {
+      setCarrierNote('Enter carrier name and SCAC code.');
+      return;
+    }
+    try {
+      const response = await apiPost<ApiData<CarrierMaster>>('/dnd/carriers', { carrierName, scac });
+      const saved = response.data;
+      const nextCarriers = [
+        ...carriers.filter((carrier) => !(carrier.carrierName === saved.carrierName && carrier.scac === saved.scac)),
+        saved,
+      ].sort((a, b) => `${a.carrierName}-${a.scac}`.localeCompare(`${b.carrierName}-${b.scac}`));
+      onCarriersChange(nextCarriers);
+      onDraftChange({ ...draft, carrier: saved.carrierName, scac: saved.scac });
+      setNewCarrierOpen(false);
+    } catch (error) {
+      setCarrierNote(error instanceof Error ? error.message : 'Could not save carrier.');
+    }
+  }
 
   function updatePricing(method: PricingMethodKey, patch: Partial<TariffDraft['pricingMethods'][PricingMethodKey]>) {
     onDraftChange({ ...draft, pricingMethods: { ...draft.pricingMethods, [method]: { ...draft.pricingMethods[method], ...patch } } });
@@ -528,12 +619,29 @@ function TariffCreateDialog({
             <div className="grid gap-3 md:grid-cols-3">
               <div>
                 <FieldLabel>Carrier Name *</FieldLabel>
-                <Select value={draft.carrier} onValueChange={(carrier) => onDraftChange({ ...draft, carrier })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{CARRIER_OPTIONS.map((carrier) => <SelectItem key={carrier} value={carrier}>{carrier}</SelectItem>)}</SelectContent>
+                <Select value={draft.carrier} onValueChange={selectCarrier}>
+                  <SelectTrigger><SelectValue placeholder="Select carrier" /></SelectTrigger>
+                  <SelectContent>
+                    <RequireActivity code="dnd.tariff.create">
+                      <SelectItem value={ADD_NEW_CARRIER_VALUE}>+ Add new carrier</SelectItem>
+                    </RequireActivity>
+                    {carrierNames.map((carrier) => <SelectItem key={carrier} value={carrier}>{carrier}</SelectItem>)}
+                  </SelectContent>
                 </Select>
               </div>
-              <div><FieldLabel>SCAC Code</FieldLabel><Input value={draft.scac} onChange={(event) => onDraftChange({ ...draft, scac: event.target.value.toUpperCase() })} /></div>
+              <div>
+                <FieldLabel>SCAC Code</FieldLabel>
+                {scacOptions.length > 0 ? (
+                  <Select value={draft.scac || scacOptions[0]} onValueChange={(scac) => onDraftChange({ ...draft, scac })}>
+                    <SelectTrigger><SelectValue placeholder="Select SCAC" /></SelectTrigger>
+                    <SelectContent>
+                      {scacOptions.map((scac) => <SelectItem key={scac} value={scac}>{scac}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input value={draft.scac} onChange={(event) => onDraftChange({ ...draft, scac: event.target.value.toUpperCase() })} />
+                )}
+              </div>
               <div>
                 <FieldLabel>Status</FieldLabel>
                 <SegmentedControl value={draft.status} onValueChange={(status) => onDraftChange({ ...draft, status: status as TariffDraft['status'] })} options={[{ value: 'Draft', label: 'Draft' }, { value: 'Active', label: 'Active' }]} />
@@ -726,9 +834,36 @@ function TariffCreateDialog({
 
         <DialogFooter className="border-t border-border px-6 py-4">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="button" onClick={onPublish} className="gap-2"><CheckCircle className="size-4" /> Publish Tariff</Button>
+          <RequireActivity code="dnd.tariff.create">
+            <Button type="button" onClick={onPublish} className="gap-2"><CheckCircle className="size-4" /> Publish Tariff</Button>
+          </RequireActivity>
         </DialogFooter>
       </DialogContent>
+      <Dialog open={newCarrierOpen} onOpenChange={setNewCarrierOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Carrier</DialogTitle>
+            <DialogDescription>Add a carrier and SCAC mapping to the D&D carrier master.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <FieldLabel>Carrier Name *</FieldLabel>
+              <Input value={newCarrierName} onChange={(event) => setNewCarrierName(event.target.value.toUpperCase())} placeholder="Carrier name" />
+            </div>
+            <div>
+              <FieldLabel>SCAC Code *</FieldLabel>
+              <Input value={newScac} onChange={(event) => setNewScac(event.target.value.toUpperCase())} placeholder="SCAC code" />
+            </div>
+            {carrierNote && <div className="rounded-md border border-destructive/20 bg-destructive/5 p-3 text-[13px] text-destructive">{carrierNote}</div>}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setNewCarrierOpen(false)}>Cancel</Button>
+            <RequireActivity code="dnd.tariff.create">
+              <Button type="button" onClick={saveNewCarrier}>Save Carrier</Button>
+            </RequireActivity>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
@@ -831,12 +966,16 @@ function HolidayCalendarConsole() {
               className="hidden"
               onChange={handleHolidayFileChange}
             />
-            <Button type="button" variant="outline" size="sm" onClick={downloadTemplate} className="gap-2">
-              <Download className="size-4" /> Download Template
-            </Button>
-            <Button type="button" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading} className="gap-2">
-              <Upload className="size-4" /> {uploading ? 'Uploading...' : 'Upload'}
-            </Button>
+            <RequireActivity code="dnd.holiday_calendar.upload">
+              <Button type="button" variant="outline" size="sm" onClick={downloadTemplate} className="gap-2">
+                <Download className="size-4" /> Download Template
+              </Button>
+            </RequireActivity>
+            <RequireActivity code="dnd.holiday_calendar.upload">
+              <Button type="button" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading} className="gap-2">
+                <Upload className="size-4" /> {uploading ? 'Uploading...' : 'Upload'}
+              </Button>
+            </RequireActivity>
           </div>
         </div>
 

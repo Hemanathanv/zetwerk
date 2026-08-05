@@ -75,6 +75,9 @@ const ACTIVITY_GROUP_ORDER = [
   'container_mapping',
   'shipment',
   'inventory',
+  'dnd_activate',
+  'dnd_tariff_master',
+  'dnd_holiday_calendar',
   'admin',
 ];
 
@@ -85,6 +88,9 @@ const ACTIVITY_GROUP_LABELS: Record<string, string> = {
   container_mapping: 'Container Mapping Activities',
   shipment: 'Shipment Activities',
   inventory: 'Inventory Activities',
+  dnd_activate: 'Demurrage and detention',
+  dnd_tariff_master: 'Demurrage and detention',
+  dnd_holiday_calendar: 'Demurrage and detention',
   admin: 'Admin Activities',
 };
 
@@ -839,23 +845,6 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                 </div>
               </div>
             )}
-
-            <div>
-              <FieldLabel>Category</FieldLabel>
-              <Select value={category} onValueChange={setCategory} disabled={isSystem}>
-                <SelectTrigger style={{ fontSize: 14.5 }}><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {ROLE_CAT_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 4, background: o.color, display: 'inline-block', flexShrink: 0 }} />
-                        {o.label}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
 
             <div>
               <FieldLabel>Color</FieldLabel>

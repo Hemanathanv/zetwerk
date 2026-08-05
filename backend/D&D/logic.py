@@ -11,6 +11,13 @@ TARIFF_STATUSES = {"Active", "Draft", "Sunsetting", "Expired"}
 CHARGE_TYPES = {"Demurrage", "Detention", "Storage"}
 PRICING_METHODS = {"flat", "tier", "slab"}
 VALID_CARGO = {"FCL", "Breakbulk", "Container", "Break Bulk"}
+DEFAULT_CARRIERS = (
+    ("MAERSK", "MAEU"),
+    ("MSC", "MSCU"),
+    ("CMA CGM", "CMDU"),
+    ("ONE", "ONEY"),
+)
+SHIPMENT_INPUT_STATES = {"PENDING_SELECTION", "ACTIVATED", "CARRIER_REVIEW", "NO_MATCHING_TARIFF"}
 
 
 async def query_raw(prisma, sql: str, *params: Any) -> list[dict[str, Any]]:
@@ -84,6 +91,28 @@ async def ensure_dnd_tables(prisma) -> None:
     await execute_raw(
         prisma,
         """
+        CREATE TABLE IF NOT EXISTS public.dnd_activity_audit (
+          id TEXT PRIMARY KEY,
+          action TEXT NOT NULL,
+          description TEXT NOT NULL,
+          entity_type TEXT,
+          entity_id TEXT,
+          user_id TEXT,
+          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+    )
+    await execute_raw(
+        prisma,
+        """
+        CREATE INDEX IF NOT EXISTS idx_dnd_activity_audit_created
+        ON public.dnd_activity_audit (created_at DESC)
+        """,
+    )
+    await execute_raw(
+        prisma,
+        """
         CREATE TABLE IF NOT EXISTS public.dnd_holiday_calendar (
           id TEXT PRIMARY KEY,
           port_code TEXT NOT NULL,
@@ -98,6 +127,135 @@ async def ensure_dnd_tables(prisma) -> None:
         )
         """,
     )
+    await execute_raw(
+        prisma,
+        """
+        CREATE TABLE IF NOT EXISTS public.dnd_carrier_master (
+          id TEXT PRIMARY KEY,
+          carrier_name TEXT NOT NULL,
+          scac TEXT NOT NULL,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_by TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          UNIQUE (carrier_name, scac)
+        )
+        """,
+    )
+    await execute_raw(
+        prisma,
+        """
+        CREATE INDEX IF NOT EXISTS idx_dnd_carrier_master_name
+        ON public.dnd_carrier_master (carrier_name, is_active)
+        """,
+    )
+    await execute_raw(
+        prisma,
+        """
+        CREATE TABLE IF NOT EXISTS public.dnd_shipment_inputs (
+          shipment_id TEXT PRIMARY KEY,
+          carrier_name TEXT,
+          scac TEXT,
+          start_event TEXT,
+          free_days TEXT,
+          pricing_method TEXT,
+          start_date DATE,
+          end_date DATE,
+          exclude_weekends BOOLEAN NOT NULL DEFAULT TRUE,
+          exclude_holidays BOOLEAN NOT NULL DEFAULT TRUE,
+          carrier_state TEXT NOT NULL DEFAULT 'matched',
+          dnd_status TEXT NOT NULL DEFAULT 'PENDING_SELECTION',
+          matched_tariff_id TEXT,
+          chargeable_days INTEGER,
+          last_free_day DATE,
+          estimated_charge NUMERIC,
+          currency TEXT,
+          basis TEXT,
+          saved_by TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+    )
+    for column_sql in (
+        "ALTER TABLE public.dnd_shipment_inputs ADD COLUMN IF NOT EXISTS dnd_status TEXT NOT NULL DEFAULT 'PENDING_SELECTION'",
+        "ALTER TABLE public.dnd_shipment_inputs ADD COLUMN IF NOT EXISTS matched_tariff_id TEXT",
+        "ALTER TABLE public.dnd_shipment_inputs ADD COLUMN IF NOT EXISTS chargeable_days INTEGER",
+        "ALTER TABLE public.dnd_shipment_inputs ADD COLUMN IF NOT EXISTS last_free_day DATE",
+        "ALTER TABLE public.dnd_shipment_inputs ADD COLUMN IF NOT EXISTS estimated_charge NUMERIC",
+        "ALTER TABLE public.dnd_shipment_inputs ADD COLUMN IF NOT EXISTS currency TEXT",
+        "ALTER TABLE public.dnd_shipment_inputs ADD COLUMN IF NOT EXISTS basis TEXT",
+    ):
+        await execute_raw(prisma, column_sql)
+    for carrier_name, scac in DEFAULT_CARRIERS:
+        await execute_raw(
+            prisma,
+            """
+            INSERT INTO public.dnd_carrier_master (
+              id, carrier_name, scac, is_active, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, TRUE, NOW(), NOW())
+            ON CONFLICT (carrier_name, scac) DO NOTHING
+            """,
+            str(uuid4()),
+            carrier_name,
+            scac,
+        )
+
+
+async def record_audit(
+    prisma,
+    *,
+    action: str,
+    description: str,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    user_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    await execute_raw(
+        prisma,
+        """
+        INSERT INTO public.dnd_activity_audit (
+          id, action, description, entity_type, entity_id, user_id, metadata, created_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
+        """,
+        str(uuid4()),
+        action,
+        description,
+        entity_type,
+        entity_id,
+        user_id,
+        json.dumps(metadata or {}),
+    )
+
+
+async def list_activity_audit(prisma, limit: int = 50) -> list[dict[str, Any]]:
+    await ensure_dnd_tables(prisma)
+    rows = await query_raw(
+        prisma,
+        """
+        SELECT *
+        FROM public.dnd_activity_audit
+        ORDER BY created_at DESC
+        LIMIT $1
+        """,
+        limit,
+    )
+    return [
+        {
+            "id": row.get("id"),
+            "action": row.get("action"),
+            "description": row.get("description"),
+            "entityType": row.get("entity_type"),
+            "entityId": row.get("entity_id"),
+            "userName": row.get("user_id") or "system",
+            "createdAt": iso(row.get("created_at")),
+            "metadata": coerce_json(row.get("metadata"), {}),
+        }
+        for row in rows
+    ]
 
 
 def normalize_tariff_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -136,8 +294,73 @@ def normalize_holiday_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def normalize_carrier_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "carrierName": row.get("carrier_name"),
+        "scac": row.get("scac"),
+        "isActive": bool(row.get("is_active")),
+        "createdAt": iso(row.get("created_at")),
+        "updatedAt": iso(row.get("updated_at")),
+    }
+
+
+def normalize_shipment_inputs_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "shipmentId": row.get("shipment_id"),
+        "carrierName": row.get("carrier_name"),
+        "scac": row.get("scac"),
+        "startEvent": row.get("start_event") or "",
+        "freeDays": row.get("free_days") or "",
+        "pricingMethod": row.get("pricing_method") or "",
+        "startDate": iso(row.get("start_date")) or "",
+        "endDate": iso(row.get("end_date")) or "",
+        "excludeWeekends": bool(row.get("exclude_weekends")),
+        "excludeHolidays": bool(row.get("exclude_holidays")),
+        "carrierState": row.get("carrier_state") or "matched",
+        "dndStatus": row.get("dnd_status") or "PENDING_SELECTION",
+        "matchedTariffId": row.get("matched_tariff_id"),
+        "chargeableDays": row.get("chargeable_days"),
+        "lastFreeDay": iso(row.get("last_free_day")),
+        "estimatedCharge": float(row["estimated_charge"]) if row.get("estimated_charge") is not None else None,
+        "currency": row.get("currency"),
+        "basis": row.get("basis"),
+        "savedBy": row.get("saved_by"),
+        "createdAt": iso(row.get("created_at")),
+        "updatedAt": iso(row.get("updated_at")),
+    }
+
+
 def normalize_charge_types(values: list[str]) -> list[str]:
     return [value for value in values if value in CHARGE_TYPES]
+
+
+def parse_iso_date(value: Any) -> date | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except Exception:
+        return None
+
+
+def free_days_int(value: Any) -> int:
+    match = re.search(r"\d+", str(value or ""))
+    return int(match.group(0)) if match else 0
+
+
+def charge_basis_label(*, exclude_weekends: bool, exclude_holidays: bool) -> str:
+    if exclude_weekends and exclude_holidays:
+        return "Working Days (weekends & holidays excluded)"
+    if exclude_weekends:
+        return "Working Days (weekends excluded)"
+    if exclude_holidays:
+        return "Calendar Days (holidays excluded)"
+    return "Calendar Days"
 
 
 def is_usa_scope(payload: dict[str, Any]) -> bool:
@@ -252,6 +475,7 @@ def validate_tariff_payload(payload: dict[str, Any]) -> None:
 
 async def list_tariffs(prisma) -> list[dict[str, Any]]:
     await ensure_dnd_tables(prisma)
+    await refresh_tariff_lifecycle(prisma)
     rows = await query_raw(
         prisma,
         """
@@ -261,6 +485,461 @@ async def list_tariffs(prisma) -> list[dict[str, Any]]:
         """,
     )
     return [normalize_tariff_row(row) for row in rows]
+
+
+async def refresh_tariff_lifecycle(prisma) -> None:
+    await execute_raw(
+        prisma,
+        """
+        UPDATE public.dnd_tariffs
+        SET status = CASE
+              WHEN linked_shipments > 0 THEN 'Sunsetting'
+              ELSE 'Expired'
+            END,
+            updated_at = NOW()
+        WHERE status = 'Active'
+          AND effective_to IS NOT NULL
+          AND effective_to < CURRENT_DATE
+        """,
+    )
+    await execute_raw(
+        prisma,
+        """
+        UPDATE public.dnd_tariffs
+        SET status = 'Expired', updated_at = NOW()
+        WHERE status = 'Sunsetting'
+          AND linked_shipments <= 0
+        """,
+    )
+
+
+async def force_expire_tariff(prisma, tariff_id: str, user_id: str | None = None) -> dict[str, Any]:
+    await ensure_dnd_tables(prisma)
+    await execute_raw(
+        prisma,
+        """
+        UPDATE public.dnd_tariffs
+        SET status = 'Expired',
+            metadata = metadata || $2::jsonb,
+            updated_at = NOW()
+        WHERE id = $1
+        """,
+        tariff_id,
+        json.dumps({"forceExpiredBy": user_id, "forceExpiredAt": datetime.utcnow().isoformat()}),
+    )
+    rows = await query_raw(prisma, "SELECT * FROM public.dnd_tariffs WHERE id = $1 LIMIT 1", tariff_id)
+    if not rows:
+        raise ValueError("Tariff not found")
+    tariff = normalize_tariff_row(rows[0])
+    await record_audit(
+        prisma,
+        action="force_expire",
+        description=f"Force expired D&D tariff {tariff['id']} v{tariff['version']}",
+        entity_type="tariff",
+        entity_id=tariff["id"],
+        user_id=user_id,
+        metadata={"status": tariff.get("status"), "carrier": tariff.get("carrier")},
+    )
+    return tariff
+
+
+async def list_active_charges(prisma) -> list[dict[str, Any]]:
+    await ensure_dnd_tables(prisma)
+    rows = await query_raw(
+        prisma,
+        """
+        SELECT *
+        FROM public.dnd_shipment_inputs
+        WHERE dnd_status = 'ACTIVATED'
+        ORDER BY updated_at DESC
+        """,
+    )
+    return [normalize_shipment_inputs_row(row) for row in rows]
+
+
+async def list_alerts(prisma) -> dict[str, list[dict[str, Any]]]:
+    await ensure_dnd_tables(prisma)
+    rows = await query_raw(
+        prisma,
+        """
+        SELECT *
+        FROM public.dnd_shipment_inputs
+        WHERE dnd_status IN ('CARRIER_REVIEW', 'NO_MATCHING_TARIFF')
+        ORDER BY updated_at DESC
+        """,
+    )
+    notifications = []
+    for row in rows:
+        item = normalize_shipment_inputs_row(row)
+        is_carrier_review = item["dndStatus"] == "CARRIER_REVIEW"
+        notifications.append({
+            "id": f"dnd-{item['shipmentId']}",
+            "type": "escalation" if is_carrier_review else "warning",
+            "title": "Carrier review required" if is_carrier_review else "No matching D&D tariff",
+            "message": (
+                "Carrier could not be matched from BOL."
+                if is_carrier_review
+                else "No Published D&D tariff matches Carrier + Lane + Cargo + Charge."
+            ),
+            "shipmentId": item["shipmentId"],
+            "createdAt": item["updatedAt"],
+        })
+    return {"notifications": notifications, "audits": []}
+
+
+async def list_carriers(prisma) -> list[dict[str, Any]]:
+    await ensure_dnd_tables(prisma)
+    rows = await query_raw(
+        prisma,
+        """
+        SELECT *
+        FROM public.dnd_carrier_master
+        WHERE is_active = TRUE
+        ORDER BY carrier_name ASC, scac ASC
+        """,
+    )
+    return [normalize_carrier_row(row) for row in rows]
+
+
+async def create_carrier(prisma, payload: dict[str, Any], user_id: str | None = None) -> dict[str, Any]:
+    await ensure_dnd_tables(prisma)
+    carrier_name = str(payload.get("carrierName") or payload.get("carrier") or "").strip().upper()
+    scac = str(payload.get("scac") or "").strip().upper()
+    if not carrier_name:
+        raise ValueError("Carrier name is required")
+    if not scac:
+        raise ValueError("SCAC code is required")
+    if not re.fullmatch(r"[A-Z0-9]{2,6}", scac):
+        raise ValueError("SCAC code must be 2-6 letters or numbers")
+    carrier_id = str(uuid4())
+    await execute_raw(
+        prisma,
+        """
+        INSERT INTO public.dnd_carrier_master (
+          id, carrier_name, scac, is_active, created_by, created_at, updated_at
+        )
+        VALUES ($1, $2, $3, TRUE, $4, NOW(), NOW())
+        ON CONFLICT (carrier_name, scac) DO UPDATE SET
+          is_active = TRUE,
+          updated_at = NOW()
+        """,
+        carrier_id,
+        carrier_name,
+        scac,
+        user_id,
+    )
+    rows = await query_raw(
+        prisma,
+        """
+        SELECT *
+        FROM public.dnd_carrier_master
+        WHERE carrier_name = $1 AND scac = $2
+        LIMIT 1
+        """,
+        carrier_name,
+        scac,
+    )
+    carrier = normalize_carrier_row(rows[0])
+    await record_audit(
+        prisma,
+        action="carrier_master_upsert",
+        description=f"Saved D&D carrier mapping {carrier['carrierName']} / {carrier['scac']}",
+        entity_type="carrier",
+        entity_id=carrier["id"],
+        user_id=user_id,
+    )
+    return carrier
+
+
+async def get_shipment_inputs(prisma, shipment_id: str) -> dict[str, Any] | None:
+    await ensure_dnd_tables(prisma)
+    rows = await query_raw(
+        prisma,
+        """
+        SELECT *
+        FROM public.dnd_shipment_inputs
+        WHERE shipment_id = $1
+        LIMIT 1
+        """,
+        shipment_id,
+    )
+    return normalize_shipment_inputs_row(rows[0]) if rows else None
+
+
+async def match_tariff(
+    prisma,
+    *,
+    carrier: str,
+    origin: str | None,
+    destination: str | None,
+    cargo: str,
+    charge_types: list[str] | None = None,
+) -> dict[str, Any] | None:
+    await ensure_dnd_tables(prisma)
+    await refresh_tariff_lifecycle(prisma)
+    normalized_charge_types = normalize_charge_types(charge_types or ["Demurrage", "Detention"])
+    rows = await query_raw(
+        prisma,
+        """
+        SELECT *
+        FROM public.dnd_tariffs
+        WHERE status = 'Active'
+          AND upper(carrier) = upper($1)
+          AND cargo = $2
+          AND (
+            $3::text IS NULL OR $4::text IS NULL OR EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements(lane_pairs) pair
+              WHERE upper(pair->>'origin') = upper($3)
+                AND upper(pair->>'dest') = upper($4)
+            )
+          )
+          AND EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements_text(charge_types) charge
+            WHERE charge = ANY($5::text[])
+          )
+        ORDER BY version DESC, updated_at DESC
+        LIMIT 1
+        """,
+        str(carrier or "").strip().upper(),
+        cargo,
+        str(origin).strip().upper() if origin else None,
+        str(destination).strip().upper() if destination else None,
+        normalized_charge_types,
+    )
+    return normalize_tariff_row(rows[0]) if rows else None
+
+
+def tariff_options(tariff: dict[str, Any] | None) -> dict[str, Any]:
+    if not tariff:
+        return {
+            "events": [],
+            "freeDaysByEvent": {},
+            "pricingMethods": [],
+            "exclusionDefault": {"weekends": True, "holidays": False},
+            "chargeTypes": [],
+        }
+    free_time = tariff.get("freeTime") or []
+    pricing_methods = tariff.get("pricingMethods") or {}
+    return {
+        "events": [group.get("event") for group in free_time if isinstance(group, dict) and group.get("event")],
+        "freeDaysByEvent": {
+            str(group.get("event")): [f"{day} Free Days" for day in group.get("days", [])]
+            for group in free_time
+            if isinstance(group, dict) and group.get("event")
+        },
+        "pricingMethods": enabled_pricing_methods({"pricingMethods": pricing_methods}),
+        "exclusionDefault": tariff.get("exclusionDefault") or {"weekends": True, "holidays": False},
+        "chargeTypes": tariff.get("chargeTypes") or [],
+    }
+
+
+async def get_holiday_dates(prisma, port_code: str | None, start: date, end: date) -> set[date]:
+    if not port_code:
+        return set()
+    rows = await query_raw(
+        prisma,
+        """
+        SELECT holiday_date
+        FROM public.dnd_holiday_calendar
+        WHERE port_code = $1
+          AND holiday_date BETWEEN $2::date AND $3::date
+        """,
+        str(port_code).strip().upper(),
+        start.isoformat(),
+        end.isoformat(),
+    )
+    return {parsed for row in rows if (parsed := parse_iso_date(row.get("holiday_date")))}
+
+
+def count_chargeable_days(start_date: date, end_date: date, *, exclude_weekends: bool, holiday_dates: set[date]) -> int:
+    if end_date < start_date:
+        return 0
+    current = start_date
+    count = 0
+    while current <= end_date:
+        if exclude_weekends and current.weekday() >= 5:
+            current += timedelta(days=1)
+            continue
+        if current in holiday_dates:
+            current += timedelta(days=1)
+            continue
+        count += 1
+        current += timedelta(days=1)
+    return count
+
+
+def calculate_pricing(tariff: dict[str, Any], method: str, chargeable_days: int) -> dict[str, Any]:
+    pricing_methods = tariff.get("pricingMethods") or {}
+    config = pricing_methods.get(method) if isinstance(pricing_methods, dict) else None
+    if not isinstance(config, dict) or config.get("enabled") is False:
+        raise ValueError("Selected pricing method is not enabled on the matched tariff")
+    currency = str(config.get("currency") or "USD")
+    if method == "flat":
+        return {"amount": chargeable_days * float(config.get("rate") or 0), "currency": currency}
+    if method == "tier":
+        rate = float(config.get("rate") or 0)
+        threshold = int(float(config.get("threshold") or 0))
+        multiplier = float(config.get("mult") or 0)
+        base_days = min(chargeable_days, threshold)
+        tier_days = max(chargeable_days - threshold, 0)
+        return {"amount": base_days * rate + tier_days * rate * multiplier, "currency": currency}
+    if method == "slab":
+        rows = sorted((config.get("rows") or []), key=lambda item: int(float(item.get("from") or 0)))
+        amount = 0.0
+        for day in range(1, chargeable_days + 1):
+            row = next(
+                (
+                    item for item in rows
+                    if int(float(item.get("from") or 0)) <= day <= int(float(item.get("to") or 0))
+                ),
+                rows[-1] if rows else None,
+            )
+            amount += float(row.get("rate") or 0) if row else 0
+        return {"amount": amount, "currency": currency}
+    raise ValueError("Unsupported pricing method")
+
+
+async def save_shipment_inputs(
+    prisma,
+    shipment_id: str,
+    payload: dict[str, Any],
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    await ensure_dnd_tables(prisma)
+    carrier_name = str(payload.get("carrierName") or "").strip().upper()
+    origin = payload.get("origin")
+    destination = payload.get("destination")
+    cargo = str(payload.get("cargo") or "FCL")
+    tariff = None
+    if payload.get("matchedTariffId"):
+        rows = await query_raw(prisma, "SELECT * FROM public.dnd_tariffs WHERE id = $1 LIMIT 1", str(payload.get("matchedTariffId")))
+        tariff = normalize_tariff_row(rows[0]) if rows else None
+    elif carrier_name:
+        tariff = await match_tariff(
+            prisma,
+            carrier=carrier_name,
+            origin=str(origin).strip().upper() if origin else None,
+            destination=str(destination).strip().upper() if destination else None,
+            cargo=cargo,
+            charge_types=payload.get("chargeTypes") or None,
+        )
+
+    options = tariff_options(tariff)
+    start_event = str(payload.get("startEvent") or "").strip()
+    free_days = str(payload.get("freeDays") or "").strip()
+    pricing_method = str(payload.get("pricingMethod") or "").strip()
+    carrier_state = str(payload.get("carrierState") or "matched").strip() or "matched"
+    if carrier_state == "unrecognized":
+        dnd_status = "CARRIER_REVIEW"
+    elif carrier_name and not tariff:
+        dnd_status = "NO_MATCHING_TARIFF"
+        carrier_state = "no-tariff"
+    elif start_event and free_days and pricing_method:
+        dnd_status = "ACTIVATED"
+    else:
+        dnd_status = "PENDING_SELECTION"
+
+    if tariff:
+        if start_event and start_event not in options["events"]:
+            raise ValueError("Start Event must be selected from the matched tariff")
+        if free_days and free_days not in options["freeDaysByEvent"].get(start_event, []):
+            raise ValueError("Free Days must be selected from the matched tariff event")
+        if pricing_method and pricing_method not in options["pricingMethods"]:
+            raise ValueError("Pricing Method must be enabled on the matched tariff")
+
+    start_date = parse_iso_date(payload.get("startDate"))
+    end_date = parse_iso_date(payload.get("endDate"))
+    exclude_weekends = bool(payload.get("excludeWeekends", True))
+    exclude_holidays = bool(payload.get("excludeHolidays", True))
+    holidays: set[date] = set()
+    if start_date and exclude_holidays:
+        horizon = end_date or (start_date + timedelta(days=max(free_days_int(free_days), 30) + 30))
+        holidays = await get_holiday_dates(prisma, str(destination).strip().upper() if destination else None, start_date, horizon)
+    last_free_day = (
+        calculate_lfd(start_date, free_days_int(free_days), exclude_weekends=exclude_weekends, holiday_dates=holidays)
+        if start_date and free_days_int(free_days) > 0
+        else None
+    )
+    total_days = (
+        count_chargeable_days(start_date, end_date, exclude_weekends=exclude_weekends, holiday_dates=holidays)
+        if start_date and end_date
+        else None
+    )
+    chargeable_days = max((total_days or 0) - free_days_int(free_days), 0) if total_days is not None else None
+    estimated_charge = None
+    currency = None
+    if tariff and pricing_method and chargeable_days is not None:
+        pricing = calculate_pricing(tariff, pricing_method, chargeable_days)
+        estimated_charge = pricing["amount"]
+        currency = pricing["currency"]
+
+    await execute_raw(
+        prisma,
+        """
+        INSERT INTO public.dnd_shipment_inputs (
+          shipment_id, carrier_name, scac, start_event, free_days, pricing_method,
+          start_date, end_date, exclude_weekends, exclude_holidays, carrier_state,
+          dnd_status, matched_tariff_id, chargeable_days, last_free_day,
+          estimated_charge, currency, basis, saved_by, created_at, updated_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7::date, $8::date, $9, $10, $11,
+          $12, $13, $14, $15::date, $16, $17, $18, $19, NOW(), NOW()
+        )
+        ON CONFLICT (shipment_id) DO UPDATE SET
+          carrier_name = EXCLUDED.carrier_name,
+          scac = EXCLUDED.scac,
+          start_event = EXCLUDED.start_event,
+          free_days = EXCLUDED.free_days,
+          pricing_method = EXCLUDED.pricing_method,
+          start_date = EXCLUDED.start_date,
+          end_date = EXCLUDED.end_date,
+          exclude_weekends = EXCLUDED.exclude_weekends,
+          exclude_holidays = EXCLUDED.exclude_holidays,
+          carrier_state = EXCLUDED.carrier_state,
+          dnd_status = EXCLUDED.dnd_status,
+          matched_tariff_id = EXCLUDED.matched_tariff_id,
+          chargeable_days = EXCLUDED.chargeable_days,
+          last_free_day = EXCLUDED.last_free_day,
+          estimated_charge = EXCLUDED.estimated_charge,
+          currency = EXCLUDED.currency,
+          basis = EXCLUDED.basis,
+          saved_by = EXCLUDED.saved_by,
+          updated_at = NOW()
+        """,
+        shipment_id,
+        carrier_name or None,
+        str(payload.get("scac") or "").strip().upper() or None,
+        start_event or None,
+        free_days or None,
+        pricing_method or None,
+        start_date.isoformat() if start_date else None,
+        end_date.isoformat() if end_date else None,
+        exclude_weekends,
+        exclude_holidays,
+        carrier_state,
+        dnd_status,
+        tariff.get("id") if tariff else None,
+        chargeable_days,
+        last_free_day.isoformat() if last_free_day else None,
+        estimated_charge,
+        currency,
+        charge_basis_label(exclude_weekends=exclude_weekends, exclude_holidays=exclude_holidays),
+        user_id,
+    )
+    saved = await get_shipment_inputs(prisma, shipment_id)
+    await record_audit(
+        prisma,
+        action="save_inputs",
+        description=f"Saved D&D inputs for shipment {shipment_id}",
+        entity_type="shipment_inputs",
+        entity_id=shipment_id,
+        user_id=user_id,
+        metadata={"dndStatus": dnd_status, "matchedTariffId": tariff.get("id") if tariff else None},
+    )
+    return saved or {}
 
 
 async def find_overlapping_active_tariff(prisma, payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -330,6 +1009,15 @@ async def publish_tariff(prisma, payload: dict[str, Any], user_id: str | None = 
             """,
             str(overlapping["id"]),
         )
+        await record_audit(
+            prisma,
+            action="sunset_version",
+            description=f"Moved D&D tariff {overlapping['id']} to Sunsetting during version fork",
+            entity_type="tariff",
+            entity_id=str(overlapping["id"]),
+            user_id=user_id,
+            metadata={"newTariffId": tariff_id},
+        )
     await execute_raw(
         prisma,
         """
@@ -364,6 +1052,15 @@ async def publish_tariff(prisma, payload: dict[str, Any], user_id: str | None = 
     result = normalize_tariff_row(rows[0])
     result["sunsetTariffId"] = str(overlapping["id"]) if overlapping else None
     result["pricingWarnings"] = pricing_warnings
+    await record_audit(
+        prisma,
+        action="publish",
+        description=f"Published D&D tariff {result['id']} v{result['version']}",
+        entity_type="tariff",
+        entity_id=result["id"],
+        user_id=user_id,
+        metadata={"carrier": result.get("carrier"), "status": result.get("status")},
+    )
     return result
 
 
@@ -434,6 +1131,16 @@ async def upload_holidays(prisma, rows: list[dict[str, Any]], user_id: str | Non
         )
         accepted += 1
         report.append({"row": index, "port": port, "date": raw_date, "name": name, "result": "Accepted", "reason": "-"})
+    if accepted or rejected:
+        await record_audit(
+            prisma,
+            action="upload_holidays",
+            description=f"Uploaded D&D holiday calendar rows: {accepted} accepted, {rejected} rejected",
+            entity_type="holiday_calendar",
+            entity_id=None,
+            user_id=user_id,
+            metadata={"accepted": accepted, "rejected": rejected},
+        )
     return {"accepted": accepted, "rejected": rejected, "rows": report}
 
 

@@ -1,3 +1,3 @@
-from .router import legacy_router, router, validation_router
+from .router import router, validation_router
 
-__all__ = ["legacy_router", "router", "validation_router"]
+__all__ = ["router", "validation_router"]

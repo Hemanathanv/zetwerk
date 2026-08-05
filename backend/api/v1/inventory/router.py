@@ -10,11 +10,12 @@ from pydantic import BaseModel, Field
 
 from db import get_prisma
 from doc_generation.db_setup import ensure_doc_generation_views
+from helpers.config import settings
 from helpers.dependencies import get_current_user
 from helpers.rbac_data_access import document_sql_where
 
 
-router = APIRouter(tags=["Inventory"])
+router = APIRouter(prefix=settings.API_SLUG, tags=["Inventory"])
 
 ALL_WAREHOUSE_ID = "all"
 
@@ -739,7 +740,7 @@ def _approved_packing_list_sku_summary_sql(access_where: str) -> str:
     """
 
 
-@router.get("/api/inventory/warehouses")
+@router.get("/inventory/warehouses")
 async def list_warehouses(user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_warehouse_locations_table(prisma)
@@ -770,7 +771,7 @@ async def list_warehouses(user=Depends(get_current_user)):
     }
 
 
-@router.get("/api/inventory/port-warehouses")
+@router.get("/inventory/port-warehouses")
 async def list_port_warehouses(user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_warehouse_locations_table(prisma)
@@ -801,7 +802,7 @@ async def list_port_warehouses(user=Depends(get_current_user)):
     }
 
 
-@router.get("/api/warehouse/stock")
+@router.get("/warehouse/stock")
 async def list_warehouse_stock(
     page: int = Query(default=1, ge=1),
     pageSize: int = Query(default=25, ge=1, le=500),
@@ -838,7 +839,7 @@ async def list_warehouse_stock(
     }
 
 
-@router.get("/api/warehouse/stock/sku-summary")
+@router.get("/warehouse/stock/sku-summary")
 async def list_warehouse_sku_summary(user=Depends(get_current_user)):
     prisma = await get_prisma()
     access_where, params, _ = document_sql_where("d", user)
@@ -868,7 +869,7 @@ async def list_warehouse_sku_summary(user=Depends(get_current_user)):
     return {"ok": True, "data": [_sku_summary_row(row) for row in grouped.values()]}
 
 
-@router.get("/api/warehouse/outward")
+@router.get("/warehouse/outward")
 async def list_outward_dispatches(
     status: str | None = Query(default=None),
     user=Depends(get_current_user),
@@ -896,7 +897,7 @@ async def list_outward_dispatches(
     return {"ok": True, "data": data, "meta": {"total": len(data)}}
 
 
-@router.post("/api/warehouse/outward")
+@router.post("/warehouse/outward")
 async def create_outward_dispatch(
     request: CreateOutwardDispatchRequest,
     user=Depends(get_current_user),
@@ -1001,7 +1002,7 @@ async def create_outward_dispatch(
     return {"ok": True, "data": record}
 
 
-@router.patch("/api/warehouse/outward/{dispatch_id}/confirm")
+@router.patch("/warehouse/outward/{dispatch_id}/confirm")
 async def confirm_outward_dispatch(dispatch_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _execute_raw(
@@ -1019,7 +1020,7 @@ async def confirm_outward_dispatch(dispatch_id: str, user=Depends(get_current_us
     return {"ok": True, "data": {"id": dispatch_id, "status": "CONFIRMED", "documentId": None}}
 
 
-@router.get("/api/inventory/warehouse/{warehouse_id}/stock")
+@router.get("/inventory/warehouse/{warehouse_id}/stock")
 async def list_inventory_warehouse_stock(
     warehouse_id: str,
     page: int = Query(default=1, ge=1),
@@ -1058,7 +1059,7 @@ async def list_inventory_warehouse_stock(
     }
 
 
-@router.get("/api/inventory/warehouse/{warehouse_id}/sku-movements")
+@router.get("/inventory/warehouse/{warehouse_id}/sku-movements")
 async def get_sku_movements(
     warehouse_id: str,
     productCode: str = Query(...),

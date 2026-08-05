@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useRef, Fragment, useMemo } from 'rea
 import { useAuth } from '@/contexts/AuthContext';
 import { useUpload } from '@/contexts/UploadContext';
 import { StatusPill } from '@/components/vs';
-import { getAuthToken } from '@/lib/api';
+import { apiGet, apiPost, apiPut, getAuthToken } from '@/lib/api';
 import { useShipmentDocuments, useAccountingTickets } from '@/hooks/useOperationalData';
 import { RequireActivity } from '@/components/PermissionGate';
 import { Badge } from '@/components/ui/badge';
@@ -167,6 +167,39 @@ function docLabel(dt: string): string {
   if (t.includes('DEDUCTION')) return 'Deduction Certificate';
   if (t.includes('CHA')) return 'CHA Bill';
   return dt.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+function readExtractedString(value: unknown, targetKeys: string[]): string | null {
+  const normalizedTargets = new Set(targetKeys.map(key => key.toLowerCase()));
+  let match: string | null = null;
+
+  function visit(node: unknown, key = ''): void {
+    if (match) return;
+    if (Array.isArray(node)) {
+      node.forEach(item => visit(item, key));
+      return;
+    }
+    if (node && typeof node === 'object') {
+      Object.entries(node as Record<string, unknown>).forEach(([childKey, child]) => visit(child, childKey));
+      return;
+    }
+    if (!key || !normalizedTargets.has(key.toLowerCase())) return;
+    if (typeof node === 'string' && node.trim()) match = node.trim();
+    if (typeof node === 'number') match = String(node);
+  }
+
+  visit(value);
+  return match;
+}
+function bolCarrierNameFromDocuments(documents: any[]): string | null {
+  const bolDocument = documents.find(document => {
+    const type = String(document?.documentType ?? '').toUpperCase();
+    return type === 'BOL' || type === 'BL' || type.includes('BILL_OF_LADING');
+  });
+  if (!bolDocument) return null;
+  return readExtractedString(
+    bolDocument.extractedData,
+    ['carrierCompanyName', 'carrierName', 'vesselCarrierName'],
+  );
 }
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -1744,6 +1777,15 @@ function GateRow({ gate, milestones, documents, shipmentId, onGateAction, onMile
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 type DndInputsDraft = {
+  carrierName: string;
+  scac: string;
+  matchedTariffId?: string | null;
+  dndStatus?: string;
+  lastFreeDay?: string | null;
+  chargeableDays?: number | null;
+  estimatedCharge?: number | null;
+  currency?: string | null;
+  basis?: string | null;
   startEvent: string;
   freeDays: string;
   pricingMethod: string;
@@ -1754,12 +1796,30 @@ type DndInputsDraft = {
   carrierState: 'matched' | 'unrecognized' | 'no-tariff';
 };
 
-const DND_EVENTS = ['Container Discharge', 'Container Available', 'Gate Out', 'Rail Ramp Arrival'];
-const DND_FREE_DAYS = ['7 Free Days', '10 Free Days', '14 Free Days', '21 Free Days'];
-const DND_PRICING_METHODS = ['Flat', 'Tier', 'Slab'];
+type DndMatchedOptions = {
+  events: string[];
+  freeDaysByEvent: Record<string, string[]>;
+  pricingMethods: string[];
+  exclusionDefault: { weekends?: boolean; holidays?: boolean };
+  chargeTypes: string[];
+};
+const EMPTY_DND_OPTIONS: DndMatchedOptions = {
+  events: [],
+  freeDaysByEvent: {},
+  pricingMethods: [],
+  exclusionDefault: { weekends: true, holidays: false },
+  chargeTypes: [],
+};
+const DND_METHOD_LABELS: Record<string, string> = {
+  flat: 'Flat Daily Rate',
+  tier: 'Tier Multiplier',
+  slab: 'Slab Pricing',
+};
 
 function blankDndInputsDraft(): DndInputsDraft {
   return {
+    carrierName: '',
+    scac: '',
     startEvent: '',
     freeDays: '',
     pricingMethod: '',
@@ -1801,32 +1861,93 @@ function freeDayCount(value: string) {
   return match ? Number(match[0]) : 0;
 }
 
-export function ShipmentDndInputsDialog({ open, shipmentId, onOpenChange }: { open: boolean; shipmentId: string; onOpenChange: (open: boolean) => void }) {
-  const storageKey = `ewms:dnd-inputs:${shipmentId}`;
+export function ShipmentDndInputsDialog({
+  open,
+  shipmentId,
+  bolCarrierName,
+  origin,
+  destination,
+  cargo,
+  onOpenChange,
+}: {
+  open: boolean;
+  shipmentId: string;
+  bolCarrierName?: string | null;
+  origin?: string | null;
+  destination?: string | null;
+  cargo?: string | null;
+  onOpenChange: (open: boolean) => void;
+}) {
   const [draft, setDraft] = useState<DndInputsDraft>(blankDndInputsDraft);
   const [saveNote, setSaveNote] = useState<string | null>(null);
   const [showRules, setShowRules] = useState(false);
+  const [matchStatus, setMatchStatus] = useState<'idle' | 'matched' | 'carrier-review' | 'no-match'>('idle');
+  const [matchedOptions, setMatchedOptions] = useState<DndMatchedOptions>(EMPTY_DND_OPTIONS);
   const totalDays = daysBetween(draft.startDate, draft.endDate);
   const freeDays = freeDayCount(draft.freeDays);
   const chargeableDays = Math.max(totalDays - freeDays, 0);
   const lastFreeDay = addDays(draft.startDate, freeDays);
-  const isActivated = draft.startEvent && draft.freeDays && draft.pricingMethod;
+  const isActivated = draft.dndStatus === 'ACTIVATED' || Boolean(draft.startEvent && draft.freeDays && draft.pricingMethod && matchStatus === 'matched');
+  const displayCarrierName = draft.carrierName || bolCarrierName;
+  const freeDayOptions = matchedOptions.freeDaysByEvent[draft.startEvent] ?? [];
 
   useEffect(() => {
     if (!open) return;
-    try {
-      const stored = window.localStorage.getItem(storageKey);
-      setDraft(stored ? { ...blankDndInputsDraft(), ...JSON.parse(stored) } : blankDndInputsDraft());
-    } catch {
-      setDraft(blankDndInputsDraft());
-    }
+    let cancelled = false;
+    const baseDraft = { ...blankDndInputsDraft(), carrierName: bolCarrierName ?? '' };
     setSaveNote(null);
     setShowRules(false);
-  }, [open, storageKey]);
+    if (!bolCarrierName) {
+      setMatchStatus('carrier-review');
+      setMatchedOptions(EMPTY_DND_OPTIONS);
+    }
+    Promise.all([
+      apiGet<{ data: Partial<DndInputsDraft> | null }>(`/dnd/inputs/${shipmentId}`).catch(() => ({ data: null })),
+      bolCarrierName
+        ? apiPost<{ data: { status: string; tariff: any | null; options: DndMatchedOptions } }>('/dnd/tariffs/match', {
+            carrierName: bolCarrierName,
+            origin,
+            destination,
+            cargo: cargo || 'FCL',
+            chargeTypes: ['Demurrage', 'Detention'],
+          }).catch(() => ({ data: { status: 'NO_MATCHING_TARIFF', tariff: null, options: EMPTY_DND_OPTIONS } }))
+        : Promise.resolve({ data: { status: 'CARRIER_REVIEW', tariff: null, options: EMPTY_DND_OPTIONS } }),
+    ])
+      .then(([inputsResponse, matchResponse]) => {
+        if (cancelled) return;
+        const options = matchResponse.data.options ?? EMPTY_DND_OPTIONS;
+        const matchedTariffId = matchResponse.data.tariff?.id ?? null;
+        setMatchedOptions(options);
+        setMatchStatus(matchResponse.data.status === 'MATCHED' ? 'matched' : bolCarrierName ? 'no-match' : 'carrier-review');
+        setDraft({
+          ...baseDraft,
+          excludeWeekends: options.exclusionDefault.weekends ?? baseDraft.excludeWeekends,
+          excludeHolidays: options.exclusionDefault.holidays ?? baseDraft.excludeHolidays,
+          matchedTariffId,
+          ...(inputsResponse.data ?? {}),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, shipmentId, bolCarrierName, origin, destination, cargo]);
 
-  function saveInputs() {
-    window.localStorage.setItem(storageKey, JSON.stringify(draft));
-    setSaveNote('D&D inputs saved for this BOL upload.');
+  async function saveInputs() {
+    try {
+      const payload = {
+        ...draft,
+        carrierName: draft.carrierName || bolCarrierName || null,
+        origin,
+        destination,
+        cargo: cargo || 'FCL',
+        chargeTypes: matchedOptions.chargeTypes.length ? matchedOptions.chargeTypes : ['Demurrage', 'Detention'],
+      };
+      const response = await apiPut<{ data: Partial<DndInputsDraft> }>(`/dnd/inputs/${shipmentId}`, payload);
+      setDraft({ ...blankDndInputsDraft(), ...(response.data ?? payload) });
+      setSaveNote('D&D inputs saved for this BOL upload.');
+    } catch (error) {
+      setSaveNote(error instanceof Error ? error.message : 'Could not save D&D inputs.');
+    }
   }
 
   return (
@@ -1841,18 +1962,22 @@ export function ShipmentDndInputsDialog({ open, shipmentId, onOpenChange }: { op
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <DndFieldLabel>Shipment</DndFieldLabel>
-                <div className="text-[22px] font-semibold leading-tight">BOL Upload</div>
-                <div className="mt-1 text-[13px] text-muted-foreground">Document {shipmentId.replace(/^bol-/, '')}</div>
+                <div className="text-[22px] font-semibold leading-tight">{displayCarrierName || 'Field not in the file (Carrier Name)'}</div>
               </div>
               <Badge intent={draft.carrierState === 'matched' ? 'success' : 'warning'} size="sm">
-                {draft.carrierState === 'matched' ? 'Auto Detected' : draft.carrierState === 'unrecognized' ? 'Carrier Review' : 'No Matching Tariff'}
+                {matchStatus === 'matched' ? 'Auto Detected' : matchStatus === 'carrier-review' ? 'Carrier Review' : 'No Matching Tariff'}
               </Badge>
             </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setDraft({ ...draft, carrierState: 'unrecognized' })}>Mark Carrier Review</Button>
-              <Button type="button" variant="outline" size="sm" onClick={() => setDraft({ ...draft, carrierState: 'no-tariff' })}>Mark No Tariff</Button>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setDraft(blankDndInputsDraft())}>Reset</Button>
-            </div>
+            {matchStatus === 'carrier-review' && (
+              <div className="mt-3 rounded-md border border-destructive/20 bg-destructive/5 p-3 text-[13px] text-destructive">
+                Carrier could not be matched from the BOL. Logistics Admin review is required before D&D can be activated.
+              </div>
+            )}
+            {matchStatus === 'no-match' && (
+              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-[13px] text-amber-800">
+                No Published D&D tariff matches this carrier, route, cargo and charge combination.
+              </div>
+            )}
           </section>
 
           <section className="rounded-md border border-border p-4">
@@ -1863,40 +1988,54 @@ export function ShipmentDndInputsDialog({ open, shipmentId, onOpenChange }: { op
             <div className="grid gap-3 md:grid-cols-2">
               <div>
                 <DndFieldLabel>Start Event *</DndFieldLabel>
-                <Select value={draft.startEvent || undefined} onValueChange={(startEvent) => setDraft({ ...draft, startEvent })}>
-                  <SelectTrigger><SelectValue placeholder="Select start event" /></SelectTrigger>
-                  <SelectContent>{DND_EVENTS.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
-                </Select>
+                <RequireActivity
+                  code="dnd.activate.start_event_date"
+                  fallback={<Select value={draft.startEvent || undefined} disabled><SelectTrigger><SelectValue placeholder="No permission" /></SelectTrigger></Select>}
+                >
+                  <Select value={draft.startEvent || undefined} disabled={matchStatus !== 'matched'} onValueChange={(startEvent) => setDraft({ ...draft, startEvent, freeDays: '' })}>
+                    <SelectTrigger><SelectValue placeholder="Select start event" /></SelectTrigger>
+                    <SelectContent>{matchedOptions.events.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
+                  </Select>
+                </RequireActivity>
               </div>
               <div>
                 <DndFieldLabel>Free Days *</DndFieldLabel>
-                <Select value={draft.freeDays || undefined} onValueChange={(freeDays) => setDraft({ ...draft, freeDays })}>
+                <Select value={draft.freeDays || undefined} disabled={matchStatus !== 'matched' || !draft.startEvent} onValueChange={(freeDays) => setDraft({ ...draft, freeDays })}>
                   <SelectTrigger><SelectValue placeholder="Select free days" /></SelectTrigger>
-                  <SelectContent>{DND_FREE_DAYS.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
+                  <SelectContent>{freeDayOptions.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
                 </Select>
                 <p className="m-0 mt-1 text-[12px] text-muted-foreground">Options are Admin-curated master data from the matching Published tariff.</p>
               </div>
               <div>
                 <DndFieldLabel>Pricing Method *</DndFieldLabel>
-                <Select value={draft.pricingMethod || undefined} onValueChange={(pricingMethod) => setDraft({ ...draft, pricingMethod })}>
+                <Select value={draft.pricingMethod || undefined} disabled={matchStatus !== 'matched'} onValueChange={(pricingMethod) => setDraft({ ...draft, pricingMethod })}>
                   <SelectTrigger><SelectValue placeholder="Select pricing method" /></SelectTrigger>
-                  <SelectContent>{DND_PRICING_METHODS.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
+                  <SelectContent>{matchedOptions.pricingMethods.map((item) => <SelectItem key={item} value={item}>{DND_METHOD_LABELS[item] ?? item}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div className="space-y-3">
                 <DndFieldLabel>Day Count Basis</DndFieldLabel>
-                <label className="flex items-center gap-2 text-[13px]">
-                  <Checkbox checked={draft.excludeWeekends} onCheckedChange={(checked) => setDraft({ ...draft, excludeWeekends: checked === true })} />
-                  Exclude weekends from chargeable day count
-                </label>
-                <label className="flex items-center gap-2 text-[13px]">
-                  <Checkbox checked={draft.excludeHolidays} onCheckedChange={(checked) => setDraft({ ...draft, excludeHolidays: checked === true })} />
-                  Exclude public holidays from chargeable day count
-                </label>
+                <RequireActivity code="dnd.activate.weekends">
+                  <label className="flex items-center gap-2 text-[13px]">
+                    <Checkbox checked={draft.excludeWeekends} onCheckedChange={(checked) => setDraft({ ...draft, excludeWeekends: checked === true })} />
+                    Exclude weekends from chargeable day count
+                  </label>
+                </RequireActivity>
+                <RequireActivity code="dnd.activate.holiday_days">
+                  <label className="flex items-center gap-2 text-[13px]">
+                    <Checkbox checked={draft.excludeHolidays} onCheckedChange={(checked) => setDraft({ ...draft, excludeHolidays: checked === true })} />
+                    Exclude public holidays from chargeable day count
+                  </label>
+                </RequireActivity>
               </div>
               <div>
                 <DndFieldLabel>Start Date *</DndFieldLabel>
-                <Input type="date" value={draft.startDate} onChange={(event) => setDraft({ ...draft, startDate: event.target.value })} />
+                <RequireActivity
+                  code="dnd.activate.start_event_date"
+                  fallback={<Input type="date" value={draft.startDate} disabled />}
+                >
+                  <Input type="date" value={draft.startDate} onChange={(event) => setDraft({ ...draft, startDate: event.target.value })} />
+                </RequireActivity>
               </div>
               <div>
                 <DndFieldLabel>Return / End Date</DndFieldLabel>
@@ -1910,17 +2049,23 @@ export function ShipmentDndInputsDialog({ open, shipmentId, onOpenChange }: { op
             <div className="grid gap-3 md:grid-cols-3">
               <div className="rounded-md border border-border bg-background p-3">
                 <div className="text-[12px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">Last Free Day</div>
-                <div className="mt-2 text-[18px] font-semibold">{lastFreeDay || '-'}</div>
+                <div className="mt-2 text-[18px] font-semibold">{draft.lastFreeDay || lastFreeDay || '-'}</div>
               </div>
               <div className="rounded-md border border-border bg-background p-3">
                 <div className="text-[12px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">Chargeable Days</div>
-                <div className="mt-2 text-[18px] font-semibold">{chargeableDays}</div>
+                <div className="mt-2 text-[18px] font-semibold">{draft.chargeableDays ?? chargeableDays}</div>
               </div>
               <div className="rounded-md border border-border bg-background p-3">
                 <div className="text-[12px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">D&D Status</div>
-                <div className="mt-2 text-[18px] font-semibold">{chargeableDays > 0 ? 'Accruing' : isActivated ? 'Within Free Time' : '-'}</div>
+                <div className="mt-2 text-[18px] font-semibold">{draft.dndStatus || (isActivated ? 'ACTIVATED' : 'PENDING_SELECTION')}</div>
               </div>
             </div>
+            {draft.estimatedCharge != null && (
+              <div className="mt-3 rounded-md border border-border bg-background p-3 text-[13px]">
+                Estimated charge: <span className="font-mono font-semibold">{draft.currency ?? 'USD'} {draft.estimatedCharge.toFixed(2)}</span>
+                {draft.basis && <span className="text-muted-foreground"> · {draft.basis}</span>}
+              </div>
+            )}
             {showRules && (
               <div className="mt-3 rounded-md border border-primary/20 bg-primary/5 p-3 text-[13px] text-foreground">
                 Rates, thresholds and slabs stay in D&D Tariff Master. Operations selects the matched event, free days, pricing method and exclusions; those inputs drive LFD and chargeable-day calculation.
@@ -1932,7 +2077,9 @@ export function ShipmentDndInputsDialog({ open, shipmentId, onOpenChange }: { op
         <DialogFooter className="border-t border-border px-6 py-4">
           <Button type="button" variant="outline" onClick={() => setShowRules((value) => !value)} className="mr-auto gap-2"><FileText className="size-4" /> Rules & Logic</Button>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button type="button" onClick={saveInputs} className="gap-2"><CheckCircle2 className="size-4" /> Save D&D Inputs</Button>
+          <RequireActivity code="dnd.activate">
+            <Button type="button" onClick={saveInputs} className="gap-2"><CheckCircle2 className="size-4" /> Save D&D Inputs</Button>
+          </RequireActivity>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -2036,6 +2183,7 @@ export function ShipmentDetailPage() {
   const isOnHold      = shipment?.status === 'on_hold';
   const isCancelled   = shipment?.status === 'cancelled';
   const cvState       = containerViewState(scData, milestones, shipment, gates);
+  const bolCarrierName = useMemo(() => bolCarrierNameFromDocuments(documents), [documents]);
   const mapProps      = useMemo(() => {
     if (!scData) return null;
     return adaptSafeCubeToMapProps(scData, scData.events ?? []);
@@ -2218,7 +2366,15 @@ export function ShipmentDetailPage() {
       </div>
 
       {/* ── Vessel route map ── */}
-      <ShipmentDndInputsDialog open={dndInputsOpen} shipmentId={shipmentId} onOpenChange={setDndInputsOpen} />
+      <ShipmentDndInputsDialog
+        open={dndInputsOpen}
+        shipmentId={shipmentId}
+        bolCarrierName={bolCarrierName}
+        origin={shipment?.portOfLoading}
+        destination={shipment?.portOfDischarge}
+        cargo={shipment?.loadMode?.toUpperCase().includes('BREAK') ? 'Breakbulk' : 'FCL'}
+        onOpenChange={setDndInputsOpen}
+      />
 
       {!scLoading && (
         <div style={{ marginBottom: 20 }}>
