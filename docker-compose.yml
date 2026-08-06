@@ -3,8 +3,8 @@ x-backend-env: &backend-env
     - ./backend/.env
   environment:
     RUN_OCR_WORKERS_IN_API: "false"
-    DATABASE_URL: ${DATABASE_URL:-postgresql://ewms-postgres:ewms%40%232026%21@postgres:5432/ewms_db}
-    REDIS_URL: ${REDIS_URL:-redis://redis:6379/3}
+    DATABASE_URL: ${DATABASE_URL:-postgresql://ewms-postgres:ewms%40%232026%21@postgres:5432/ewms-db}
+    REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     KEYCLOAK_URL: ${KEYCLOAK_URL:-http://ewms-keycloak:8080/keycloak}
 
 services:

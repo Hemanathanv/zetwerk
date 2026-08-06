@@ -7,6 +7,7 @@ data/
 node_modules/
 .npm-cache/
 backend/documents/
+nginx/letsencrypt/*
 dist/
 build/
 backend/sales_invoice_drive/
