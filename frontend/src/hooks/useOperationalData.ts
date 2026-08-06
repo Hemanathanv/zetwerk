@@ -1,20 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation } from 'wouter';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getAuthToken } from '@/lib/api';
-import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '@/lib/api';
 import { useConfig } from '@/contexts/ConfigContext';
 import { usePermissions } from '@/contexts/PermissionContext';
 
-function authHeaders(): Record<string, string> {
-  const token = getAuthToken();
-  return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
-}
-
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers: { ...authHeaders(), ...(init?.headers as Record<string, string> ?? {}) } });
-  if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
-  return res.json();
+  const method = String(init?.method || 'GET').toUpperCase();
+  const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+  if (method === 'POST') return apiPost<T>(path, body ?? {});
+  if (method === 'PUT') return apiPut<T>(path, body ?? {});
+  if (method === 'PATCH') return apiPatch<T>(path, body);
+  if (method === 'DELETE') return apiDelete<T>(path);
+  return apiGet<T>(path);
 }
 
 function walkExtractedValues(

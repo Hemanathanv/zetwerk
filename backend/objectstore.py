@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 
@@ -25,6 +26,7 @@ if IS_DEV:
     S3_ENDPOINT = _env("S3_ENDPOINT")
     S3_ACCESS_KEY = _env("S3_ACCESS_KEY") or _env("S3_APP_ACCESS") or _env("AWS_ACCESS_KEY_ID")
     S3_SECRET_KEY = _env("S3_SECRET_KEY") or _env("S3_APP_SECRET") or _env("AWS_SECRET_ACCESS_KEY")
+    S3_SESSION_TOKEN = _env("AWS_SESSION_TOKEN")
     S3_ADMIN_ACCESS = _env("S3_ADMIN_ACCESS") or _env("AWS_ADMIN_ACCESS_KEY_ID")
     S3_ADMIN_SECRET = _env("S3_ADMIN_SECRET") or _env("AWS_ADMIN_SECRET_ACCESS_KEY")
     S3_REGION = _env("S3_REGION") or _env("AWS_REGION", "us-east-1")
@@ -43,27 +45,36 @@ else:
     S3_ENDPOINT = _env("AWS_S3_ENDPOINT")
     S3_ACCESS_KEY = _env("AWS_ACCESS_KEY_ID") or _env("S3_ACCESS_KEY") or _env("S3_APP_ACCESS")
     S3_SECRET_KEY = _env("AWS_SECRET_ACCESS_KEY") or _env("S3_SECRET_KEY") or _env("S3_APP_SECRET")
+    S3_SESSION_TOKEN = _env("AWS_SESSION_TOKEN")
     S3_ADMIN_ACCESS = _env("AWS_ADMIN_ACCESS_KEY_ID") or _env("S3_ADMIN_ACCESS")
     S3_ADMIN_SECRET = _env("AWS_ADMIN_SECRET_ACCESS_KEY") or _env("S3_ADMIN_SECRET")
     S3_REGION = _env("S3_REGION") or _env("AWS_REGION", "ap-south-1")
     DEFAULT_BUCKET = _env("S3_DEFAULT_BUCKET") or _env("S3_BUCKET_NAME", "ewms-storage")
-    S3_KEY_PREFIX = (_env("S3_KEY_PREFIX") or _env("VOL_DIR_UUID", "spr-ewms-zata-files") or "spr-ewms-zata-files").strip("/\\")
+    S3_KEY_PREFIX = (_env("S3_KEY_PREFIX") or _env("VOL_DIR_UUID") or "zw-ewms-upload-files").strip("/\\")
 
 
-def _client(access: str | None, secret: str | None):
+def _client(access: str | None, secret: str | None, session_token: str | None = None):
     kwargs: dict[str, object] = {
         "service_name": "s3",
         "region_name": S3_REGION,
+        "config": Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "virtual"},
+        ),
     }
     if S3_ENDPOINT:
         kwargs["endpoint_url"] = S3_ENDPOINT
+    elif IS_PROD and S3_REGION:
+        kwargs["endpoint_url"] = f"https://s3.{S3_REGION}.amazonaws.com"
     if access and secret:
         kwargs["aws_access_key_id"] = access
         kwargs["aws_secret_access_key"] = secret
+        if session_token:
+            kwargs["aws_session_token"] = session_token
     return boto3.client(**kwargs)
 
 
-s3 = _client(S3_ACCESS_KEY, S3_SECRET_KEY)
+s3 = _client(S3_ACCESS_KEY, S3_SECRET_KEY, S3_SESSION_TOKEN)
 s3_admin = _client(S3_ADMIN_ACCESS, S3_ADMIN_SECRET) if (S3_ADMIN_ACCESS and S3_ADMIN_SECRET) else None
 
 
@@ -168,8 +179,7 @@ def upload_bytes(
 
 
 def get_download_url(bucket: str, file_key: str) -> str:
-    signer = s3_admin or s3
-    return signer.generate_presigned_url(
+    return s3.generate_presigned_url(
         "get_object",
         Params={"Bucket": bucket, "Key": file_key},
         ExpiresIn=3600,

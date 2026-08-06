@@ -48,7 +48,9 @@ const fallbackOcrTypes: OcrTypeOption[] = [
 ];
 
 function moduleSlugForDocType(value: DocType) {
-  return value === 'CUSTOMER_BROKER_BILL' ? 'customs-broker-bill' : value.toLowerCase().replace(/_/g, '-');
+  if (value === 'CUSTOMER_BROKER_BILL') return 'customs-broker-bill';
+  if (value === 'DRAFT_CBP_FORM_7501_BROKER') return 'entry-summary';
+  return value.toLowerCase().replace(/_/g, '-');
 }
 
 function formatBytes(bytes: number) {

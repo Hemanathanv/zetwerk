@@ -1,10 +1,8 @@
-# Auth module for FastAPI backend
-from .utils import hash_password, verify_password, create_session_token
-from .dependencies import get_current_user
+# Shared helper utilities.
+from .utils import create_session_token, hash_password, verify_password
 
 __all__ = [
-    "hash_password",
-    "verify_password", 
     "create_session_token",
-    "get_current_user"
+    "hash_password",
+    "verify_password",
 ]

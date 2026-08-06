@@ -52,23 +52,25 @@ def get_keycloak_admin():
 
 async def get_keycloak_user(token: str = Depends(oauth2_scheme)):
     """
-    Get current user information from Keycloak token
-
-    Returns:
-        dict: User information from Keycloak
-
-    Raises:
-        HTTPException: 401 if token is invalid
+    Get current user information from a Keycloak access token.
     """
     try:
-        userinfo = keycloak_openid.userinfo(token)
-        return userinfo
-    except Exception as e:
+        token_info = keycloak_openid.decode_token(
+            token,
+            keycloak_openid.public_key(),
+        )
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    try:
+        userinfo = keycloak_openid.userinfo(token)
+        return {**token_info, **userinfo}
+    except Exception:
+        return token_info
 
 async def get_keycloak_roles(token: str = Depends(oauth2_scheme)) -> List[str]:
     """

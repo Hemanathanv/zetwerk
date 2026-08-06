@@ -36,7 +36,7 @@ const BLUE   = 'hsl(221 83% 53%)';
 const INFO   = 'hsl(201 96% 32%)';
 const GOLD   = 'hsl(43 96% 56%)';
 const GOLD_BG = 'hsla(43,96%,56%,0.10)';
-const QUEUE_ROW_GRID = '3px 32px minmax(190px, 220px) minmax(320px, 1fr) 88px 72px 150px 104px';
+const QUEUE_ROW_GRID = '3px 32px minmax(140px, 1.2fr) minmax(240px, 2fr) 72px 60px minmax(100px, 1fr) 88px';
 const QUEUE_ROW_GAP = 14;
 const QUEUE_PAGE_SIZE = 20;
 const QUEUE_SECTION_BY_CHIP = [
@@ -48,6 +48,13 @@ const QUEUE_SECTION_BY_CHIP = [
   'draft-review',
   'done',
 ] as const;
+
+function moduleSlugForDocType(value: string): string {
+  const normalized = String(value || 'document').trim().toUpperCase();
+  if (normalized === 'CUSTOMER_BROKER_BILL') return 'customs-broker-bill';
+  if (normalized === 'DRAFT_CBP_FORM_7501_BROKER') return 'entry-summary';
+  return normalized.toLowerCase().replace(/_/g, '-');
+}
 
 type StatusCategory = 'needs-approval' | 'needs-reapproval' | 'processing' | 'cross-validating' | 'draft-review' | 'done';
 
@@ -2406,6 +2413,7 @@ export function UploadProcessPage() {
     const form = new FormData();
     form.append('file', selectedFile);
     form.append('docType', resolvedDocType);
+    form.append('module', moduleSlugForDocType(resolvedDocType));
     try {
       const uploadResponse = await uploadDocumentMutation.mutateAsync(form);
       const uploadedDocument = uploadResponse.data?.documents?.[0];
@@ -3255,19 +3263,21 @@ export function UploadProcessPage() {
             /* Row view with virtual scroll */
             <div style={{
               backgroundColor: 'hsl(var(--card))', borderRadius: 8,
-              border: `1px solid ${BORDER}`, overflow: 'hidden',
+              border: `1px solid ${BORDER}`, overflowX: 'auto', overflowY: 'hidden',
             }}>
-              <QueueRowHeader />
-              {/* Virtual list */}
-              <VirtualList
-                cards={filteredCards}
-                onApproveClick={(card) => needsReviewApproval(card) ? () => openApprovalPanel(card) : undefined}
-                onStopClick={(card) => card.statusCategory === 'processing' ? () => stopExtraction(card) : undefined}
-                onRetryClick={(card) => card.status === 'Extraction stopped' ? () => retryExtraction(card) : undefined}
-                onRowClick={handleRowClick}
-                onDetailsClick={handleDetailsClick}
-                escalationConfigs={escalationConfigs}
-              />
+              <div style={{ minWidth: 760 }}>
+                <QueueRowHeader />
+                {/* Virtual list */}
+                <VirtualList
+                  cards={filteredCards}
+                  onApproveClick={(card) => needsReviewApproval(card) ? () => openApprovalPanel(card) : undefined}
+                  onStopClick={(card) => card.statusCategory === 'processing' ? () => stopExtraction(card) : undefined}
+                  onRetryClick={(card) => card.status === 'Extraction stopped' ? () => retryExtraction(card) : undefined}
+                  onRowClick={handleRowClick}
+                  onDetailsClick={handleDetailsClick}
+                  escalationConfigs={escalationConfigs}
+                />
+              </div>
             </div>
           )}
 

@@ -13,14 +13,13 @@ import type {
   DocumentClassificationStatusResponse,
   ContainerMappingResponse,
   DocumentListResponse,
+  DocumentPreviewUrlResponse,
   UserProfile,
   WarehouseMappingResponse,
 } from '@/types/backend';
 
 const SESSION_TOKEN_KEY = 'session_token_fallback';
 const REFRESH_TOKEN_KEY = 'refresh_token_fallback';
-const KEYCLOAK_URL = (import.meta.env.VITE_KEYCLOAK_URL || '').replace(/\/$/, '');
-const KEYCLOAK_REALM = import.meta.env.VITE_KEYCLOAK_REALM || '';
 const CLASSIFICATION_POLL_TIMEOUT_MS = 600000;
 const CLASSIFICATION_POLL_INTERVAL_MS = 1000;
 
@@ -273,22 +272,6 @@ function userInfoFromAccessToken(token: string): KeycloakUserInfo {
   };
 }
 
-async function getKeycloakUserInfo(token: string): Promise<KeycloakUserInfo> {
-  if (!KEYCLOAK_URL || !KEYCLOAK_REALM) {
-    throw new Error('Keycloak frontend URL is not configured.');
-  }
-  const response = await axios.get<KeycloakUserInfo>(
-    `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/userinfo`,
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-      },
-    },
-  );
-  return response.data;
-}
-
 function roleFromKeycloakRoles(roles: string[]): AuthUser['systemRole'] {
   const normalized = new Set(roles.map((role) => role.toUpperCase().replace(/-/g, '_')));
   if (normalized.has('SUPER_ADMIN')) return 'SUPER_ADMIN';
@@ -525,13 +508,10 @@ const authApi = {
     }
     const roles = rolesFromAccessToken(token);
     return Promise.allSettled([
-      getKeycloakUserInfo(token).catch(() => userInfoFromAccessToken(token)),
       api.get<{ ok: boolean; data: KeycloakPermissions }>('/auth/permissions'),
       api.get<{ ok: boolean; data: LevelAuthorization }>('/auth/level'),
-    ]).then(([userInfoResult, permissionsResult, levelResult]) => {
-      const userInfo = userInfoResult.status === 'fulfilled'
-        ? userInfoResult.value
-        : userInfoFromAccessToken(token);
+    ]).then(([permissionsResult, levelResult]) => {
+      const userInfo = userInfoFromAccessToken(token);
       const permissions = permissionsResult.status === 'fulfilled'
         ? permissionsResult.value.data.data
         : fallbackPermissions(userInfo, roles);
@@ -603,6 +583,7 @@ const documentApi = {
     api.get<DocumentListResponse>('/uploads/documents', { params }),
   getQueueItem: (documentId: string) => api.get<DocumentRecord>(`/uploads/documents/${documentId}/queue-item`),
   getById: (documentId: string) => api.get<DocumentDetailRecord>(`/uploads/documents/${documentId}`),
+  getPreviewUrl: (documentId: string) => api.get<DocumentPreviewUrlResponse>(`/uploads/documents/${documentId}/preview-url`),
   getContainerMapping: (documentId: string, page = 1, pageSize = 20, unmappedOnly = false) =>
     api.get<ContainerMappingResponse>(`/uploads/documents/${documentId}/container-mapping`, {
       params: { page, pageSize, unmappedOnly },

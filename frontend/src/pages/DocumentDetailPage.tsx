@@ -66,7 +66,7 @@ function DocumentPipeline({ states }: { states: PipelineStageState[] }) {
       <div style={{ fontSize: 11, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>
         Pipeline
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${PIPELINE_LABELS.length}, minmax(112px, 1fr))`, alignItems: 'start', width: '100%', gap: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${PIPELINE_LABELS.length}, minmax(0, 1fr))`, alignItems: 'start', width: '100%', gap: 0 }}>
         {PIPELINE_LABELS.map((label, index) => {
           const state = states[index] ?? 'future';
           const nextState = states[index + 1] ?? 'future';
@@ -984,6 +984,7 @@ export function DocumentDetailPage() {
   const { toast } = useToast();
   const documentId = params.id ?? '';
   const [documentDetail, setDocumentDetail] = useState<DocumentDetailRecord | null>(null);
+  const [freshPreviewUrl, setFreshPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState<'approve' | 'retry' | null>(null);
@@ -1015,9 +1016,17 @@ export function DocumentDetailPage() {
     setLoading(true);
     setError('');
     setDocumentDetail(null);
+    setFreshPreviewUrl(null);
     documentApi.getById(documentId)
       .then(({ data }) => {
         if (!cancelled) setDocumentDetail(data);
+        documentApi.getPreviewUrl(documentId)
+          .then(({ data: previewData }) => {
+            if (!cancelled) setFreshPreviewUrl(previewData.previewUrl);
+          })
+          .catch(() => {
+            if (!cancelled) setFreshPreviewUrl(null);
+          });
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load document.');
@@ -1032,6 +1041,7 @@ export function DocumentDetailPage() {
   }, [documentId]);
 
   const extraction = documentDetail?.extraction ?? documentDetail?.salesInvoiceExtraction ?? null;
+  const documentPreviewUrl = freshPreviewUrl ?? documentDetail?.previewUrl ?? null;
   const config = documentDetail ? getDocConfig(documentDetail.docType) : undefined;
   const isDraftCbpBrokerDocument = false;
   const cbpGeneratedSchema = DOC_GEN_SCHEMAS['draft-boe'] as DocGenSchema | undefined;
@@ -1439,7 +1449,7 @@ export function DocumentDetailPage() {
       {sourcePreviewOpen && isDraftCbpBrokerDocument && (
         <SourceDocumentModal
           title={documentDetail.fileName}
-          previewUrl={documentDetail.previewUrl}
+          previewUrl={documentPreviewUrl}
           isImage={isImagePreview}
           onClose={() => setSourcePreviewOpen(false)}
         />
@@ -1518,7 +1528,11 @@ export function DocumentDetailPage() {
       </div>
 
       {isDraftCbpBrokerDocument ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(420px, 0.92fr) minmax(520px, 1.08fr)', gap: 18, alignItems: 'start' }}>
+        <>
+        <style>{`
+          @media (max-width: 1279px) { .doc-detail-grid { grid-template-columns: 1fr !important; } }
+        `}</style>
+        <div className="doc-detail-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(340px, 0.92fr) minmax(420px, 1.08fr)', gap: 18, alignItems: 'start' }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
@@ -1567,19 +1581,20 @@ export function DocumentDetailPage() {
             </div>
           </section>
         </div>
+        </>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.05fr) minmax(360px, 0.95fr)', gap: 18 }}>
+        <div className="doc-detail-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.05fr) minmax(280px, 0.95fr)', gap: 18 }}>
           <section>
             <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
               Source PDF
             </div>
-            {documentDetail.previewUrl ? (
+            {documentPreviewUrl ? (
               isImagePreview ? (
                 <div style={{ height: 680, border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden', backgroundColor: 'hsl(220 14% 96%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <img src={documentDetail.previewUrl} alt={documentDetail.fileName} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                  <img src={documentPreviewUrl} alt={documentDetail.fileName} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
                 </div>
               ) : (
-                <iframe title={documentDetail.fileName} src={documentDetail.previewUrl} style={{ width: '100%', height: 680, border: `1px solid ${BORDER}`, borderRadius: 8, backgroundColor: 'hsl(var(--card))' }} />
+                <iframe title={documentDetail.fileName} src={documentPreviewUrl} style={{ width: '100%', height: 680, border: `1px solid ${BORDER}`, borderRadius: 8, backgroundColor: 'hsl(var(--card))' }} />
               )
             ) : (
               <div style={{ height: 360, border: `1px dashed ${BORDER}`, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 12 }}>

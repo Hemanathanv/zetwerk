@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from .admin import legacy_router as legacy_admin_router
 from .admin import router as admin_router
 from .auth import router as auth_router
 from .doc_generation import router as doc_generation_router

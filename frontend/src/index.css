@@ -176,7 +176,7 @@
   --vs-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
   /* EWMS component spacing aliases from the rulebook */
-  --ewms-page-padding-x: clamp(24px, 2vw, 32px);
+  --ewms-page-padding-x: clamp(16px, 2vw, 32px);
   --ewms-page-padding-y: 24px;
   --ewms-page-section-gap: 28px;
   --ewms-content-grid-gap: 24px;
@@ -622,5 +622,27 @@
     border-radius: 999px;
     font-size: 11px;
     font-weight: 500;
+  }
+
+  /* ── Ultrawide content bounding ── */
+  .ewms-content-container {
+    width: 100%;
+    max-width: 1600px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* ── Fluid metric grid (auto-fit) ── */
+  .ewms-metric-grid-auto {
+    display: grid;
+    gap: var(--ewms-metric-grid-gap);
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+
+  /* ── Fluid card grid (auto-fit) ── */
+  .ewms-card-grid-auto {
+    display: grid;
+    gap: var(--ewms-content-grid-gap);
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   }
 }

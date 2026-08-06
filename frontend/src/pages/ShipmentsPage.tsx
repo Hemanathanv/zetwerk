@@ -491,17 +491,17 @@ export function ShipmentsPage() {
 
       {/* Table */}
       <div className="overflow-x-auto rounded-lg" style={{ boxShadow: 'var(--vs-shadow-card)' }}>
-        <table className="w-full bg-card" style={{ minWidth: 1040, borderCollapse: 'collapse' }}>
+        <table className="w-full bg-card" style={{ minWidth: 900, borderCollapse: 'collapse' }}>
           <colgroup>
-            <col style={{ width: '13%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '11%' }} />
-            <col style={{ width: '10%' }} />
-            <col style={{ width: '13%' }} />
-            <col style={{ width: '10%' }} />
-            <col style={{ width: '13%' }} />
-            <col style={{ width: '8%' }} />
-            <col style={{ width: '6%'  }} />
+            <col style={{ width: 'minmax(130px, 13%)' }} />
+            <col style={{ width: 'minmax(150px, 18%)' }} />
+            <col style={{ width: 'minmax(90px, 11%)' }} />
+            <col style={{ width: 'minmax(80px, 10%)' }} />
+            <col style={{ width: 'minmax(110px, 13%)' }} />
+            <col style={{ width: 'minmax(80px, 10%)' }} />
+            <col style={{ width: 'minmax(100px, 13%)' }} />
+            <col style={{ width: 'minmax(70px, 8%)' }} />
+            <col style={{ width: 'minmax(60px, 6%)'  }} />
           </colgroup>
           <thead>
             <tr style={{ backgroundColor: 'hsl(var(--background))', borderBottom: '1px solid hsl(var(--border))' }}>

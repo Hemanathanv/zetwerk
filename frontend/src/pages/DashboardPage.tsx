@@ -207,7 +207,7 @@ export function DashboardPage() {
   const activeTemplates = (templates as any[]).filter((t: any) => t.templateStatus === 'ACTIVE');
 
   return (
-    <div className="p-8">
+    <div className="ewms-content-container p-8">
 
       {/* ── Escalation Banner ─────────────────────────────────────────────── */}
       {taskCount.blockers > 0 && (
@@ -251,13 +251,13 @@ export function DashboardPage() {
 
       {/* ── Metric Cards ──────────────────────────────────────────────────── */}
       {loading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+        <div className="ewms-metric-grid-auto mb-6">
           {Array.from({ length: 7 }).map((_, i) => (
             <div key={i} className="h-[185px] rounded-lg bg-muted/30 animate-pulse" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+        <div className="ewms-metric-grid-auto mb-6">
           <MetricCard
             variant="dashboard"
             label="Active"
@@ -370,7 +370,7 @@ export function DashboardPage() {
       {hasGateAccess && Object.keys(gateDistribution).length > 0 && (
         <section className="mb-6">
           <h3 className="mb-3 text-lg font-semibold leading-[1.3] text-foreground">Gate Health</h3>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="ewms-card-grid-auto">
             {Object.entries(gateDistribution)
               .sort(([a], [b]) => Number(a) - Number(b))
               .map(([num, data]) => (
@@ -432,20 +432,21 @@ export function DashboardPage() {
 
         {/* Column headers */}
         {!loading && filteredShipments.length > 0 && (
-          <div className="flex items-center gap-5 pt-1 pb-2 mb-2 border-b border-border" style={{ paddingLeft: 21, paddingRight: 20 }}>
-            <div className="w-[200px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Shipment</div>
-            <div className="w-[160px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Gates</div>
-            <div className="w-[80px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hidden lg:block">Docs</div>
-            <div className="w-[72px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right hidden xl:block">ETA</div>
-            <div className="flex-1 min-w-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Exporter / Buyer</div>
-            <div className="w-[88px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right hidden md:block">Counts</div>
-            <div className="w-[72px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right">Added</div>
+          <div className="flex items-center gap-5 pt-1 pb-2 mb-2 border-b border-border overflow-x-auto" style={{ paddingLeft: 21, paddingRight: 20 }}>
+            <div className="min-w-[140px] flex-[1.4] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Shipment</div>
+            <div className="min-w-[120px] flex-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Gates</div>
+            <div className="min-w-[60px] flex-[0.6] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hidden lg:block">Docs</div>
+            <div className="min-w-[56px] flex-[0.5] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right hidden xl:block">ETA</div>
+            <div className="flex-[2] min-w-[120px] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Exporter / Buyer</div>
+            <div className="min-w-[64px] flex-[0.6] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right hidden md:block">Counts</div>
+            <div className="min-w-[56px] flex-[0.5] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right">Added</div>
           </div>
         )}
 
         {/* Rows */}
         {!loading && (
-          <div className="space-y-2">
+          <div className="overflow-x-auto">
+            <div className="min-w-[820px] space-y-2">
             {filteredShipments.map(shipment => {
               const visibleGates = (shipment.shipmentGates ?? [])
                 .filter((g: any) => permittedGateNumbers.has(g.gateConfig?.gateNumber))
@@ -460,7 +461,7 @@ export function DashboardPage() {
                   className="bg-background rounded-lg px-5 py-4 flex items-center gap-5 hover:shadow-md transition-shadow cursor-pointer border border-transparent hover:border-border"
                 >
                   {/* Shipment ID + status + project link */}
-                  <div className="w-[200px] shrink-0">
+                  <div className="min-w-[140px] flex-[1.4]">
                     <div className="font-mono text-[15px] font-semibold leading-tight">
                       {shipment.shipmentNumber || (
                         <span className="text-muted-foreground italic text-[13px] font-normal">Pending ID</span>
@@ -481,7 +482,7 @@ export function DashboardPage() {
                   </div>
 
                   {/* Gate progress dots */}
-                  <div className="flex items-center gap-1.5 w-[160px] shrink-0 flex-wrap">
+                  <div className="flex items-center gap-1.5 min-w-[120px] flex-1 flex-wrap">
                     {visibleGates.map((gate: any) => {
                       const gNum = gate.gateConfig?.gateNumber;
                       return (
@@ -504,7 +505,7 @@ export function DashboardPage() {
                   </div>
 
                   {/* Doc completion mini-bar */}
-                  <div className="w-[80px] shrink-0 hidden lg:block">
+                  <div className="min-w-[60px] flex-[0.6] hidden lg:block">
                     <div className="flex items-center gap-2">
                       <div className="h-2 rounded-full bg-muted/50 overflow-hidden flex-1">
                         <div className="h-full rounded-full bg-teal-500" style={{ width: `${(shipment as any).docCompletionPct || 0}%` }} />
@@ -514,7 +515,7 @@ export function DashboardPage() {
                   </div>
 
                   {/* ETA */}
-                  <div className="w-[72px] shrink-0 text-right hidden xl:block">
+                  <div className="min-w-[56px] flex-[0.5] text-right hidden xl:block">
                     {(shipment as any).etaPort ? (
                       <div className="text-[12px]">
                         <span className="text-muted-foreground">ETA</span>
@@ -526,7 +527,7 @@ export function DashboardPage() {
                   </div>
 
                   {/* Exporter + buyer */}
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-[2] min-w-[120px]">
                     <div className="text-[15px] truncate">{shipment.exporterName || '—'}</div>
                     <div className="text-[13px] text-muted-foreground truncate mt-0.5">
                       {shipment.buyerName || '—'}
@@ -534,7 +535,7 @@ export function DashboardPage() {
                   </div>
 
                   {/* Doc + ticket counts */}
-                  <div className="w-[88px] shrink-0 text-right hidden md:block">
+                  <div className="min-w-[64px] flex-[0.6] text-right hidden md:block">
                     {(shipment._count?.documents ?? 0) > 0 && (
                       <div className="text-[13px]">
                         <span className="font-mono">{shipment._count.documents}</span>
@@ -550,7 +551,7 @@ export function DashboardPage() {
                   </div>
 
                   {/* Date */}
-                  <div className="w-[72px] shrink-0 text-right">
+                  <div className="min-w-[56px] flex-[0.5] text-right">
                     <div className="text-[13px] text-muted-foreground font-mono">
                       {new Date(shipment.createdAt).toLocaleDateString('en-IN', {
                         day: '2-digit',
@@ -574,6 +575,7 @@ export function DashboardPage() {
                 </p>
               </div>
             )}
+            </div>
           </div>
         )}
       </div>

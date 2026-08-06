@@ -13,7 +13,7 @@ import { useSidebar } from '@/contexts/SidebarContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionContext';
 import { useLocation as useWouterLocation } from 'wouter';
-import { getAuthToken } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 import { DOC_GENERATION_ACTIVITY_CODES } from '@/lib/docGenerationAccess';
 
 type ChildNavItem = {
@@ -59,7 +59,7 @@ const NAV_GROUPS: { items: NavItem[] }[] = [
   {
     items: [
       { icon: Settings,  label: 'Settings',   href: '/settings',    module: ['settings', 'admin'], requiredAnyActivities: ['admin.manage', 'users.manage', 'roles.view'] },
-      { icon: Database,  label: 'Schema Ref', href: '/schema',      module: ['settings', 'admin'], requiredAnyActivities: ['admin.configure_doctypes', 'roles.view'] },
+      // { icon: Database,  label: 'Schema Ref', href: '/schema',      module: ['settings', 'admin'], requiredAnyActivities: ['admin.configure_doctypes', 'roles.view'] },
     ],
   },
   {
@@ -150,14 +150,9 @@ function useNavBadges(): BadgeData {
   const query = useQuery({
     queryKey: ['navigation', 'badges'],
     queryFn: async () => {
-      const token = getAuthToken();
-      if (!token) return { tasks: 0, pendingDocuments: 0, pendingTickets: 0, unread: 0 };
-      const res = await fetch('/api/navigation/badges', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to load navigation badges');
-      return data.data as BadgeData;
+      const data = await apiGet<{ ok: boolean; data: BadgeData }>('/api/navigation/badges');
+      if (!data.ok) throw new Error('Failed to load navigation badges');
+      return data.data;
     },
     refetchInterval: 60_000,
   });

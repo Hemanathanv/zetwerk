@@ -10,6 +10,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
+from botocore.exceptions import ClientError
 
 from db import get_prisma
 from documents_ocr.queue import (
@@ -187,6 +188,13 @@ class DocumentListResponse(BaseModel):
     documents: list[DocumentListItem]
     pagination: DocumentListPagination
     counts: DocumentListCounts
+
+
+class DocumentPreviewUrlResponse(BaseModel):
+    previewUrl: str
+    bucket: str
+    objectKey: str
+    expiresIn: int = 3600
 
 
 class DocumentPageItem(BaseModel):
@@ -1061,7 +1069,7 @@ async def upload_document(
     await _ensure_database_doc_type_supported(prisma, normalized_doc_type)
 
     default_bucket_from_doc_type = _bucket_slug_from_doc_type(normalized_doc_type)
-    raw_bucket = bucket or default_bucket_from_doc_type or DEFAULT_BUCKET or settings.S3_DEFAULT_BUCKET
+    raw_bucket = bucket or DEFAULT_BUCKET or settings.S3_DEFAULT_BUCKET or default_bucket_from_doc_type
     target_bucket = normalize_bucket_name(raw_bucket)
     bucket_error = validate_bucket_name(target_bucket)
     if bucket_error:
@@ -1165,6 +1173,14 @@ async def upload_document(
                 delete_document_object(object_bucket, object_key)
             except Exception:
                 pass
+        if isinstance(exc, ClientError):
+            error = exc.response.get("Error", {})
+            code = str(error.get("Code") or "S3Error")
+            message = str(error.get("Message") or exc)
+            raise HTTPException(
+                status_code=502,
+                detail=f"S3 upload failed for bucket {target_bucket!r}: {code}: {message}",
+            )
         if "InvalidBucketName" in str(exc):
             raise HTTPException(
                 status_code=400,
@@ -1746,6 +1762,27 @@ async def get_document(document_id: str, user=Depends(get_current_user)):
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to serialize document detail: {exc}")
+
+
+@router.get("/documents/{document_id}/preview-url", response_model=DocumentPreviewUrlResponse)
+async def get_document_preview_url(document_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
+    row = await prisma.document.find_first(where=where)
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    try:
+        preview_url = get_download_url(str(row.bucket), str(row.objectKey))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to create S3 preview URL: {exc}")
+
+    return DocumentPreviewUrlResponse(
+        previewUrl=preview_url,
+        bucket=str(row.bucket),
+        objectKey=str(row.objectKey),
+    )
 
 
 @router.patch("/documents/{document_id}/extraction")

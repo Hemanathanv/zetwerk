@@ -13,7 +13,8 @@ dependencies = [
     "pydantic-settings>=2.14.1",
     "redis>=5.0.0,<6.0.0",
     "python-dotenv>=1.1.1",
-    "boto3>=1.43.6"
+    "boto3>=1.43.6",
+    "bcrypt>=5.0.0"
 ]
 
 [project.optional-dependencies]
@@ -23,7 +24,6 @@ worker = [
     "pypdf>=5.5.0",
 ]
 api = [
-    "bcrypt>=5.0.0",
     "email-validator>=2.3.0",
     "fastapi>=0.115.0",
     "fastapi-keycloak>=0.1.0",

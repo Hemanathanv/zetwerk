@@ -229,7 +229,7 @@ function ContainerRow({ container, alertLookup }: {
     <ListRow
       onClick={() => { window.location.href = `/inventory/containers/${container.id}`; }}
       className={alertState === 'accruing' ? 'border-l-4 border-l-destructive' : alertState === 'approaching' ? 'border-l-4 border-l-[hsl(var(--vs-warning))]' : alertState === 'stale' ? 'border-l-4 border-l-muted-foreground' : 'border-l-4 border-l-transparent'}
-      style={{ gridTemplateColumns: '140px minmax(360px,1fr) 120px 164px 20px' } as React.CSSProperties}
+      style={{ gridTemplateColumns: 'minmax(110px, 140px) minmax(240px, 1fr) minmax(90px, 120px) minmax(120px, 164px) 20px' } as React.CSSProperties}
     >
       <ListCell
         primary={<span className="font-semibold tabular-nums">{container.containerNumber}</span>}
@@ -496,7 +496,7 @@ export function ContainerDashboardPage() {
         <BreakBulkEmptyState />
       ) : (
         <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 'var(--ewms-metric-grid-gap)', marginBottom: 'var(--ewms-page-section-gap)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 'var(--ewms-metric-grid-gap)', marginBottom: 'var(--ewms-page-section-gap)' }}>
         <StatPill label="At Origin / Loading" value={summaryStats.atOrigin}    color="muted"  icon={Box} />
         <StatPill label="Ocean Transit"        value={summaryStats.inTransit}   color="blue"   icon={Navigation} />
         <StatPill label="At US Port"           value={summaryStats.atPort}      color="teal"   icon={Anchor} />
@@ -581,7 +581,7 @@ export function ContainerDashboardPage() {
         <>
           <ListHeaderRow
             className="mb-1 rounded-t-lg"
-            style={{ gridTemplateColumns: '140px minmax(360px,1fr) 120px 164px 20px' } as React.CSSProperties}
+            style={{ gridTemplateColumns: 'minmax(110px, 140px) minmax(240px, 1fr) minmax(90px, 120px) minmax(120px, 164px) 20px' } as React.CSSProperties}
           >
             <span>Container</span>
             <span>Journey</span>

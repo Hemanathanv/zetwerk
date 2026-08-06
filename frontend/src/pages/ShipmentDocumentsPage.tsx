@@ -362,11 +362,7 @@ function DocumentStatusCard({ dtInfo, assignment, document, documentCount = 0, v
             borderRadius: 3,
             backgroundColor: shortCodeBg,
             color: '#fff',
-<<<<<<< HEAD
-            fontSize: 10, fontWeight: 700, fontFamily: 'monospace',
-=======
             fontSize: 10, fontWeight: 700, fontFamily: 'var(--app-font-sans)',
->>>>>>> master
             letterSpacing: '0.04em',
             marginTop: 1,
           }}>
@@ -389,11 +385,7 @@ function DocumentStatusCard({ dtInfo, assignment, document, documentCount = 0, v
           {/* G-S10: Validation badge */}
           {validation && (
             <span style={{
-<<<<<<< HEAD
-              fontSize: 10, fontFamily: 'monospace', padding: '1px 3px', borderRadius: 3,
-=======
               fontSize: 10, fontFamily: 'var(--app-font-sans)', padding: '1px 3px', borderRadius: 3,
->>>>>>> master
               backgroundColor:
                 validation.blockers > 0 ? 'hsla(0,72%,51%,0.15)' :
                 validation.warnings > 0 || validation.waiting > 0 ? 'hsla(38,92%,50%,0.15)' :
@@ -552,11 +544,7 @@ function GateColumn({ gate, displayStatus, accessLevel, documents, validationMap
 
   return (
     <div style={{
-<<<<<<< HEAD
-      width: 200, flexShrink: 0, borderRadius: 12,
-=======
       width: 200, flexShrink: 0, borderRadius: 8,
->>>>>>> master
       border: `1px solid ${borderColor}`,
       overflow: 'hidden',
     }}>
@@ -669,22 +657,14 @@ function IdentityBanner({ shipment, identityGateName }: { shipment: any; identit
     return (
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,
-<<<<<<< HEAD
-        padding: '10px 16px', borderRadius: 10, marginBottom: 20,
-=======
         padding: '10px 16px', borderRadius: 8, marginBottom: 20,
->>>>>>> master
         backgroundColor: 'hsla(173,58%,39%,0.08)',
         border: '1px solid hsla(173,58%,39%,0.25)',
       }}>
         <Fingerprint size={15} style={{ color: 'hsl(173 58% 36%)', flexShrink: 0 }} />
         <span style={{ fontSize: 14.5, color: 'hsl(173 58% 26%)' }}>
           Identity assigned:{' '}
-<<<<<<< HEAD
-          <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{shipment.shipmentNumber}</span>
-=======
           <span style={{ fontFamily: 'var(--app-font-sans)', fontWeight: 700 }}>{shipment.shipmentNumber}</span>
->>>>>>> master
           {identityGateName && (
             <span style={{ opacity: 0.7, marginLeft: 8 }}>via {identityGateName}</span>
           )}
@@ -696,11 +676,7 @@ function IdentityBanner({ shipment, identityGateName }: { shipment: any; identit
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-<<<<<<< HEAD
-      padding: '10px 16px', borderRadius: 10, marginBottom: 20,
-=======
       padding: '10px 16px', borderRadius: 8, marginBottom: 20,
->>>>>>> master
       backgroundColor: 'hsla(38,92%,50%,0.08)',
       border: '1px solid hsla(38,92%,50%,0.25)',
     }}>
@@ -740,11 +716,7 @@ function GenerationStatusPanel({ genTriggers, documents }: { genTriggers: any[];
 
   return (
     <div style={{
-<<<<<<< HEAD
-      backgroundColor: 'hsl(var(--card))', borderRadius: 12, padding: '16px 20px', marginTop: 20,
-=======
       backgroundColor: 'hsl(var(--card))', borderRadius: 8, padding: '16px 20px', marginTop: 20,
->>>>>>> master
       border: '1px solid hsl(var(--card-border))', boxShadow: 'var(--vs-shadow-card)',
     }}>
       <div style={{ fontSize: 14.5, fontWeight: 600, color: 'hsl(var(--muted-foreground))', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 14 }}>
@@ -857,11 +829,7 @@ function MilestonePanelDocs({ shipmentId, milestones, onRefetch }: {
 
   return (
     <div style={{
-<<<<<<< HEAD
-      backgroundColor: 'hsl(var(--card))', borderRadius: 12,
-=======
       backgroundColor: 'hsl(var(--card))', borderRadius: 8,
->>>>>>> master
       padding: '16px 20px', marginTop: 20,
       border: '1px solid hsl(var(--card-border))',
       boxShadow: 'var(--vs-shadow-card)',
@@ -1147,11 +1115,7 @@ export function ShipmentDocumentsPage() {
         <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}`}</style>
         <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
           {[1,2,3].map(i => (
-<<<<<<< HEAD
-            <div key={i} style={{ width: 180, height: 260, borderRadius: 12, backgroundColor: 'hsl(var(--muted) / 0.4)', animation: 'pulse 1.5s ease-in-out infinite' }} />
-=======
             <div key={i} style={{ width: 180, height: 260, borderRadius: 8, backgroundColor: 'hsl(var(--muted) / 0.4)', animation: 'pulse 1.5s ease-in-out infinite' }} />
->>>>>>> master
           ))}
         </div>
       </div>
@@ -1182,11 +1146,7 @@ export function ShipmentDocumentsPage() {
             {shipment.shipmentNumber || 'Shipment'}
           </button>
           <span style={{ color: 'hsl(var(--muted-foreground))' }}>/</span>
-<<<<<<< HEAD
-          <h1 style={{ margin: 0, fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', color: 'hsl(var(--foreground))', letterSpacing: '-0.025em' }}>Documents Status</h1>
-=======
           <h1 style={{ margin: 0, fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', color: 'hsl(var(--foreground))', letterSpacing: 0 }}>Documents Status</h1>
->>>>>>> master
         </div>
         <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
           Gate-column view · {gates.filter(g => g.status === 'PASSED').length}/{gates.length} gates passed · {documents.filter(d => validationPassed(d, validationMap[d.id])).length}/{documents.length} docs validated
@@ -1199,11 +1159,7 @@ export function ShipmentDocumentsPage() {
       {/* Gate columns (horizontally scrollable) */}
       {gates.length === 0 ? (
         <div style={{
-<<<<<<< HEAD
-          padding: '40px 24px', textAlign: 'center', borderRadius: 12,
-=======
           padding: '40px 24px', textAlign: 'center', borderRadius: 8,
->>>>>>> master
           border: '1px dashed hsl(var(--border))',
           color: 'hsl(var(--muted-foreground))', fontSize: 14.5,
         }}>

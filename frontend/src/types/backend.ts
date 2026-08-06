@@ -223,6 +223,13 @@ export type SalesInvoiceExtractionRecord = {
   reviewedAt: string | null;
 };
 
+export type DocumentPreviewUrlResponse = {
+  previewUrl: string;
+  bucket: string;
+  objectKey: string;
+  expiresIn: number;
+};
+
 export type DocumentDetailRecord = {
   id: string;
   docType: DocType;

@@ -420,7 +420,7 @@ function VoyageStepper({ steps, eta, scheduleStatus }: {
                 </div>
               </div>
               {/* Label — truncated with native tooltip showing full name */}
-              <div title={step.label} style={{ marginTop: 7, fontSize: 14.5, fontWeight: isActive ? 700 : 500, color: step.state === STEP.UPCOMING ? MUTED : FG, textAlign: 'center', lineHeight: 1.3, maxWidth: 90, width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div title={step.label} style={{ marginTop: 7, fontSize: 14.5, fontWeight: isActive ? 700 : 500, color: step.state === STEP.UPCOMING ? MUTED : FG, textAlign: 'center', lineHeight: 1.3, maxWidth: 90, width: '100%', overflowWrap: 'anywhere', whiteSpace: 'normal' }}>
                 {shortLabel}
               </div>
               {/* Sub-label — date or status */}
@@ -866,7 +866,7 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
                       <div style={{ width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: m.done ? GREEN : 'hsl(var(--muted))', border: `2px solid ${m.done ? GREEN : BDR}` }}>
                         {m.done && <Check size={10} color="#fff" />}
                       </div>
-                      <div style={{ fontSize: 14, color: m.done ? FG : MUTED, marginTop: 5, textAlign: 'center', lineHeight: 1.3, maxWidth: 70 }}>{m.label}</div>
+                      <div style={{ fontSize: 14, color: m.done ? FG : MUTED, marginTop: 5, textAlign: 'center', lineHeight: 1.3, maxWidth: 70, overflowWrap: 'anywhere', whiteSpace: 'normal' }}>{m.label}</div>
                       {m.date && <div style={{ fontSize: 13, color: MUTED, marginTop: 1 }}>{fmtDate(m.date)}</div>}
                     </div>
                   ))}
@@ -2194,7 +2194,7 @@ export function ShipmentDetailPage() {
 
   // ─── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: '24px 28px', minHeight: '100%' }}>
+    <div style={{ padding: '24px 28px', minHeight: '100%', maxWidth: 1600, margin: '0 auto', width: '100%' }}>
       <style>{`
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
         @keyframes spin{to{transform:rotate(360deg)}}
@@ -2397,7 +2397,12 @@ export function ShipmentDetailPage() {
       )}
 
       {/* ── 2-column 360° body ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '55fr 45fr', gap: 20, alignItems: 'start' }}>
+      <style>{`
+        @media (max-width: 1279px) {
+          .shipment-detail-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
+      <div className="shipment-detail-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 55fr) minmax(0, 45fr)', gap: 20, alignItems: 'start' }}>
 
         {/* LEFT — Inventory Journey + Containers */}
         <div>

@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Warning: Could not connect to Redis: {e}")
 
-    run_workers_in_api = str(getattr(settings, "RUN_OCR_WORKERS_IN_API", "true")).lower() in {
+    run_workers_in_api = str(getattr(settings, "RUN_OCR_WORKERS_IN_API", "false")).lower() in {
         "1",
         "true",
         "yes",

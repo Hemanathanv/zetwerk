@@ -5,7 +5,7 @@ x-backend-env: &backend-env
     RUN_OCR_WORKERS_IN_API: "false"
     DATABASE_URL: ${DATABASE_URL:-postgresql://ewms-postgres:ewms%40%232026%21@postgres:5432/ewms-db}
     REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-    KEYCLOAK_URL: ${KEYCLOAK_URL:-http://ewms-keycloak:8080/keycloak}
+    KEYCLOAK_URL: http://ewms-keycloak:8080/keycloak
 
 services:
   views-init:
@@ -14,7 +14,7 @@ services:
       dockerfile: Dockerfile.backend-api
       secrets:
         - backend_env
-    image: zetwerk-backend-api:local
+    image: zetwerk-views-init:local
     <<: *backend-env
     command: ["python", "scripts/ensure_views.py"]
     restart: "no"

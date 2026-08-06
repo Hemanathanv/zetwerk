@@ -10,8 +10,9 @@ from helpers.config import settings
 from helpers.rbac_data_access import normalize_role_name
 
 bearer_scheme = HTTPBearer(auto_error=False)
+KEYCLOAK_SERVER_URL = f"{settings.KEYCLOAK_URL.rstrip('/')}/"
 keycloak_openid = KeycloakOpenID(
-    server_url=settings.KEYCLOAK_URL,
+    server_url=KEYCLOAK_SERVER_URL,
     client_id=settings.KEYCLOAK_CLIENT_ID,
     realm_name=settings.KEYCLOAK_REALM,
     client_secret_key=settings.KEYCLOAK_CLIENT_SECRET,
@@ -207,7 +208,7 @@ def _extract_keycloak_roles(token_info: dict) -> list[str]:
 
 def _keycloak_admin_client() -> KeycloakAdmin:
     return KeycloakAdmin(
-        server_url=settings.KEYCLOAK_URL,
+        server_url=KEYCLOAK_SERVER_URL,
         username=settings.KEYCLOAK_ADMIN_USERNAME,
         password=settings.KEYCLOAK_ADMIN_PASSWORD,
         realm_name=settings.KEYCLOAK_REALM,
@@ -227,7 +228,6 @@ def _role_attributes(role_name: str) -> dict:
 
 async def _get_keycloak_local_user(token: str):
     try:
-        userinfo = keycloak_openid.userinfo(token)
         token_info = keycloak_openid.decode_token(
             token,
             keycloak_openid.public_key(),
@@ -236,7 +236,12 @@ async def _get_keycloak_local_user(token: str):
     except Exception:
         return None
 
-    email = str(userinfo.get("email") or "").strip().lower()
+    try:
+        userinfo = {**token_info, **keycloak_openid.userinfo(token)}
+    except Exception:
+        userinfo = token_info
+
+    email = str(userinfo.get("email") or userinfo.get("preferred_username") or "").strip().lower()
     if not email:
         return None
 

@@ -7,8 +7,9 @@ from helpers.config import settings
 from helpers.dependencies import get_session_token
 
 
+KEYCLOAK_SERVER_URL = f"{settings.KEYCLOAK_URL.rstrip('/')}/"
 keycloak_openid = KeycloakOpenID(
-    server_url=settings.KEYCLOAK_URL,
+    server_url=KEYCLOAK_SERVER_URL,
     client_id=settings.KEYCLOAK_CLIENT_ID,
     realm_name=settings.KEYCLOAK_REALM,
     client_secret_key=settings.KEYCLOAK_CLIENT_SECRET,
@@ -137,7 +138,7 @@ def _expand_activity_codes(activities: set[str]) -> set[str]:
 
 def _admin_client() -> KeycloakAdmin:
     return KeycloakAdmin(
-        server_url=settings.KEYCLOAK_URL,
+        server_url=KEYCLOAK_SERVER_URL,
         username=settings.KEYCLOAK_ADMIN_USERNAME,
         password=settings.KEYCLOAK_ADMIN_PASSWORD,
         realm_name=settings.KEYCLOAK_REALM,
@@ -149,10 +150,14 @@ def _admin_client() -> KeycloakAdmin:
 
 def _authz_context(token: str) -> dict:
     try:
-        userinfo = keycloak_openid.userinfo(token)
         token_info = keycloak_openid.decode_token(token, keycloak_openid.public_key())
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    try:
+        userinfo = {**token_info, **keycloak_openid.userinfo(token)}
+    except Exception:
+        userinfo = token_info
 
     roles = _extract_roles(token_info)
     role_name = _primary_role_name(roles)

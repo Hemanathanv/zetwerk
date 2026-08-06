@@ -933,8 +933,8 @@ function ShipmentAccordion({ lane, open, onToggle }: {
           ) : (
             <div>
               <style>{`
-                @media (min-width: 1280px) { .gate-grid-${lane.id} { grid-template-columns: repeat(${lane.gates.length}, minmax(0, 1fr)) !important; } }
-                @media (min-width: 768px) and (max-width: 1279px) { .gate-grid-${lane.id} { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; } }
+                @media (min-width: 1440px) { .gate-grid-${lane.id} { grid-template-columns: repeat(${lane.gates.length}, minmax(0, 1fr)) !important; } }
+                @media (min-width: 768px) and (max-width: 1439px) { .gate-grid-${lane.id} { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; } }
                 @media (max-width: 767px) { .gate-grid-${lane.id} { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
               `}</style>
               <div
