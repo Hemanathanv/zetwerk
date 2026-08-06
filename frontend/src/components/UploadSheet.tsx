@@ -32,6 +32,7 @@ const fallbackOcrTypes: OcrTypeOption[] = [
   { id: 'BILL_OF_LADING', label: 'Bill of Lading' },
   { id: 'SHIPPING_BILL', label: 'Shipping Bill' },
   { id: 'ENTRY_SUMMARY', label: 'CBP FORM 7501' },
+  { id: 'DRAFT_CBP_FORM_7501_BROKER', label: 'Draft CBP FORM 7501_Broker' },
   { id: 'OCEAN_FREIGHT', label: 'Ocean Freight' },
   { id: 'FREIGHT_FORWARDER_BILL', label: 'Freight Forwarder Bill' },
   { id: 'CHA_BILL', label: 'CHA Bill' },
@@ -202,7 +203,7 @@ export function UploadSheet() {
               onDragLeave={() => setIsDragging(false)}
               onDrop={onDrop}
               onClick={() => fileInputRef.current?.click()}
-              className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed py-14 px-6 text-center cursor-pointer transition-all select-none ${
+              className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed py-14 px-6 text-center cursor-pointer transition-all select-none ${
                 isDragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-border hover:border-primary/60 hover:bg-muted/30'
               }`}
             >
@@ -324,7 +325,7 @@ export function UploadSheet() {
                 <p className="text-sm font-bold mb-1">OCR Complete</p>
                 <p className="text-xs text-muted-foreground">{result.inputFileName}</p>
               </div>
-              <div className="w-full rounded-xl border p-4 text-left space-y-2.5" style={{ borderColor: 'hsl(var(--border))' }}>
+              <div className="w-full rounded-lg border p-4 text-left space-y-2.5" style={{ borderColor: 'hsl(var(--border))' }}>
                 <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">Type</span>
                   <span className="font-medium">{result.ocrLabel}</span>

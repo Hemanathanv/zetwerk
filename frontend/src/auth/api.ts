@@ -643,7 +643,7 @@ const documentApi = {
       if (!axios.isAxiosError(error) || error.response?.status !== 404 || !BACKEND_API_BASE) {
         throw error;
       }
-      queued = await api.post<DocumentClassificationQueuedResponse>(`${BACKEND_API_BASE}/api/uploads/classify`, formData, config);
+      queued = await api.post<DocumentClassificationQueuedResponse>(`${BACKEND_API_BASE}/api/v1/uploads/classify`, formData, config);
     }
     const startedAt = Date.now();
     const jobId = queued.data.classificationJobId;
@@ -656,7 +656,7 @@ const documentApi = {
         if (!axios.isAxiosError(error) || error.response?.status !== 404 || !BACKEND_API_BASE) {
           throw error;
         }
-        statusResponse = await api.get<DocumentClassificationStatusResponse>(`${BACKEND_API_BASE}/api/uploads/classify/jobs/${jobId}`);
+        statusResponse = await api.get<DocumentClassificationStatusResponse>(`${BACKEND_API_BASE}/api/v1/uploads/classify/jobs/${jobId}`);
       }
       const status = statusResponse.data;
       if (status.status === 'failed') {
@@ -685,7 +685,7 @@ const documentApi = {
       if (!axios.isAxiosError(error) || error.response?.status !== 404 || !BACKEND_API_BASE) {
         throw error;
       }
-      return api.post<DocumentClassificationBulkResponse>(`${BACKEND_API_BASE}/api/uploads/classify/bulk`, formData, config);
+      return api.post<DocumentClassificationBulkResponse>(`${BACKEND_API_BASE}/api/v1/uploads/classify/bulk`, formData, config);
     }
   },
   classifyBulkAndWait: async (formData: FormData) => {
@@ -730,7 +730,7 @@ const documentApi = {
       if (!axios.isAxiosError(error) || error.response?.status !== 404 || !BACKEND_API_BASE) {
         throw error;
       }
-      return api.get<DocumentClassificationStatusResponse>(`${BACKEND_API_BASE}/api/uploads/classify/jobs/${classificationJobId}`);
+      return api.get<DocumentClassificationStatusResponse>(`${BACKEND_API_BASE}/api/v1/uploads/classify/jobs/${classificationJobId}`);
     }
   },
   upload: (formData: FormData) =>

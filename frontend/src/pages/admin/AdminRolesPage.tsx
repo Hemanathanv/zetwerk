@@ -75,6 +75,9 @@ const ACTIVITY_GROUP_ORDER = [
   'container_mapping',
   'shipment',
   'inventory',
+  'dnd_activate',
+  'dnd_tariff_master',
+  'dnd_holiday_calendar',
   'admin',
 ];
 
@@ -85,6 +88,9 @@ const ACTIVITY_GROUP_LABELS: Record<string, string> = {
   container_mapping: 'Container Mapping Activities',
   shipment: 'Shipment Activities',
   inventory: 'Inventory Activities',
+  dnd_activate: 'Demurrage and detention',
+  dnd_tariff_master: 'Demurrage and detention',
+  dnd_holiday_calendar: 'Demurrage and detention',
   admin: 'Admin Activities',
 };
 
@@ -177,7 +183,7 @@ function catBadgeStyle(cat: string): React.CSSProperties {
     org_external:        { bg: '#f3f4f6', color: '#374151' },
   };
   const c = m[cat] ?? { bg: '#f3f4f6', color: '#374151' };
-  return { background: c.bg, color: c.color, padding: '2px 8px', borderRadius: 10, fontSize: 14.5, fontWeight: 600 };
+  return { background: c.bg, color: c.color, padding: '2px 8px', borderRadius: 8, fontSize: 14.5, fontWeight: 600 };
 }
 
 function catLabel(cat: string) {
@@ -294,7 +300,7 @@ function ProgressBar({ value, max }: { value: number; max: number }) {
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <label style={{ fontSize: 14.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--muted-foreground))', display: 'block', marginBottom: 5 }}>
+    <label style={{ fontSize: 12, fontWeight: 500, letterSpacing: 0, color: 'hsl(var(--muted-foreground))', display: 'block', marginBottom: 6 }}>
       {children}
     </label>
   );
@@ -302,8 +308,8 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 
 function StatCard({ label, value, color }: { label: string; value: number; color?: string }) {
   return (
-    <div style={{ background: 'hsl(var(--card))', borderRadius: 10, padding: '12px 16px', border: '1px solid hsl(var(--border))', flex: 1 }}>
-      <div style={{ fontSize: 14.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--muted-foreground))', marginBottom: 4 }}>{label}</div>
+    <div style={{ background: 'hsl(var(--card))', borderRadius: 8, padding: '12px 16px', border: '1px solid hsl(var(--border))', flex: 1 }}>
+      <div style={{ fontSize: 12, fontWeight: 500, letterSpacing: 0, color: 'hsl(var(--muted-foreground))', marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 26, fontWeight: 700, color: color ?? 'hsl(var(--foreground))' }}>{value}</div>
     </div>
   );
@@ -784,7 +790,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
           <span style={{ width: 10, height: 10, borderRadius: 5, background: color, display: 'inline-block' }} />
           {isNew ? 'New role' : roleName || 'Editing role'}
         </span>
-        <span style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>
+        <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>
           {selectedCount}/{activities.length} activities
         </span>
         <Button variant="outline" size="sm" onClick={onBack}>Cancel</Button>
@@ -801,11 +807,11 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
       )}
 
       {/* Body */}
-      <div style={{ display: 'flex', gap: 20, padding: '24px 32px', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: 'var(--ewms-content-grid-gap)', padding: 'var(--ewms-page-padding-y) var(--ewms-page-padding-x)', alignItems: 'flex-start' }}>
 
         {/* ── Left panel ─────────────────────────────────────────────────── */}
         <div style={{ width: 296, flexShrink: 0, position: 'sticky', top: 36, alignSelf: 'flex-start' }}>
-          <div style={{ background: 'hsl(var(--card))', borderRadius: 12, border: '1px solid hsl(var(--border))', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ background: 'hsl(var(--card))', borderRadius: 8, border: '1px solid hsl(var(--border))', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
 
             <div>
               <FieldLabel>Role name <span style={{ color: '#dc2626' }}>*</span></FieldLabel>
@@ -830,7 +836,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
               <div>
                 <FieldLabel>System code</FieldLabel>
                 <div style={{
-                  fontFamily: '"JetBrains Mono", monospace', fontSize: 14,
+                  fontFamily: 'var(--app-font-sans)', fontSize: 14,
                   padding: '6px 10px', borderRadius: 6,
                   background: 'hsl(var(--muted))', color: 'hsl(var(--muted-foreground))',
                   border: '1px solid hsl(var(--border))',
@@ -841,29 +847,12 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
             )}
 
             <div>
-              <FieldLabel>Category</FieldLabel>
-              <Select value={category} onValueChange={setCategory} disabled={isSystem}>
-                <SelectTrigger style={{ fontSize: 14.5 }}><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {ROLE_CAT_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 4, background: o.color, display: 'inline-block', flexShrink: 0 }} />
-                        {o.label}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
               <FieldLabel>Color</FieldLabel>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {SWATCHES.map((s) => (
                   <button key={s} onClick={() => setColor(s)}
                     style={{
-                      width: 22, height: 22, borderRadius: 11, background: s, border: 'none',
+                      width: 22, height: 22, borderRadius: 8, background: s, border: 'none',
                       cursor: 'pointer', boxSizing: 'border-box',
                       outline: color === s ? `2px solid ${s}` : 'none', outlineOffset: 2,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -897,7 +886,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                   <span style={catBadgeStyle(category)}>{catLabel(category)}</span>
                 </div>
               </div>
-              <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', fontFamily: '"JetBrains Mono", monospace' }}>
+              <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', fontFamily: 'var(--app-font-sans)' }}>
                 {selectedCount}/{enabledActivityTotal} activities · {lvlRange(allowedLevels)}
               </div>
               {enabledModules.length > 0 && (
@@ -971,7 +960,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                       />
                       <span style={{ fontSize: 14.5, fontWeight: 600, flex: 1 }}>{groupLabel(groupCode, groupActs)}</span>
                       <span style={{
-                        fontSize: 14.5, fontFamily: '"JetBrains Mono", monospace', padding: '2px 8px', borderRadius: 10,
+                        fontSize: 14.5, fontFamily: 'var(--app-font-sans)', padding: '2px 8px', borderRadius: 8,
                         background: selCount > 0 ? 'hsl(173 58% 39% / 0.12)' : 'hsl(var(--muted))',
                         color: selCount > 0 ? 'hsl(173 58% 39%)' : 'hsl(var(--muted-foreground))',
                       }}>
@@ -1022,7 +1011,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                               onChange={() => toggleActivity(act.activityCode)}
                               style={{ accentColor: 'hsl(173 58% 39%)', flexShrink: 0 }} />
                             <span style={{
-                              fontFamily: '"JetBrains Mono", monospace',
+                              fontFamily: 'var(--app-font-sans)',
                               fontSize: 13.5,
                               color: 'hsl(var(--muted-foreground))',
                               whiteSpace: 'nowrap',
@@ -1081,7 +1070,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                             <span style={{ display: 'flex', justifyContent: 'flex-end', gap: 4, flexWrap: 'wrap' }}>
                               {levels.map((level) => (
                                 <span key={level} style={{
-                                  fontFamily: '"JetBrains Mono", monospace',
+                                  fontFamily: 'var(--app-font-sans)',
                                   fontSize: 12.5,
                                   background: 'hsl(var(--muted))',
                                   padding: '2px 6px',
@@ -1162,7 +1151,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                                 </p>
                               ) : Object.entries(gateScopes).map(([gateId, cfg]) => (
                                 <div key={gateId} style={{ marginBottom: 12 }}>
-                                  <p style={{ fontSize: 14, fontWeight: 600, margin: '0 0 6px', fontFamily: '"JetBrains Mono", monospace' }}>
+                                  <p style={{ fontSize: 14, fontWeight: 600, margin: '0 0 6px', fontFamily: 'var(--app-font-sans)' }}>
                                     Gate {gateId.slice(0, 8)}…
                                   </p>
                                   <RadioGroup value={cfg.accessLevel}
@@ -1325,7 +1314,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'hsl(var(--foreground))' }}
                             title="Click to edit"
                           >
-                            <span style={{ fontFamily: 'monospace', fontSize: 14 }}>{baseH ? displaySlaDays(baseH) : 'Set SLA'}</span>
+                            <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14 }}>{baseH ? displaySlaDays(baseH) : 'Set SLA'}</span>
                           </button>
                         )}
                       </div>
@@ -1396,7 +1385,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                                 }}
                                 title="Click to edit"
                               >
-                                <span style={{ fontFamily: 'monospace', fontSize: 13.5, color, fontWeight: 700 }}>{thresholdValue}%</span>
+                                <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 13.5, color, fontWeight: 700 }}>{thresholdValue}%</span>
                                 <span style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>{computed}</span>
                               </button>
                             )}
@@ -1712,7 +1701,7 @@ export function AdminRolesPage() {
     },
     {
       key: 'allowedLevels', label: 'Levels', width: '80px',
-      render: (r) => <span style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 14 }}>{lvlRange(r.allowedLevels)}</span>,
+      render: (r) => <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14 }}>{lvlRange(r.allowedLevels)}</span>,
     },
     {
       key: 'activities', label: 'Activities', width: '130px',
@@ -1720,7 +1709,7 @@ export function AdminRolesPage() {
         const n = r._count?.roleActivities ?? 0;
         return (
           <div>
-            <span style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 14 }}>{n}/{activities.length || 67}</span>
+            <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14 }}>{n}/{activities.length || 67}</span>
             <ProgressBar value={n} max={activities.length || 67} />
           </div>
         );
@@ -1728,7 +1717,7 @@ export function AdminRolesPage() {
     },
     {
       key: 'users', label: 'Users', width: '70px',
-      render: (r) => <span style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 14 }}>{r._count?.users ?? 0}</span>,
+      render: (r) => <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14 }}>{r._count?.users ?? 0}</span>,
     },
     {
       key: 'actions', label: 'Actions', width: '110px',

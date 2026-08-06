@@ -35,7 +35,7 @@ function StatusChip({ label, value, highlight, warn }: StatusChipProps) {
       <span style={{
         color: warn ? 'hsl(38 60% 35%)' : 'hsl(var(--foreground))',
         fontWeight: 600,
-        fontFamily: 'JetBrains Mono, monospace',
+        fontFamily: 'var(--app-font-sans)',
       }}>
         {value}
       </span>

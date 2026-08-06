@@ -76,7 +76,7 @@ function PartnerDocCard({ doc, allDocTypes, shipments }: {
   const isRejected = FAILED_STATUSES.includes(s);
 
   return (
-    <div className={`bg-card rounded-xl p-5 border border-border ${isRejected ? 'border-l-4 border-l-red-500' : ''}`}>
+    <div className={`bg-card rounded-lg p-5 border border-border ${isRejected ? 'border-l-4 border-l-red-500' : ''}`}>
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-3">
           <div className={`px-2 py-1 rounded-md text-[12px] font-mono font-bold shrink-0 ${
@@ -269,7 +269,7 @@ export default function PartnerDocumentsPage() {
             ← Home
           </a>
           <span className="text-muted-foreground">/</span>
-          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>My Documents</h1>
+          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>My Documents</h1>
         </div>
         <p className="text-[14.5px] text-muted-foreground mt-0.5">
           {documents.length} document{documents.length !== 1 ? 's' : ''} across{' '}
@@ -314,7 +314,7 @@ export default function PartnerDocumentsPage() {
       {loading && (
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="bg-card rounded-xl border border-border p-5 animate-pulse h-28" />
+            <div key={i} className="bg-card rounded-lg border border-border p-5 animate-pulse h-28" />
           ))}
         </div>
       )}
@@ -332,7 +332,7 @@ export default function PartnerDocumentsPage() {
           ))}
 
           {documents.length === 0 && (
-            <div className="bg-card rounded-xl border border-border p-8 text-center">
+            <div className="bg-card rounded-lg border border-border p-8 text-center">
               <FileText className="w-8 h-8 mx-auto text-muted-foreground/40" />
               <h3 className="text-[14.5px] font-semibold mt-3">No documents found</h3>
               <p className="text-[13px] text-muted-foreground mt-1">

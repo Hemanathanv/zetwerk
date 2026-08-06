@@ -43,7 +43,7 @@ function StatPill({ label, value, warn = false }: { label: string; value: number
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
-      padding: '4px 10px', borderRadius: 20,
+      padding: '4px 10px', borderRadius: 999,
       background: warn ? 'hsl(38 92% 50% / 0.12)' : 'hsl(var(--muted))',
       fontSize: 14,
     }}>
@@ -66,7 +66,7 @@ function StatPillSkeleton() {
         display: 'inline-flex',
         width: 82,
         height: 28,
-        borderRadius: 20,
+        borderRadius: 999,
         background: 'hsl(var(--muted))',
       }}
     />
@@ -447,7 +447,7 @@ function TeamsContent() {
     flex: 1, padding: '5px 8px', fontSize: 14.5,
     border: '1px solid hsl(var(--border))', borderRadius: 6,
     background: 'hsl(var(--background))', color: 'hsl(var(--foreground))',
-    outline: 'none', fontFamily: "'Instrument Sans', sans-serif",
+    outline: 'none', fontFamily: 'var(--app-font-sans)',
   };
   const iconBtn = (color: string): React.CSSProperties => ({
     background: 'none', border: 'none', cursor: 'pointer', padding: '3px 5px',
@@ -559,7 +559,7 @@ function TeamsContent() {
             padding: '6px 12px', borderRadius: 7, border: '1px dashed hsl(var(--border))',
             background: 'transparent', color: 'hsl(var(--muted-foreground))',
             fontSize: 14, fontWeight: 500, cursor: 'pointer',
-            fontFamily: "'Instrument Sans', sans-serif",
+            fontFamily: 'var(--app-font-sans)',
           }}
           className="hover:border-teal-500 hover:text-teal-600 transition-colors"
         >
@@ -612,7 +612,7 @@ export default function TeamAccessSection() {
       {/* Page header + stats strip */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 20 }}>
         <div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 4, color: 'hsl(var(--foreground))' }}>
+          <h1 style={{ fontSize: 20, fontWeight: 700, letterSpacing: 0, marginBottom: 4, color: 'hsl(var(--foreground))' }}>
             Team &amp; Access
           </h1>
           <p style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', margin: 0 }}>

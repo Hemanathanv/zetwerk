@@ -85,7 +85,7 @@ const CUSTOM_ALERT_OPTIONS: Array<{ value: string; name: string; description: st
 
 const PROVIDERS    = ['MarineTraffic', 'Project44', 'FourKites', 'Portcast', 'Custom API'];
 const DOC_STATUSES = ['UPLOADED', 'EXTRACTED', 'APPROVED', 'CLOSED'];
-const MONO: React.CSSProperties = { fontFamily: '"JetBrains Mono", monospace' };
+const MONO: React.CSSProperties = { fontFamily: 'var(--app-font-sans)' };
 const INP_S = (extra?: React.CSSProperties): React.CSSProperties => ({
   width: '100%', padding: '7px 10px', borderRadius: 6, fontSize: 14.5,
   border: '1px solid hsl(var(--border))', background: 'hsl(var(--background))',
@@ -306,7 +306,7 @@ function AlertCard({ alert, roles, onSave, onEdit, onDelete }: {
 
   return (
     <div style={{
-      background: 'hsl(var(--card))', borderRadius: 10,
+      background: 'hsl(var(--card))', borderRadius: 8,
       border: `1px solid ${alert.isActive ? 'hsl(var(--border))' : '#e2e8f0'}`,
       overflow: 'hidden',
       opacity: alert.isActive ? 1 : 0.65,
@@ -1080,7 +1080,7 @@ function MilestoneLibraryModal({ open, onClose, onImport, importing }: {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.45)' }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 12, width: 820, maxWidth: '95vw', maxHeight: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ background: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 8, width: 820, maxWidth: '95vw', maxHeight: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         {/* Header */}
         <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid hsl(var(--border))', display: 'flex', alignItems: 'center', gap: 10 }}>
           <Library size={18} style={{ color: '#2563eb' }} />
@@ -1097,7 +1097,7 @@ function MilestoneLibraryModal({ open, onClose, onImport, importing }: {
             const isImporting = importing === preset.id;
             const preview = preset.milestones.slice(0, 5);
             return (
-              <div key={preset.id} style={{ border: '1px solid hsl(var(--border))', borderRadius: 10, padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div key={preset.id} style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, padding: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{preset.name}</div>
                   <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', lineHeight: 1.5 }}>{preset.description}</div>
@@ -1344,7 +1344,7 @@ function MilestonesTab({ templates, selectedTplId, setSelectedTplId, milestones,
 
       {sorted.length === 0 ? (
         selectedTplId ? (
-          <div style={{ padding: '48px 24px', textAlign: 'center', border: '1.5px dashed hsl(var(--border))', borderRadius: 12, margin: '8px 0' }}>
+          <div style={{ padding: '48px 24px', textAlign: 'center', border: '1.5px dashed hsl(var(--border))', borderRadius: 8, margin: '8px 0' }}>
             <Library size={32} style={{ color: '#2563eb', marginBottom: 12 }} />
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Start from a template</div>
             <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', marginBottom: 20, maxWidth: 380, margin: '0 auto 20px' }}>

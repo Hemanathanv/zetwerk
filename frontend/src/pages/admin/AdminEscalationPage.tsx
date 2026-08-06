@@ -425,7 +425,7 @@ function SlaRow({
     padding: '12px 10px', verticalAlign: 'middle',
     borderBottom: '1px solid hsl(var(--border))',
   };
-  const monoS: React.CSSProperties = { fontFamily: 'monospace', fontSize: 14 };
+  const monoS: React.CSSProperties = { fontFamily: 'var(--app-font-sans)', fontSize: 14 };
 
   async function saveTextFld(field: 'scope' | 'baseDoc', value: string) {
     setSaving(true);
@@ -764,7 +764,7 @@ function ChannelMatrix({ channels, onChange }: ChannelMatrixProps) {
 
   return (
     <div style={{
-      background: 'hsl(var(--card))', borderRadius: 10,
+      background: 'hsl(var(--card))', borderRadius: 8,
       border: '1px solid hsl(var(--border))', overflow: 'hidden',
     }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -1134,7 +1134,7 @@ export function AdminEscalationPage() {
             </p>
 
             <div style={{
-              background: 'hsl(var(--card))', borderRadius: 10,
+              background: 'hsl(var(--card))', borderRadius: 8,
               border: '1px solid hsl(var(--border))', overflowX: 'auto', overflowY: 'hidden',
             }}>
               <table style={{ width: '100%', minWidth: 1120, borderCollapse: 'collapse', tableLayout: 'fixed' }}>

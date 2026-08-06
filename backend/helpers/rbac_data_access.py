@@ -269,6 +269,21 @@ IMPLIED_ACTIVITY_CODES: Final[dict[str, set[str]]] = {
 LEGACY_ACTIVITY_ALIASES: Final[dict[str, set[str]]] = {
     "documents.generate_draft": {"DOC-003"},
     "documents.approve_draft": {"DOC-003"},
+<<<<<<< HEAD
+=======
+    "dnd.view_tariffs": {"dnd.tariff.view"},
+    "dnd.view_charges": {"dnd.activate"},
+    "dnd.save_inputs": {
+        "dnd.activate",
+        "dnd.activate.start_event_date",
+        "dnd.activate.holiday_days",
+        "dnd.activate.weekends",
+    },
+    "dnd.manage_carriers": {"dnd.tariff.create", "dnd.tariff.edit"},
+    "dnd.upload_holidays": {"dnd.holiday_calendar.upload"},
+    "dnd.publish_tariff": {"dnd.tariff.create"},
+    "dnd.force_expire_tariff": {"dnd.tariff.force_expire"},
+>>>>>>> master
 }
 
 GENERATED_DOC_SOURCE_TYPES: Final[dict[str, set[str]]] = {

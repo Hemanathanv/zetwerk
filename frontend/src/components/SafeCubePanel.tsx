@@ -204,7 +204,7 @@ export function SafeCubeLivePanel({
     <div style={{
       backgroundColor: CARD,
       border: `1px solid ${BORDER}`,
-      borderRadius: 10,
+      borderRadius: 8,
       boxShadow: 'var(--vs-shadow-card)',
       marginTop: 16,
       overflow: 'hidden',
@@ -310,7 +310,7 @@ export function SafeCubeTimeline({ events }: { events: SafeCubeEvent[] }) {
     <div style={{
       backgroundColor: CARD,
       border: `1px solid ${BORDER}`,
-      borderRadius: 10,
+      borderRadius: 8,
       boxShadow: 'var(--vs-shadow-card)',
       marginTop: 16,
       overflow: 'hidden',
@@ -405,7 +405,7 @@ export function SafeCubeAlerts({ alerts }: { alerts: SafeCubeAlert[] }) {
     <div style={{
       backgroundColor: CARD,
       border: `1px solid ${BORDER}`,
-      borderRadius: 10,
+      borderRadius: 8,
       boxShadow: 'var(--vs-shadow-card)',
       overflow: 'hidden',
     }}>
@@ -426,7 +426,7 @@ export function SafeCubeAlerts({ alerts }: { alerts: SafeCubeAlert[] }) {
           {active.length > 0 && (
             <span style={{
               marginLeft: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              width: 18, height: 18, borderRadius: 9,
+              width: 18, height: 18, borderRadius: 8,
               fontSize: 14, fontWeight: 700, backgroundColor: RED, color: '#fff',
             }}>{active.length}</span>
           )}
@@ -529,7 +529,7 @@ export function LinkSafeCubePrompt({
     <div style={{
       backgroundColor: CARD,
       border: `1px solid ${BORDER}`,
-      borderRadius: 10,
+      borderRadius: 8,
       boxShadow: 'var(--vs-shadow-card)',
       padding: '16px 18px',
       marginTop: 16,

@@ -29,7 +29,7 @@ router = APIRouter(prefix=settings.API_SLUG + "/auth", tags=["Auth"])
 # =================================================================
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 class RefreshRequest(BaseModel):
@@ -140,6 +140,15 @@ ACTIVITY_MODULE_OVERRIDES = {
     "inventory.view_last_free_days_shipment_based": "dnd",
     "inventory.view_lfd_calendar": "dnd",
     "inventory.modify_lfd": "dnd",
+    "dnd.activate": "dnd",
+    "dnd.activate.start_event_date": "dnd",
+    "dnd.activate.holiday_days": "dnd",
+    "dnd.activate.weekends": "dnd",
+    "dnd.tariff.create": "dnd",
+    "dnd.tariff.edit": "dnd",
+    "dnd.tariff.view": "dnd",
+    "dnd.tariff.force_expire": "dnd",
+    "dnd.holiday_calendar.upload": "dnd",
     "users.manage": "admin",
     "roles.view": "admin",
     "roles.manage": "admin",
@@ -166,7 +175,7 @@ def _activity_module(activity_code: str) -> str:
     if code in ACTIVITY_MODULE_OVERRIDES:
         return ACTIVITY_MODULE_OVERRIDES[code]
     prefix = code.split(".", 1)[0]
-    if prefix in {"shipments", "documents", "inventory", "accounting", "reports", "tasks", "admin"}:
+    if prefix in {"shipments", "documents", "inventory", "dnd", "accounting", "reports", "tasks", "admin"}:
         return prefix
     return ""
 
@@ -287,7 +296,7 @@ async def login(request: LoginRequest):
     Login using Keycloak credentials
     """
     try:
-        token_response = await get_keycloak_token(request.email, request.password)
+        token_response = await get_keycloak_token(request.email.strip(), request.password)
         return {
             "status": "success",
             "access_token": token_response["access_token"],
@@ -384,6 +393,18 @@ LEGACY_ACTIVITY_ALIASES = {
     "tasks.assign": {"TSK-003"},
     "tasks.escalate": {"TSK-004"},
     "tasks.delegate": {"TSK-007"},
+    "dnd.view_tariffs": {"dnd.tariff.view"},
+    "dnd.view_charges": {"dnd.activate"},
+    "dnd.save_inputs": {
+        "dnd.activate",
+        "dnd.activate.start_event_date",
+        "dnd.activate.holiday_days",
+        "dnd.activate.weekends",
+    },
+    "dnd.manage_carriers": {"dnd.tariff.create", "dnd.tariff.edit"},
+    "dnd.upload_holidays": {"dnd.holiday_calendar.upload"},
+    "dnd.publish_tariff": {"dnd.tariff.create"},
+    "dnd.force_expire_tariff": {"dnd.tariff.force_expire"},
 }
 
 ACTIVITY_MIN_LEVELS = {

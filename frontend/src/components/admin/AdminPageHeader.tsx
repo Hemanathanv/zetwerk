@@ -25,7 +25,7 @@ export function AdminPageHeader({ title, description, badge, actions }: AdminPag
             style={{
               fontSize: 'var(--text-admin-title-size)',
               fontWeight: 'var(--text-admin-title-weight)',
-              letterSpacing: '-0.025em',
+              letterSpacing: 0,
               color: 'hsl(var(--foreground))',
               margin: 0,
             }}

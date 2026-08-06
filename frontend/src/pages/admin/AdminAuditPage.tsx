@@ -29,7 +29,7 @@ interface Filters {
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
-const MONO: React.CSSProperties = { fontFamily: '"JetBrains Mono", monospace' };
+const MONO: React.CSSProperties = { fontFamily: 'var(--app-font-sans)' };
 
 const ACTION_INTENT: Record<string, 'success' | 'info' | 'danger' | 'warning' | 'active' | 'neutral'> = {
   create: 'success',
@@ -408,7 +408,7 @@ function ActivityLog({ onExport }: { onExport: (filters: Filters) => void }) {
   return (
     <div>
       {/* Filter Bar */}
-      <div style={{ background: 'hsl(var(--card))', borderRadius: 10, padding: 16, marginBottom: 12, border: '1px solid hsl(var(--border))' }}>
+      <div style={{ background: 'hsl(var(--card))', borderRadius: 8, padding: 16, marginBottom: 12, border: '1px solid hsl(var(--border))' }}>
         {/* Row 1 */}
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -471,7 +471,7 @@ function ActivityLog({ onExport }: { onExport: (filters: Filters) => void }) {
       </div>
 
       {/* Table */}
-      <div style={{ background: 'hsl(var(--card))', borderRadius: 10, border: '1px solid hsl(var(--border))', overflow: 'hidden' }}>
+      <div style={{ background: 'hsl(var(--card))', borderRadius: 8, border: '1px solid hsl(var(--border))', overflow: 'hidden' }}>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}>
             <Loader2 size={22} className="animate-spin" style={{ color: 'hsl(var(--muted-foreground))' }} />

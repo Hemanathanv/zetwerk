@@ -25,7 +25,7 @@ export default function DateRangeForm({
 
   return (
     <div className="mt-4 pt-4 border-t border-border">
-      <div className="flex flex-wrap items-end gap-4 p-4 bg-card rounded-xl border border-border">
+      <div className="flex flex-wrap items-end gap-4 p-4 bg-card rounded-lg border border-border">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="from-date" className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
             From Date <span className="text-muted-foreground/50">(optional)</span>

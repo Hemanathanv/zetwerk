@@ -23,18 +23,18 @@ const T = {
   surface:     'hsl(var(--card))',
   border:      'hsl(var(--border))',
   borderMid:   'hsl(var(--border))',
-  teal:        '#0D9488',
-  tealDark:    '#0F766E',
-  tealLight:   '#CCFBF1',
-  tealBg:      'rgba(13,148,136,0.10)',
-  green:       '#10B981',
-  greenBg:     'rgba(16,185,129,0.10)',
-  amber:       '#D97706',
-  amberBg:     'rgba(217,119,6,0.10)',
-  amberBorder: 'rgba(217,119,6,0.30)',
-  blue:        '#0EA5E9',
-  blueBg:      'rgba(14,165,233,0.10)',
-  blueBorder:  'rgba(14,165,233,0.30)',
+  teal:        'hsl(var(--primary))',
+  tealDark:    'hsl(var(--primary))',
+  tealLight:   'hsl(var(--primary) / 0.22)',
+  tealBg:      'hsl(var(--primary) / 0.10)',
+  green:       'hsl(var(--vs-success))',
+  greenBg:     'hsl(var(--vs-success) / 0.10)',
+  amber:       'hsl(var(--vs-warning))',
+  amberBg:     'hsl(var(--vs-warning) / 0.10)',
+  amberBorder: 'hsl(var(--vs-warning) / 0.30)',
+  blue:        'hsl(var(--vs-info))',
+  blueBg:      'hsl(var(--vs-info) / 0.10)',
+  blueBorder:  'hsl(var(--vs-info) / 0.30)',
   slate900:    'hsl(var(--foreground))',
   slate700:    'hsl(var(--foreground))',
   slate500:    'hsl(var(--muted-foreground))',
@@ -69,7 +69,7 @@ function ProgressRing({ pct, attentionCount }: { pct: number; attentionCount: nu
           alignItems: 'center', justifyContent: 'center',
         }}>
           <span style={{
-            fontFamily: "'Jura', sans-serif",
+            fontFamily: 'var(--app-font-sans)',
             fontSize: 20, fontWeight: 700,
             color: T.slate900, lineHeight: 1,
           }}>
@@ -84,7 +84,7 @@ function ProgressRing({ pct, attentionCount }: { pct: number; attentionCount: nu
         <div style={{
           marginTop: 8, fontSize: 14.5, color: T.amber,
           fontWeight: 600, textAlign: 'center',
-          fontFamily: "'Instrument Sans', sans-serif",
+          fontFamily: 'var(--app-font-sans)',
         }}>
           {attentionCount} need{attentionCount === 1 ? 's' : ''} attention
         </div>
@@ -120,18 +120,18 @@ function SettingsPanel({
   return (
     <div>
       <div style={{ marginBottom: 8 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: T.slate900, fontFamily: "'BricolageGrotesque', sans-serif", margin: 0 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 700, color: T.slate900, fontFamily: 'var(--app-font-sans)', margin: 0 }}>
           {title}
         </h2>
-        <p style={{ fontSize: 14, color: T.slate500, marginTop: 4, fontFamily: "'Instrument Sans', sans-serif" }}>
+        <p style={{ fontSize: 14, color: T.slate500, marginTop: 4, fontFamily: 'var(--app-font-sans)' }}>
           {description}
         </p>
       </div>
       {showAdvanced && (
         <div style={{
           background: T.amberBg, border: `1px solid ${T.amberBorder}`,
-          borderRadius: 10, padding: '10px 14px', marginBottom: 16,
-          fontSize: 14, color: T.amber, fontFamily: "'Instrument Sans', sans-serif",
+          borderRadius: 8, padding: '10px 14px', marginBottom: 16,
+          fontSize: 14, color: T.amber, fontFamily: 'var(--app-font-sans)',
         }}>
           Advanced configuration mode — changes here directly affect system behavior.
         </div>
@@ -149,7 +149,7 @@ function UnderBuildPanel({ title }: { title: string }) {
       alignItems: 'center',
       justifyContent: 'center',
       border: `1px solid ${T.border}`,
-      borderRadius: 10,
+      borderRadius: 8,
       background: T.surface,
       textAlign: 'center',
       padding: 24,
@@ -160,7 +160,7 @@ function UnderBuildPanel({ title }: { title: string }) {
           fontSize: 22,
           fontWeight: 700,
           color: T.slate900,
-          fontFamily: "'BricolageGrotesque', sans-serif",
+          fontFamily: 'var(--app-font-sans)',
         }}>
           {title}
         </h3>
@@ -168,7 +168,7 @@ function UnderBuildPanel({ title }: { title: string }) {
           margin: '8px 0 0',
           fontSize: 14.5,
           color: T.slate500,
-          fontFamily: "'Instrument Sans', sans-serif",
+          fontFamily: 'var(--app-font-sans)',
         }}>
           Currently under build
         </p>
@@ -209,7 +209,7 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
         minHeight: 0,
         flex: 1,
         background: T.bg,
-        fontFamily: "'Instrument Sans', sans-serif",
+        fontFamily: 'var(--app-font-sans)',
       }}
     >
       {/* ── Sidebar ─────────────────────────────────────────── */}
@@ -302,7 +302,7 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
                     fontSize: 14.5, fontWeight: active ? 600 : 400,
                     color: active ? T.tealDark : T.slate700,
                     flex: 1,
-                    fontFamily: "'Instrument Sans', sans-serif",
+                    fontFamily: 'var(--app-font-sans)',
                     whiteSpace: 'nowrap',
                   }}>
                     {s.label}
@@ -313,7 +313,7 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
                     background: T.amber, color: '#fff',
                     borderRadius: 99, fontSize: 14, fontWeight: 700,
                     padding: '1px 6px', flexShrink: 0,
-                    fontFamily: "'Jura', sans-serif",
+                    fontFamily: 'var(--app-font-sans)',
                   }}>
                     {attentionCount}
                   </span>
@@ -368,13 +368,13 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
             <div style={{
               fontSize: 14.5, fontWeight: 700, color: T.slate400,
               letterSpacing: '0.1em', textTransform: 'uppercase',
-              fontFamily: "'Instrument Sans', sans-serif",
+              fontFamily: 'var(--app-font-sans)',
             }}>
               Organisation Settings
             </div>
             <div style={{
               fontSize: 26, fontWeight: 700, color: T.slate900,
-              fontFamily: "'BricolageGrotesque', sans-serif",
+              fontFamily: 'var(--app-font-sans)',
               lineHeight: 1.1, marginTop: 2,
             }}>
               {orgName ?? 'Your Organisation'}
@@ -390,7 +390,7 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
                   border: `1px solid ${showAdvanced ? T.teal : T.border}`,
                   color: showAdvanced ? T.teal : T.slate700,
                   borderRadius: 8, cursor: 'pointer',
-                  fontFamily: "'Instrument Sans', sans-serif",
+                  fontFamily: 'var(--app-font-sans)',
                   transition: 'all 0.15s',
                 }}
               >
@@ -403,7 +403,7 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
                 padding: '8px 20px', fontSize: 14.5, fontWeight: 600,
                 background: T.teal, color: '#fff', border: 'none',
                 borderRadius: 8, cursor: 'pointer', opacity: 1,
-                fontFamily: "'Instrument Sans', sans-serif",
+                fontFamily: 'var(--app-font-sans)',
               }}
               title="Save organisation settings"
             >
@@ -413,7 +413,7 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
         </header>
 
         {/* Content area */}
-        <main style={{ flex: 1, overflowY: 'auto', padding: '32px 32px 0', background: T.bg, minHeight: 0 }}>
+        <main style={{ flex: 1, overflowY: 'auto', padding: 'var(--ewms-page-padding-y) var(--ewms-page-padding-x) 0', background: T.bg, minHeight: 0 }}>
           {activeSection === 'overview' && (
             <SetupChecklist
               onNavigate={setActiveSection}
@@ -459,10 +459,10 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
           {activeSection === 'tracking' && (
             <div>
               <div style={{ marginBottom: 20 }}>
-                <h2 style={{ fontSize: 22, fontWeight: 700, color: T.slate900, fontFamily: "'BricolageGrotesque', sans-serif", margin: 0 }}>
+                <h2 style={{ fontSize: 22, fontWeight: 700, color: T.slate900, fontFamily: 'var(--app-font-sans)', margin: 0 }}>
                   Vessel Tracking
                 </h2>
-                <p style={{ fontSize: 14, color: T.slate500, marginTop: 4, fontFamily: "'Instrument Sans', sans-serif" }}>
+                <p style={{ fontSize: 14, color: T.slate500, marginTop: 4, fontFamily: 'var(--app-font-sans)' }}>
                   Connect SafeCube to surface live AIS position, ETA, and schedule status on all shipments.
                 </p>
               </div>
@@ -495,10 +495,10 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
           padding: '0 32px',
           flexShrink: 0,
         }}>
-          <span style={{ fontSize: 14.5, color: T.slate400, fontFamily: "'Instrument Sans', sans-serif" }}>
+          <span style={{ fontSize: 14.5, color: T.slate400, fontFamily: 'var(--app-font-sans)' }}>
             Auto-saving · Last saved just now
           </span>
-          <span style={{ fontSize: 14.5, color: T.slate400, fontFamily: "'Instrument Sans', sans-serif" }}>
+          <span style={{ fontSize: 14.5, color: T.slate400, fontFamily: 'var(--app-font-sans)' }}>
             EWMS v2.0 · {orgName ?? 'Org'}
           </span>
         </footer>

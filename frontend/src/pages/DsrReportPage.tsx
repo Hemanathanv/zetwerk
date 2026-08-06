@@ -256,7 +256,7 @@ export function DsrReportPage() {
       {/* Header */}
       <div className="flex items-start justify-between mb-5">
         <div>
-          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Daily Status Report</h1>
+          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Daily Status Report</h1>
           <p className="text-[13px] text-muted-foreground mt-0.5">
             {today} · {stats.total} shipment{stats.total !== 1 ? 's' : ''}
           </p>
@@ -333,7 +333,7 @@ export function DsrReportPage() {
 
       {/* Error */}
       {!loading && error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
           <p className="text-sm text-red-700 font-medium">{error}</p>
         </div>
       )}
@@ -341,7 +341,7 @@ export function DsrReportPage() {
       {/* DSR Matrix */}
       {!loading && !error && (
         <>
-          <div className="bg-card rounded-xl overflow-hidden border">
+          <div className="bg-card rounded-lg overflow-hidden border">
             <div className="overflow-x-auto">
               <table className="w-full text-[12px]">
                 <thead>
@@ -369,7 +369,7 @@ export function DsrReportPage() {
           </div>
 
           {filtered.length === 0 && (
-            <div className="bg-card rounded-xl p-10 text-center mt-2 border">
+            <div className="bg-card rounded-lg p-10 text-center mt-2 border">
               <ClipboardList className="w-8 h-8 mx-auto text-muted-foreground/30" />
               <p className="text-[14.5px] text-muted-foreground mt-3">
                 {rows.length === 0 ? 'No active shipments found' : 'No shipments match your search'}

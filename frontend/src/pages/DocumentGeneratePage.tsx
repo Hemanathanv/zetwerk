@@ -5,10 +5,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOC_GEN_SCHEMAS, DocGenSchema, FieldMapping, GenSection } from '@/config/docGenConfig';
+import { getDocConfig } from '@/config/docFieldConfig';
 import { apiGet, apiPatch, apiPost } from '@/lib/api';
 import type { MappingType } from '@/config/docGenConfig';
+import type { DocumentDetailRecord, JsonValue } from '@/types/backend';
 import { DocumentPreviewModal } from '@/components/DocumentPreviewModal';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { SegmentedControl } from '@/components/ewms/SegmentedControl';
 import { useLocation, useParams } from 'wouter';
 import { usePermissions } from '@/contexts/PermissionContext';
 import { allowedDocGenerationOptions } from '@/lib/docGenerationAccess';
@@ -46,7 +50,7 @@ const SEMANTIC_SURFACE = {
   },
 } as const;
 
-const MONO = { fontFamily: 'var(--font-mono,"JetBrains Mono",monospace)' } as const;
+const MONO = { fontFamily: 'var(--app-font-sans)' } as const;
 
 // ─── Queue data types ──────────────────────────────────────────────────────────
 
@@ -90,6 +94,7 @@ interface DraftPayload {
   schemaVersion: number;
   sourceDocs: string[];
   sourceDocumentIds: Record<string, string>;
+  sourceExtractedData?: Record<string, SourceExtractedData>;
   sections: Array<{ sectionLabel: string; fields: DraftFieldValue[] }>;
   lineItems: Array<Record<string, unknown>>;
   containers: Array<Record<string, unknown>>;
@@ -145,6 +150,53 @@ const DRAFT_BOE_OPTIONAL_FIELDS = new Set([
 function isRequiredManualMapping(schema: DocGenSchema, mapping: FieldMapping): boolean {
   const isManual = mapping.mappingType === 'manual' || mapping.mappingType === 'conditional';
   return isManual && (schema.docType !== 'draft-boe' || !DRAFT_BOE_OPTIONAL_FIELDS.has(mapping.targetField));
+}
+
+interface SourceExtractedData {
+  documentId?: string | null;
+  docType?: string | null;
+  fileName?: string | null;
+  contentType?: string | null;
+  rawData?: JsonValue | null;
+  arrays?: Record<string, Array<Record<string, JsonValue>>> | null;
+  lineItems?: Array<Record<string, JsonValue>> | null;
+}
+
+function isJsonRecord(value: JsonValue | undefined | null): value is Record<string, JsonValue> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function extractionValue(rawData: JsonValue | null | undefined, key: string): JsonValue | undefined {
+  if (!isJsonRecord(rawData)) return undefined;
+  if (rawData[key] !== undefined) return rawData[key];
+  for (const value of Object.values(rawData)) {
+    if (isJsonRecord(value) && value[key] !== undefined) return value[key];
+  }
+  return undefined;
+}
+
+function displayExtractionValue(value: JsonValue | undefined): string {
+  if (value === undefined || value === null || value === '') return 'Field not in the file';
+  if (Array.isArray(value)) return value.length ? JSON.stringify(value) : 'Field not in the file';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function flattenExtractionFields(value: JsonValue | null | undefined, prefix = ''): Array<{ key: string; label: string; value: string }> {
+  if (!isJsonRecord(value)) return [];
+  const rows: Array<{ key: string; label: string; value: string }> = [];
+  for (const [key, child] of Object.entries(value)) {
+    const nextKey = prefix ? `${prefix}.${key}` : key;
+    if (child === null || child === undefined || child === '') continue;
+    if (Array.isArray(child)) {
+      continue;
+    } else if (isJsonRecord(child)) {
+      rows.push(...flattenExtractionFields(child, nextKey));
+    } else {
+      rows.push({ key: nextKey, label: nextKey, value: displayExtractionValue(child) });
+    }
+  }
+  return rows;
 }
 
 function docGenerationDisplayName(docType: string, fallback?: string): string {
@@ -262,7 +314,7 @@ function QueueTable({
         <div style={{ display: 'flex', gap: 4 }}>
           {FILTERS.map(t => (
             <button key={t.key} onClick={() => onFilter(t.key)} style={{
-              fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 20,
+              fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 999,
               border: `1px solid ${filter === t.key ? TEAL : BORDER}`,
               background: filter === t.key ? 'hsla(173,58%,39%,0.08)' : 'transparent',
               color: filter === t.key ? TEAL : MUTED, cursor: 'pointer',
@@ -270,7 +322,7 @@ function QueueTable({
             }}>
               {t.label}
               <span style={{
-                fontSize: 10, fontWeight: 700, padding: '0 4px', borderRadius: 10, lineHeight: '16px',
+                fontSize: 10, fontWeight: 700, padding: '0 4px', borderRadius: 8, lineHeight: '16px',
                 background: filter === t.key ? 'hsla(173,58%,39%,0.15)' : 'hsl(var(--muted))',
                 color: filter === t.key ? TEAL : MUTED,
               }}>
@@ -343,7 +395,7 @@ function QueueTable({
                       <span style={{ ...MONO, fontSize: 12, fontWeight: 600, color: TEAL }}>{item.shipmentRef}</span>
                     ) : (
                       <span style={{
-                        fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 600,
+                        fontSize: 11, padding: '2px 9px', borderRadius: 999, fontWeight: 600,
                         background: 'hsla(38,92%,50%,0.10)', color: AMBER,
                       }}>
                         Unattached
@@ -703,15 +755,14 @@ function ActionRequiredCard({ schema, manualValues, onManualChange }: {
   const totalRequired  = scalarManual.length + tableTotalAll;
   const totalFilled    = scalarFilled + tableFilledAll;
   const allFilled      = totalFilled >= totalRequired;
-  const cardSignal = allFilled ? SEMANTIC_SURFACE.success : SEMANTIC_SURFACE.danger;
 
   if (totalRequired === 0) return null;
 
   return (
     <div style={{
-      background: cardSignal.background,
-      border: cardSignal.border,
-      borderRadius: 10, padding: '14px 16px', marginBottom: 18,
+      background: 'hsl(var(--card))',
+      border: `1px solid ${BORDER}`,
+      borderRadius: 8, padding: '14px 16px', marginBottom: 18,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: allFilled ? 0 : 14 }}>
         <div style={{
@@ -866,7 +917,7 @@ function BlockedView({ item, schema }: { item: GenQueueItem; schema: DocGenSchem
     <div style={{ maxWidth: 540 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
         <div style={{
-          width: 44, height: 44, borderRadius: 10, flexShrink: 0,
+          width: 44, height: 44, borderRadius: 8, flexShrink: 0,
           background: 'hsla(38,92%,50%,0.10)', border: '1.5px solid hsla(38,92%,50%,0.30)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
@@ -895,7 +946,7 @@ function BlockedView({ item, schema }: { item: GenQueueItem; schema: DocGenSchem
       )}
 
       <div style={{
-        background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 10,
+        background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8,
         overflow: 'hidden', marginBottom: 16,
       }}>
         <div style={{
@@ -930,7 +981,7 @@ function BlockedView({ item, schema }: { item: GenQueueItem; schema: DocGenSchem
             </div>
             {prereq.met && (
               <span style={{
-                fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 20,
+                fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 999,
                 background: 'hsla(152,69%,31%,0.10)', color: GREEN, flexShrink: 0,
               }}>
                 Done
@@ -1102,6 +1153,396 @@ function SourceDocPanel({ schema, onClose }: { schema: DocGenSchema; onClose: ()
 }
 
 // ─── StickyReviewFooter ───────────────────────────────────────────────────────
+
+function BrokerExtractionPanel({
+  document,
+  loading,
+  schema,
+  onOpenSource,
+  snapshot,
+}: {
+  document: DocumentDetailRecord | null;
+  loading: boolean;
+  schema: DocGenSchema;
+  onOpenSource?: () => void;
+  snapshot?: SourceExtractedData | null;
+}) {
+  const extraction = document?.extraction ?? document?.salesInvoiceExtraction ?? null;
+  const rawData = extraction?.rawData ?? snapshot?.rawData ?? null;
+  const docType = document?.docType ?? snapshot?.docType ?? 'DRAFT_CBP_FORM_7501_BROKER';
+  const fileName = document?.fileName ?? snapshot?.fileName ?? 'Broker extraction';
+  const config = getDocConfig(docType);
+  const brokerRows = isJsonRecord(rawData) && Array.isArray(rawData.lineItems)
+    ? rawData.lineItems.filter(isJsonRecord)
+    : [];
+  void schema;
+  const configuredKeys = new Set(config?.sections.flatMap(section => section.fields.map(field => field.key)) ?? []);
+  const additionalFields = flattenExtractionFields(rawData)
+    .filter(field => {
+      const lastKey = field.key.split('.').pop()?.replace(/\[\d+\]/g, '') ?? field.key;
+      return !configuredKeys.has(lastKey);
+    });
+  const extractedTables = [
+    ...Object.entries(extraction?.arrays ?? snapshot?.arrays ?? {}).map(([title, rows]) => ({ title, rows })),
+    ...(brokerRows.length ? [{ title: 'lineItems', rows: brokerRows }] : []),
+    ...((extraction?.lineItems ?? snapshot?.lineItems)?.length ? [{ title: 'lineItems', rows: (extraction?.lineItems ?? snapshot?.lineItems) ?? [] }] : []),
+  ].filter((table, index, tables) => (
+    table.rows.length > 0 && tables.findIndex(other => other.title === table.title) === index
+  ));
+  const hasBrokerData = Boolean(document || snapshot);
+  const isWaitingForData = loading && !snapshot;
+  return (
+    <aside style={{
+      borderLeft: `2px solid ${BORDER}`,
+      background: 'hsl(var(--card))',
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      minWidth: 0,
+      minHeight: 0,
+      overflow: 'hidden',
+    }}>
+      <div style={{ padding: '12px 14px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <FileText size={14} style={{ color: TEAL }} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: FG }}>DRAFT_CBP_FORM_7501_BROKER</div>
+            <div style={{ fontSize: 11, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {fileName}
+            </div>
+          </div>
+          {onOpenSource && (
+            <Button type="button" variant="outline" size="sm" onClick={onOpenSource} className="shrink-0 gap-1.5">
+              <FileText className="size-3.5" />
+              Broker source
+            </Button>
+          )}
+        </div>
+      </div>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14 }}>
+        {isWaitingForData ? (
+          <div style={{ color: MUTED, fontSize: 13, padding: 12 }}>Loading broker extracted fields...</div>
+        ) : !hasBrokerData ? (
+          <div style={{ color: MUTED, fontSize: 13, padding: 12, border: `1px dashed ${BORDER}`, borderRadius: 8 }}>
+            No uploaded broker extraction is linked to this generated draft.
+          </div>
+        ) : !rawData ? (
+          <div style={{ color: MUTED, fontSize: 13, padding: 12, border: `1px dashed ${BORDER}`, borderRadius: 8 }}>
+            Broker extraction fields are not available yet.
+          </div>
+        ) : !config ? (
+          <div style={{ color: MUTED, fontSize: 13, padding: 12, border: `1px dashed ${BORDER}`, borderRadius: 8 }}>
+            No extraction field schema is configured for this broker document.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {config.sections.map(section => (
+              <div key={section.sectionLabel}>
+                <div style={{ fontSize: 10, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+                  {section.sectionLabel}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                  {section.fields.map(field => (
+                    <BrokerExtractedFieldCard key={field.key} label={field.label} value={displayExtractionValue(extractionValue(rawData, field.key))} />
+                  ))}
+                </div>
+              </div>
+            ))}
+            {extractedTables.map(table => (
+              <BrokerExtractedLineItemsTable key={table.title} rows={table.rows} title={table.title} />
+            ))}
+            {additionalFields.length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+                  Additional Extracted Fields
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
+                  {additionalFields.map(field => (
+                    <BrokerExtractedFieldCard key={field.key} label={field.label} value={field.value} multiline />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function BrokerExtractedFieldCard({ label, value, multiline = false }: { label: string; value: string; multiline?: boolean }) {
+  const empty = value === 'Field not in the file';
+  return (
+    <div style={{
+      border: `1px solid ${empty ? 'hsla(0,84%,60%,0.20)' : BORDER}`,
+      borderRadius: 8,
+      padding: '9px 11px',
+      backgroundColor: empty ? 'hsla(0,84%,60%,0.035)' : 'hsl(var(--card))',
+      minWidth: 0,
+    }}>
+      <div style={{ fontSize: 10, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: multiline ? 'normal' : 'nowrap' }}>
+        {label}
+      </div>
+      <div
+        style={{
+          fontSize: 12.5,
+          color: empty ? RED : FG,
+          fontStyle: empty ? 'italic' : 'normal',
+          overflow: multiline ? 'visible' : 'hidden',
+          textOverflow: multiline ? undefined : 'ellipsis',
+          whiteSpace: multiline ? 'normal' : 'nowrap',
+          overflowWrap: multiline ? 'anywhere' : undefined,
+          lineHeight: 1.35,
+        }}
+        title={value}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function BrokerExtractedLineItemsTable({ rows, title = 'Line Items' }: { rows: Record<string, JsonValue>[]; title?: string }) {
+  const columns = useMemo(
+    () => Array.from(rows.reduce((keys, row) => {
+      Object.keys(row).forEach(key => {
+        const value = row[key];
+        if (value !== null && value !== undefined && value !== '') keys.add(key);
+      });
+      return keys;
+    }, new Set<string>())),
+    [rows],
+  );
+  if (!rows.length || !columns.length) {
+    return (
+      <div style={{ padding: 12, color: MUTED, fontSize: 12 }}>
+        No extracted line items found.
+      </div>
+    );
+  }
+  return (
+    <section>
+      <div style={{ fontSize: 10, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+        {title.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ')}
+      </div>
+      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'auto', backgroundColor: 'hsl(var(--card))' }}>
+        <table style={{ width: '100%', minWidth: Math.max(760, columns.length * 190), borderCollapse: 'collapse', tableLayout: 'auto' }}>
+          <thead>
+          <tr style={{ background: 'hsl(var(--muted) / 0.45)' }}>
+            <th style={{ width: 44, padding: '9px 10px', borderBottom: `1px solid ${BORDER}`, fontSize: 10, color: MUTED, textAlign: 'left' }}>#</th>
+            {columns.map(column => (
+              <th key={column} style={{ padding: '9px 10px', borderBottom: `1px solid ${BORDER}`, borderLeft: `1px solid ${BORDER}`, fontSize: 10, color: MUTED, textAlign: 'left', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
+                {column.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ')}
+              </th>
+            ))}
+          </tr>
+          </thead>
+          <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr key={rowIndex}>
+              <td style={{ padding: '9px 10px', borderTop: rowIndex === 0 ? 'none' : `1px solid ${BORDER}`, fontSize: 11, color: MUTED }}>{rowIndex + 1}</td>
+              {columns.map(column => {
+                const value = displayExtractionValue(row[column]);
+                const empty = value === 'Field not in the file';
+                return (
+                  <td key={column} style={{ minWidth: 140, padding: '9px 10px', borderTop: rowIndex === 0 ? 'none' : `1px solid ${BORDER}`, borderLeft: `1px solid ${BORDER}`, fontSize: 12, color: empty ? RED : FG, fontStyle: empty ? 'italic' : 'normal', verticalAlign: 'top', lineHeight: 1.35 }}>
+                    {value}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function SourceDocumentPopup({
+  document,
+  loading,
+  title,
+  comparisonTitle,
+  comparison,
+  onClose,
+}: {
+  document: DocumentDetailRecord | null;
+  loading: boolean;
+  title: string;
+  comparisonTitle: string;
+  comparison: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 9000,
+          background: 'hsla(0,0%,0%,0.48)',
+          backdropFilter: 'blur(2px)',
+        }}
+      />
+      <div
+        onClick={event => event.stopPropagation()}
+        style={{
+          position: 'fixed',
+          zIndex: 9001,
+          top: 34,
+          left: 42,
+          right: 42,
+          bottom: 34,
+          background: 'hsl(var(--background))',
+          border: `1px solid ${BORDER}`,
+          borderRadius: 10,
+          boxShadow: '0 28px 90px hsla(0,0%,0%,0.30)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{
+          padding: '12px 16px',
+          borderBottom: `1px solid ${BORDER}`,
+          background: 'hsl(var(--card))',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexShrink: 0,
+        }}>
+          <FileText size={15} style={{ color: TEAL, flexShrink: 0 }} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: FG }}>{title}</div>
+            <div style={{ fontSize: 11.5, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {loading ? 'Loading source document...' : document?.fileName ?? 'Source document not found'}
+            </div>
+          </div>
+          <div style={{ flex: 1 }} />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Close source document"
+            title="Close source document"
+            onClick={onClose}
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+        <div style={{ flex: 1, minHeight: 0, padding: 14, background: 'hsl(var(--muted) / 0.30)', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14 }}>
+          <div style={{ minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+              {title}
+            </div>
+            <SourceDocumentPreviewPane document={document} loading={loading} title={title} />
+          </div>
+          <div style={{ minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+              {comparisonTitle}
+            </div>
+            {comparison}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function SourceDocumentPreviewPane({ document, loading, title }: { document: DocumentDetailRecord | null; loading: boolean; title: string }) {
+  const isImage = document?.contentType?.startsWith('image/');
+  if (loading) {
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 13, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8 }}>
+        Loading source document...
+      </div>
+    );
+  }
+  if (!document) {
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 13, background: 'hsl(var(--card))', border: `1px dashed ${BORDER}`, borderRadius: 8, padding: 18, textAlign: 'center' }}>
+        No linked source document is available for this draft.
+      </div>
+    );
+  }
+  if (!document.previewUrl) {
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 13, background: 'hsl(var(--card))', border: `1px dashed ${BORDER}`, borderRadius: 8, padding: 18, textAlign: 'center' }}>
+        Preview is not available for this source document.
+      </div>
+    );
+  }
+  return isImage ? (
+    <div style={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8 }}>
+      <img src={document.previewUrl} alt={document.fileName} style={{ maxWidth: '100%', height: 'auto', background: '#fff' }} />
+    </div>
+  ) : (
+    <iframe
+      title={title}
+      src={document.previewUrl}
+      style={{ flex: 1, minHeight: 0, width: '100%', border: `1px solid ${BORDER}`, borderRadius: 8, background: '#fff' }}
+    />
+  );
+}
+
+function GeneratedDraftComparisonPanel({
+  schema,
+  manualValues,
+  computedFields,
+  computedRowMap,
+}: {
+  schema: DocGenSchema;
+  manualValues: Record<string, string>;
+  computedFields: Record<string, string>;
+  computedRowMap: Record<string, Record<string, string>[]>;
+}) {
+  const valueFor = (targetField: string) =>
+    manualValues[targetField]
+    ?? computedFields[targetField]
+    ?? schema.mockData.fields[targetField]
+    ?? '';
+  return (
+    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: 14 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {schema.sections.filter(section => section.renderAs === 'fields').map(section => (
+          <section key={section.sectionLabel}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+              {section.sectionLabel}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+              {section.mappings.map(mapping => (
+                <BrokerExtractedFieldCard
+                  key={mapping.targetField}
+                  label={mapping.targetLabel}
+                  value={displayExtractionValue(valueFor(mapping.targetField))}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+        {schema.sections.filter(section => section.renderAs === 'table').map(section => {
+          const rows = (schema.mockData.tables as Record<string, Array<Record<string, JsonValue>>>)[section.sectionLabel] ?? [];
+          const mergedRows = rows.map((row, rowIndex) => Object.fromEntries(
+            section.mappings
+              .filter(mapping => mapping.isLineItem !== false)
+              .map(mapping => [
+                mapping.targetField,
+                manualValues[`${section.sectionLabel}.${rowIndex}.${mapping.targetField}`]
+                  ?? computedRowMap[section.sectionLabel]?.[rowIndex]?.[mapping.targetField]
+                  ?? row[mapping.targetField]
+                  ?? null,
+              ]),
+          )) as Record<string, JsonValue>[];
+          return (
+            <BrokerExtractedLineItemsTable key={section.sectionLabel} rows={mergedRows} title={section.sectionLabel} />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function StickyReviewFooter({ schema, manualValues, computedFields, computedRowMap, isApproved, isBlocked, onApprove, onPreview, approving }: {
   schema:       DocGenSchema;
@@ -1338,6 +1779,8 @@ function OverflowMenu() {
 function DocReviewModal({
   item, schema, siblings, isBlocked, isApproved, manualValues,
   computedDerivations, packageTypes, sourcePanelOpen, approving, showPreview,
+  bolDocument, bolDocumentLoading, brokerDocument, brokerDocumentLoading,
+  brokerSourceExtractedData,
   onClose, onManualChange, onPackageTypeChange, onApprove, onPreview, onSelectSibling,
   onToggleSourcePanel, onSetShowPreview,
 }: {
@@ -1352,6 +1795,11 @@ function DocReviewModal({
   sourcePanelOpen:     boolean;
   approving:           boolean;
   showPreview:         boolean;
+  bolDocument:         DocumentDetailRecord | null;
+  bolDocumentLoading:  boolean;
+  brokerDocument:      DocumentDetailRecord | null;
+  brokerDocumentLoading: boolean;
+  brokerSourceExtractedData: SourceExtractedData | null;
   onClose:             () => void;
   onManualChange:      (key: string, v: string) => void;
   onPackageTypeChange: (rowIndex: number, value: string, customTypes: string[]) => void;
@@ -1366,6 +1814,8 @@ function DocReviewModal({
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
+  const isEntrySummaryReview = schema.docType === 'draft-boe';
+  const [sourcePopup, setSourcePopup] = useState<'bol' | 'broker' | null>(null);
 
   return (
     <>
@@ -1384,10 +1834,11 @@ function DocReviewModal({
         onClick={e => e.stopPropagation()}
         style={{
           position: 'fixed', zIndex: 8001,
-          top: 24, left: 24, right: 24, bottom: 24,
-          margin: 'auto', maxWidth: 1380, maxHeight: 920,
+          top: 18, left: 18, right: 18, bottom: 18,
+          margin: 0, maxWidth: 'none', maxHeight: 'none',
           background: 'hsl(var(--background))',
-          borderRadius: 14,
+          border: `1px solid ${BORDER}`,
+          borderRadius: 10,
           boxShadow: '0 32px 100px hsla(0,0%,0%,0.28)',
           display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
@@ -1402,13 +1853,11 @@ function DocReviewModal({
           {/* Title */}
           <div style={{ minWidth: 0, flexShrink: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <h2 style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.02em', color: FG, margin: 0, whiteSpace: 'nowrap' }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0, color: FG, margin: 0, whiteSpace: 'nowrap' }}>
                 {isBlocked ? 'Waiting:' : isApproved ? 'Approved:' : 'Draft:'}{' '}{docGenerationDisplayName(schema.docType, schema.displayName)}
               </h2>
               {isApproved && (
-                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'hsla(152,69%,31%,0.12)', color: GREEN, flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                  <CheckCircle2 size={9} /> Approved
-                </span>
+                <Badge intent="success" size="sm" leadingIcon={<CheckCircle2 className="size-3" />}>Approved</Badge>
               )}
             </div>
             <p style={{ fontSize: 11.5, color: MUTED, margin: '2px 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1447,51 +1896,74 @@ function DocReviewModal({
           <div style={{ flex: 1 }} />
 
           {/* Source doc toggle */}
-          {!isBlocked && (
-            <button onClick={onToggleSourcePanel} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              padding: '5px 11px', borderRadius: 7, flexShrink: 0,
-              border: `1px solid ${sourcePanelOpen ? TEAL : BORDER}`,
-              background: sourcePanelOpen ? 'hsla(173,58%,39%,0.08)' : 'transparent',
-              cursor: 'pointer', fontSize: 12, fontWeight: 600,
-              color: sourcePanelOpen ? TEAL : MUTED, transition: 'all 0.15s',
-            }}>
-              <FileText size={12} />
+          {!isBlocked && !isEntrySummaryReview && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onToggleSourcePanel}
+              className="shrink-0 gap-1.5"
+            >
+              <FileText className="size-3.5" />
               {sourcePanelOpen ? 'Hide source' : 'View source doc'}
-            </button>
+            </Button>
           )}
 
           {!isBlocked && <OverflowMenu />}
 
           {/* Close */}
-          <button onClick={onClose} style={{
-            width: 30, height: 30, borderRadius: 7, border: `1px solid ${BORDER}`,
-            background: 'transparent', cursor: 'pointer', flexShrink: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-          onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = 'hsl(var(--muted))'}
-          onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = 'transparent'}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Close document generation review"
+            title="Close"
+            onClick={onClose}
+            className="shrink-0"
           >
-            <X size={15} style={{ color: MUTED }} />
-          </button>
+            <X className="size-4" />
+          </Button>
         </div>
 
         {/* ── Modal body: source panel | editor ── */}
         <div style={{
           flex: 1, overflow: 'hidden', minHeight: 0, display: 'grid',
-          gridTemplateColumns: sourcePanelOpen && !isBlocked ? '280px 1fr' : '1fr',
+          gridTemplateColumns: isEntrySummaryReview && !isBlocked
+            ? 'minmax(0, 1fr) minmax(0, 1fr)'
+            : sourcePanelOpen && !isBlocked ? '280px 1fr' : '1fr',
           gridTemplateRows: '1fr',
           transition: 'grid-template-columns 0.15s ease',
         }}>
-          {sourcePanelOpen && !isBlocked && (
+          {sourcePanelOpen && !isBlocked && !isEntrySummaryReview && (
             <SourceDocPanel schema={schema} onClose={onToggleSourcePanel} />
           )}
 
           {/* Draft editor column */}
           <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+            {isEntrySummaryReview && !isBlocked && (
+              <div style={{
+                flexShrink: 0,
+                padding: '10px 24px',
+                borderBottom: `1px solid ${BORDER}`,
+                background: 'hsl(var(--card))',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: FG }}>Generated Draft CBP FORM 7501</div>
+                  <div style={{ fontSize: 11, color: MUTED }}>Bill of Lading source</div>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => setSourcePopup('bol')} className="shrink-0 gap-1.5">
+                  <FileText className="size-3.5" />
+                  Source BOL
+                </Button>
+              </div>
+            )}
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '18px 24px 4px' }}>
               {isBlocked ? (
-                <div style={{ background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 12, padding: '22px 26px' }}>
+                <div style={{ background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '22px 26px' }}>
                   <BlockedView item={item} schema={schema} />
                 </div>
               ) : (
@@ -1554,6 +2026,15 @@ function DocReviewModal({
               />
             )}
           </div>
+          {isEntrySummaryReview && !isBlocked && (
+            <BrokerExtractionPanel
+              document={brokerDocument}
+              loading={brokerDocumentLoading}
+              schema={schema}
+              onOpenSource={() => setSourcePopup('broker')}
+              snapshot={brokerSourceExtractedData}
+            />
+          )}
         </div>
       </div>
 
@@ -1568,6 +2049,34 @@ function DocReviewModal({
           onClose={() => onSetShowPreview(false)}
         />
       )}
+
+      {sourcePopup === 'bol' && (
+        <SourceDocumentPopup
+          title="Source Bill of Lading"
+          document={bolDocument}
+          loading={bolDocumentLoading}
+          comparisonTitle="Generated Draft CBP FORM 7501"
+          comparison={
+            <GeneratedDraftComparisonPanel
+              schema={schema}
+              manualValues={manualValues}
+              computedFields={computedDerivations.fields}
+              computedRowMap={computedDerivations.rowMap}
+            />
+          }
+          onClose={() => setSourcePopup(null)}
+        />
+      )}
+      {sourcePopup === 'broker' && (
+        <SourceDocumentPopup
+          title="Draft CBP FORM 7501 Broker Source"
+          document={brokerDocument}
+          loading={brokerDocumentLoading}
+          comparisonTitle="DRAFT_CBP_FORM_7501_BROKER Extracted Fields"
+          comparison={<BrokerExtractionPanel document={brokerDocument} loading={brokerDocumentLoading} schema={schema} snapshot={brokerSourceExtractedData} />}
+          onClose={() => setSourcePopup(null)}
+        />
+      )}
     </>
   );
 }
@@ -1578,12 +2087,12 @@ function PageShell({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{
-        padding: '10px 20px', borderBottom: `1px solid ${BORDER}`,
+        padding: '12px var(--ewms-page-padding-x)', borderBottom: `1px solid ${BORDER}`,
         display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
         background: 'hsl(var(--card))',
       }}>
         <Sparkles size={15} style={{ color: TEAL }} />
-        <h1 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.02em', color: FG, margin: 0 }}>
+        <h1 style={{ fontSize: 15, fontWeight: 700, letterSpacing: 0, color: FG, margin: 0 }}>
           Document Generation
         </h1>
         <span style={{ fontSize: 11.5, color: MUTED }}>— AI-drafted documents for review &amp; approval</span>
@@ -1900,7 +2409,12 @@ export function DocumentGeneratePage() {
   // ── Live data from API ──────────────────────────────────────────────────────
   const [rawQueue, setRawQueue] = useState<GenQueueItem[]>([]);
   const [draftSchemas, setDraftSchemas] = useState<Record<string, DocGenSchema>>({});
+  const [draftPayloads, setDraftPayloads] = useState<Record<string, DraftPayload>>({});
   const [draftPackageTypes, setDraftPackageTypes] = useState<Record<string, string[]>>({});
+  const [bolDocument, setBolDocument] = useState<DocumentDetailRecord | null>(null);
+  const [bolDocumentLoading, setBolDocumentLoading] = useState(false);
+  const [brokerDocument, setBrokerDocument] = useState<DocumentDetailRecord | null>(null);
+  const [brokerDocumentLoading, setBrokerDocumentLoading] = useState(false);
   const [loading,  setLoading]  = useState(true);
   const [fetchErr, setFetchErr] = useState<string | null>(null);
 
@@ -1909,6 +2423,7 @@ export function DocumentGeneratePage() {
     if (!generationOptions.length || !isCurrentGenerationAllowed) {
       setRawQueue([]);
       setDraftSchemas({});
+      setDraftPayloads({});
       setDraftPackageTypes({});
       setLoading(false);
       return;
@@ -1916,6 +2431,7 @@ export function DocumentGeneratePage() {
     if (isOutwardDocGenerationRoute) {
       setRawQueue([]);
       setDraftSchemas({});
+      setDraftPayloads({});
       setDraftPackageTypes({});
       setLoading(false);
       return;
@@ -1936,12 +2452,14 @@ export function DocumentGeneratePage() {
         })];
       }
       const schemas: Record<string, DocGenSchema> = {};
+      const payloads: Record<string, DraftPayload> = {};
       const packageTypes: Record<string, string[]> = {};
       const queueItems = drafts
         .map((draft) => {
           const hydratedSchema = draftToSchema(baseSchema, draft);
           const queueItem = draftToQueueItem(draft, hydratedSchema);
           schemas[queueItem.id] = hydratedSchema;
+          payloads[queueItem.id] = draft;
           packageTypes[queueItem.id] = draft.customPackageTypes ?? [];
           return queueItem;
         })
@@ -1950,11 +2468,13 @@ export function DocumentGeneratePage() {
           return Number.isNaN(createdDiff) ? 0 : createdDiff;
         });
       setDraftSchemas(schemas);
+      setDraftPayloads(payloads);
       setDraftPackageTypes(packageTypes);
       setRawQueue(queueItems);
     } catch (err) {
       setRawQueue([]);
       setDraftSchemas({});
+      setDraftPayloads({});
       setDraftPackageTypes({});
       setFetchErr(err instanceof Error ? err.message : 'Could not load generation queue');
     } finally {
@@ -2011,6 +2531,76 @@ export function DocumentGeneratePage() {
   const schema = liveReviewingItem
     ? (draftSchemas[liveReviewingItem.id] ?? DOC_GEN_SCHEMAS[liveReviewingItem.docType]) as DocGenSchema | undefined
     : undefined;
+
+  const brokerSourceDocumentId = liveReviewingItem && schema?.docType === 'draft-boe'
+    ? (
+      draftPayloads[liveReviewingItem.id]?.sourceDocumentIds?.DRAFT_CBP_FORM_7501_BROKER
+      ?? Object.entries(draftPayloads[liveReviewingItem.id]?.sourceDocumentIds ?? {})
+        .find(([key]) => key.toUpperCase() === 'DRAFT_CBP_FORM_7501_BROKER')?.[1]
+      ?? null
+    )
+    : null;
+  const brokerSourceExtractedData = liveReviewingItem && schema?.docType === 'draft-boe'
+    ? (
+      draftPayloads[liveReviewingItem.id]?.sourceExtractedData?.DRAFT_CBP_FORM_7501_BROKER
+      ?? Object.entries(draftPayloads[liveReviewingItem.id]?.sourceExtractedData ?? {})
+        .find(([key]) => key.toUpperCase() === 'DRAFT_CBP_FORM_7501_BROKER')?.[1]
+      ?? null
+    )
+    : null;
+  const bolSourceDocumentId = liveReviewingItem && schema?.docType === 'draft-boe'
+    ? (
+      draftPayloads[liveReviewingItem.id]?.sourceDocumentIds?.BILL_OF_LADING
+      ?? Object.entries(draftPayloads[liveReviewingItem.id]?.sourceDocumentIds ?? {})
+        .find(([key]) => key.toUpperCase() === 'BILL_OF_LADING')?.[1]
+      ?? null
+    )
+    : null;
+  useEffect(() => {
+    let cancelled = false;
+    if (!bolSourceDocumentId) {
+      setBolDocument(null);
+      setBolDocumentLoading(false);
+      return;
+    }
+    setBolDocumentLoading(true);
+    apiGet<DocumentDetailRecord>(`/uploads/documents/${bolSourceDocumentId}`)
+      .then((document) => {
+        if (!cancelled) setBolDocument(document);
+      })
+      .catch(() => {
+        if (!cancelled) setBolDocument(null);
+      })
+      .finally(() => {
+        if (!cancelled) setBolDocumentLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bolSourceDocumentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!brokerSourceDocumentId) {
+      setBrokerDocument(null);
+      setBrokerDocumentLoading(false);
+      return;
+    }
+    setBrokerDocumentLoading(true);
+    apiGet<DocumentDetailRecord>(`/uploads/documents/${brokerSourceDocumentId}`)
+      .then((document) => {
+        if (!cancelled) setBrokerDocument(document);
+      })
+      .catch(() => {
+        if (!cancelled) setBrokerDocument(null);
+      })
+      .finally(() => {
+        if (!cancelled) setBrokerDocumentLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [brokerSourceDocumentId]);
 
   // ── Derived-value computation ──────────────────────────────────────────────
   const computedDerivations = useMemo(() => {
@@ -2214,9 +2804,9 @@ export function DocumentGeneratePage() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
         <AlertCircle size={24} style={{ color: RED }} />
         <div style={{ fontSize: 14, fontWeight: 600, color: FG }}>{fetchErr}</div>
-        <button onClick={fetchQueue} style={{ fontSize: 12, padding: '6px 14px', borderRadius: 6, background: TEAL, color: '#fff', border: 'none', cursor: 'pointer' }}>
+        <Button type="button" size="sm" onClick={fetchQueue}>
           Retry
-        </button>
+        </Button>
       </div>
     </PageShell>
   );
@@ -2227,50 +2817,27 @@ export function DocumentGeneratePage() {
 
       {/* Page header */}
       <div style={{
-        padding: '11px 24px', borderBottom: `1px solid ${BORDER}`,
-        display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+        padding: '12px var(--ewms-page-padding-x)', borderBottom: `1px solid ${BORDER}`,
+        display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap',
         background: 'hsl(var(--card))',
       }}>
         <Sparkles size={15} style={{ color: TEAL, flexShrink: 0 }} />
-        <h1 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.02em', color: FG, margin: 0 }}>
+        <h1 style={{ fontSize: 15, fontWeight: 700, letterSpacing: 0, color: FG, margin: 0 }}>
           Document Generation
         </h1>
         <span style={{ fontSize: 11.5, color: MUTED }}>— AI-drafted documents for review &amp; approval</span>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 3, marginLeft: 14,
-          padding: 3, borderRadius: 8, background: 'hsl(var(--muted) / 0.55)',
-        }}>
-          {generationOptions.map(option => {
-            const activeType = generatedDocTypeToSchemaKey(routeTypeToGeneratedDocType(routeType));
-            const active = activeType === option.type;
-            return (
-              <button
-                key={option.type}
-                type="button"
-                onClick={() => navigate(`/documents/generate/${option.type}`)}
-                style={{
-                  border: active ? `1px solid ${BORDER}` : '1px solid transparent',
-                  borderRadius: 6, padding: '5px 10px', cursor: 'pointer',
-                  background: active ? 'hsl(var(--card))' : 'transparent',
-                  color: active ? FG : MUTED, fontSize: 11.5, fontWeight: active ? 700 : 600,
-                  boxShadow: active ? '0 1px 2px hsla(0,0%,0%,0.08)' : 'none',
-                }}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
+        <SegmentedControl
+          className="ml-1"
+          value={generatedDocTypeToSchemaKey(routeTypeToGeneratedDocType(routeType))}
+          onValueChange={(value) => navigate(`/documents/generate/${value}`)}
+          options={generationOptions.map(option => ({ value: option.type, label: option.label }))}
+        />
         {queue.length > 0 && (() => {
           const pending = queue.filter(i => i.status !== 'generated').length;
           return (
-            <span style={{
-              marginLeft: 8, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
-              background: pending > 0 ? 'hsla(38,92%,50%,0.12)' : 'hsla(152,69%,31%,0.10)',
-              color: pending > 0 ? AMBER : GREEN,
-            }}>
+            <Badge intent={pending > 0 ? 'warning' : 'success'} size="sm" className="ml-2">
               {pending > 0 ? `${pending} pending` : 'All approved'}
-            </span>
+            </Badge>
           );
         })()}
       </div>
@@ -2309,6 +2876,11 @@ export function DocumentGeneratePage() {
           sourcePanelOpen={sourcePanelOpen}
           approving={approving}
           showPreview={showPreview}
+          bolDocument={bolDocument}
+          bolDocumentLoading={bolDocumentLoading}
+          brokerDocument={brokerDocument}
+          brokerDocumentLoading={brokerDocumentLoading}
+          brokerSourceExtractedData={brokerSourceExtractedData}
           onClose={() => setReviewingItem(null)}
           onManualChange={handleManualChange}
           onPackageTypeChange={handlePackageTypeChange}

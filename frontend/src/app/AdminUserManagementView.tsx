@@ -161,7 +161,7 @@ export default function AdminUserManagementView() {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-xl border border-border bg-card">
+      <section className="rounded-lg border border-border bg-card">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
           <div>
             <h3 className="text-base font-semibold text-foreground">Users</h3>

@@ -13,22 +13,22 @@ const T = {
   bg:          'hsl(var(--background))',
   surface:     'hsl(var(--card))',
   border:      'hsl(var(--border))',
-  teal:        '#0D9488',
-  tealDark:    '#0F766E',
-  tealLight:   'rgba(13,148,136,0.30)',
-  tealBg:      'rgba(13,148,136,0.10)',
-  green:       '#10B981',
-  greenBg:     'rgba(16,185,129,0.12)',
-  greenBorder: 'rgba(16,185,129,0.30)',
-  amber:       '#D97706',
-  amberBg:     'rgba(217,119,6,0.10)',
-  amberBorder: 'rgba(217,119,6,0.30)',
-  blue:        '#0EA5E9',
-  blueBg:      'rgba(14,165,233,0.10)',
-  blueBorder:  'rgba(14,165,233,0.30)',
-  purple:      '#8B5CF6',
-  purpleBg:    'rgba(139,92,246,0.10)',
-  purpleBorder:'rgba(139,92,246,0.30)',
+  teal:        'hsl(var(--primary))',
+  tealDark:    'hsl(var(--primary))',
+  tealLight:   'hsl(var(--primary) / 0.30)',
+  tealBg:      'hsl(var(--primary) / 0.10)',
+  green:       'hsl(var(--vs-success))',
+  greenBg:     'hsl(var(--vs-success) / 0.12)',
+  greenBorder: 'hsl(var(--vs-success) / 0.30)',
+  amber:       'hsl(var(--vs-warning))',
+  amberBg:     'hsl(var(--vs-warning) / 0.10)',
+  amberBorder: 'hsl(var(--vs-warning) / 0.30)',
+  blue:        'hsl(var(--vs-info))',
+  blueBg:      'hsl(var(--vs-info) / 0.10)',
+  blueBorder:  'hsl(var(--vs-info) / 0.30)',
+  purple:      'hsl(var(--vs-info))',
+  purpleBg:    'hsl(var(--vs-info) / 0.10)',
+  purpleBorder:'hsl(var(--vs-info) / 0.30)',
   slate900:    'hsl(var(--foreground))',
   slate500:    'hsl(var(--muted-foreground))',
   slate400:    'hsl(var(--muted-foreground))',
@@ -82,10 +82,10 @@ function Legend() {
       padding: '10px 16px',
       background: T.surface,
       border: `1px solid ${T.border}`,
-      borderRadius: 10,
+      borderRadius: 8,
       marginBottom: 14,
     }}>
-      <span style={{ fontSize: 14.5, fontWeight: 600, color: T.slate400, alignSelf: 'center', marginRight: 4, fontFamily: "'Instrument Sans', sans-serif", textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+      <span style={{ fontSize: 14.5, fontWeight: 600, color: T.slate400, alignSelf: 'center', marginRight: 4, fontFamily: 'var(--app-font-sans)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
         Guide:
       </span>
       {(Object.entries(CLASS_CONFIG) as [Classification, typeof CLASS_CONFIG[Classification]][]).map(([key, cfg]) => (
@@ -96,8 +96,8 @@ function Legend() {
           borderRadius: 99,
         }}>
           <span style={{ fontSize: 14 }}>{cfg.icon}</span>
-          <span style={{ fontSize: 14.5, fontWeight: 700, color: cfg.color, fontFamily: "'Instrument Sans', sans-serif" }}>{cfg.label}</span>
-          <span style={{ fontSize: 14.5, color: T.slate400, fontFamily: "'Instrument Sans', sans-serif" }}>— {cfg.adminAction}</span>
+          <span style={{ fontSize: 14.5, fontWeight: 700, color: cfg.color, fontFamily: 'var(--app-font-sans)' }}>{cfg.label}</span>
+          <span style={{ fontSize: 14.5, color: T.slate400, fontFamily: 'var(--app-font-sans)' }}>— {cfg.adminAction}</span>
         </span>
       ))}
     </div>
@@ -118,7 +118,7 @@ function ProgressBar({ groups }: { groups: Group[] }) {
       display: 'flex', alignItems: 'center', gap: 14,
       padding: '10px 16px',
       background: T.surface, border: `1px solid ${T.border}`,
-      borderRadius: 10, marginBottom: 20,
+      borderRadius: 8, marginBottom: 20,
     }}>
       <div style={{ flex: 1, height: 7, background: T.border, borderRadius: 99, overflow: 'hidden' }}>
         <div style={{
@@ -127,10 +127,10 @@ function ProgressBar({ groups }: { groups: Group[] }) {
           width: `${pct}%`, transition: 'width 0.5s ease',
         }} />
       </div>
-      <span style={{ fontSize: 14.5, fontWeight: 700, color: T.teal, flexShrink: 0, fontFamily: "'Instrument Sans', sans-serif" }}>
+      <span style={{ fontSize: 14.5, fontWeight: 700, color: T.teal, flexShrink: 0, fontFamily: 'var(--app-font-sans)' }}>
         {pct}%
       </span>
-      <span style={{ fontSize: 14, color: T.slate400, flexShrink: 0, fontFamily: "'Instrument Sans', sans-serif" }}>
+      <span style={{ fontSize: 14, color: T.slate400, flexShrink: 0, fontFamily: 'var(--app-font-sans)' }}>
         {done} done · {warn > 0 ? `${warn} warn · ` : ''}{pending} pending
       </span>
     </div>
@@ -157,7 +157,7 @@ function StatusBadge({ step }: { step: Step }) {
           {statusDetail || 'Needs attention'}
         </Badge>
         {warnings?.map((w, i) => (
-          <span key={i} style={{ fontSize: 14, color: T.amber, fontFamily: "'Instrument Sans', sans-serif", paddingLeft: 15 }}>
+          <span key={i} style={{ fontSize: 14, color: T.amber, fontFamily: 'var(--app-font-sans)', paddingLeft: 15 }}>
             {w.name}: {w.issue}
           </span>
         ))}
@@ -167,7 +167,7 @@ function StatusBadge({ step }: { step: Step }) {
   return (
     <span style={{
       fontSize: 14.5, color: T.slate400,
-      fontFamily: "'Instrument Sans', sans-serif",
+      fontFamily: 'var(--app-font-sans)',
     }}>
       {statusDetail || 'Not set'}
     </span>
@@ -188,7 +188,7 @@ function SetupTable({ groups, onNavigate }: { groups: Group[]; onNavigate: (s: s
     <div style={{
       background: T.surface,
       border: `1px solid ${T.border}`,
-      borderRadius: 12,
+      borderRadius: 8,
       overflow: 'hidden',
     }}>
       {/* Table header */}
@@ -198,10 +198,10 @@ function SetupTable({ groups, onNavigate }: { groups: Group[]; onNavigate: (s: s
         borderBottom: `1px solid ${T.border}`,
         background: 'hsl(var(--muted)/0.4)',
       }}>
-        <span style={{ ...COL.name, fontSize: 14, fontWeight: 700, color: T.slate400, textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: "'Instrument Sans', sans-serif", display: 'block' }}>Item</span>
-        <span style={{ ...COL.cls,  fontSize: 14, fontWeight: 700, color: T.slate400, textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: "'Instrument Sans', sans-serif", display: 'block' }}>Classification</span>
-        <span style={{ ...COL.note, fontSize: 14, fontWeight: 700, color: T.slate400, textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: "'Instrument Sans', sans-serif", display: 'block' }}>Default / Note</span>
-        <span style={{ ...COL.status, fontSize: 14, fontWeight: 700, color: T.slate400, textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: "'Instrument Sans', sans-serif", display: 'block' }}>Current status</span>
+        <span style={{ ...COL.name, fontSize: 14, fontWeight: 700, color: T.slate400, textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: 'var(--app-font-sans)', display: 'block' }}>Item</span>
+        <span style={{ ...COL.cls,  fontSize: 14, fontWeight: 700, color: T.slate400, textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: 'var(--app-font-sans)', display: 'block' }}>Classification</span>
+        <span style={{ ...COL.note, fontSize: 14, fontWeight: 700, color: T.slate400, textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: 'var(--app-font-sans)', display: 'block' }}>Default / Note</span>
+        <span style={{ ...COL.status, fontSize: 14, fontWeight: 700, color: T.slate400, textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: 'var(--app-font-sans)', display: 'block' }}>Current status</span>
         <span style={{ ...COL.action, display: 'block' }} />
       </div>
 
@@ -218,7 +218,7 @@ function SetupTable({ groups, onNavigate }: { groups: Group[]; onNavigate: (s: s
             <span style={{
               fontSize: 14, fontWeight: 700, color: T.slate400,
               textTransform: 'uppercase', letterSpacing: '0.1em',
-              fontFamily: "'Instrument Sans', sans-serif",
+              fontFamily: 'var(--app-font-sans)',
             }}>
               {group.label}
             </span>
@@ -257,7 +257,7 @@ function SetupTable({ groups, onNavigate }: { groups: Group[]; onNavigate: (s: s
                 <div style={{ ...COL.name, paddingLeft: 8 }}>
                   <span style={{
                     fontSize: 14.5, fontWeight: 600, color: T.slate900,
-                    fontFamily: "'Instrument Sans', sans-serif",
+                    fontFamily: 'var(--app-font-sans)',
                   }}>
                     {step.label}
                   </span>
@@ -274,7 +274,7 @@ function SetupTable({ groups, onNavigate }: { groups: Group[]; onNavigate: (s: s
                     <span style={{ fontSize: 14 }}>{cls.icon}</span>
                     <span style={{
                       fontSize: 14.5, fontWeight: 700, color: cls.color,
-                      fontFamily: "'Instrument Sans', sans-serif",
+                      fontFamily: 'var(--app-font-sans)',
                     }}>
                       {cls.label}
                     </span>
@@ -285,7 +285,7 @@ function SetupTable({ groups, onNavigate }: { groups: Group[]; onNavigate: (s: s
                 <div style={{ ...COL.note, paddingRight: 24 }}>
                   <span style={{
                     fontSize: 14, color: T.slate400, lineHeight: 1.4,
-                    fontFamily: "'Instrument Sans', sans-serif",
+                    fontFamily: 'var(--app-font-sans)',
                   }}>
                     {step.defaultNote}
                   </span>
@@ -316,16 +316,16 @@ function GoLiveBanner({ attentionCount, onNavigate }: { attentionCount: number; 
       <div style={{
         display: 'flex', alignItems: 'center', gap: 14,
         background: T.tealBg, border: `2px solid ${T.tealLight}`,
-        borderRadius: 12, padding: '14px 20px', marginTop: 20,
+        borderRadius: 8, padding: '14px 20px', marginTop: 20,
         position: 'relative', overflow: 'hidden',
       }}>
         <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 6, background: T.teal, borderRadius: '12px 0 0 12px' }} />
         <Check size={18} color={T.green} strokeWidth={2.5} style={{ flexShrink: 0 }} />
         <div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: T.tealDark, fontFamily: "'BricolageGrotesque', sans-serif" }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: T.tealDark, fontFamily: 'var(--app-font-sans)' }}>
             Your workflow is live
           </div>
-          <div style={{ fontSize: 14, color: T.slate500, marginTop: 2, fontFamily: "'Instrument Sans', sans-serif" }}>
+          <div style={{ fontSize: 14, color: T.slate500, marginTop: 2, fontFamily: 'var(--app-font-sans)' }}>
             All setup steps complete — export workflow engine is active.
           </div>
         </div>
@@ -337,15 +337,15 @@ function GoLiveBanner({ attentionCount, onNavigate }: { attentionCount: number; 
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20,
       background: T.tealBg, border: `2px solid ${T.tealLight}`,
-      borderRadius: 12, padding: '14px 20px', marginTop: 20,
+      borderRadius: 8, padding: '14px 20px', marginTop: 20,
       position: 'relative', overflow: 'hidden',
     }}>
       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 6, background: T.teal, borderRadius: '12px 0 0 12px' }} />
       <div style={{ paddingLeft: 6 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: T.tealDark, fontFamily: "'BricolageGrotesque', sans-serif" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: T.tealDark, fontFamily: 'var(--app-font-sans)' }}>
           Ready to go live?
         </div>
-        <div style={{ fontSize: 14, color: T.slate500, marginTop: 2, fontFamily: "'Instrument Sans', sans-serif" }}>
+        <div style={{ fontSize: 14, color: T.slate500, marginTop: 2, fontFamily: 'var(--app-font-sans)' }}>
           {attentionCount} item{attentionCount > 1 ? 's' : ''} still need attention before your workflow is fully active.
         </div>
       </div>
@@ -355,7 +355,7 @@ function GoLiveBanner({ attentionCount, onNavigate }: { attentionCount: number; 
           padding: '9px 18px', fontSize: 14.5, fontWeight: 700,
           background: T.teal, color: '#fff',
           border: 'none', borderRadius: 8, cursor: 'pointer',
-          fontFamily: "'Instrument Sans', sans-serif",
+          fontFamily: 'var(--app-font-sans)',
           whiteSpace: 'nowrap', flexShrink: 0,
         }}
       >
@@ -369,9 +369,9 @@ function GoLiveBanner({ attentionCount, onNavigate }: { attentionCount: number; 
 function Skeleton() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ height: 44, background: T.border, borderRadius: 10, opacity: 0.5 }} />
+      <div style={{ height: 44, background: T.border, borderRadius: 8, opacity: 0.5 }} />
       <div style={{ height: 24, background: T.border, borderRadius: 8, opacity: 0.4, width: '60%' }} />
-      <div style={{ height: 280, background: T.border, borderRadius: 12, opacity: 0.35 }} />
+      <div style={{ height: 280, background: T.border, borderRadius: 8, opacity: 0.35 }} />
     </div>
   );
 }
@@ -419,7 +419,7 @@ export default function SetupChecklist({
 
   if (loading) return <Skeleton />;
   if (!checks) return (
-    <div style={{ textAlign: 'center', padding: '48px 0', color: T.slate400, fontFamily: "'Instrument Sans', sans-serif" }}>
+    <div style={{ textAlign: 'center', padding: '48px 0', color: T.slate400, fontFamily: 'var(--app-font-sans)' }}>
       Failed to load setup status.
     </div>
   );
@@ -531,17 +531,17 @@ export default function SetupChecklist({
   const pendingCount  = allSteps.filter(s => s.status !== 'done').length;
 
   return (
-    <div style={{ maxWidth: 1080 }}>
+    <div style={{ width: '100%' }}>
       {/* Page heading */}
       <div style={{ marginBottom: 16 }}>
         <h1 style={{
           fontSize: 26, fontWeight: 700, color: T.slate900,
-          fontFamily: "'BricolageGrotesque', sans-serif",
+          fontFamily: 'var(--app-font-sans)',
           margin: 0, lineHeight: 1.1,
         }}>
           Setup Checklist
         </h1>
-        <p style={{ fontSize: 14.5, color: T.slate500, marginTop: 5, fontFamily: "'Instrument Sans', sans-serif" }}>
+        <p style={{ fontSize: 14.5, color: T.slate500, marginTop: 5, fontFamily: 'var(--app-font-sans)' }}>
           Defaults are set for a standard India-to-US manufacturing exporter. Review ✏️ client-specific items and connect 🔌 external services.
         </p>
       </div>

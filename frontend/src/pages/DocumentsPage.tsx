@@ -843,7 +843,7 @@ function ShipmentAccordion({ lane, open, onToggle }: {
 
   return (
     <div style={{
-      backgroundColor: CARD_BG, borderRadius: 12, overflow: 'hidden',
+      backgroundColor: CARD_BG, borderRadius: 8, overflow: 'hidden',
       border: `1px solid ${BORDER}`, boxShadow: 'var(--vs-shadow-card)', marginBottom: 10,
     }}>
       {/* Collapsed header */}
@@ -905,7 +905,7 @@ function ShipmentAccordion({ lane, open, onToggle }: {
               <div style={{ padding: '24px 28px', display: 'flex', alignItems: 'flex-start' }}>
                 <div style={{
                   backgroundColor: `${AMBER}10`, border: `1px solid ${AMBER}40`,
-                  borderRadius: 10, padding: '16px 20px', flex: 1,
+                  borderRadius: 8, padding: '16px 20px', flex: 1,
                 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: AMBER, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <Clock size={14} /> Waiting for Bill of Lading
@@ -1295,7 +1295,7 @@ export function DocumentsPage() {
       `}</style>
 
       {/* Page heading */}
-      <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: '0 0 20px', lineHeight: 1.2 }}>Documents</h1>
+      <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: '0 0 20px', lineHeight: 1.2 }}>Documents</h1>
 
       {/* ── GATE VIEW ── */}
       <div>
@@ -1317,7 +1317,7 @@ export function DocumentsPage() {
             const focused = focusedLaneId ? lanes.find(l => l.id === focusedLaneId) : lanes[0];
             return focused ? (
               <div style={{
-                backgroundColor: CARD_BG, borderRadius: 14,
+                backgroundColor: CARD_BG, borderRadius: 8,
                 padding: '16px 24px', boxShadow: 'var(--vs-shadow-card)',
                 border: `1px solid ${BORDER}`, marginBottom: 12,
               }}>
@@ -1398,7 +1398,7 @@ export function DocumentsPage() {
           <div style={{ marginTop: 12 }}>
           {loading ? (
             <div style={{
-              backgroundColor: CARD_BG, borderRadius: 12,
+              backgroundColor: CARD_BG, borderRadius: 8,
               border: `1px solid ${BORDER}`, padding: '40px 24px', textAlign: 'center',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
             }}>
@@ -1407,21 +1407,21 @@ export function DocumentsPage() {
             </div>
           ) : loadError ? (
             <div style={{
-              backgroundColor: CARD_BG, borderRadius: 12,
+              backgroundColor: CARD_BG, borderRadius: 8,
               border: `1px solid ${BORDER}`, padding: '40px 24px', textAlign: 'center',
             }}>
               <span style={{ fontSize: 15, color: RED }}>{loadError}</span>
             </div>
           ) : lanes.length === 0 ? (
             <div style={{
-              backgroundColor: CARD_BG, borderRadius: 12,
+              backgroundColor: CARD_BG, borderRadius: 8,
               border: `1px solid ${BORDER}`, padding: '40px 24px', textAlign: 'center',
             }}>
               <span style={{ fontSize: 15, color: MUTED }}>No shipments available.</span>
             </div>
           ) : filteredLanes.length === 0 ? (
             <div style={{
-              backgroundColor: CARD_BG, borderRadius: 12,
+              backgroundColor: CARD_BG, borderRadius: 8,
               border: `1px solid ${BORDER}`, padding: '40px 24px', textAlign: 'center',
             }}>
               <span style={{ fontSize: 15, color: MUTED }}>No shipments match this filter.</span>

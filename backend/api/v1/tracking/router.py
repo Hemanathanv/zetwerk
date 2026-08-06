@@ -6,11 +6,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from db import get_prisma
+from helpers.config import settings
 from helpers.dependencies import get_current_user
 from helpers.rbac_data_access import document_sql_where
 
 
-router = APIRouter(prefix="/api/tracking", tags=["Tracking"])
+router = APIRouter(prefix=settings.API_SLUG + "/tracking", tags=["Tracking"])
 
 
 def _user_id(user: Any) -> str:

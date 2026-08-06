@@ -33,7 +33,7 @@ interface DndRate {
 const CARD: React.CSSProperties = {
   background: 'hsl(var(--card))',
   border: '1px solid hsl(var(--border))',
-  borderRadius: 14,
+  borderRadius: 8,
   padding: '20px 22px',
   position: 'relative',
   overflow: 'hidden',
@@ -66,7 +66,7 @@ function pill(bg: string, color: string): React.CSSProperties {
 
 const BADGE: React.CSSProperties = {
   display: 'inline-block',
-  fontFamily: 'monospace',
+  fontFamily: 'var(--app-font-sans)',
   fontSize: 14,
   fontWeight: 700,
   padding: '2px 7px',
@@ -266,7 +266,7 @@ function DndSection() {
                   <div key={portName} style={{
                     background: 'hsl(var(--muted)/0.4)',
                     border: '1px solid hsl(var(--border))',
-                    borderRadius: 10,
+                    borderRadius: 8,
                     padding: '12px 14px',
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -289,7 +289,7 @@ function DndSection() {
                         borderRadius: 7, padding: '6px 8px',
                       }}>
                         <div style={{ fontSize: 14, color: '#0d9488', fontWeight: 600, marginBottom: 2 }}>Demurrage</div>
-                        <div style={{ fontSize: 14.5, fontWeight: 700, fontFamily: 'monospace' }}>
+                        <div style={{ fontSize: 14.5, fontWeight: 700, fontFamily: 'var(--app-font-sans)' }}>
                           {fmt(primary.demurragePerDay, primary.currency)}
                         </div>
                         <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>/day</div>
@@ -299,7 +299,7 @@ function DndSection() {
                         borderRadius: 7, padding: '6px 8px',
                       }}>
                         <div style={{ fontSize: 14, color: '#2563eb', fontWeight: 600, marginBottom: 2 }}>Detention</div>
-                        <div style={{ fontSize: 14.5, fontWeight: 700, fontFamily: 'monospace' }}>
+                        <div style={{ fontSize: 14.5, fontWeight: 700, fontFamily: 'var(--app-font-sans)' }}>
                           {fmt(primary.detentionPerDay, primary.currency)}
                         </div>
                         <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>/day</div>

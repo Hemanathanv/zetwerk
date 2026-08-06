@@ -88,7 +88,7 @@ export function Dashboard() {
     <div className="flex flex-col gap-5 p-6 min-h-full">
       {/* Page title */}
       <div>
-        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Shipment Operations</h1>
+        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Shipment Operations</h1>
         <p style={{ fontSize: 'var(--text-subtitle-size)', color: 'hsl(var(--muted-foreground))', marginTop: 4, marginBottom: 0 }}>
           Active shipments · Real-time tracking · Document workflows
         </p>
@@ -246,7 +246,7 @@ export function Dashboard() {
                         <div style={{ fontSize: 14, fontWeight: 600, color: 'hsl(var(--foreground))' }}>
                           {project.projectName}
                         </div>
-                        <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginTop: 1, fontFamily: 'monospace' }}>
+                        <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginTop: 1, fontFamily: 'var(--app-font-sans)' }}>
                           {project.id}
                         </div>
                       </div>
@@ -255,7 +255,7 @@ export function Dashboard() {
 
                   {/* Client ref */}
                   <td style={{ padding: '11px 16px' }}>
-                    <span style={{ fontSize: 14.5, fontFamily: 'monospace', color: 'hsl(var(--foreground))' }}>
+                    <span style={{ fontSize: 14.5, fontFamily: 'var(--app-font-sans)', color: 'hsl(var(--foreground))' }}>
                       {project.clientRef}
                     </span>
                   </td>
@@ -288,7 +288,7 @@ export function Dashboard() {
                   <td style={{ padding: '11px 16px' }}>
                     <span style={{
                       display: 'inline-flex', alignItems: 'center', gap: 5,
-                      padding: '3px 8px', borderRadius: 20, fontSize: 14.5, fontWeight: 500,
+                      padding: '3px 8px', borderRadius: 999, fontSize: 14.5, fontWeight: 500,
                       background: s.bg, color: s.color,
                     }}>
                       <span style={{ width: 5, height: 5, borderRadius: '50%', background: s.dot, flexShrink: 0 }} />

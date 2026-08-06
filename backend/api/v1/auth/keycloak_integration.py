@@ -194,17 +194,32 @@ async def get_keycloak_token(username: str, password: str) -> dict:
     Returns:
         dict: Token response
     """
-    try:
-        return keycloak_openid.token(
-            username=username,
-            grant_type="password",
-            password=password
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password"
-        )
+    login_identifier = str(username or "").strip()
+    candidate_usernames = [login_identifier]
+    if "@" in login_identifier:
+        try:
+            matches = get_keycloak_admin().get_users({"email": login_identifier, "exact": True, "max": 2})
+            for user in matches or []:
+                resolved_username = str(user.get("username") or "").strip()
+                if resolved_username and resolved_username not in candidate_usernames:
+                    candidate_usernames.append(resolved_username)
+        except Exception:
+            pass
+
+    for candidate_username in candidate_usernames:
+        try:
+            return keycloak_openid.token(
+                username=candidate_username,
+                grant_type="password",
+                password=password
+            )
+        except Exception:
+            continue
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid username or password"
+    )
 
 
 async def refresh_keycloak_token(refresh_token: str) -> dict:

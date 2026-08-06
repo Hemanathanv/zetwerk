@@ -22,7 +22,7 @@ interface Product {
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
-const MONO: React.CSSProperties = { fontFamily: '"JetBrains Mono", monospace' };
+const MONO: React.CSSProperties = { fontFamily: 'var(--app-font-sans)' };
 const INP_S = (extra?: React.CSSProperties): React.CSSProperties => ({
   width: '100%', padding: '7px 10px', borderRadius: 6, fontSize: 14.5,
   border: '1px solid hsl(var(--border))', background: 'hsl(var(--background))',
@@ -277,7 +277,7 @@ function CsvImportModal({ onClose, onImport }: {
           <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Expected columns:</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
             {EXPECTED.map(col => (
-              <span key={col} style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 14.5, padding: '2px 8px', borderRadius: 5, background: 'hsl(var(--muted))', color: 'hsl(var(--muted-foreground))' }}>{col}</span>
+              <span key={col} style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14.5, padding: '2px 8px', borderRadius: 5, background: 'hsl(var(--muted))', color: 'hsl(var(--muted-foreground))' }}>{col}</span>
             ))}
           </div>
           <button onClick={downloadTemplate} style={{ marginTop: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'hsl(173 58% 39%)', textDecoration: 'underline', padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -299,7 +299,7 @@ function CsvImportModal({ onClose, onImport }: {
                 {preview.map((row, i) => (
                   <tr key={i}>
                     {Object.values(row).map((v, j) => (
-                      <td key={j} style={{ padding: '4px 8px', border: '1px solid hsl(var(--border))', fontFamily: '"JetBrains Mono", monospace', whiteSpace: 'nowrap' }}>{v}</td>
+                      <td key={j} style={{ padding: '4px 8px', border: '1px solid hsl(var(--border))', fontFamily: 'var(--app-font-sans)', whiteSpace: 'nowrap' }}>{v}</td>
                     ))}
                   </tr>
                 ))}

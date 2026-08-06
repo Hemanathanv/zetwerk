@@ -41,7 +41,7 @@ function TierBadge({ tier }: { tier: string }) {
   };
   const s = styles[tier] ?? styles.pilot;
   return (
-    <span style={{ ...s, padding: '2px 8px', borderRadius: 10, fontSize: 14.5, fontWeight: 600, textTransform: 'capitalize' }}>
+    <span style={{ ...s, padding: '2px 8px', borderRadius: 8, fontSize: 14.5, fontWeight: 600, textTransform: 'capitalize' }}>
       {tier}
     </span>
   );
@@ -123,7 +123,7 @@ function TenantsTab() {
         </button>
       </div>
 
-      <div style={{ border: '1px solid hsl(var(--border))', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'hsl(var(--muted)/0.4)', borderBottom: '1px solid hsl(var(--border))' }}>
@@ -255,11 +255,11 @@ function ProvisionTab() {
       {result && (
         <div style={{
           background: 'hsl(142 71% 45% / 0.1)', border: '1px solid hsl(142 71% 45% / 0.3)',
-          borderRadius: 10, padding: '14px 18px', marginBottom: 24,
+          borderRadius: 8, padding: '14px 18px', marginBottom: 24,
           display: 'flex', alignItems: 'flex-start', gap: 12,
         }}>
           <div style={{
-            width: 28, height: 28, borderRadius: 14, background: 'hsl(142 71% 45%)',
+            width: 28, height: 28, borderRadius: 8, background: 'hsl(142 71% 45%)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
           }}>
             <Check size={15} color="#fff" />
@@ -277,7 +277,7 @@ function ProvisionTab() {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
-          <label style={{ fontSize: 14.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--muted-foreground))', display: 'block', marginBottom: 6 }}>
+          <label style={{ fontSize: 12, fontWeight: 500, letterSpacing: 0, color: 'hsl(var(--muted-foreground))', display: 'block', marginBottom: 6 }}>
             Organisation name <span style={{ color: '#dc2626' }}>*</span>
           </label>
           <Input
@@ -289,7 +289,7 @@ function ProvisionTab() {
         </div>
 
         <div>
-          <label style={{ fontSize: 14.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--muted-foreground))', display: 'block', marginBottom: 6 }}>
+          <label style={{ fontSize: 12, fontWeight: 500, letterSpacing: 0, color: 'hsl(var(--muted-foreground))', display: 'block', marginBottom: 6 }}>
             First admin — full name <span style={{ color: '#dc2626' }}>*</span>
           </label>
           <Input
@@ -301,7 +301,7 @@ function ProvisionTab() {
         </div>
 
         <div>
-          <label style={{ fontSize: 14.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'hsl(var(--muted-foreground))', display: 'block', marginBottom: 6 }}>
+          <label style={{ fontSize: 12, fontWeight: 500, letterSpacing: 0, color: 'hsl(var(--muted-foreground))', display: 'block', marginBottom: 6 }}>
             First admin — email <span style={{ color: '#dc2626' }}>*</span>
           </label>
           <Input
@@ -409,7 +409,7 @@ function RoleTemplatesTab() {
             }}>
               <span style={{
                 ...(CAT_STYLE[cat] ?? { background: '#f3f4f6', color: '#374151' }),
-                padding: '3px 10px', borderRadius: 10, fontSize: 14.5, fontWeight: 600,
+                padding: '3px 10px', borderRadius: 8, fontSize: 14.5, fontWeight: 600,
               }}>
                 {CAT_LABEL[cat] ?? cat}
               </span>
@@ -422,12 +422,12 @@ function RoleTemplatesTab() {
               {roles.map(role => (
                 <div key={role.id} style={{
                   background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))',
-                  borderRadius: 10, padding: '14px 16px',
+                  borderRadius: 8, padding: '14px 16px',
                   borderLeft: `3px solid ${role.color}`,
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                     <div style={{
-                      width: 32, height: 32, borderRadius: 16,
+                      width: 32, height: 32, borderRadius: 8,
                       background: role.color, display: 'flex', alignItems: 'center',
                       justifyContent: 'center', color: '#fff', fontSize: 14, fontWeight: 700, flexShrink: 0,
                     }}>
@@ -450,7 +450,7 @@ function RoleTemplatesTab() {
                   <div style={{
                     display: 'flex', gap: 12, fontSize: 14.5,
                     color: 'hsl(var(--muted-foreground))',
-                    fontFamily: '"JetBrains Mono", monospace',
+                    fontFamily: 'var(--app-font-sans)',
                   }}>
                     <span>{role._count.roleActivities} activities</span>
                     <span>{role.defaultModules.length} modules</span>
@@ -483,7 +483,7 @@ export default function PlatformShell() {
     <div style={{ display: 'flex', minHeight: '100vh', background: 'hsl(var(--background))' }}>
       {/* Left nav */}
       <nav style={{
-        width: 224, flexShrink: 0, padding: '28px 12px',
+        width: 224, flexShrink: 0, padding: '24px 12px',
         borderRight: '1px solid hsl(var(--border))',
         background: 'hsl(var(--card))',
       }}>

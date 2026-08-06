@@ -94,7 +94,7 @@ export function ProjectListPage() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
-          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Projects</h1>
+          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Projects</h1>
           <p className="text-[14.5px] text-muted-foreground mt-0.5">
             {stats.total} project{stats.total !== 1 ? 's' : ''} · {stats.totalShipments} shipments
           </p>
@@ -141,7 +141,7 @@ export function ProjectListPage() {
             <ProjectCard key={project.id} project={project} />
           ))}
           {projects.length === 0 && (
-            <div className="bg-card rounded-xl p-12 text-center">
+            <div className="bg-card rounded-lg p-12 text-center">
               <FolderOpen className="w-10 h-10 mx-auto text-muted-foreground/40" />
               <h3 className="text-[14.5px] font-semibold mt-3">No projects found</h3>
               <p className="text-[13px] text-muted-foreground mt-1">

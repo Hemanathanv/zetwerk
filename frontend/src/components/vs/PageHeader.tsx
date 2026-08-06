@@ -18,14 +18,14 @@ const badgeIntent: Record<BadgeVariant, 'active' | 'warning'> = {
 export function PageHeader({ title, subtitle, badge, actions }: PageHeaderProps) {
   return (
     <div
-      className="flex items-start justify-between"
-      style={{ marginBottom: 24 }}
+      className="flex items-start justify-between gap-4"
+      style={{ marginBottom: 'var(--ewms-page-section-gap)' }}
     >
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-2.5 flex-wrap">
           <h2
             className="leading-tight"
-            style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))' }}
+            style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0 }}
           >
             {title}
           </h2>

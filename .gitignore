@@ -1,6 +1,5 @@
 .venv/
 uv.lock
-!backend/uv.lock
 __pycache__
 data/
 !frontend/src/data/
@@ -10,6 +9,7 @@ node_modules/
 backend/documents/
 dist/
 build/
+backend/sales_invoice_drive/
 .vscode/
 *.log
 *.pyc

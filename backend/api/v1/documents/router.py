@@ -1159,7 +1159,6 @@ async def _update_public_shipment_from_bol_and_tracking(prisma, shipment: dict[s
 
 
 @router.get(settings.API_SLUG + "/shipments")
-@router.get("/api/shipments")
 async def list_shipments(
     user=Depends(get_current_user),
     page: int = Query(1, ge=1),
@@ -1225,7 +1224,6 @@ async def list_shipments(
 
 
 @router.get(settings.API_SLUG + "/shipments/{shipment_id}")
-@router.get("/api/shipments/{shipment_id}")
 async def get_shipment(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
@@ -1270,7 +1268,6 @@ async def get_shipment(shipment_id: str, user=Depends(get_current_user)):
 
 
 @router.get(settings.API_SLUG + "/shipments/{shipment_id}/documents")
-@router.get("/api/shipments/{shipment_id}/documents")
 async def list_shipment_documents(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
@@ -1294,7 +1291,6 @@ async def list_shipment_documents(shipment_id: str, user=Depends(get_current_use
 
 
 @router.get(settings.API_SLUG + "/shipments/{shipment_id}/safecube")
-@router.get("/api/shipments/{shipment_id}/safecube")
 async def get_shipment_safecube(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
@@ -1311,7 +1307,6 @@ async def get_shipment_safecube(shipment_id: str, user=Depends(get_current_user)
 
 
 @router.post(settings.API_SLUG + "/shipments/{shipment_id}/safecube/link")
-@router.post("/api/shipments/{shipment_id}/safecube/link")
 async def link_shipment_safecube(shipment_id: str, payload: dict[str, Any] | None = None, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
@@ -1357,7 +1352,6 @@ async def link_shipment_safecube(shipment_id: str, payload: dict[str, Any] | Non
 
 
 @router.post(settings.API_SLUG + "/shipments/{shipment_id}/safecube/sync")
-@router.post("/api/shipments/{shipment_id}/safecube/sync")
 async def sync_shipment_safecube(shipment_id: str, payload: dict[str, Any] | None = None, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
@@ -1398,7 +1392,6 @@ async def sync_shipment_safecube(shipment_id: str, payload: dict[str, Any] | Non
 
 
 @router.post(settings.API_SLUG + "/shipments/track")
-@router.post("/api/shipments/track")
 async def track_shipment(payload: TrackShipmentRequest, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_safecube_tables(prisma)
@@ -1425,7 +1418,6 @@ async def track_shipment(payload: TrackShipmentRequest, user=Depends(get_current
 
 
 @router.get(settings.API_SLUG + "/shipments/{shipment_id}/gates")
-@router.get("/api/shipments/{shipment_id}/gates")
 async def list_shipment_gates(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
@@ -1465,7 +1457,6 @@ async def _update_shipment_status(prisma, shipment_id: str, status: str) -> dict
 
 
 @router.post(settings.API_SLUG + "/shipments/{shipment_id}/hold")
-@router.post("/api/shipments/{shipment_id}/hold")
 async def hold_shipment(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
@@ -1474,7 +1465,6 @@ async def hold_shipment(shipment_id: str, user=Depends(get_current_user)):
 
 
 @router.post(settings.API_SLUG + "/shipments/{shipment_id}/resume")
-@router.post("/api/shipments/{shipment_id}/resume")
 async def resume_shipment(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
@@ -1486,7 +1476,6 @@ async def resume_shipment(shipment_id: str, user=Depends(get_current_user)):
 
 
 @router.post(settings.API_SLUG + "/shipments/{shipment_id}/cancel")
-@router.post("/api/shipments/{shipment_id}/cancel")
 async def cancel_shipment(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
@@ -1495,7 +1484,6 @@ async def cancel_shipment(shipment_id: str, user=Depends(get_current_user)):
 
 
 @router.post(settings.API_SLUG + "/shipments/{shipment_id}/pass")
-@router.post("/api/shipments/{shipment_id}/pass")
 async def pass_shipment_gate(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     gate = await _current_open_gate(prisma, shipment_id)
@@ -1583,7 +1571,6 @@ async def pass_shipment_gate(shipment_id: str, user=Depends(get_current_user)):
 
 
 @router.post(settings.API_SLUG + "/shipments/{shipment_id}/skip")
-@router.post("/api/shipments/{shipment_id}/skip")
 async def skip_shipment_gate(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     gate = await _current_open_gate(prisma, shipment_id)
@@ -1623,7 +1610,6 @@ async def skip_shipment_gate(shipment_id: str, user=Depends(get_current_user)):
 
 
 @router.post(settings.API_SLUG + "/shipments/{shipment_id}/revert")
-@router.post("/api/shipments/{shipment_id}/revert")
 async def revert_shipment_gate(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     rows = await _shipment_gate_rows(prisma, shipment_id)

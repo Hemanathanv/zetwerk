@@ -23,7 +23,7 @@ function LoadingSkeleton() {
       <Skeleton className="h-4 w-24" />
       <Skeleton className="h-8 w-48 mt-4" />
       <Skeleton className="h-4 w-64" />
-      <Skeleton className="h-28 rounded-2xl mt-4" />
+      <Skeleton className="h-28 rounded-lg mt-4" />
       <Skeleton className="h-4 w-20 mt-6" />
       <div className="space-y-4 mt-3">
         {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-10" />)}
@@ -157,7 +157,7 @@ export default function CustomerTrackingPage() {
         >
           <ArrowLeft className="w-4 h-4" /> Your Orders
         </a>
-        <div className="bg-card rounded-xl border border-border p-12 text-center mt-4">
+        <div className="bg-card rounded-lg border border-border p-12 text-center mt-4">
           <h3 className="text-[14.5px] font-semibold">Shipment not found</h3>
           <p className="text-[13px] text-muted-foreground mt-1">
             This shipment doesn't exist or isn't part of your orders.
@@ -208,7 +208,7 @@ export default function CustomerTrackingPage() {
 
       {/* Shipment header */}
       <div className="mb-6 mt-4">
-        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2, fontFamily: 'var(--app-font-mono)' }}>
+        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2, fontFamily: 'var(--app-font-sans)' }}>
           {shipment.shipmentNumber || 'Processing'}
         </h1>
         <div className="flex items-center gap-2 text-[14.5px] text-muted-foreground mt-1 flex-wrap">
@@ -229,7 +229,7 @@ export default function CustomerTrackingPage() {
       </div>
 
       {/* Status hero card */}
-      <div className={`rounded-2xl p-6 mb-8 ${heroColor}`}>
+      <div className={`rounded-lg p-6 mb-8 ${heroColor}`}>
         <div className="flex items-center gap-3 mb-3">
           {heroIcon}
           <div>
@@ -283,7 +283,7 @@ export default function CustomerTrackingPage() {
           </h2>
           <div className="space-y-3">
             {containers.map((c) => (
-              <div key={c.id} className="bg-card rounded-xl border border-border p-4">
+              <div key={c.id} className="bg-card rounded-lg border border-border p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-[14.5px] font-mono font-semibold">
@@ -361,7 +361,7 @@ export default function CustomerTrackingPage() {
           <h2 className="text-[14.5px] font-semibold text-muted-foreground uppercase tracking-wide mb-4">
             Proof of Delivery
           </h2>
-          <div className="bg-card rounded-xl border border-border p-4 flex items-center justify-between">
+          <div className="bg-card rounded-lg border border-border p-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <FileText className="w-5 h-5 text-teal-600" />
               <div>
@@ -387,7 +387,7 @@ export default function CustomerTrackingPage() {
           <h2 className="text-[14.5px] font-semibold text-muted-foreground uppercase tracking-wide mb-4">
             Proof of Delivery
           </h2>
-          <div className="bg-card rounded-xl border border-border p-4 text-center">
+          <div className="bg-card rounded-lg border border-border p-4 text-center">
             <FileText className="w-6 h-6 mx-auto text-muted-foreground/40" />
             <p className="text-[13px] text-muted-foreground mt-2">
               Proof of Delivery document is being processed and will be
@@ -402,7 +402,7 @@ export default function CustomerTrackingPage() {
         <h2 className="text-[14.5px] font-semibold text-muted-foreground uppercase tracking-wide mb-4">
           Order Details
         </h2>
-        <div className="bg-card rounded-xl border border-border p-4 space-y-2.5">
+        <div className="bg-card rounded-lg border border-border p-4 space-y-2.5">
           {shipment.shipmentNumber && (
             <div className="flex justify-between text-[13px]">
               <span className="text-muted-foreground">Shipment reference</span>

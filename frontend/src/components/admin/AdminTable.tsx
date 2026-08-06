@@ -33,7 +33,7 @@ interface AdminTableProps<T> {
 
 type SortDir = 'asc' | 'desc' | null;
 
-const MONO = '"JetBrains Mono", "Fira Code", monospace';
+const MONO = 'var(--app-font-sans)';
 const HEADER_BG = 'hsl(var(--muted) / 0.5)';
 
 export function AdminTable<T extends Record<string, any>>({

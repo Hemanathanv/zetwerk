@@ -439,7 +439,7 @@ export function FinanceTicketQueuePage() {
       <div className="mb-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Accounting Tickets</h1>
+            <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Accounting Tickets</h1>
             <div className="flex items-center gap-2 mt-1 text-[14.5px] text-muted-foreground flex-wrap">
               <span>{summary.pendingCount} pending</span>
               {Object.entries(summary.pendingByCurrency).map(([curr, amount]) => (
@@ -538,7 +538,7 @@ export function FinanceTicketQueuePage() {
           ))}
 
           {tickets.length === 0 && (
-            <div className="bg-card rounded-xl p-12 text-center border">
+            <div className="bg-card rounded-lg p-12 text-center border">
               <Receipt className="w-10 h-10 mx-auto text-muted-foreground/40" />
               <h3 className="text-[14.5px] font-semibold mt-3">No tickets found</h3>
               <p className="text-[13px] text-muted-foreground mt-1">

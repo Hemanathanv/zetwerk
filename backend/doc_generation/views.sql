@@ -1,12 +1,5 @@
 CREATE SCHEMA IF NOT EXISTS docgen;
 
-DROP VIEW IF EXISTS docgen.v_packing_list_source CASCADE;
-DROP TABLE IF EXISTS docgen.v_packing_list_source CASCADE;
-DROP VIEW IF EXISTS docgen.v_us_packing_list_source CASCADE;
-DROP TABLE IF EXISTS docgen.v_us_packing_list_source CASCADE;
-DROP VIEW IF EXISTS docgen.v_entry_summary_source CASCADE;
-DROP TABLE IF EXISTS docgen.v_entry_summary_source CASCADE;
-
 CREATE OR REPLACE VIEW docgen.v_packing_list_source AS
 SELECT
   d.id AS source_document_id,
@@ -168,7 +161,9 @@ SELECT
   si.taxable_value,
   si.tax_amount,
   si.exporter_name,
-  si.exporter_address
+  si.exporter_address,
+  broker_doc.id AS broker_document_id,
+  broker_doc.extracted_data AS broker_extracted_data
 FROM public.documents bol_doc
 JOIN aiextraction.bills_of_lading bol ON bol.document_id = bol_doc.id
 JOIN aiextraction.sales_invoice_extractions si
@@ -177,8 +172,139 @@ JOIN aiextraction.sales_invoice_extractions si
   OR bol.export_invoice_number IS NULL
 JOIN public.documents si_doc ON si_doc.id = si.document_id AND si_doc.is_deleted = false
 LEFT JOIN aiextraction.sales_invoice_line_items li ON li.sales_invoice_id = si.id
+LEFT JOIN LATERAL (
+  SELECT
+    d.id,
+    jsonb_build_object(
+      'documentId', d.id::text,
+      'docType', d.doc_type::text,
+      'fileName', d.file_name,
+      'contentType', d.content_type,
+      'rawData', COALESCE(e.raw_data, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object(
+        'filerCodeEntryNumber', e.filer_code_entry_number,
+        'entryType', e.entry_type,
+        'summaryDate', e.summary_date,
+        'suretyNumber', e.surety_number,
+        'bondType', e.bond_type,
+        'portCode', e.port_code,
+        'entryDate', e.entry_date,
+        'teamNumber', e.team_number,
+        'summaryStatus', e.summary_status,
+        'formVersion', e.form_version,
+        'formNumber', e.form_number,
+        'importingCarrier', e.importing_carrier,
+        'modeOfTransport', e.mode_of_transport,
+        'importDate', e.import_date,
+        'blOrAwbNumber', e.bl_or_awb_number,
+        'additionalBLs', e.additional_bls,
+        'houseBill', e.house_bill,
+        'subhouseBill', e.subhouse_bill,
+        'billQty', e.bill_qty,
+        'billQtyUnit', e.bill_qty_unit,
+        'manufacturerId', e.manufacturer_id,
+        'exportingCountry', e.exporting_country,
+        'exportDate', e.export_date,
+        'itNumber', e.it_number,
+        'itDate', e.it_date,
+        'missingDocs', e.missing_docs,
+        'foreignPortOfLading', e.foreign_port_of_lading,
+        'usPortOfUnlading', e.us_port_of_unlading,
+        'countryOfOrigin', e.country_of_origin,
+        'locationOfGoods', e.location_of_goods,
+        'consigneeNumber', e.consignee_number,
+        'importerNumber', e.importer_number,
+        'referenceNumber', e.reference_number,
+        'ultimateConsigneeName', e.ultimate_consignee_name,
+        'ultimateConsigneeAddress', e.ultimate_consignee_address,
+        'importerOfRecordName', e.importer_of_record_name,
+        'importerOfRecordAddress', e.importer_of_record_address
+      ) || jsonb_build_object(
+        'countryOfMeltAndPour', e.country_of_melt_and_pour,
+        'primaryCountryOfSmelt', e.primary_country_of_smelt,
+        'secondaryCountryOfSmelt', e.secondary_country_of_smelt,
+        'countryOfCast', e.country_of_cast,
+        'mpfTotal', e.mpf_total,
+        'hmfTotal', e.hmf_total,
+        'totalOtherFees', e.total_other_fees,
+        'totalEnteredValue', e.total_entered_value,
+        'totalDuty', e.total_duty,
+        'totalTax', e.total_tax,
+        'totalOther', e.total_other,
+        'grandTotal', e.grand_total,
+        'declarantName', e.declarant_name,
+        'declarantCompany', e.declarant_company,
+        'declarantTitle', e.declarant_title,
+        'declarantDate', e.declarant_date,
+        'isOwner', e.is_owner,
+        'isPurchase', e.is_purchase,
+        'brokerName', e.broker_name,
+        'brokerAddress', e.broker_address,
+        'brokerPhone', e.broker_phone,
+        'brokerImporterFileNumber', e.broker_importer_file_number
+      )),
+      'lineItems', COALESCE((
+        SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+          'lineNo', li.line_no,
+          'invoiceNumber', li.invoice_number,
+          'units', li.units,
+          'merchandiseDescription', li.merchandise_description,
+          'htsusNumber', li.htsus_number,
+          'grossWeightKg', li.gross_weight_kg,
+          'netQuantity', li.net_quantity,
+          'netQuantityUnit', li.net_quantity_unit,
+          'enteredValue', li.entered_value,
+          'charges', li.charges,
+          'relationship', li.relationship,
+          'htsusRate', li.htsus_rate,
+          'htsusDuty', li.htsus_duty,
+          'invoiceValueUsd', li.invoice_value_usd,
+          'deductionCharge', li.deduction_charge,
+          'totalEnteredValueInvoice', li.total_entered_value_invoice,
+          'mpfRate', li.mpf_rate,
+          'mpfAmount', li.mpf_amount,
+          'hmfRate', li.hmf_rate,
+          'hmfAmount', li.hmf_amount
+        )) ORDER BY li.id)
+        FROM aiextraction.entry_summary_line_items li
+        WHERE li.entry_summary_id = e.id
+      ), '[]'::jsonb),
+      'arrays', jsonb_build_object(
+        'tariffLines', COALESCE((
+          SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+            'lineNo', tl.line_no,
+            'htsusNumber', tl.htsus_number,
+            'description', tl.description,
+            'grossWeight', tl.gross_weight,
+            'netQuantity', tl.net_quantity,
+            'netQuantityUnit', tl.net_quantity_unit,
+            'enteredValue', tl.entered_value,
+            'rate', tl.rate,
+            'dutyAmount', tl.duty_amount
+          )) ORDER BY tl.id)
+          FROM aiextraction.entry_summary_tariff_line_items tl
+          WHERE tl.entry_summary_id = e.id
+        ), '[]'::jsonb)
+      )
+    ) AS extracted_data
+  FROM public.documents d
+  JOIN aiextraction.entry_summary_extractions e ON e.document_id = d.id
+  WHERE d.doc_type::text = 'DRAFT_CBP_FORM_7501_BROKER'
+    AND d.status::text IN ('EXTRACTED', 'REVIEWED', 'ARCHIVED')
+    AND d.is_deleted = false
+    AND d.uploaded_by::text = bol_doc.uploaded_by::text
+    AND NULLIF(regexp_replace(upper(coalesce(bol.bol_number, '')), '[^A-Z0-9]', '', 'g'), '') IS NOT NULL
+    AND (
+      regexp_replace(upper(coalesce(e.bl_or_awb_number, '')), '[^A-Z0-9]', '', 'g') = regexp_replace(upper(coalesce(bol.bol_number, '')), '[^A-Z0-9]', '', 'g')
+      OR regexp_replace(upper(coalesce(e.additional_bls, '')), '[^A-Z0-9]', '', 'g') = regexp_replace(upper(coalesce(bol.bol_number, '')), '[^A-Z0-9]', '', 'g')
+      OR regexp_replace(upper(coalesce(e.house_bill, '')), '[^A-Z0-9]', '', 'g') = regexp_replace(upper(coalesce(bol.bol_number, '')), '[^A-Z0-9]', '', 'g')
+      OR regexp_replace(upper(coalesce(e.raw_data #>> '{shipment,additionalBLs}', '')), '[^A-Z0-9]', '', 'g') = regexp_replace(upper(coalesce(bol.bol_number, '')), '[^A-Z0-9]', '', 'g')
+      OR regexp_replace(upper(coalesce(e.raw_data #>> '{entities,brokerImporterFileNumber}', '')), '[^A-Z0-9]', '', 'g') LIKE '%' || regexp_replace(upper(coalesce(bol.bol_number, '')), '[^A-Z0-9]', '', 'g') || '%'
+    )
+  ORDER BY d.updated_at DESC
+  LIMIT 1
+) broker_doc ON true
 WHERE bol_doc.is_deleted = false
-GROUP BY bol_doc.id, si_doc.id, bol.id, si.id;
+GROUP BY bol_doc.id, broker_doc.id, broker_doc.extracted_data, si_doc.id, bol.id, si.id;
 
 CREATE INDEX IF NOT EXISTS idx_docgen_documents_type_status_user
   ON public.documents (doc_type, status, uploaded_by, created_at)

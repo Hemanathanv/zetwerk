@@ -327,7 +327,11 @@ function BulkEscalationModal({ count, onClose, onConfirm }: {
 
   return (
     <ModalBackdrop onClose={onClose}>
+<<<<<<< HEAD
       <div style={{ backgroundColor: CARD, borderRadius: 12, width: 400, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+=======
+      <div style={{ backgroundColor: CARD, borderRadius: 8, width: 400, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+>>>>>>> master
         <div style={{ fontSize: 15, fontWeight: 700, color: FG, marginBottom: 4 }}>Escalate {count} task{count !== 1 ? 's' : ''}</div>
         <div style={{ fontSize: 13, color: MUTED, marginBottom: 16 }}>Select a reason for escalation. All selected tasks will be escalated.</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
@@ -372,7 +376,11 @@ function BulkRolePickerModal({ count, onClose, onConfirm }: {
 
   return (
     <ModalBackdrop onClose={onClose}>
+<<<<<<< HEAD
       <div style={{ backgroundColor: CARD, borderRadius: 12, width: 380, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+=======
+      <div style={{ backgroundColor: CARD, borderRadius: 8, width: 380, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+>>>>>>> master
         <div style={{ fontSize: 15, fontWeight: 700, color: FG, marginBottom: 4 }}>Reassign {count} task{count !== 1 ? 's' : ''}</div>
         <div style={{ fontSize: 13, color: MUTED, marginBottom: 16 }}>Select the role to reassign these tasks to.</div>
         <select
@@ -429,7 +437,11 @@ function EscalationDialog({ taskId, onClose, onSuccess }: {
 
   return (
     <ModalBackdrop onClose={onClose}>
+<<<<<<< HEAD
       <div style={{ backgroundColor: CARD, borderRadius: 12, width: 420, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto' }}>
+=======
+      <div style={{ backgroundColor: CARD, borderRadius: 8, width: 420, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto' }}>
+>>>>>>> master
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: FG }}>Escalate Task</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: MUTED }}>
@@ -437,7 +449,11 @@ function EscalationDialog({ taskId, onClose, onSuccess }: {
           </button>
         </div>
 
+<<<<<<< HEAD
         <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 8 }}>Reason *</div>
+=======
+        <div style={{ fontSize: 12, fontWeight: 500, letterSpacing: 0, color: MUTED, marginBottom: 8 }}>Reason *</div>
+>>>>>>> master
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
           {ESCALATION_REASONS.map(r => (
             <label key={r} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '6px 8px', borderRadius: 6, backgroundColor: reason === r ? `${AMBER}10` : 'transparent', border: `1px solid ${reason === r ? `${AMBER}40` : 'transparent'}` }}>
@@ -448,7 +464,11 @@ function EscalationDialog({ taskId, onClose, onSuccess }: {
           ))}
         </div>
 
+<<<<<<< HEAD
         <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 6 }}>Escalate to role (optional)</div>
+=======
+        <div style={{ fontSize: 12, fontWeight: 500, letterSpacing: 0, color: MUTED, marginBottom: 6 }}>Escalate to role (optional)</div>
+>>>>>>> master
         <select
           value={targetRoleId}
           onChange={e => setTargetRoleId(e.target.value)}
@@ -458,7 +478,11 @@ function EscalationDialog({ taskId, onClose, onSuccess }: {
           {roles.map(r => <option key={r.id} value={r.id}>{r.displayName || r.name}</option>)}
         </select>
 
+<<<<<<< HEAD
         <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 6 }}>Note (optional)</div>
+=======
+        <div style={{ fontSize: 12, fontWeight: 500, letterSpacing: 0, color: MUTED, marginBottom: 6 }}>Note (optional)</div>
+>>>>>>> master
         <textarea
           value={note}
           onChange={e => setNote(e.target.value)}
@@ -529,13 +553,21 @@ function ReassignDialog({ taskId, onClose, onSuccess }: {
 
   return (
     <ModalBackdrop onClose={onClose}>
+<<<<<<< HEAD
       <div style={{ backgroundColor: CARD, borderRadius: 12, width: 400, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto' }}>
+=======
+      <div style={{ backgroundColor: CARD, borderRadius: 8, width: 400, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto' }}>
+>>>>>>> master
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: FG }}>Reassign Task</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: MUTED }}><X size={16} /></button>
         </div>
 
+<<<<<<< HEAD
         <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 6 }}>Assign to role *</div>
+=======
+        <div style={{ fontSize: 12, fontWeight: 500, letterSpacing: 0, color: MUTED, marginBottom: 6 }}>Assign to role *</div>
+>>>>>>> master
         <select
           value={selectedRoleId}
           onChange={e => { setSelectedRoleId(e.target.value); setSelectedUserId(''); setUserSearch(''); }}
@@ -545,7 +577,11 @@ function ReassignDialog({ taskId, onClose, onSuccess }: {
           {roles.map(r => <option key={r.id} value={r.id}>{r.displayName || r.name}</option>)}
         </select>
 
+<<<<<<< HEAD
         <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 6 }}>Specific user (optional)</div>
+=======
+        <div style={{ fontSize: 12, fontWeight: 500, letterSpacing: 0, color: MUTED, marginBottom: 6 }}>Specific user (optional)</div>
+>>>>>>> master
         <input
           value={userSearch}
           onChange={e => { setUserSearch(e.target.value); setSelectedUserId(''); }}
@@ -568,7 +604,11 @@ function ReassignDialog({ taskId, onClose, onSuccess }: {
           </div>
         )}
 
+<<<<<<< HEAD
         <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 6 }}>Note (optional)</div>
+=======
+        <div style={{ fontSize: 12, fontWeight: 500, letterSpacing: 0, color: MUTED, marginBottom: 6 }}>Note (optional)</div>
+>>>>>>> master
         <textarea
           value={note}
           onChange={e => setNote(e.target.value)}
@@ -630,14 +670,22 @@ function DelegationDialog({ taskId, onClose, onSuccess }: {
 
   return (
     <ModalBackdrop onClose={onClose}>
+<<<<<<< HEAD
       <div style={{ backgroundColor: CARD, borderRadius: 12, width: 400, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto' }}>
+=======
+      <div style={{ backgroundColor: CARD, borderRadius: 8, width: 400, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: '90vh', overflowY: 'auto' }}>
+>>>>>>> master
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: FG }}>Delegate Task</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: MUTED }}><X size={16} /></button>
         </div>
         <div style={{ fontSize: 13, color: MUTED, marginBottom: 16 }}>Delegate authority to another user. You cannot delegate to a lower-level user.</div>
 
+<<<<<<< HEAD
         <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 6 }}>Search user *</div>
+=======
+        <div style={{ fontSize: 12, fontWeight: 500, letterSpacing: 0, color: MUTED, marginBottom: 6 }}>Search user *</div>
+>>>>>>> master
         <input
           value={userSearch}
           onChange={e => { setUserSearch(e.target.value); if (!e.target.value) setSelectedUser(null); }}
@@ -675,7 +723,11 @@ function DelegationDialog({ taskId, onClose, onSuccess }: {
           </div>
         )}
 
+<<<<<<< HEAD
         <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, marginBottom: 6 }}>Note (optional)</div>
+=======
+        <div style={{ fontSize: 12, fontWeight: 500, letterSpacing: 0, color: MUTED, marginBottom: 6 }}>Note (optional)</div>
+>>>>>>> master
         <textarea
           value={note}
           onChange={e => setNote(e.target.value)}
@@ -1666,16 +1718,28 @@ function AnalyticsSkeleton() {
       {/* 4 scorecard tiles */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
         {Array.from({ length: 4 }).map((_, i) => (
+<<<<<<< HEAD
           <div key={i} style={{ height: 96, borderRadius: 12, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
+=======
+          <div key={i} style={{ height: 96, borderRadius: 8, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
+>>>>>>> master
         ))}
       </div>
       {/* 5-col grid: col-span-3 role chart + col-span-2 trend */}
       <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 20 }}>
+<<<<<<< HEAD
         <div style={{ height: 256, borderRadius: 12, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
         <div style={{ height: 256, borderRadius: 12, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
       </div>
       {/* Table */}
       <div style={{ height: 192, borderRadius: 12, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
+=======
+        <div style={{ height: 256, borderRadius: 8, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
+        <div style={{ height: 256, borderRadius: 8, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
+      </div>
+      {/* Table */}
+      <div style={{ height: 192, borderRadius: 8, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
+>>>>>>> master
     </div>
   );
 }
@@ -1700,7 +1764,11 @@ function ScorecardTile({
   };
   const bg = bgMap[color] ?? 'hsl(var(--muted)/0.25)';
   return (
+<<<<<<< HEAD
     <div style={{ background: bg, borderRadius: 12, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 6 }}
+=======
+    <div style={{ background: bg, borderRadius: 8, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 6 }}
+>>>>>>> master
       className={pulse && value > 5 ? 'animate-pulse' : undefined}
     >
       <span style={{ fontSize: 10, fontWeight: 600, color, opacity: 0.75, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{label}</span>
@@ -1921,7 +1989,11 @@ function HotspotShipmentsTable({ rows }: { rows: AnalyticsData['hotspots'] }) {
               style={{ borderBottom: `1px solid hsl(var(--border)/0.4)`, backgroundColor: r.blockers > 2 ? `${RED}08` : 'transparent' }}
             >
               <td style={{ padding: '7px 8px' }}>
+<<<<<<< HEAD
                 <a href={`/shipments/${r.shipmentId}`} style={{ color: TEAL, fontWeight: 600, fontFamily: 'monospace', textDecoration: 'none', fontSize: 12.5 }}>
+=======
+                <a href={`/shipments/${r.shipmentId}`} style={{ color: TEAL, fontWeight: 600, fontFamily: 'var(--app-font-sans)', textDecoration: 'none', fontSize: 12.5 }}>
+>>>>>>> master
                   {r.shipmentNumber}
                 </a>
               </td>
@@ -2010,17 +2082,29 @@ function TaskAnalyticsPanel() {
 
       {/* Two-column: role chart (3) + trend (2) */}
       <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 20 }}>
+<<<<<<< HEAD
         <div style={{ backgroundColor: CARD, borderRadius: 12, padding: '18px 20px', border: `1px solid ${BORDER}` }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: FG, marginBottom: 14 }}>Tasks by Role</div>
           <TasksByRoleChart rows={tasksByRole} />
         </div>
         <div style={{ backgroundColor: CARD, borderRadius: 12, padding: '18px 20px', border: `1px solid ${BORDER}` }}>
+=======
+        <div style={{ backgroundColor: CARD, borderRadius: 8, padding: '18px 20px', border: `1px solid ${BORDER}` }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: FG, marginBottom: 14 }}>Tasks by Role</div>
+          <TasksByRoleChart rows={tasksByRole} />
+        </div>
+        <div style={{ backgroundColor: CARD, borderRadius: 8, padding: '18px 20px', border: `1px solid ${BORDER}` }}>
+>>>>>>> master
           <SlaTrendChart rows={slaTrend} />
         </div>
       </div>
 
       {/* Hotspot table */}
+<<<<<<< HEAD
       <div style={{ backgroundColor: CARD, borderRadius: 12, padding: '18px 20px', border: `1px solid ${BORDER}` }}>
+=======
+      <div style={{ backgroundColor: CARD, borderRadius: 8, padding: '18px 20px', border: `1px solid ${BORDER}` }}>
+>>>>>>> master
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: FG }}>Hotspot Shipments</div>
           <span style={{ fontSize: 11, color: MUTED }}>Top 10 by blocker count</span>
@@ -2230,7 +2314,11 @@ export function TasksPage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <ClipboardList size={18} style={{ color: TEAL }} />
+<<<<<<< HEAD
             <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: FG }}>
+=======
+            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: 0, color: FG }}>
+>>>>>>> master
               Tasks
             </h1>
             {summary.blockers > 0 && (

@@ -23,11 +23,11 @@ function LoadingSkeleton() {
       <div className="h-6 w-40 bg-muted/30 rounded animate-pulse" />
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[1, 2, 3, 4].map(i => (
-          <div key={i} className="h-28 bg-muted/30 rounded-xl animate-pulse" />
+          <div key={i} className="h-28 bg-muted/30 rounded-lg animate-pulse" />
         ))}
       </div>
-      <div className="h-48 bg-muted/20 rounded-xl animate-pulse" />
-      <div className="h-32 bg-muted/20 rounded-xl animate-pulse" />
+      <div className="h-48 bg-muted/20 rounded-lg animate-pulse" />
+      <div className="h-32 bg-muted/20 rounded-lg animate-pulse" />
     </div>
   );
 }
@@ -80,7 +80,7 @@ function EditProjectModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-card rounded-xl p-6 w-[420px] shadow-xl">
+      <div className="bg-card rounded-lg p-6 w-[420px] shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-[14.5px] font-semibold">Edit Project</h3>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground text-lg leading-none">✕</button>
@@ -151,7 +151,7 @@ function LinkShipmentButton({
   );
   if (unlinked.length === 0) return null;
   return (
-    <div className="bg-card rounded-xl p-4 border border-border/50">
+    <div className="bg-card rounded-lg p-4 border border-border/50">
       <h4 className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Link Shipment</h4>
       <select
         onChange={async (e) => {

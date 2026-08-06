@@ -38,7 +38,7 @@ export interface FieldMapping {
   transformation?: string;      // Logic description if not direct copy
   validation?: string;          // Validation rule
   validationSeverity?: Severity;
-  mono?: boolean;               // Render in JetBrains Mono
+  mono?: boolean;               // Render in Inter
 }
 
 export interface GenSection {

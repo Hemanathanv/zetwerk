@@ -10,7 +10,6 @@ type PermissionLike = {
 };
 
 const LANDING_ROUTES = [
-  { module: 'portal', path: '/portal' },
   { module: 'partner', path: '/partner', activities: ['documents.upload'] },
   { module: 'partner', path: '/partner/documents', activities: ['documents.view', 'documents.view_extracted'] },
   { module: 'partner', path: '/partner/warehouse', activities: ['inventory.view_container', 'inventory.view_timeline'] },

@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader,
   DialogTitle, DialogDescription,
@@ -9,7 +8,8 @@ import { Input } from '@/components/ui/input';
 
 interface AdminConfirmDialogProps {
   open: boolean;
-  onClose: () => void;
+  onClose?: () => void;
+  onCancel?: () => void;
   onConfirm: () => void;
   title: string;
   description: string;
@@ -19,7 +19,7 @@ interface AdminConfirmDialogProps {
 }
 
 export function AdminConfirmDialog({
-  open, onClose, onConfirm,
+  open, onClose, onCancel, onConfirm,
   title, description,
   confirmLabel = 'Confirm',
   confirmVariant = 'danger',
@@ -30,7 +30,7 @@ export function AdminConfirmDialog({
 
   function handleClose() {
     setTyped('');
-    onClose();
+    (onClose ?? onCancel)?.();
   }
 
   function handleConfirm() {
@@ -39,26 +39,16 @@ export function AdminConfirmDialog({
     onConfirm();
   }
 
-  const iconColor = confirmVariant === 'danger' ? '#dc2626' : '#d97706';
-  const btnBg = confirmVariant === 'danger'
-    ? 'hsl(0 72% 51%)'
-    : 'hsl(38 92% 50%)';
-
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogContent style={{ maxWidth: 440, padding: '28px 28px 24px' }}>
+      <DialogContent style={{ maxWidth: 440, padding: 24 }}>
         <DialogHeader>
-          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-            <AlertTriangle size={32} color={iconColor} style={{ flexShrink: 0, marginTop: 2 }} />
-            <div>
-              <DialogTitle style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
-                {title}
-              </DialogTitle>
-              <DialogDescription style={{ fontSize: 14.5, lineHeight: 1.6 }}>
-                {description}
-              </DialogDescription>
-            </div>
-          </div>
+          <DialogTitle style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
+            {title}
+          </DialogTitle>
+          <DialogDescription style={{ fontSize: 14.5, lineHeight: 1.6 }}>
+            {description}
+          </DialogDescription>
         </DialogHeader>
 
         {requireTypedConfirmation && (
@@ -88,12 +78,9 @@ export function AdminConfirmDialog({
           </Button>
           <Button
             size="sm"
+            variant={confirmVariant === 'danger' ? 'danger' : 'default'}
             disabled={!confirmed}
             onClick={handleConfirm}
-            style={{
-              background: confirmed ? btnBg : undefined,
-              borderColor: confirmed ? btnBg : undefined,
-            }}
           >
             {confirmLabel}
           </Button>

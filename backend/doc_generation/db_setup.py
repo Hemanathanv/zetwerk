@@ -14,6 +14,8 @@ DOC_GENERATION_REQUIRED_COLUMNS: dict[str, set[str]] = {
     "v_us_packing_list_source": {"packing_list_document_id", "bol_document_id"},
     "v_entry_summary_source": {
         "bol_document_id",
+        "broker_extracted_data",
+        "broker_document_id",
         "sales_invoice_document_id",
         "export_shipping_bill_date",
         "taxable_value",
@@ -162,10 +164,6 @@ async def ensure_doc_generation_views(prisma: Any) -> set[str]:
     valid_existing_views = existing_views - incompatible_views
     if valid_existing_views.issuperset(DOC_GENERATION_VIEWS):
         return existing_views
-
-    for view_name in incompatible_views:
-        await _execute_raw(prisma, f"DROP VIEW IF EXISTS docgen.{view_name} CASCADE;")
-        await _execute_raw(prisma, f"DROP TABLE IF EXISTS docgen.{view_name} CASCADE;")
 
     statements = _split_sql_statements(DOC_GENERATION_SQL_PATH.read_text(encoding="utf-8"))
     created_or_existing = set(valid_existing_views)

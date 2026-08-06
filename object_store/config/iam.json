@@ -1,0 +1,11 @@
+{
+  "sts": {
+    "tokenDuration": "1h",
+    "maxSessionLength": "24h",
+    "issuer": "ewms-seaweedfs",
+    "signingKey": "7yCTGc91CZ6MupbGiITGVOex7LdAb6yc4eeCQ7z+Z0I="
+  },
+  "providers": [],
+  "policies": [],
+  "roles": []
+}

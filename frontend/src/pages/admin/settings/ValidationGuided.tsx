@@ -55,7 +55,7 @@ export default function ValidationGuided() {
 
   return (
     <div className="space-y-5">
-      <div className="bg-card border rounded-xl p-5" style={{ borderColor: 'hsl(var(--card-border))' }}>
+      <div className="bg-card border rounded-lg p-5" style={{ borderColor: 'hsl(var(--card-border))' }}>
         <div className="flex items-center gap-2 mb-2">
           <Shield className="w-4 h-4 text-teal-600" />
           <h3 className="font-semibold text-[14.5px]">Validation Summary</h3>
@@ -66,7 +66,7 @@ export default function ValidationGuided() {
         </div>
       </div>
 
-      <div className="bg-card border rounded-xl p-5" style={{ borderColor: 'hsl(var(--card-border))' }}>
+      <div className="bg-card border rounded-lg p-5" style={{ borderColor: 'hsl(var(--card-border))' }}>
         <h3 className="font-semibold text-[14.5px] mb-3">How validation works</h3>
         <div className="space-y-3">
           {[
@@ -87,7 +87,7 @@ export default function ValidationGuided() {
         </div>
       </div>
 
-      <div className="bg-card border rounded-xl p-4 flex items-center gap-3" style={{ borderColor: 'hsl(var(--card-border))' }}>
+      <div className="bg-card border rounded-lg p-4 flex items-center gap-3" style={{ borderColor: 'hsl(var(--card-border))' }}>
         <CheckCircle2 className="w-5 h-5 text-teal-500 shrink-0" />
         <div>
           <div className="text-[14.5px] font-medium">Rules configured</div>

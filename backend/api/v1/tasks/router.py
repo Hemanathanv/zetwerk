@@ -9,11 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from db import get_prisma
+from helpers.config import settings
 from helpers.dependencies import get_current_user
 from helpers.shipment_operational import ensure_operational_shipment_tables
 
 
-router = APIRouter(tags=["Tasks"])
+router = APIRouter(prefix=settings.API_SLUG, tags=["Tasks"])
 
 OPEN_STATUSES = ("PENDING", "ASSIGNED", "IN_PROGRESS", "ESCALATED")
 DEFAULT_ROLE_ID = "India Logistics"
@@ -607,7 +608,7 @@ def _current_scope_where(scope: str, user: Any, base: list[str], params: list[An
     base.append(f'(t."assigned_user_id" = ${user_idx} OR (t."assigned_user_id" IS NULL AND t."assigned_role" = ${role_idx}))')
 
 
-@router.get("/api/tasks")
+@router.get("/tasks")
 async def list_tasks(
     scope: str = Query("mine"),
     urgency: str | None = None,
@@ -658,7 +659,7 @@ async def list_tasks(
     }
 
 
-@router.post("/api/tasks")
+@router.post("/tasks")
 async def create_task(request: TaskCreateRequest, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_tables(prisma)
@@ -720,7 +721,7 @@ async def create_task(request: TaskCreateRequest, user=Depends(get_current_user)
     return {"ok": True, "data": tasks[0] if tasks else None}
 
 
-@router.get("/api/tasks/count")
+@router.get("/tasks/count")
 async def task_count(user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _sync_task_reminders(prisma)
@@ -745,7 +746,7 @@ async def task_count(user=Depends(get_current_user)):
     return {"ok": True, "data": {"total": int(row.get("total") or 0), "blockers": int(row.get("blockers") or 0)}}
 
 
-@router.get("/api/tasks/summary")
+@router.get("/tasks/summary")
 async def task_summary(user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _sync_task_reminders(prisma)
@@ -782,7 +783,7 @@ async def task_summary(user=Depends(get_current_user)):
     }}
 
 
-@router.get("/api/tasks/roles")
+@router.get("/tasks/roles")
 async def task_roles(_user=Depends(get_current_user), minLevel: int | None = None):
     prisma = await get_prisma()
     rows = await _query_raw(prisma, 'SELECT "id", "name", "system_role"::text AS role FROM "auth"."users" WHERE "is_active" = TRUE ORDER BY "name"')
@@ -790,7 +791,7 @@ async def task_roles(_user=Depends(get_current_user), minLevel: int | None = Non
     return {"ok": True, "data": [{"id": role, "name": role.replace("_", " ").title(), "roleCode": role, "roleName": role.replace("_", " ").title()} for role in roles]}
 
 
-@router.get("/api/tasks/users")
+@router.get("/tasks/users")
 async def task_users(search: str | None = None, roleId: str | None = None, _user=Depends(get_current_user)):
     prisma = await get_prisma()
     params: list[Any] = []
@@ -809,7 +810,7 @@ async def task_users(search: str | None = None, roleId: str | None = None, _user
     return {"ok": True, "data": data}
 
 
-@router.get("/api/tasks/analytics")
+@router.get("/tasks/analytics")
 async def task_analytics(_user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _sync_task_reminders(prisma)
@@ -902,7 +903,7 @@ async def task_analytics(_user=Depends(get_current_user)):
     }}
 
 
-@router.get("/api/tasks/{task_id}")
+@router.get("/tasks/{task_id}")
 async def task_detail(task_id: str, _user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _sync_task_reminders(prisma)
@@ -912,7 +913,7 @@ async def task_detail(task_id: str, _user=Depends(get_current_user)):
     return {"ok": True, "data": rows[0]}
 
 
-@router.post("/api/tasks/{task_id}/start")
+@router.post("/tasks/{task_id}/start")
 async def start_task(task_id: str, _user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_tables(prisma)
@@ -927,7 +928,7 @@ async def start_task(task_id: str, _user=Depends(get_current_user)):
     return {"ok": True}
 
 
-@router.post("/api/tasks/{task_id}/complete")
+@router.post("/tasks/{task_id}/complete")
 async def complete_task(task_id: str, _user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_tables(prisma)
@@ -942,7 +943,7 @@ async def complete_task(task_id: str, _user=Depends(get_current_user)):
     return {"ok": True}
 
 
-@router.post("/api/tasks/{task_id}/escalate")
+@router.post("/tasks/{task_id}/escalate")
 async def escalate_task(task_id: str, request: EscalateRequest, _user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_tables(prisma)
@@ -982,7 +983,7 @@ async def escalate_task(task_id: str, request: EscalateRequest, _user=Depends(ge
     return {"ok": True}
 
 
-@router.post("/api/tasks/{task_id}/reassign")
+@router.post("/tasks/{task_id}/reassign")
 async def reassign_task(task_id: str, request: ReassignRequest, _user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_tables(prisma)
@@ -1006,7 +1007,7 @@ async def reassign_task(task_id: str, request: ReassignRequest, _user=Depends(ge
     return {"ok": True}
 
 
-@router.post("/api/tasks/{task_id}/delegate")
+@router.post("/tasks/{task_id}/delegate")
 async def delegate_task(task_id: str, request: DelegateRequest, _user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_tables(prisma)
@@ -1031,7 +1032,7 @@ async def delegate_task(task_id: str, request: DelegateRequest, _user=Depends(ge
     return {"ok": True}
 
 
-@router.get("/api/notifications")
+@router.get("/notifications")
 async def list_notifications(
     type: str | None = None,
     unreadOnly: bool = False,
@@ -1106,7 +1107,7 @@ async def list_notifications(
     return {"ok": True, "data": data, "meta": meta}
 
 
-@router.patch("/api/notifications/{notification_id}/read")
+@router.patch("/notifications/{notification_id}/read")
 async def mark_notification_read(notification_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_tables(prisma)
@@ -1126,7 +1127,7 @@ async def mark_notification_read(notification_id: str, user=Depends(get_current_
     return {"ok": True}
 
 
-@router.post("/api/notifications/mark-all-read")
+@router.post("/notifications/mark-all-read")
 async def mark_all_notifications_read(user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _ensure_tables(prisma)
@@ -1144,7 +1145,7 @@ async def mark_all_notifications_read(user=Depends(get_current_user)):
     return {"ok": True}
 
 
-@router.get("/api/navigation/badges")
+@router.get("/navigation/badges")
 async def navigation_badges(user=Depends(get_current_user)):
     prisma = await get_prisma()
     await _sync_task_reminders(prisma)

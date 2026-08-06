@@ -5,7 +5,6 @@ import {
 import { useShipments, useTaskCount } from '@/hooks/useOperationalData';
 import { usePermissions } from '@/contexts/PermissionContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { RequireActivity } from '@/components/PermissionGate';
 import { useTemplates } from '@/contexts/ConfigContext';
 import { MetricCard } from '@/components/vs/MetricCard';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -229,7 +228,7 @@ export function DashboardPage() {
       {/* ── Page Header ───────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: '-0.025em', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Dashboard</h1>
+          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Welcome back, {user?.fullName ?? user?.email ?? 'User'}
           </p>
@@ -254,7 +253,7 @@ export function DashboardPage() {
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
           {Array.from({ length: 7 }).map((_, i) => (
-            <div key={i} className="h-[185px] rounded-2xl bg-muted/30 animate-pulse" />
+            <div key={i} className="h-[185px] rounded-lg bg-muted/30 animate-pulse" />
           ))}
         </div>
       ) : (
@@ -382,7 +381,7 @@ export function DashboardPage() {
       )}
 
       {/* ── Shipment Table ────────────────────────────────────────────────── */}
-      <div className="bg-card rounded-xl p-6">
+      <div className="bg-card rounded-lg p-6">
 
         {/* Controls */}
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -565,7 +564,7 @@ export function DashboardPage() {
 
             {/* Empty state */}
             {filteredShipments.length === 0 && (
-              <div className="rounded-xl p-12 text-center">
+              <div className="rounded-lg p-12 text-center">
                 <Ship className="w-10 h-10 mx-auto text-muted-foreground/40" />
                 <h3 className="text-sm font-semibold mt-3">No shipments found</h3>
                 <p className="text-[13px] text-muted-foreground mt-1">
@@ -573,14 +572,6 @@ export function DashboardPage() {
                     ? 'Try adjusting your search or filters'
                     : 'Create your first shipment to get started'}
                 </p>
-                <RequireActivity code="SHP-001">
-                  <a
-                    href="/shipments/new"
-                    className="inline-flex items-center gap-1.5 text-[13px] font-medium text-teal-600 mt-3 hover:underline"
-                  >
-                    + Create shipment
-                  </a>
-                </RequireActivity>
               </div>
             )}
           </div>

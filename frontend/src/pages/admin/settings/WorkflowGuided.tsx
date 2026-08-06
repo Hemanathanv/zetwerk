@@ -71,13 +71,13 @@ function StatChip({ label, value, color, spinning }: { label: string; value: num
       flex: 1, minWidth: 0,
       background: 'hsl(var(--card))',
       border: '1px solid hsl(var(--border))',
-      borderRadius: 10,
+      borderRadius: 8,
       padding: '12px 16px',
       display: 'flex', flexDirection: 'column', gap: 2,
     }}>
       <span style={{
         fontSize: 22, fontWeight: 700, color,
-        fontFamily: "'Jura', monospace", lineHeight: 1,
+        fontFamily: 'var(--app-font-sans)', lineHeight: 1,
         opacity: spinning ? 0.5 : 1, transition: 'opacity 0.2s',
       }}>{value}</span>
       <span style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))', fontWeight: 500, letterSpacing: '0.02em' }}>
@@ -97,7 +97,7 @@ function GatePipeline({ gates }: { gates: Gate[] }) {
           <div key={g.id} style={{ display: 'flex', alignItems: 'center', flex: '1 1 0', minWidth: 130 }}>
             <div style={{
               flex: 1, background: `${color}18`, border: `1px solid ${color}40`,
-              borderRadius: 10, padding: '10px 12px',
+              borderRadius: 8, padding: '10px 12px',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                 <div style={{
@@ -105,7 +105,7 @@ function GatePipeline({ gates }: { gates: Gate[] }) {
                   background: color, color: '#fff',
                   fontSize: 14, fontWeight: 700,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: "'Jura', monospace", flexShrink: 0,
+                  fontFamily: 'var(--app-font-sans)', flexShrink: 0,
                 }}>{g.gateNumber}</div>
                 {g.isIdentityGate && (
                   <span style={{
@@ -215,7 +215,7 @@ function PhaseGroup({
   const Icon = cfg.Icon;
   const totalTriggers = milestones.reduce((s, m) => s + (m.accountingTriggers?.length ?? 0), 0);
   return (
-    <div style={{ border: `1px solid ${cfg.border}`, borderRadius: 10, overflow: 'hidden' }}>
+    <div style={{ border: `1px solid ${cfg.border}`, borderRadius: 8, overflow: 'hidden' }}>
       <button
         onClick={() => setOpen(o => !o)}
         style={{
@@ -237,7 +237,7 @@ function PhaseGroup({
         )}
         <span style={{
           fontSize: 14, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
-          background: cfg.color, color: '#fff', fontFamily: "'Jura', monospace",
+          background: cfg.color, color: '#fff', fontFamily: 'var(--app-font-sans)',
         }}>{milestones.length}</span>
         {open
           ? <ChevronDown size={12} style={{ color: cfg.color, flexShrink: 0 }} />
@@ -288,7 +288,7 @@ function DocTypesCard({ docTypes, onConfigure }: { docTypes: DocType[]; onConfig
   return (
     <div style={{
       background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))',
-      borderRadius: 12, padding: '16px 18px',
+      borderRadius: 8, padding: '16px 18px',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -327,7 +327,7 @@ function DocTypesCard({ docTypes, onConfigure }: { docTypes: DocType[]; onConfig
           }}>
             <Icon size={12} style={{ color, flexShrink: 0 }} />
             <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color, fontFamily: "'Jura', monospace", lineHeight: 1 }}>{value}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color, fontFamily: 'var(--app-font-sans)', lineHeight: 1 }}>{value}</div>
               <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginTop: 1 }}>{label}</div>
             </div>
           </div>
@@ -341,7 +341,7 @@ function DocTypesCard({ docTypes, onConfigure }: { docTypes: DocType[]; onConfig
           const cfg = GEO_CONFIG[geo];
           const isOpen = openGeo.has(geo);
           return (
-            <div key={geo} style={{ border: `1px solid ${cfg.border}`, borderRadius: 9, overflow: 'hidden' }}>
+            <div key={geo} style={{ border: `1px solid ${cfg.border}`, borderRadius: 8, overflow: 'hidden' }}>
               <button
                 onClick={() => toggleGeo(geo)}
                 style={{
@@ -353,7 +353,7 @@ function DocTypesCard({ docTypes, onConfigure }: { docTypes: DocType[]; onConfig
                 <span style={{ fontSize: 14, fontWeight: 600, color: cfg.color, flex: 1, textAlign: 'left' }}>{cfg.label}</span>
                 <span style={{
                   fontSize: 14, fontWeight: 700, padding: '1px 6px', borderRadius: 99,
-                  background: cfg.color, color: '#fff', fontFamily: "'Jura', monospace",
+                  background: cfg.color, color: '#fff', fontFamily: 'var(--app-font-sans)',
                 }}>{items.length}</span>
                 {isOpen
                   ? <ChevronDown size={12} style={{ color: cfg.color, flexShrink: 0 }} />
@@ -553,7 +553,7 @@ export default function WorkflowGuided({ onSwitchToAdvanced }: { onSwitchToAdvan
   if (loading) return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {[80, 180, 240].map((h, i) => (
-        <div key={i} style={{ height: h, background: 'hsl(var(--card))', borderRadius: 12, opacity: 0.5 }} />
+        <div key={i} style={{ height: h, background: 'hsl(var(--card))', borderRadius: 8, opacity: 0.5 }} />
       ))}
     </div>
   );
@@ -591,7 +591,7 @@ export default function WorkflowGuided({ onSwitchToAdvanced }: { onSwitchToAdvan
           title={`Refreshed ${refreshLabel}`}
           style={{
             alignSelf: 'center',
-            padding: '10px 12px', borderRadius: 10,
+            padding: '10px 12px', borderRadius: 8,
             background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))',
             cursor: refreshing ? 'not-allowed' : 'pointer',
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
@@ -611,7 +611,7 @@ export default function WorkflowGuided({ onSwitchToAdvanced }: { onSwitchToAdvan
       {/* ── Active template ─────────────────────────────────── */}
       <div style={{
         background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))',
-        borderRadius: 12, padding: '16px 18px',
+        borderRadius: 8, padding: '16px 18px',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -674,7 +674,7 @@ export default function WorkflowGuided({ onSwitchToAdvanced }: { onSwitchToAdvan
       {/* ── Milestone journey ───────────────────────────────── */}
       <div style={{
         background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))',
-        borderRadius: 12, padding: '16px 18px',
+        borderRadius: 8, padding: '16px 18px',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

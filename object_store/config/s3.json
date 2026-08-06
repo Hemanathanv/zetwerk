@@ -1,0 +1,37 @@
+{
+  "identities": [
+    {
+      "name": "ewms_admin",
+      "credentials": [
+        {
+          "accessKey": "ewms_admin",
+          "secretKey": "co9VLiTjnzqKd3i7hrzVcqbvor7gY33U"
+        }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    },
+    {
+      "name": "ewms_app",
+      "credentials": [
+        {
+          "accessKey": "ewms_app",
+          "secretKey": "REco9VLiTjnzqKd3i7hrzVcqbvor7gY33U"
+        }
+      ],
+      "actions": ["Read:bucket1", "Write:bucket1"]
+    },
+    {
+      "name": "ewms_readonly",
+      "credentials": [
+        {
+          "accessKey": "ewms_readonly",
+          "secretKey": "s23B3gQUYbz2vDjFL/ad66EPTRI+wXofVGYxpo90MtY="
+        }
+      ],
+      "actions": [
+        "Read",
+        "List"
+      ]
+    }
+  ]
+}

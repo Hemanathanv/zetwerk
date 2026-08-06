@@ -97,7 +97,7 @@ export default function AdminStorageView() {
 
   return (
     <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-      <section className="rounded-xl border border-border bg-card p-5">
+      <section className="rounded-lg border border-border bg-card p-5">
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-[220px] flex-1">
             <p className="text-sm font-semibold">Storage Browser</p>
@@ -154,7 +154,7 @@ export default function AdminStorageView() {
           </div>
         ) : (
           <div className="mt-5 grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
-            <div className="rounded-xl border border-border">
+            <div className="rounded-lg border border-border">
               <div className="border-b border-border px-4 py-3 text-sm font-semibold">Folders</div>
               <div className="max-h-[480px] overflow-auto p-2">
                 {listing?.folders.length ? (
@@ -174,7 +174,7 @@ export default function AdminStorageView() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-border">
+            <div className="rounded-lg border border-border">
               <div className="border-b border-border px-4 py-3 text-sm font-semibold">Files</div>
               <div className="max-h-[480px] overflow-auto p-2">
                 {listing?.files.length ? (
@@ -225,7 +225,7 @@ export default function AdminStorageView() {
         )}
       </section>
 
-      <aside className="rounded-xl border border-border bg-card p-5">
+      <aside className="rounded-lg border border-border bg-card p-5">
         <h3 className="text-base font-semibold">Preview</h3>
         {selectedFile ? (
           <div className="mt-4 space-y-4">

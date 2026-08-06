@@ -101,7 +101,7 @@ export const InputsAndForms: Story = {
 export const NavigationAndMedia: Story = {
   render: () => (
     <div className="grid max-w-xl gap-5">
-      <div className="rounded-xl bg-sidebar p-3">
+      <div className="rounded-lg bg-sidebar p-3">
         <ProfileTrigger name="EWMS Admin" role="Super Admin" />
       </div>
       <div className="flex items-center gap-4">

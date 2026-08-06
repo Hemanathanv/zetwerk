@@ -66,6 +66,18 @@ LEGACY_ACTIVITY_ALIASES = {
     "tasks.assign": {"TSK-003"},
     "tasks.escalate": {"TSK-004"},
     "tasks.delegate": {"TSK-007"},
+    "dnd.view_tariffs": {"dnd.tariff.view"},
+    "dnd.view_charges": {"dnd.activate"},
+    "dnd.save_inputs": {
+        "dnd.activate",
+        "dnd.activate.start_event_date",
+        "dnd.activate.holiday_days",
+        "dnd.activate.weekends",
+    },
+    "dnd.manage_carriers": {"dnd.tariff.create", "dnd.tariff.edit"},
+    "dnd.upload_holidays": {"dnd.holiday_calendar.upload"},
+    "dnd.publish_tariff": {"dnd.tariff.create"},
+    "dnd.force_expire_tariff": {"dnd.tariff.force_expire"},
 }
 
 
@@ -169,6 +181,9 @@ def _authz_context(token: str) -> dict:
 
 def authorize_activity(token: str, activity_code: str) -> dict:
     context = _authz_context(token)
+    normalized_role = str(context.get("role") or "").upper().replace("-", "_").replace(" ", "_")
+    if normalized_role in {"SUPER_ADMIN", "SUPER_ADMINISTRATOR"}:
+        return context
     if activity_code not in context["activities"]:
         raise HTTPException(
             status_code=403,

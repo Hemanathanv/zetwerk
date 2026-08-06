@@ -70,11 +70,6 @@ const NAV_GROUPS: { items: NavItem[] }[] = [
       { icon: Package,    label: 'Stock Position',   href: '/partner/warehouse/stock',        module: 'partner', requiredAnyActivities: ['inventory.view_container'] },
     ],
   },
-  {
-    items: [
-      { icon: Package, label: 'Your Orders', href: '/portal', module: 'portal' },
-    ],
-  },
 ];
 
 const TEAL_ACTIVE_BG   = 'hsla(173,58%,39%,0.12)';
@@ -108,7 +103,7 @@ function BrandMark({ collapsed, showOpenIcon = false }: { collapsed: boolean; sh
       </div>
       {!collapsed && (
         <span style={{
-          fontSize: 16, fontWeight: 600, letterSpacing: '-0.01em',
+          fontSize: 16, fontWeight: 600, letterSpacing: 0,
           color: 'hsl(var(--sidebar-foreground, 220 14% 90%))',
           whiteSpace: 'nowrap',
         }}>
@@ -478,7 +473,7 @@ export function Sidebar() {
                         color: '#fff',
                         fontSize: 12,
                         fontWeight: 700,
-                        fontFamily: 'var(--app-font-mono, monospace)',
+                        fontFamily: 'var(--app-font-sans)',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         padding: '0 3px',
                         lineHeight: 1,

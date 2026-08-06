@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
-import { Search, Plus, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { Search, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { StatusPill, FilterChips, PageHeader } from '@/components/vs';
@@ -243,7 +243,7 @@ function PhaseDots({ current }: { current: number }) {
           }}
         />
       ))}
-      <span style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginLeft: 3, fontFamily: 'JetBrains Mono, monospace' }}>
+      <span style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginLeft: 3, fontFamily: 'var(--app-font-sans)' }}>
         {PHASE_LABELS[current]}
       </span>
     </div>
@@ -423,15 +423,6 @@ export function ShipmentsPage() {
               Refresh
             </Button>
             <Button variant="outline" size="sm">Export CSV</Button>
-            <Button
-              size="sm"
-              className="text-white flex items-center gap-1.5"
-              style={{ backgroundColor: 'hsl(var(--primary))' }}
-              onClick={() => navigate('/shipments/new')}
-            >
-              <Plus className="w-3.5 h-3.5" />
-              New shipment
-            </Button>
           </>
         }
       />
@@ -499,7 +490,7 @@ export function ShipmentsPage() {
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-xl" style={{ boxShadow: 'var(--vs-shadow-card)' }}>
+      <div className="overflow-x-auto rounded-lg" style={{ boxShadow: 'var(--vs-shadow-card)' }}>
         <table className="w-full bg-card" style={{ minWidth: 1040, borderCollapse: 'collapse' }}>
           <colgroup>
             <col style={{ width: '13%' }} />
