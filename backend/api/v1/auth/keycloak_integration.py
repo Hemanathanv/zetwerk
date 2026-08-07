@@ -2,8 +2,10 @@
 Keycloak Integration Module
 Provides authentication and authorization services using Keycloak
 """
+import json
+
 from keycloak import KeycloakOpenID, KeycloakAdmin
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from helpers.config import settings
 from typing import Optional, List
@@ -11,18 +13,44 @@ from typing import Optional, List
 KEYCLOAK_URL_BASE = settings.KEYCLOAK_URL.rstrip("/")
 KEYCLOAK_SERVER_URL = f"{KEYCLOAK_URL_BASE}/"
 
+
+def _keycloak_server_url_candidates() -> list[str]:
+    configured = f"{settings.KEYCLOAK_URL.rstrip('/')}/"
+    candidates = [configured]
+    if configured.rstrip('/').endswith('/keycloak'):
+        candidates.append(f"{configured.rstrip('/')[:-len('/keycloak')]}/")
+    else:
+        candidates.append(f"{configured.rstrip('/')}/keycloak/")
+    seen: set[str] = set()
+    return [url for url in candidates if not (url in seen or seen.add(url))]
+
+
+def _openid_client(server_url: str) -> KeycloakOpenID:
+    return KeycloakOpenID(
+        server_url=server_url,
+        client_id=settings.KEYCLOAK_CLIENT_ID,
+        realm_name=settings.KEYCLOAK_REALM,
+        client_secret_key=settings.KEYCLOAK_CLIENT_SECRET,
+    )
+
+
 # Keycloak OpenID client for authentication
-keycloak_openid = KeycloakOpenID(
-    server_url=KEYCLOAK_SERVER_URL,
-    client_id=settings.KEYCLOAK_CLIENT_ID,
-    realm_name=settings.KEYCLOAK_REALM,
-    client_secret_key=settings.KEYCLOAK_CLIENT_SECRET
-)
+keycloak_openid = _openid_client(KEYCLOAK_SERVER_URL)
 
 # OAuth2 scheme for token authentication
 oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl=f"{KEYCLOAK_URL_BASE}/realms/{settings.KEYCLOAK_REALM}/protocol/openid-connect/token"
+    tokenUrl=f"{KEYCLOAK_URL_BASE}/realms/{settings.KEYCLOAK_REALM}/protocol/openid-connect/token",
+    auto_error=False,
 )
+
+ACCESS_TOKEN_COOKIE = "access_token"
+
+
+def _extract_token(request: Request, token: Optional[str]) -> Optional[str]:
+    """Extract access token from Authorization header or httpOnly cookie."""
+    if token:
+        return token
+    return request.cookies.get(ACCESS_TOKEN_COOKIE)
 
 
 def _extract_roles(token_info: dict) -> List[str]:
@@ -38,8 +66,76 @@ def _has_role(roles: List[str], required_role: str) -> bool:
     normalized_required = required_role.upper().replace("-", "_")
     return normalized_required in normalized_roles
 
+def _keycloak_exception_message(exc: Exception) -> str:
+    for attr in ("response_body", "error_message"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", "replace")
+        if not value:
+            continue
+        text = str(value)
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                description = parsed.get("error_description") or parsed.get("error")
+                if description:
+                    return str(description)[:500]
+        except Exception:
+            pass
+        return text[:500]
+    return str(exc)[:500]
+
+
+def _keycloak_login_user_state(login_identifier: str) -> str:
+    identifier = str(login_identifier or "").strip()
+    if not identifier:
+        return ""
+    try:
+        admin = get_keycloak_admin()
+        matches = []
+        if "@" in identifier:
+            matches = admin.get_users({"email": identifier, "exact": True, "max": 3}) or []
+        if not matches:
+            matches = admin.get_users({"username": identifier, "exact": True, "max": 3}) or []
+        if not matches:
+            return ""
+        user = admin.get_user(str(matches[0].get("id") or "")) or matches[0]
+        state_bits = []
+        if user.get("enabled") is False:
+            state_bits.append("disabled")
+        if user.get("emailVerified") is False:
+            state_bits.append("email not verified")
+        actions = user.get("requiredActions") or []
+        if actions:
+            state_bits.append(f"required actions: {', '.join(str(action) for action in actions)}")
+        if len(matches) > 1:
+            state_bits.append(f"duplicate matches: {len(matches)}")
+        return "; ".join(state_bits)
+    except Exception:
+        return ""
+
+
 def get_keycloak_admin():
     """Get Keycloak admin client for user management"""
+    first_error: Exception | None = None
+    for server_url in _keycloak_server_url_candidates():
+        admin = KeycloakAdmin(
+            server_url=server_url,
+            username=settings.KEYCLOAK_ADMIN_USERNAME,
+            password=settings.KEYCLOAK_ADMIN_PASSWORD,
+            realm_name=settings.KEYCLOAK_REALM,
+            user_realm_name="master",
+            client_id="admin-cli",
+            verify=True,
+        )
+        try:
+            admin.get_realm(settings.KEYCLOAK_REALM)
+            return admin
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+    if first_error is not None:
+        raise first_error
     return KeycloakAdmin(
         server_url=KEYCLOAK_SERVER_URL,
         username=settings.KEYCLOAK_ADMIN_USERNAME,
@@ -47,16 +143,25 @@ def get_keycloak_admin():
         realm_name=settings.KEYCLOAK_REALM,
         user_realm_name="master",
         client_id="admin-cli",
-        verify=True
+        verify=True,
     )
 
-async def get_keycloak_user(token: str = Depends(oauth2_scheme)):
+async def get_keycloak_user(request: Request, token: Optional[str] = Depends(oauth2_scheme)):
     """
     Get current user information from a Keycloak access token.
+    Reads from Authorization header or httpOnly cookie.
     """
+    resolved_token = _extract_token(request, token)
+    if not resolved_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     try:
         token_info = keycloak_openid.decode_token(
-            token,
+            resolved_token,
             keycloak_openid.public_key(),
         )
     except Exception:
@@ -67,12 +172,12 @@ async def get_keycloak_user(token: str = Depends(oauth2_scheme)):
         )
 
     try:
-        userinfo = keycloak_openid.userinfo(token)
+        userinfo = keycloak_openid.userinfo(resolved_token)
         return {**token_info, **userinfo}
     except Exception:
         return token_info
 
-async def get_keycloak_roles(token: str = Depends(oauth2_scheme)) -> List[str]:
+async def get_keycloak_roles(request: Request, token: Optional[str] = Depends(oauth2_scheme)) -> List[str]:
     """
     Get current user's roles from Keycloak token
 
@@ -82,9 +187,16 @@ async def get_keycloak_roles(token: str = Depends(oauth2_scheme)) -> List[str]:
     Raises:
         HTTPException: 401 if token is invalid
     """
+    resolved_token = _extract_token(request, token)
+    if not resolved_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
     try:
         token_info = keycloak_openid.decode_token(
-            token,
+            resolved_token,
             keycloak_openid.public_key()
         )
         return _extract_roles(token_info)
@@ -211,19 +323,31 @@ async def get_keycloak_token(username: str, password: str) -> dict:
         except Exception:
             pass
 
-    for candidate_username in candidate_usernames:
-        try:
-            return keycloak_openid.token(
-                username=candidate_username,
-                grant_type="password",
-                password=password
-            )
-        except Exception:
-            continue
+    errors: list[str] = []
+    for server_url in _keycloak_server_url_candidates():
+        openid = _openid_client(server_url)
+        for candidate_username in candidate_usernames:
+            try:
+                return openid.token(
+                    username=candidate_username,
+                    grant_type="password",
+                    password=password,
+                )
+            except Exception as exc:
+                message = _keycloak_exception_message(exc)
+                if message and message not in errors:
+                    errors.append(message)
+                continue
 
+    detail = "Invalid username or password"
+    if errors:
+        detail = f"Keycloak login failed: {errors[0]}"
+    user_state = _keycloak_login_user_state(login_identifier)
+    if user_state:
+        detail = f"{detail} ({user_state})"
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid username or password"
+        detail=detail,
     )
 
 

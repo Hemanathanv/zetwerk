@@ -28,6 +28,7 @@ def utc_now() -> datetime:
 async def get_session_token(
     request: Request,
     session_token: Optional[str] = Cookie(None, alias="session_token"),
+    access_token: Optional[str] = Cookie(None, alias="access_token"),
     credentials: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme),
 ) -> Optional[str]:
     """Extract session token from cookie or Authorization header."""
@@ -42,6 +43,10 @@ async def get_session_token(
 
     if session_token:
         return session_token
+
+    # Fall back to the httpOnly access_token cookie set by the auth router
+    if access_token:
+        return access_token
     
     return None
 

@@ -3,8 +3,9 @@ Keycloak-Only Authentication Router
 Pure Keycloak authentication without legacy session system
 """
 import json
+import secrets
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 
@@ -25,6 +26,108 @@ except Exception:
 router = APIRouter(prefix=settings.API_SLUG + "/auth", tags=["Auth"])
 
 # =================================================================
+# Cookie Configuration
+# =================================================================
+
+ACCESS_TOKEN_COOKIE = "access_token"
+REFRESH_TOKEN_COOKIE = "refresh_token"
+CSRF_TOKEN_COOKIE = "csrftoken"
+
+# Access token TTL in seconds (matches Keycloak default of 5 min)
+ACCESS_TOKEN_MAX_AGE = 300
+# Refresh token TTL in seconds (30 days)
+REFRESH_TOKEN_MAX_AGE = 30 * 24 * 60 * 60
+# CSRF token TTL in seconds (30 days)
+CSRF_TOKEN_MAX_AGE = 30 * 24 * 60 * 60
+
+
+def _cookie_secure() -> bool:
+    """Whether cookies should be marked Secure (production only)."""
+    return str(getattr(settings, "SESSION_COOKIE_SECURE", False)).lower() in {
+        "1", "true", "yes", "on",
+    } or str(getattr(settings, "APP_ENVIRONMENT", "dev")).lower() == "production"
+
+
+def _cookie_samesite() -> str:
+    """SameSite attribute for cookies."""
+    return str(getattr(settings, "SESSION_COOKIE_SAMESITE", "lax")).lower()
+
+
+def _cookie_domain() -> str:
+    """Optional cookie domain override."""
+    return str(getattr(settings, "SESSION_COOKIE_DOMAIN", "") or "").strip()
+
+
+def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    """Set access and refresh tokens as httpOnly cookies."""
+    common = {
+        "httponly": True,
+        "secure": _cookie_secure(),
+        "samesite": _cookie_samesite(),
+        "path": "/",
+    }
+    domain = _cookie_domain()
+    if domain:
+        common["domain"] = domain
+
+    response.set_cookie(
+        key=ACCESS_TOKEN_COOKIE,
+        value=access_token,
+        max_age=ACCESS_TOKEN_MAX_AGE,
+        **common,
+    )
+    response.set_cookie(
+        key=REFRESH_TOKEN_COOKIE,
+        value=refresh_token,
+        max_age=REFRESH_TOKEN_MAX_AGE,
+        **common,
+    )
+
+
+def _set_csrf_cookie(response: Response) -> str:
+    """Set a non-httpOnly CSRF token cookie and return its value."""
+    csrf_token = secrets.token_urlsafe(32)
+    response.set_cookie(
+        key=CSRF_TOKEN_COOKIE,
+        value=csrf_token,
+        max_age=CSRF_TOKEN_MAX_AGE,
+        httponly=False,
+        secure=_cookie_secure(),
+        samesite=_cookie_samesite(),
+        path="/",
+    )
+    return csrf_token
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    """Clear auth and CSRF cookies."""
+    common = {
+        "httponly": True,
+        "secure": _cookie_secure(),
+        "samesite": _cookie_samesite(),
+        "path": "/",
+    }
+    domain = _cookie_domain()
+    if domain:
+        common["domain"] = domain
+
+    response.delete_cookie(key=ACCESS_TOKEN_COOKIE, **common)
+    response.delete_cookie(key=REFRESH_TOKEN_COOKIE, **common)
+    response.delete_cookie(
+        key=CSRF_TOKEN_COOKIE,
+        httponly=False,
+        secure=_cookie_secure(),
+        samesite=_cookie_samesite(),
+        path="/",
+    )
+
+
+def _get_cookie(request: Request, name: str) -> Optional[str]:
+    """Read a cookie value from the request."""
+    return request.cookies.get(name)
+
+
+# =================================================================
 # Authentication Models
 # =================================================================
 
@@ -33,7 +136,7 @@ class LoginRequest(BaseModel):
     password: str
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: Optional[str] = None
 
 class AuthUrlRequest(BaseModel):
     redirect_uri: str
@@ -291,16 +394,23 @@ def _permissions_from_role(role: dict) -> dict:
 # =================================================================
 
 @router.post("/login")
-async def login(request: LoginRequest):
+async def login(request: LoginRequest, response: Response):
     """
-    Login using Keycloak credentials
+    Login using Keycloak credentials.
+    Sets httpOnly cookies for access and refresh tokens.
     """
     try:
         token_response = await get_keycloak_token(request.email.strip(), request.password)
+        access_token = token_response["access_token"]
+        refresh_token = token_response["refresh_token"]
+
+        # Set httpOnly cookies
+        _set_auth_cookies(response, access_token, refresh_token)
+        # Set CSRF token cookie (non-httpOnly so JS can read it)
+        _set_csrf_cookie(response)
+
         return {
             "status": "success",
-            "access_token": token_response["access_token"],
-            "refresh_token": token_response["refresh_token"],
             "expires_in": token_response["expires_in"]
         }
     except HTTPException:
@@ -309,18 +419,60 @@ async def login(request: LoginRequest):
         print(f"Keycloak login error: {e}")
         raise HTTPException(status_code=500, detail="Authentication service error")
 
+
 @router.post("/refresh")
-async def refresh_token(request: RefreshRequest):
+async def refresh_token(request: RefreshRequest, request_obj: Request, response: Response):
     """
     Refresh Keycloak access token using the refresh token.
+    Reads the refresh token from the httpOnly cookie (with body fallback for
+    backward compatibility during rollout).
     """
-    token_response = await refresh_keycloak_token(request.refresh_token)
+    # Prefer cookie, fall back to request body
+    refresh_token = _get_cookie(request_obj, REFRESH_TOKEN_COOKIE) or request.refresh_token
+    if not refresh_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing refresh token",
+        )
+
+    token_response = await refresh_keycloak_token(refresh_token)
+    new_access_token = token_response["access_token"]
+    new_refresh_token = token_response.get("refresh_token", refresh_token)
+
+    # Rotate cookies
+    _set_auth_cookies(response, new_access_token, new_refresh_token)
+
     return {
         "status": "success",
-        "access_token": token_response["access_token"],
-        "refresh_token": token_response.get("refresh_token", request.refresh_token),
         "expires_in": token_response.get("expires_in"),
     }
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    """
+    Logout current user by clearing auth cookies.
+    """
+    _clear_auth_cookies(response)
+    return {"status": "success"}
+
+
+@router.get("/status")
+async def auth_status(request: Request):
+    """
+    Check if the current request is authenticated via httpOnly cookie.
+    """
+    access_token = _get_cookie(request, ACCESS_TOKEN_COOKIE)
+    if not access_token:
+        return {"authenticated": False}
+
+    try:
+        from .keycloak_integration import keycloak_openid
+        keycloak_openid.decode_token(access_token, keycloak_openid.public_key())
+        return {"authenticated": True}
+    except Exception:
+        return {"authenticated": False}
+
 
 @router.get("/auth-url")
 async def get_auth_url(request: AuthUrlRequest):

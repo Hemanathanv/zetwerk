@@ -23,17 +23,18 @@ export function getAuthToken(): string | null {
 }
 
 async function refreshAccessToken(): Promise<string | null> {
+  // Prefer the httpOnly refresh cookie; fall back to legacy localStorage token.
   const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY);
-  if (!refreshToken) return null;
 
   if (!refreshPromise) {
     refreshPromise = fetch(`${API_BASE_URL}/auth/refresh`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
-      body: JSON.stringify({ refresh_token: refreshToken }),
+      body: refreshToken ? JSON.stringify({ refresh_token: refreshToken }) : '{}',
     })
       .then(async (res) => {
         if (!res.ok) return null;
@@ -73,12 +74,14 @@ async function request<T>(path: string, options: RequestInit = {}, retry = true)
     ...(options.headers as Record<string, string> ?? {}),
   };
 
+  // Fallback: if a legacy localStorage token exists, still send it as Bearer
+  // so existing sessions keep working during the transition.
   const token = getAuthToken();
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(url, { ...options, headers });
+  const res = await fetch(url, { ...options, headers, credentials: 'include' });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     if (res.status === 401 && retry) {

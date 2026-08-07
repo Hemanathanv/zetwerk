@@ -22,13 +22,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Check authentication status on initial load
   const checkAuth = async () => {
-    const token = window.localStorage.getItem(SESSION_TOKEN_KEY);
-    if (!token) {
-      setUser(null);
-      setLoading(false);
-      return;
-    }
-
     try {
       setLoading(true);
       const response = await authApi.checkAuth();
@@ -54,12 +47,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (!window.localStorage.getItem(SESSION_TOKEN_KEY)) {
-      setUser(null);
-      setLoading(false);
-      return;
-    }
-
     checkAuth();
   }, [location]);
 
@@ -68,14 +55,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.localStorage.removeItem(SESSION_TOKEN_KEY);
       window.localStorage.removeItem(REFRESH_TOKEN_KEY);
       const response = await authApi.login(email, password);
-      const accessToken = response.data?.access_token;
-      const refreshToken = response.data?.refresh_token;
-      if (typeof accessToken === 'string' && accessToken.trim()) {
-        window.localStorage.setItem(SESSION_TOKEN_KEY, accessToken);
-      }
-      if (typeof refreshToken === 'string' && refreshToken.trim()) {
-        window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
-      }
+      // Tokens are now stored in httpOnly cookies by the backend.
+      // The login response no longer contains access_token/refresh_token.
       const authResponse = await authApi.checkAuth();
       setUser(authResponse.data.user);
       setLocation('/dashboard');

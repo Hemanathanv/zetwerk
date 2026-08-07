@@ -1,5 +1,4 @@
 import { AuthProvider as ConnectedAuthProvider, useAuth as useConnectedAuth } from '@/auth/AuthContext';
-import { SESSION_TOKEN_KEY } from '@/auth/api';
 import type { RbacPermissions } from '@/contexts/PermissionContext';
 import type { ReactNode } from 'react';
 
@@ -218,7 +217,8 @@ export function useAuth() {
   return {
     ...auth,
     user,
-    token: window.localStorage.getItem(SESSION_TOKEN_KEY),
+    // Tokens are now stored in httpOnly cookies; no JS-accessible token.
+    token: null,
     rbacPermissions,
     login: async (email: string, password: string) => {
       try {

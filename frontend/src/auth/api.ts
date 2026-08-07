@@ -45,6 +45,8 @@ const api = axios.create({
 // Request interceptor for adding CSRF token if needed
 api.interceptors.request.use(
   (config) => {
+    // Fallback: if a legacy localStorage token exists, still send it as Bearer
+    // so existing sessions keep working during the transition.
     const fallbackToken = window.localStorage.getItem(SESSION_TOKEN_KEY);
     if (fallbackToken && !config.headers.Authorization) {
       config.headers.Authorization = `Bearer ${fallbackToken}`;
@@ -157,14 +159,14 @@ function statusToClassification(status: DocumentClassificationStatusResponse): D
 }
 
 async function refreshAccessToken(): Promise<string | null> {
+  // Prefer the httpOnly refresh cookie; fall back to legacy localStorage token.
   const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY);
-  if (!refreshToken) return null;
 
   if (!refreshPromise) {
     refreshPromise = axios
       .post<TokenRefreshResponse>(
         `${api.defaults.baseURL || ''}/auth/refresh`,
-        { refresh_token: refreshToken },
+        refreshToken ? { refresh_token: refreshToken } : {},
         {
           withCredentials: true,
           headers: {
@@ -176,6 +178,7 @@ async function refreshAccessToken(): Promise<string | null> {
       .then((response) => {
         const accessToken = response.data?.access_token;
         if (!accessToken) return null;
+        // Keep legacy localStorage in sync for backward compatibility.
         window.localStorage.setItem(SESSION_TOKEN_KEY, accessToken);
         if (response.data.refresh_token) {
           window.localStorage.setItem(REFRESH_TOKEN_KEY, response.data.refresh_token);
@@ -492,9 +495,10 @@ const authApi = {
    * @returns Promise with logout response
    */
   logout: () => {
+    // Clear legacy localStorage tokens and call backend to clear httpOnly cookies.
     window.localStorage.removeItem(SESSION_TOKEN_KEY);
     window.localStorage.removeItem(REFRESH_TOKEN_KEY);
-    return Promise.resolve({ data: { status: 'success' } });
+    return api.post('/auth/logout').catch(() => ({ data: { status: 'success' } }));
   },
 
   /**
@@ -502,10 +506,43 @@ const authApi = {
    * @returns Promise with current user data
    */
   checkAuth: () => {
+    // First check if we have a legacy localStorage token (backward compat).
     const token = window.localStorage.getItem(SESSION_TOKEN_KEY);
     if (!token) {
-      return Promise.reject(new Error('Missing access token'));
+      // No legacy token — check if the httpOnly cookie is present via /auth/status.
+      return api
+        .get<{ authenticated: boolean }>('/auth/status')
+        .then((statusResponse) => {
+          if (!statusResponse.data?.authenticated) {
+            return Promise.reject(new Error('Not authenticated'));
+          }
+          // Cookie is valid; fetch permissions/level using the cookie.
+          return Promise.allSettled([
+            api.get<{ ok: boolean; data: KeycloakPermissions }>('/auth/permissions'),
+            api.get<{ ok: boolean; data: LevelAuthorization }>('/auth/level'),
+          ]).then(([permissionsResult, levelResult]) => {
+            const permissions = permissionsResult.status === 'fulfilled'
+              ? permissionsResult.value.data.data
+              : fallbackPermissions({}, []);
+            const levelAuth = levelResult.status === 'fulfilled'
+              ? levelResult.value.data.data
+              : { level: 'L1', activities: permissions.activities };
+
+            return {
+              data: {
+                status: 'success',
+                user: normalizeKeycloakUser(
+                  {},
+                  [],
+                  permissions,
+                  levelAuth,
+                ),
+              } satisfies AuthStatusResponse,
+            };
+          });
+        });
     }
+
     const roles = rolesFromAccessToken(token);
     return Promise.allSettled([
       api.get<{ ok: boolean; data: KeycloakPermissions }>('/auth/permissions'),

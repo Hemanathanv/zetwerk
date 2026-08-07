@@ -2176,7 +2176,7 @@ async def list_admin_organisations(_user=Depends(get_admin_user)):
 async def list_admin_teams(_user=Depends(get_admin_user)):
     keycloak_admin = get_keycloak_admin()
     try:
-        groups = keycloak_admin.get_groups({})
+        groups = _safe_keycloak_groups(keycloak_admin)
         rows = []
         for group in groups:
             attrs = group.get("attributes") or {}
@@ -2561,15 +2561,18 @@ async def list_admin_partners(_user=Depends(get_admin_user)):
 async def get_team_overview(_user=Depends(get_admin_user)):
     keycloak_admin = get_keycloak_admin()
     try:
-        users = keycloak_admin.get_users({})
-        groups = keycloak_admin.get_groups({})
+        users = _safe_keycloak_users(keycloak_admin)
+        groups = _safe_keycloak_groups(keycloak_admin)
         active_users = [user for user in users if user.get("enabled", False)]
         admin_users = 0
         partner_users = 0
         override_users = 0
         for user in active_users:
-            user = keycloak_admin.get_user(user["id"])
-            assigned_roles = keycloak_admin.get_realm_roles_of_user(user["id"])
+            try:
+                user = keycloak_admin.get_user(user["id"])
+                assigned_roles = keycloak_admin.get_realm_roles_of_user(user["id"])
+            except Exception:
+                continue
             role_names = [str(role.get("name") or "") for role in assigned_roles]
             local_role = _local_role_from_keycloak_roles(role_names, str(user.get("email") or ""))
             if local_role in {"ADMIN", "SUPER_ADMIN"}:
@@ -2766,13 +2769,163 @@ def _local_role_from_keycloak_roles(roles: list[str], email: str = "") -> str:
     return "USER"
 
 
+def _level_sort_value(level: Any) -> int:
+    digits = "".join(ch for ch in str(level or "") if ch.isdigit())
+    return int(digits or "1")
+
+
+def _safe_keycloak_users(keycloak_admin, query: dict | None = None) -> list[dict]:
+    query = query or {}
+    try:
+        return keycloak_admin.get_users(query) or []
+    except TypeError:
+        try:
+            return keycloak_admin.get_users(**query) or []
+        except TypeError:
+            return keycloak_admin.get_users() or []
+
+
+def _safe_keycloak_groups(keycloak_admin, query: dict | None = None) -> list[dict]:
+    query = query or {}
+    try:
+        return keycloak_admin.get_groups(query) or []
+    except TypeError:
+        try:
+            return keycloak_admin.get_groups(**query) or []
+        except TypeError:
+            return keycloak_admin.get_groups() or []
+
+
+def _safe_realm_role_details(keycloak_admin, assigned_roles: list[dict]) -> list[dict]:
+    roles: list[dict] = []
+    for role in assigned_roles or []:
+        name = str(role.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            roles.append(keycloak_admin.get_realm_role(name))
+        except Exception:
+            roles.append(role)
+    return roles
+
+
+def _safe_user_groups(keycloak_admin, user_id: str) -> list[dict]:
+    try:
+        return keycloak_admin.get_user_groups(user_id) or []
+    except Exception:
+        return []
+
+
+def _clear_user_login_failures(keycloak_admin, user_id: str) -> None:
+    for method_name in (
+        "clear_user_login_failures",
+        "clear_bruteforce_attempts_for_user",
+        "clear_attack_detection_user",
+    ):
+        method = getattr(keycloak_admin, method_name, None)
+        if not callable(method):
+            continue
+        try:
+            method(user_id)
+            return
+        except TypeError:
+            try:
+                method(user_id=user_id)
+                return
+            except Exception:
+                continue
+        except Exception:
+            continue
+
+
+def _reset_keycloak_password_non_temporary(keycloak_admin, user_id: str, password: str) -> None:
+    password_value = str(password or "")
+    credential = {"type": "password", "value": password_value, "temporary": False}
+    keycloak_admin.set_user_password(user_id, password_value, temporary=False)
+
+    connection = getattr(keycloak_admin, "connection", None)
+    raw_put = getattr(connection, "raw_put", None)
+    if not callable(raw_put):
+        return
+
+    paths = [
+        f"admin/realms/{settings.KEYCLOAK_REALM}/users/{user_id}/reset-password",
+        f"/admin/realms/{settings.KEYCLOAK_REALM}/users/{user_id}/reset-password",
+    ]
+    for path in paths:
+        try:
+            raw_put(path, data=json.dumps(credential))
+            return
+        except TypeError:
+            try:
+                raw_put(path, data=json.dumps(credential), headers={"Content-Type": "application/json"})
+                return
+            except Exception:
+                continue
+        except Exception:
+            continue
+
+
+def _repair_keycloak_login_state(keycloak_admin, user_id: str, user_payload: dict[str, Any], *, activate: bool = True) -> dict[str, Any]:
+    try:
+        current = keycloak_admin.get_user(user_id) or {}
+    except Exception:
+        current = {}
+    repaired = dict(current)
+    repaired.update(user_payload or {})
+    repaired["id"] = str(current.get("id") or user_id)
+    repaired["username"] = str(repaired.get("username") or repaired.get("email") or "")
+    repaired["email"] = str(repaired.get("email") or repaired.get("username") or "")
+    repaired["enabled"] = True if activate else bool(repaired.get("enabled", True))
+    repaired["emailVerified"] = True
+    repaired["requiredActions"] = []
+    repaired.pop("access", None)
+    keycloak_admin.update_user(user_id, repaired)
+    _clear_user_login_failures(keycloak_admin, user_id)
+    try:
+        refreshed = keycloak_admin.get_user(user_id) or repaired
+    except Exception:
+        refreshed = repaired
+    remaining_actions = refreshed.get("requiredActions") or []
+    if remaining_actions:
+        refreshed = dict(refreshed)
+        refreshed["requiredActions"] = []
+        refreshed.pop("access", None)
+        keycloak_admin.update_user(user_id, refreshed)
+        try:
+            refreshed = keycloak_admin.get_user(user_id) or refreshed
+        except Exception:
+            pass
+    return dict(refreshed or repaired)
+
+
+async def _safe_sync_local_user_from_keycloak(*, prisma, keycloak_user: dict, roles: list[dict]):
+    if prisma is None:
+        return None
+    try:
+        return await _sync_local_user_from_keycloak(
+            prisma=prisma,
+            keycloak_user=keycloak_user,
+            roles=roles,
+        )
+    except Exception:
+        return None
+
+
 def _keycloak_user_name(user: dict) -> str:
-    full_name = " ".join(
-        str(user.get(part) or "").strip()
-        for part in ("firstName", "lastName")
-        if str(user.get(part) or "").strip()
-    ).strip()
-    return full_name or str(user.get("username") or user.get("email") or "")
+    name_parts = []
+    for part in ("firstName", "lastName"):
+        value = str(user.get(part) or "").strip()
+        if value and value != ".":
+            name_parts.append(value)
+    full_name = " ".join(name_parts).strip()
+    attrs = user.get("attributes") or {}
+    return (
+        full_name
+        or _attr_value(attrs, "fullName", "")
+        or _attr_value(attrs, "name", "")
+        or str(user.get("email") or user.get("username") or "")
+    )
 
 
 def _primary_role_name(role_names: list[str]) -> str:
@@ -2791,6 +2944,47 @@ def _primary_role_name(role_names: list[str]) -> str:
     if "India Logistics" in normalized:
         return normalized["India Logistics"]
     return "India Logistics"
+
+
+def _fallback_keycloak_user_row(user: dict, roles: list[dict], groups: list[dict] | None = None) -> dict:
+    role_names = [str(role.get("name") or "") for role in roles or [] if role.get("name")]
+    email = str(user.get("email") or user.get("username") or "").strip().lower()
+    primary_role = _primary_role_name(role_names) if role_names else "India Logistics"
+    canonical_role = _canonical_role_name(primary_role)
+    defaults = ROLE_DEFAULTS.get(canonical_role, ROLE_DEFAULTS.get("India Logistics", {}))
+    attrs = _user_attrs(user)
+    team_id = _attr_value(attrs, "ewms.teamId", "")
+    if not team_id and groups:
+        team_id = str((groups[0] or {}).get("id") or "")
+    display_name = str(defaults.get("name") or _display_role_name(primary_role))
+    role_category = str(defaults.get("roleCategory") or _role_category(canonical_role))
+    return {
+        "id": str(user.get("id") or ""),
+        "orgId": _attr_value(attrs, "ewms.orgId", "default-org"),
+        "roleId": canonical_role if canonical_role in ROLE_DEFAULTS else primary_role,
+        "email": email,
+        "fullName": _keycloak_user_name(user) or email,
+        "userType": _attr_value(attrs, "ewms.userType", "external" if role_category in {"org_external", "external", "EXTERNAL_PARTNER"} else "internal"),
+        "status": "active" if user.get("enabled", False) else "inactive",
+        "phone": _attr_value(attrs, "phone", ""),
+        "level": _attr_value(attrs, "ewms.level", str((defaults.get("allowedLevels") or ["L1"])[-1])),
+        "teamId": team_id,
+        "dataScope": _normalize_data_scope(_attr_value(attrs, "ewms.dataScope", str(defaults.get("defaultDataScope") or "TEAM"))),
+        "documentScope": _default_document_scope(canonical_role, defaults),
+        "docTypeScopes": {},
+        "geographyOrigin": _attr_value(attrs, "ewms.geographyOrigin", ""),
+        "geographyDestination": _attr_value(attrs, "ewms.geographyDestination", ""),
+        "approvalLimitInr": float(_attr_value(attrs, "ewms.approvalLimitInr", "0") or 0) or None,
+        "approvalLimitUsd": float(_attr_value(attrs, "ewms.approvalLimitUsd", "0") or 0) or None,
+        "createdAt": datetime.fromtimestamp((int(user.get("createdTimestamp") or 0) / 1000), timezone.utc).isoformat() if user.get("createdTimestamp") else None,
+        "lastLoginAt": None,
+        "keycloakRoles": role_names,
+        "role": {
+            "id": canonical_role if canonical_role in ROLE_DEFAULTS else primary_role,
+            "name": display_name,
+            "roleCategory": role_category,
+        },
+    }
 
 
 def _keycloak_user_row(user: dict, roles: list[dict], groups: list[dict] | None = None) -> dict:
@@ -2819,7 +3013,7 @@ def _keycloak_user_row(user: dict, roles: list[dict], groups: list[dict] | None 
     level = _attr_value(
         attrs,
         "ewms.level",
-        str(reference_user.get("level") or sorted(role_levels or ["L1"], key=lambda item: int(str(item).replace("L", "") or "1"))[-1]),
+        str(reference_user.get("level") or sorted(role_levels or ["L1"], key=_level_sort_value)[-1]),
     )
     role_data_scope = _normalize_data_scope(_attr_value(role_attrs, "ewms.dataScope", str(role_defaults.get("defaultDataScope") or "TEAM")))
     data_scope = _normalize_data_scope(_attr_value(attrs, "ewms.dataScope", str(reference_user.get("dataScope") or role_data_scope)))
@@ -2965,7 +3159,7 @@ async def list_admin_users(_user=Depends(get_admin_user)):
     except Exception:
         prisma = None
     try:
-        users = keycloak_admin.get_users({})
+        users = _safe_keycloak_users(keycloak_admin)
         rows = []
         for keycloak_user in users:
             keycloak_user = keycloak_admin.get_user(keycloak_user["id"])
@@ -2982,19 +3176,17 @@ async def list_admin_users(_user=Depends(get_admin_user)):
                 if expected_role not in assigned_canonical_roles:
                     _assign_primary_role(keycloak_admin, keycloak_user["id"], expected_role)
                     assigned_roles = keycloak_admin.get_realm_roles_of_user(keycloak_user["id"])
-            roles = [
-                keycloak_admin.get_realm_role(str(role["name"]))
-                for role in assigned_roles
-                if role.get("name")
-            ]
-            groups = keycloak_admin.get_user_groups(keycloak_user["id"])
-            if prisma is not None:
-                await _sync_local_user_from_keycloak(
-                    prisma=prisma,
-                    keycloak_user=keycloak_user,
-                    roles=roles,
-                )
-            rows.append(_keycloak_user_row(keycloak_user, roles, groups))
+            roles = _safe_realm_role_details(keycloak_admin, assigned_roles)
+            groups = _safe_user_groups(keycloak_admin, keycloak_user["id"])
+            await _safe_sync_local_user_from_keycloak(
+                prisma=prisma,
+                keycloak_user=keycloak_user,
+                roles=roles,
+            )
+            try:
+                rows.append(_keycloak_user_row(keycloak_user, roles, groups))
+            except Exception:
+                rows.append(_fallback_keycloak_user_row(keycloak_user, assigned_roles, groups))
         rows.sort(key=lambda item: item["email"].lower())
         return {"ok": True, "data": rows}
     except Exception as exc:
@@ -3002,8 +3194,21 @@ async def list_admin_users(_user=Depends(get_admin_user)):
 
 
 def _split_full_name(full_name: str) -> tuple[str, str]:
-    first_name, _, last_name = full_name.strip().partition(" ")
-    return first_name or full_name.strip(), last_name
+    cleaned = " ".join(str(full_name or "").strip().split())
+    first_name, _, last_name = cleaned.partition(" ")
+    if not first_name:
+        first_name = cleaned or "User"
+    if not last_name:
+        last_name = "."
+    return first_name, last_name
+
+
+def _display_name_attributes(full_name: str, first_name: str, last_name: str) -> dict[str, list[str]]:
+    display_name = " ".join(part for part in [first_name, "" if last_name == "." else last_name] if part).strip() or full_name or first_name
+    return {
+        "name": [display_name],
+        "fullName": [display_name],
+    }
 
 
 def _assign_primary_role(keycloak_admin, user_id: str, role_name: str) -> None:
@@ -3054,11 +3259,16 @@ async def create_admin_user(request: AdminUserRequest, _user=Depends(get_admin_u
     role_name = str(request.roleId or "").strip()
     if not email or not full_name or not role_name:
         return {"ok": False, "error": "Email, full name, and role are required."}
+    initial_password = str(request.password or "").strip()
+    if not initial_password:
+        return {"ok": False, "error": "Initial password is required for new users."}
     keycloak_admin = get_keycloak_admin()
     prisma = await get_prisma()
     first_name, last_name = _split_full_name(full_name)
     try:
         user_id = keycloak_admin.get_user_id(email)
+        attrs = _user_attributes_from_request(request)
+        attrs.update(_display_name_attributes(full_name, first_name, last_name))
         payload = {
             "username": email,
             "email": email,
@@ -3066,10 +3276,11 @@ async def create_admin_user(request: AdminUserRequest, _user=Depends(get_admin_u
             "lastName": last_name,
             "enabled": request.status != "inactive",
             "emailVerified": True,
-            "attributes": _user_attributes_from_request(request),
+            "requiredActions": [],
+            "attributes": attrs,
         }
         if user_id:
-            keycloak_admin.update_user(user_id, payload)
+            payload = _repair_keycloak_login_state(keycloak_admin, user_id, payload, activate=request.status != "inactive")
         else:
             user_id = keycloak_admin.create_user(
                 {
@@ -3077,25 +3288,22 @@ async def create_admin_user(request: AdminUserRequest, _user=Depends(get_admin_u
                     "credentials": [
                         {
                             "type": "password",
-                            "value": request.password or "ChangeMe123!",
+                            "value": initial_password,
                             "temporary": False,
                         }
                     ],
                 },
                 exist_ok=True,
             )
-        if request.password:
-            keycloak_admin.set_user_password(user_id, request.password, temporary=False)
+        _reset_keycloak_password_non_temporary(keycloak_admin, user_id, initial_password)
+        _repair_keycloak_login_state(keycloak_admin, user_id, payload, activate=request.status != "inactive")
         _assign_primary_role(keycloak_admin, user_id, role_name)
         _sync_user_team(keycloak_admin, user_id, request.teamId)
-        await _sync_keycloak_user_to_local(prisma, keycloak_admin, user_id)
         user = keycloak_admin.get_user(user_id)
-        roles = [
-            keycloak_admin.get_realm_role(str(role["name"]))
-            for role in keycloak_admin.get_realm_roles_of_user(user_id)
-            if role.get("name")
-        ]
-        groups = keycloak_admin.get_user_groups(user_id)
+        assigned_roles = keycloak_admin.get_realm_roles_of_user(user_id)
+        roles = _safe_realm_role_details(keycloak_admin, assigned_roles)
+        groups = _safe_user_groups(keycloak_admin, user_id)
+        await _safe_sync_local_user_from_keycloak(prisma=prisma, keycloak_user=user, roles=roles)
         return {"ok": True, "data": _keycloak_user_row(user, roles, groups)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Could not create Keycloak user: {exc}")
@@ -3113,6 +3321,10 @@ async def update_admin_user(user_id: str, request: AdminUserRequest, _user=Depen
         enabled = existing.get("enabled", True)
         if request.status:
             enabled = request.status == "active"
+        if request.password:
+            enabled = True
+        attrs = _user_attributes_from_request(request, existing)
+        attrs.update(_display_name_attributes(full_name, first_name, last_name))
         payload = {
             "email": existing.get("email") or existing.get("username"),
             "username": existing.get("username") or existing.get("email"),
@@ -3120,23 +3332,24 @@ async def update_admin_user(user_id: str, request: AdminUserRequest, _user=Depen
             "lastName": last_name,
             "enabled": enabled,
             "emailVerified": True,
-            "attributes": _user_attributes_from_request(request, existing),
+            "attributes": attrs,
         }
-        keycloak_admin.update_user(user_id, payload)
         if request.password:
-            keycloak_admin.set_user_password(user_id, request.password, temporary=False)
+            payload = _repair_keycloak_login_state(keycloak_admin, user_id, payload, activate=True)
+        else:
+            keycloak_admin.update_user(user_id, payload)
+        if request.password:
+            _reset_keycloak_password_non_temporary(keycloak_admin, user_id, request.password.strip())
+            payload = _repair_keycloak_login_state(keycloak_admin, user_id, payload, activate=True)
         if request.roleId:
             _assign_primary_role(keycloak_admin, user_id, request.roleId)
         if request.teamId is not None:
             _sync_user_team(keycloak_admin, user_id, request.teamId)
-        await _sync_keycloak_user_to_local(prisma, keycloak_admin, user_id)
         user = keycloak_admin.get_user(user_id)
-        roles = [
-            keycloak_admin.get_realm_role(str(role["name"]))
-            for role in keycloak_admin.get_realm_roles_of_user(user_id)
-            if role.get("name")
-        ]
-        groups = keycloak_admin.get_user_groups(user_id)
+        assigned_roles = keycloak_admin.get_realm_roles_of_user(user_id)
+        roles = _safe_realm_role_details(keycloak_admin, assigned_roles)
+        groups = _safe_user_groups(keycloak_admin, user_id)
+        await _safe_sync_local_user_from_keycloak(prisma=prisma, keycloak_user=user, roles=roles)
         return {"ok": True, "data": _keycloak_user_row(user, roles, groups)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Could not update Keycloak user: {exc}")
@@ -3150,7 +3363,9 @@ async def deactivate_admin_user(user_id: str, _user=Depends(get_admin_user)):
     try:
         existing = keycloak_admin.get_user(user_id)
         keycloak_admin.update_user(user_id, {**existing, "enabled": False})
-        await _sync_keycloak_user_to_local(prisma, keycloak_admin, user_id)
+        assigned_roles = keycloak_admin.get_realm_roles_of_user(user_id)
+        roles = _safe_realm_role_details(keycloak_admin, assigned_roles)
+        await _safe_sync_local_user_from_keycloak(prisma=prisma, keycloak_user={**existing, "enabled": False}, roles=roles)
         return {"ok": True}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Could not deactivate Keycloak user: {exc}")
@@ -3162,7 +3377,7 @@ async def list_admin_roles(_user=Depends(get_admin_user)):
     try:
         keycloak_admin = get_keycloak_admin()
         roles = keycloak_admin.get_realm_roles()
-        users = keycloak_admin.get_users({})
+        users = _safe_keycloak_users(keycloak_admin)
         role_counts: dict[str, int] = {}
         for user in users:
             email = str(user.get("email") or user.get("username") or "").strip().lower()
@@ -3366,7 +3581,7 @@ async def invite_admin_user(request: InviteUserRequest, admin_user=Depends(get_a
                     "credentials": [
                         {
                             "type": "password",
-                            "value": request.password or "ChangeMe123!",
+                            "value": request.password,
                             "temporary": False,
                         }
                     ],
@@ -3551,17 +3766,43 @@ async def delete_document(document_id: str, _user=Depends(get_admin_user)):
 from keycloak import KeycloakAdmin
 from helpers.config import settings
 
-def get_keycloak_admin():
-    """Get Keycloak admin client with proper configuration"""
+def _keycloak_server_url_candidates() -> list[str]:
+    configured = f"{settings.KEYCLOAK_URL.rstrip('/')}/"
+    candidates = [configured]
+    if configured.rstrip('/').endswith('/keycloak'):
+        candidates.append(f"{configured.rstrip('/')[:-len('/keycloak')]}/")
+    else:
+        candidates.append(f"{configured.rstrip('/')}/keycloak/")
+    seen: set[str] = set()
+    return [url for url in candidates if not (url in seen or seen.add(url))]
+
+
+def _keycloak_admin_for_url(server_url: str) -> KeycloakAdmin:
     return KeycloakAdmin(
-        server_url=settings.KEYCLOAK_URL,
+        server_url=server_url,
         username=settings.KEYCLOAK_ADMIN_USERNAME,
         password=settings.KEYCLOAK_ADMIN_PASSWORD,
         realm_name=settings.KEYCLOAK_REALM,
         user_realm_name="master",
         client_id="admin-cli",
-        verify=True
+        verify=True,
     )
+
+
+def get_keycloak_admin():
+    """Get Keycloak admin client with production-safe URL normalization."""
+    first_error: Exception | None = None
+    for server_url in _keycloak_server_url_candidates():
+        admin = _keycloak_admin_for_url(server_url)
+        try:
+            admin.get_realm(settings.KEYCLOAK_REALM)
+            return admin
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+    if first_error is not None:
+        raise first_error
+    return _keycloak_admin_for_url(f"{settings.KEYCLOAK_URL.rstrip('/')}/")
 
 # Keycloak Models
 class KeycloakUserCreate(BaseModel):

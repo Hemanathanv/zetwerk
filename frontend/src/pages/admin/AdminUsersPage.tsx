@@ -136,6 +136,10 @@ function StatCard({ label, value, sub, color, loading = false }: {
   );
 }
 
+function displayUserName(user: Pick<User, 'fullName' | 'email'>) {
+  return String(user.fullName || user.email || 'User').trim() || 'User';
+}
+
 function Avatar({ user, role, size = 36 }: { user: User; role?: Role; size?: number }) {
   return (
     <div style={{
@@ -144,7 +148,7 @@ function Avatar({ user, role, size = 36 }: { user: User; role?: Role; size?: num
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontSize: size * 0.38, fontWeight: 700, letterSpacing: 0,
     }}>
-      {initials(user.fullName)}
+      {initials(displayUserName(user))}
     </div>
   );
 }
@@ -404,6 +408,10 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
       setFormError('Full name, email, and role are required.');
       return;
     }
+    if (modalMode === 'create' && !form.password.trim()) {
+      setFormError('Initial password is required.');
+      return;
+    }
     setSaving(true); setFormError('');
     try {
       const payload: any = {
@@ -415,9 +423,9 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
         approvalLimitInr: form.overrideApproval && form.approvalLimitInr ? parseFloat(form.approvalLimitInr) : null,
         approvalLimitUsd: form.overrideApproval && form.approvalLimitUsd ? parseFloat(form.approvalLimitUsd) : null,
       };
+      if (form.password.trim()) payload.password = form.password.trim();
       if (modalMode === 'create') {
         payload.email = form.email;
-        if (form.password) payload.password = form.password;
         const res = await apiPost<any>('/api/admin/users', payload);
         if (!res.ok) { setFormError(res.error ?? 'Failed to create user'); setSaving(false); return; }
         toast({ title: 'User created', description: `${form.fullName} has been added.` });
@@ -502,6 +510,7 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
       key: 'user', label: 'User', width: '260px',
       render: (u) => {
         const role = roleMap[u.roleId];
+        const displayName = displayUserName(u);
         const given = delMap[u.id]?.given;
         const received = delMap[u.id]?.received;
         return (
@@ -509,7 +518,7 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
             <Avatar user={u} role={role} />
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 500, color: 'hsl(var(--foreground))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {u.fullName}
+                {displayName}
               </div>
               <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {u.email}
@@ -928,12 +937,10 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
                 placeholder="+91 98765 43210" style={{ fontSize: 14.5 }} />
               <p style={helpText}>Used for WhatsApp escalation notifications</p>
             </FieldRow>
-            {modalMode === 'create' && (
-              <FieldRow label="Password">
-                <Input value={form.password} onChange={(e) => setFormField('password', e.target.value)}
-                  type="password" placeholder="Set initial password (optional)" style={{ fontSize: 14.5 }} />
-              </FieldRow>
-            )}
+            <FieldRow label={modalMode === 'create' ? 'Password' : 'Reset Password'} required={modalMode === 'create'}>
+              <Input value={form.password} onChange={(e) => setFormField('password', e.target.value)}
+                type="password" placeholder={modalMode === 'create' ? 'Set initial password' : 'Leave blank to keep current password'} style={{ fontSize: 14.5 }} />
+            </FieldRow>
           </div>
         </AdminFormSection>
 
