@@ -83,6 +83,21 @@ services:
     networks:
       - ewms-net
 
+  sqs-zata-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.sqszataworker
+      secrets:
+        - backend_env
+    image: zetwerk-sqs-zata-worker:local
+    <<: *backend-env
+    depends_on:
+      views-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks:
+      - ewms-net
+
   frontend:
     build:
       context: ./frontend

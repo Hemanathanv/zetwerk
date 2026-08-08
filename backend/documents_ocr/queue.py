@@ -406,7 +406,7 @@ async def process_upload_job(ctx: dict[str, Any], payload: dict[str, Any]) -> di
     except Exception as exc:
         await prisma.document.update(
             where={"id": document_id},
-            data={"status": "UPLOADED"},
+            data={"status": "REJECTED"},
         )
         print(
             f"[arq][upload] failed documentId={document_id} reason=page_generation_error:{exc}",
@@ -433,10 +433,10 @@ async def process_upload_job(ctx: dict[str, Any], payload: dict[str, Any]) -> di
     except Exception as exc:
         await prisma.document.update(
             where={"id": document_id},
-            data={"status": "UPLOADED"},
+            data={"status": "REJECTED"},
         )
         print(
-            f"[arq][upload] failed documentId={document_id} reason=ocr_enqueue_error:{exc} status->UPLOADED",
+            f"[arq][upload] failed documentId={document_id} reason=ocr_enqueue_error:{exc} status->REJECTED",
             flush=True,
         )
         return {"status": "failed", "reason": f"ocr_enqueue_error: {exc}", "documentId": document_id}
@@ -561,10 +561,10 @@ async def process_ocr_job(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[
         try:
             await prisma.document.update(
                 where={"id": document_id},
-                data={"status": "UPLOADED"},
+                data={"status": "REJECTED"},
             )
             print(
-                f"[arq][ocr] timeout_cancelled documentId={document_id} status->UPLOADED",
+                f"[arq][ocr] timeout_cancelled documentId={document_id} status->REJECTED",
                 flush=True,
             )
         except Exception as update_exc:
@@ -577,10 +577,10 @@ async def process_ocr_job(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[
         try:
             await prisma.document.update(
                 where={"id": document_id},
-                data={"status": "UPLOADED"},
+                data={"status": "REJECTED"},
             )
             print(
-                f"[arq][ocr] failed documentId={document_id} status->UPLOADED error={exc}",
+                f"[arq][ocr] failed documentId={document_id} status->REJECTED error={exc}",
                 flush=True,
             )
         except Exception as update_exc:
@@ -616,10 +616,10 @@ async def on_job_failure(ctx: dict[str, Any], job_name: str, payload: dict[str, 
         try:
             await prisma.document.update(
                 where={"id": str(document_id)},
-                data={"status": "UPLOADED"},
+                data={"status": "REJECTED"},
             )
             print(
-                f"[arq][recover] job={job_name} documentId={document_id} status->UPLOADED",
+                f"[arq][recover] job={job_name} documentId={document_id} status->REJECTED",
                 flush=True,
             )
         except Exception:

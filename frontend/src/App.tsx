@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter, Redirect } from 'wouter';
+import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from 'wouter';
 import { useAdminExitRefresh } from '@/hooks/useOperationalData';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from 'next-themes';
@@ -456,6 +456,7 @@ function AuthenticatedApp() {
 function AppRoutes() {
   const { isAuthenticated, loading, user } = useAuth();
   const { modules, activities, loaded: permissionsLoaded } = usePermissions();
+  const [location] = useLocation();
 
   if (loading || (isAuthenticated && !permissionsLoaded)) return <EwmsShipLoader fullPage />;
 
@@ -464,19 +465,13 @@ function AppRoutes() {
     return firstAllowedLandingPath(modules, activities);
   })();
 
-  return (
-    <Switch>
-      <Route path="/">
-        {isAuthenticated
-          ? <Redirect to={landingPath} />
-          : <LoginPage />
-        }
-      </Route>
-      <Route>
-        {isAuthenticated ? <AuthenticatedApp /> : <Redirect to="/" />}
-      </Route>
-    </Switch>
-  );
+  if (location === '/') {
+    return isAuthenticated
+      ? <Redirect to={landingPath} />
+      : <LoginPage />;
+  }
+
+  return isAuthenticated ? <AuthenticatedApp /> : <Redirect to="/" />;
 }
 
 function AppWithPermissions() {

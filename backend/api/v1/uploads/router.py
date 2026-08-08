@@ -525,9 +525,9 @@ async def _status_from_db_with_stale_recovery(*, prisma, row: Any) -> str:
     try:
         await prisma.document.update(
             where={"id": str(row.id)},
-            data={"status": "UPLOADED"},
+            data={"status": "REJECTED"},
         )
-        return "UPLOADED"
+        return "REJECTED"
     except Exception:
         return status
 
@@ -1202,7 +1202,7 @@ DOCUMENT_SECTION_STATUS_FILTERS: Final[dict[str, set[str]]] = {
     "needs-approval": {"EXTRACTED"},
     "processing": {"QUEUED", "PROCESSING", "REPROCESSING"},
     "cross-validating": {"REVIEWED"},
-    "draft-review": {"UPLOADED"},
+    "draft-review": {"UPLOADED", "REJECTED"},
     "done": {"ARCHIVED", "REVIEWED"},
 }
 _DOCUMENT_QUEUE_INDEXES_READY = False

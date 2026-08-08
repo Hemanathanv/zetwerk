@@ -36,7 +36,13 @@ const BLUE   = 'hsl(221 83% 53%)';
 const INFO   = 'hsl(201 96% 32%)';
 const GOLD   = 'hsl(43 96% 56%)';
 const GOLD_BG = 'hsla(43,96%,56%,0.10)';
-const QUEUE_ROW_GRID = '3px 32px minmax(140px, 1.2fr) minmax(240px, 2fr) 72px 60px minmax(100px, 1fr) 88px';
+// Data columns (Document/Issuer/Pipeline/Conf/Status/Action) are minmax(0, Nfr) — the
+// `0` floor overrides the grid's default content-based minimum, so columns actually
+// shrink to fit the container instead of forcing it wider (which caused the 100%-zoom
+// overflow + clipped action column). The Nfr weights are proportional percentages
+// (26/30/10/7/13/14 = 100) of the space left after the two small fixed decorative
+// columns (accent strip + doc badge).
+const QUEUE_ROW_GRID = '3px 32px minmax(0, 26fr) minmax(0, 30fr) minmax(0, 10fr) minmax(0, 7fr) minmax(0, 13fr) minmax(0, 14fr)';
 const QUEUE_ROW_GAP = 14;
 const QUEUE_PAGE_SIZE = 20;
 const QUEUE_SECTION_BY_CHIP = [
@@ -48,13 +54,6 @@ const QUEUE_SECTION_BY_CHIP = [
   'draft-review',
   'done',
 ] as const;
-
-function moduleSlugForDocType(value: string): string {
-  const normalized = String(value || 'document').trim().toUpperCase();
-  if (normalized === 'CUSTOMER_BROKER_BILL') return 'customs-broker-bill';
-  if (normalized === 'DRAFT_CBP_FORM_7501_BROKER') return 'entry-summary';
-  return normalized.toLowerCase().replace(/_/g, '-');
-}
 
 type StatusCategory = 'needs-approval' | 'needs-reapproval' | 'processing' | 'cross-validating' | 'draft-review' | 'done';
 
@@ -507,6 +506,7 @@ type QueueCard = {
   provenanceLabel?: string;
   containerMappingAction?: () => void;
   dndInputsAction?: () => void;
+  canUseDndInputs?: boolean;
 };
 
 type ValidationSummary = {
@@ -814,7 +814,7 @@ function QueueCardEl({ card, onApproveClick, onStopClick, onRetryClick, onCardCl
         )}
         {(card.containerMappingAction || card.dndInputsAction) && (
           <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
-            {card.dndInputsAction && (
+            {card.dndInputsAction && card.canUseDndInputs && (
               <Button
                 type="button"
                 variant="outline"
@@ -1021,11 +1021,11 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
             </span>
           )
         ) : (
-          <span style={{ fontSize: 14.5, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+          <span title={card.issuer} style={{ fontSize: 14.5, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
             {card.issuer}
           </span>
         )}
-        <span className="vs-mono" style={{ fontSize: 14, color: MUTED, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.7 }}>
+        <span title={card.context} className="vs-mono" style={{ fontSize: 14, color: MUTED, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.7 }}>
           {card.context}
         </span>
       </div>
@@ -1512,7 +1512,7 @@ function VirtualList({
   return (
     <div
       ref={scrollEl}
-      style={{ height: Math.min(totalHeight, ROW_H * 12), overflowY: 'auto' }}
+      style={{ height: Math.min(totalHeight, ROW_H * 12), overflowY: 'auto', overflowX: 'hidden' }}
     >
       <div style={{ height: totalHeight, position: 'relative' }}>
         {virtualizer.getVirtualItems().map((vItem) => {
@@ -1588,9 +1588,9 @@ function apiDocToQueueCard(d: any): QueueCard {
   let dots: DotState[], detail: React.ReactNode, action: QueueCard['action'];
 
   if (dbStatus === 'REJECTED') {
-    statusCategory = 'draft-review'; status = 'Extraction stopped';
+    statusCategory = 'draft-review'; status = 'Extraction failed';
     resolvedColor = RED; dots = ['done', 'current', 'future', 'future', 'future'];
-    detail = 'OCR was stopped by a user';
+    detail = 'OCR could not complete for this document';
   } else if (dbStatus === 'ARCHIVED') {
     statusCategory = 'done'; status = dbStatus;
     resolvedColor = GREEN; dots = ['done', 'done', 'done', 'done', 'done'];
@@ -1647,7 +1647,7 @@ function apiDocToQueueCard(d: any): QueueCard {
     documentTypeCode: dt,
     issuer: d.issuerName ?? d.bucket ?? d.uploadedBy?.fullName ?? 'Uploaded',
     docNumber: d.documentNumber ?? d.fileName ?? '—',
-    status, statusVariant: !isApproved ? 'info' : validationStatus === 'PASSED' ? 'success' : validationStatus === 'BLOCKED' ? 'danger' : validationStatus === 'WARNING' ? 'warning' : statusCategory === 'done' ? 'success' : 'pending',
+    status, statusVariant: dbStatus === 'REJECTED' ? 'danger' : !isApproved ? 'info' : validationStatus === 'PASSED' ? 'success' : validationStatus === 'BLOCKED' ? 'danger' : validationStatus === 'WARNING' ? 'warning' : statusCategory === 'done' ? 'success' : 'pending',
     statusCategory, avgConfidence: conf, dots,
     detail, action,
     validationSummary,
@@ -1981,7 +1981,7 @@ function ContainerMappingModal({
 
 export function UploadProcessPage() {
   const { templates, docTypes, loading: configLoading } = useConfig();
-  const { activitySla, docTypes: permittedDocTypes } = usePermissions();
+  const { activities, activitySla, docTypes: permittedDocTypes } = usePermissions();
   const [location, navigate] = useLocation();
   const { toast }          = useToast();
   const queryClient = useQueryClient();
@@ -2059,6 +2059,15 @@ export function UploadProcessPage() {
     enabled: activeChip !== WAITING_FOR_BOL_CHIP_INDEX && (!routedDetail || !routedDetail.isGenerated),
     placeholderData: (previousData) => previousData,
     staleTime: 30_000,
+    refetchInterval: (query) => {
+      const data = query.state.data as { documents?: any[] } | undefined;
+      const documents = data?.documents ?? [];
+      const hasRunningOcr = documents.some((doc: any) => {
+        const status = String(doc.ocrStatus ?? doc.status ?? '').toUpperCase();
+        return ['QUEUED', 'PROCESSING', 'REPROCESSING'].includes(status);
+      });
+      return hasRunningOcr && document.visibilityState === 'visible' ? 3_000 : false;
+    },
     refetchOnWindowFocus: false,
   });
 
@@ -2072,11 +2081,12 @@ export function UploadProcessPage() {
           ...card,
           containerMappingAction: () => openContainerMapping(card.docId!),
           dndInputsAction: () => openDndInputs(card.docId!),
+          canUseDndInputs: activities.includes('documents.dnd_inputs'),
         };
       }
       return card;
     }),
-    [documentsQuery.data],
+    [activities, documentsQuery.data],
   );
   const queuePagination = documentsQuery.data?.pagination ?? null;
   const queueLoading = documentsQuery.isLoading || (documentsQuery.isFetching && !documentsQuery.data);
@@ -2137,23 +2147,6 @@ export function UploadProcessPage() {
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   });
-  const hasActiveOcr = liveDocs.some(doc => {
-    const status = String(doc.status ?? '').toUpperCase();
-    if (['QUEUED', 'PROCESSING', 'REPROCESSING'].includes(status)) return true;
-    return status === 'UPLOADED'
-      && Date.now() - new Date(String(doc.createdAt ?? '')).getTime() < 15 * 60_000;
-  });
-
-  useEffect(() => {
-    if (!hasActiveOcr) return;
-    const poll = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        void queryClient.invalidateQueries({ queryKey: ['upload-process', 'documents'] });
-      }
-    }, 3_000);
-    return () => window.clearInterval(poll);
-  }, [hasActiveOcr, queryClient]);
-
   useEffect(() => {
     if (!routedDetail) {
       return;
@@ -2413,7 +2406,6 @@ export function UploadProcessPage() {
     const form = new FormData();
     form.append('file', selectedFile);
     form.append('docType', resolvedDocType);
-    form.append('module', moduleSlugForDocType(resolvedDocType));
     try {
       const uploadResponse = await uploadDocumentMutation.mutateAsync(form);
       const uploadedDocument = uploadResponse.data?.documents?.[0];
@@ -3141,6 +3133,7 @@ export function UploadProcessPage() {
               ]}
               activeIndex={activeChip}
               onSelect={setActiveChip}
+              size="compact"
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <div style={{
@@ -3263,21 +3256,19 @@ export function UploadProcessPage() {
             /* Row view with virtual scroll */
             <div style={{
               backgroundColor: 'hsl(var(--card))', borderRadius: 8,
-              border: `1px solid ${BORDER}`, overflowX: 'auto', overflowY: 'hidden',
+              border: `1px solid ${BORDER}`, overflow: 'hidden',
             }}>
-              <div style={{ minWidth: 760 }}>
-                <QueueRowHeader />
-                {/* Virtual list */}
-                <VirtualList
-                  cards={filteredCards}
-                  onApproveClick={(card) => needsReviewApproval(card) ? () => openApprovalPanel(card) : undefined}
-                  onStopClick={(card) => card.statusCategory === 'processing' ? () => stopExtraction(card) : undefined}
-                  onRetryClick={(card) => card.status === 'Extraction stopped' ? () => retryExtraction(card) : undefined}
-                  onRowClick={handleRowClick}
-                  onDetailsClick={handleDetailsClick}
-                  escalationConfigs={escalationConfigs}
-                />
-              </div>
+              <QueueRowHeader />
+              {/* Virtual list */}
+              <VirtualList
+                cards={filteredCards}
+                onApproveClick={(card) => needsReviewApproval(card) ? () => openApprovalPanel(card) : undefined}
+                onStopClick={(card) => card.statusCategory === 'processing' ? () => stopExtraction(card) : undefined}
+                onRetryClick={(card) => card.status === 'Extraction stopped' ? () => retryExtraction(card) : undefined}
+                onRowClick={handleRowClick}
+                onDetailsClick={handleDetailsClick}
+                escalationConfigs={escalationConfigs}
+              />
             </div>
           )}
 

@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
@@ -125,7 +126,15 @@
   --app-font-sans: 'Inter', system-ui, sans-serif;
   --app-font-serif: Georgia, serif;
   --app-font-mono: 'Inter', system-ui, sans-serif;
+  --app-font-data-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
   --radius: 0.5rem;
+
+  /* KPI card fill variants — light mode only (Mono Font Revert + Colored KPI Card Variant, Part 3.2) */
+  --kpi-fill-default: hsl(var(--card));
+  --kpi-fill-mint: #EFFFFC;
+  --kpi-fill-lavender: #F2EFFF;
+  --kpi-fill-peach: #FFF7EF;
+  --kpi-fill-blue: #EBF2FF;
 
   --shadow-2xs: 0px 1px 2px 0px rgba(0,0,0,0.04);
   --shadow-xs: 0px 1px 3px 0px rgba(0,0,0,0.06);
@@ -176,7 +185,7 @@
   --vs-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
   /* EWMS component spacing aliases from the rulebook */
-  --ewms-page-padding-x: clamp(16px, 2vw, 32px);
+  --ewms-page-padding-x: clamp(24px, 2vw, 32px);
   --ewms-page-padding-y: 24px;
   --ewms-page-section-gap: 28px;
   --ewms-content-grid-gap: 24px;
@@ -265,6 +274,12 @@
   --vs-shadow-card: 0 1px 3px rgba(0,0,0,0.20), 0 1px 2px -1px rgba(0,0,0,0.15);
   --vs-shadow-elevated: 0 4px 6px -1px rgba(0,0,0,0.25), 0 2px 4px -2px rgba(0,0,0,0.18);
   --vs-shadow-float: 0 10px 15px -3px rgba(0,0,0,0.30), 0 4px 6px -4px rgba(0,0,0,0.22);
+
+  /* No approved dark-mode KPI fills yet — colored cards fall back to default dark card styling */
+  --kpi-fill-mint: hsl(var(--card));
+  --kpi-fill-lavender: hsl(var(--card));
+  --kpi-fill-peach: hsl(var(--card));
+  --kpi-fill-blue: hsl(var(--card));
 }
 
 @layer base {
@@ -624,25 +639,71 @@
     font-weight: 500;
   }
 
-  /* ── Ultrawide content bounding ── */
-  .ewms-content-container {
-    width: 100%;
-    max-width: 1600px;
-    margin-left: auto;
-    margin-right: auto;
+  /* ── Data typography tokens (Mono Font Revert + Colored KPI Card Variant) ──
+     Theme-independent: identical in light and dark mode.
+     Scope is explicit per-field binding at the call site — do NOT apply these
+     broadly the way .vs-mono/.font-mono are used elsewhere in the app.
+
+     Sizes are fluid: clamp(min, N vw, max) where the spec's px value is the max
+     and N = max/16, matching the shape (not the exact numbers) of the pre-existing
+     FS_HEADER/FS_PRIMARY/etc. clamp constants in ShipmentsPage.tsx — the only fluid
+     precedent in the codebase. Line-height stays unitless so it tracks font-size;
+     letter-spacing stays 0 and font-weight/font-family never change with size. */
+
+  .data-mono-id {
+    font-family: var(--app-font-data-mono);
+    font-size: clamp(11px, 0.75vw, 12px);
+    font-weight: 500;
+    line-height: 1.4;
+    letter-spacing: 0;
   }
 
-  /* ── Fluid metric grid (auto-fit) ── */
-  .ewms-metric-grid-auto {
-    display: grid;
-    gap: var(--ewms-metric-grid-gap);
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  .data-metric-value {
+    font-family: var(--app-font-data-mono);
+    font-size: clamp(14px, 1vw, 16px);
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: 0;
   }
 
-  /* ── Fluid card grid (auto-fit) ── */
-  .ewms-card-grid-auto {
-    display: grid;
-    gap: var(--ewms-content-grid-gap);
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  .data-metric-value-lg {
+    font-family: var(--app-font-data-mono);
+    font-size: clamp(18px, 1.375vw, 22px);
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: 0;
+  }
+
+  .data-currency-value {
+    font-family: var(--app-font-data-mono);
+    font-size: clamp(13px, 0.875vw, 14px);
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: 0;
+    text-align: right;
+  }
+
+  .data-route-text {
+    font-family: var(--app-font-data-mono);
+    font-size: clamp(11px, 0.75vw, 12px);
+    font-weight: 400;
+    line-height: 1.5;
+    letter-spacing: 0;
+  }
+
+  .data-elapsed-time {
+    font-family: var(--app-font-data-mono);
+    font-size: clamp(10px, 0.6875vw, 11px);
+    font-weight: 500;
+    line-height: 1.4;
+    letter-spacing: 0;
+  }
+
+  .data-timestamp {
+    font-family: var(--app-font-sans);
+    font-size: clamp(10px, 0.6875vw, 11px);
+    font-weight: 400;
+    line-height: 1.4;
+    letter-spacing: 0;
   }
 }

@@ -8,6 +8,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTemplates } from '@/contexts/ConfigContext';
 import { MetricCard } from '@/components/vs/MetricCard';
 import { StatusBadge } from '@/components/StatusBadge';
+import { Banner } from '@/components/ewms/Banner';
+import { TextLink } from '@/components/ewms/TextLink';
 import { getAuthToken } from '@/lib/api';
 import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
 
@@ -49,7 +51,7 @@ function GateHealthCard({ gateNumber, data }: { gateNumber: string; data: GateHe
   return (
     <div className="rounded-lg border border-card-border bg-card p-6">
       <div className="mb-4">
-        <div className="text-[12px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+        <div className="text-[12px] font-medium tracking-[0.03em] text-muted-foreground">
           Gate {gateNumber}
         </div>
         <div className="truncate text-base font-medium leading-5 text-foreground">{data.name}</div>
@@ -60,20 +62,20 @@ function GateHealthCard({ gateNumber, data }: { gateNumber: string; data: GateHe
           return (
             <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3">
               <div className="flex min-w-0 items-center gap-2">
-                <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <Icon className="size-4 shrink-0 text-primary" aria-hidden="true" />
                 <span className="truncate text-sm text-foreground">{label}</span>
               </div>
               <div className="text-right">
-                <div className="text-[18px] font-semibold leading-[1.2] text-[hsl(var(--vs-success))] tabular-nums">
+                <div className="text-[13px] font-medium leading-[1.4] text-[hsl(var(--vs-success))] tabular-nums">
                   {stats.active}
                 </div>
-                <div className="text-[11px] leading-[1.3] text-muted-foreground">Active</div>
+                <div className="text-[11px] font-semibold uppercase leading-[1.2] tracking-[0.05em] text-muted-foreground">Active</div>
               </div>
               <div className="text-right">
-                <div className="text-[18px] font-semibold leading-[1.2] text-destructive tabular-nums">
+                <div className="text-[13px] font-medium leading-[1.4] text-destructive tabular-nums">
                   {stats.blocked}
                 </div>
-                <div className="text-[11px] leading-[1.3] text-muted-foreground">Blocked</div>
+                <div className="text-[11px] font-semibold uppercase leading-[1.2] tracking-[0.05em] text-muted-foreground">Blocked</div>
               </div>
             </div>
           );
@@ -207,22 +209,20 @@ export function DashboardPage() {
   const activeTemplates = (templates as any[]).filter((t: any) => t.templateStatus === 'ACTIVE');
 
   return (
-    <div className="ewms-content-container p-8">
+    <div className="p-8">
 
       {/* ── Escalation Banner ─────────────────────────────────────────────── */}
       {taskCount.blockers > 0 && (
-        <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-sm font-semibold text-red-700 dark:text-red-400">
-              {taskCount.blockers} blocker{taskCount.blockers > 1 ? 's' : ''} — workflow stopped
-            </span>
-            <span className="text-[13px] text-red-600/70">Immediate action required</span>
-          </div>
-          <a href="/tasks?urgency=BLOCKER" className="text-[13px] font-medium text-red-600 hover:underline">
-            View blockers →
-          </a>
-        </div>
+        <Banner
+          intent="danger"
+          className="mb-4"
+          link={<TextLink href="/tasks?urgency=BLOCKER">View blockers</TextLink>}
+        >
+          <span className="font-semibold">
+            {taskCount.blockers} blocker{taskCount.blockers > 1 ? 's' : ''} — workflow stopped
+          </span>
+          {' — Immediate action required'}
+        </Banner>
       )}
 
       {/* ── Page Header ───────────────────────────────────────────────────── */}
@@ -251,126 +251,125 @@ export function DashboardPage() {
 
       {/* ── Metric Cards ──────────────────────────────────────────────────── */}
       {loading ? (
-        <div className="ewms-metric-grid-auto mb-6">
-          {Array.from({ length: 7 }).map((_, i) => (
-            <div key={i} className="h-[185px] rounded-lg bg-muted/30 animate-pulse" />
-          ))}
+        <div className="@container mb-6">
+          <div className="grid grid-cols-7 gap-4">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <div key={i} className="h-[185px] rounded-lg bg-muted/30 animate-pulse" />
+            ))}
+          </div>
         </div>
       ) : (
-        <div className="ewms-metric-grid-auto mb-6">
-          <MetricCard
-            variant="dashboard"
-            label="Active"
-            value={metrics.active}
-            icon={Ship}
-            color="teal"
-            sideStats={[
-              { value: metrics.pending, label: 'Pending' },
-              { value: metrics.completed, label: 'Completed' },
-            ]}
-          />
-          <MetricCard
-            variant="dashboard"
-            label="Pending ID"
-            value={metrics.pending}
-            icon={Clock}
-            color="amber"
-            sideStats={[
-              { value: metrics.active, label: 'Active' },
-              { value: metrics.blocked, label: 'Blocked' },
-            ]}
-          />
-          <MetricCard
-            variant="dashboard"
-            label="At Risk"
-            value={0}
-            icon={AlertTriangle}
-            color="amber"
-            sideStats={[
-              { value: metrics.blocked, label: 'Blocked' },
-              { value: metrics.dndRisk, label: 'D&D' },
-            ]}
-          />
-          <MetricCard
-            variant="dashboard"
-            label="Blocked"
-            value={metrics.blocked}
-            icon={Ban}
-            color="red"
-            href="/shipments?status=blocked"
-            sideStats={[
-              { value: metrics.active, label: 'Active' },
-              { value: metrics.pending, label: 'Pending' },
-            ]}
-          />
-          <MetricCard
-            variant="dashboard"
-            label="My Tasks"
-            value={metrics.myTasks}
-            icon={ClipboardList}
-            color="blue"
-            href="/tasks"
-            badge={taskCount.blockers > 0 ? `${taskCount.blockers}!` : undefined}
-            sideStats={[
-              { value: taskCount.blockers, label: 'Blockers' },
-              { value: taskCount.total, label: 'Total' },
-            ]}
-          />
-          {hasDndAccess && (
+        <div className="@container mb-6">
+          <div className="grid grid-cols-7 gap-4">
             <MetricCard
               variant="dashboard"
-              label="D&D Risk"
-              value={metrics.dndRisk}
-              icon={DollarSign}
-              color="red"
-              href="/inventory/dnd"
+              label="Active"
+              value={metrics.active}
+              icon={Ship}
+              color="teal"
               sideStats={[
-                { value: dndSummary?.upcomingLfd7d ?? 0, label: 'LFD 7d' },
-                { value: `$${Number(dndSummary?.totalAccruedCharge ?? 0).toLocaleString()}`, label: 'Value' },
+                { value: metrics.pending, label: 'Pending' },
+                { value: metrics.completed, label: 'Completed' },
               ]}
             />
-          )}
-          <MetricCard
-            variant="dashboard"
-            label="Completed"
-            value={metrics.completed}
-            icon={CheckCircle}
-            color="green"
-            sideStats={[
-              { value: metrics.active, label: 'Active' },
-              { value: shipments.length, label: 'Total' },
-            ]}
-          />
+            <MetricCard
+              variant="dashboard"
+              label="Pending ID"
+              value={metrics.pending}
+              icon={Clock}
+              color="amber"
+              sideStats={[
+                { value: metrics.active, label: 'Active' },
+                { value: metrics.blocked, label: 'Blocked' },
+              ]}
+            />
+            <MetricCard
+              variant="dashboard"
+              label="At Risk"
+              value={0}
+              icon={AlertTriangle}
+              color="amber"
+              sideStats={[
+                { value: metrics.blocked, label: 'Blocked' },
+                { value: metrics.dndRisk, label: 'D&D' },
+              ]}
+            />
+            <MetricCard
+              variant="dashboard"
+              label="Blocked"
+              value={metrics.blocked}
+              icon={Ban}
+              color="red"
+              href="/shipments?status=blocked"
+              sideStats={[
+                { value: metrics.active, label: 'Active' },
+                { value: metrics.pending, label: 'Pending' },
+              ]}
+            />
+            <MetricCard
+              variant="dashboard"
+              label="My Tasks"
+              value={metrics.myTasks}
+              icon={ClipboardList}
+              color="blue"
+              href="/tasks"
+              badge={taskCount.blockers > 0 ? `${taskCount.blockers}!` : undefined}
+              sideStats={[
+                { value: taskCount.blockers, label: 'Blockers' },
+                { value: taskCount.total, label: 'Total' },
+              ]}
+            />
+            {hasDndAccess && (
+              <MetricCard
+                variant="dashboard"
+                label="D&D Risk"
+                value={metrics.dndRisk}
+                icon={DollarSign}
+                color="red"
+                href="/inventory/dnd"
+                sideStats={[
+                  { value: `$${Number(dndSummary?.totalAccruedCharge ?? 0).toLocaleString()}`, label: 'Value' },
+                ]}
+              />
+            )}
+            <MetricCard
+              variant="dashboard"
+              label="Completed"
+              value={metrics.completed}
+              icon={CheckCircle}
+              color="green"
+              sideStats={[
+                { value: metrics.active, label: 'Active' },
+                { value: shipments.length, label: 'Total' },
+              ]}
+            />
+          </div>
         </div>
       )}
 
       {/* ── D&D Risk Banner ───────────────────────────────────────────────── */}
       {hasDndAccess && dndSummary && dndSummary.accruing > 0 && (
-        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-2.5 mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <DollarSign className="w-4 h-4 text-amber-600" />
-            <span className="text-sm text-amber-800 dark:text-amber-300">
-              <strong>{dndSummary.accruing}</strong> container{dndSummary.accruing > 1 ? 's' : ''} accruing D&amp;D
-              {' — '}
-              <span className="font-mono">${Number(dndSummary.totalAccruedCharge ?? 0).toLocaleString()}</span> total
+        <Banner
+          intent="warning"
+          className="mb-4"
+          link={<TextLink href="/inventory/dnd">View D&amp;D</TextLink>}
+        >
+          <strong>{dndSummary.accruing}</strong> container{dndSummary.accruing > 1 ? 's' : ''} accruing D&amp;D
+          {' — '}
+          <span className="tabular-nums">${Number(dndSummary.totalAccruedCharge ?? 0).toLocaleString()}</span> total
+          {dndSummary.upcomingLfd7d > 0 && (
+            <span className="ml-2 opacity-80">
+              + {dndSummary.upcomingLfd7d} LFD{dndSummary.upcomingLfd7d > 1 ? 's' : ''} this week
             </span>
-            {dndSummary.upcomingLfd7d > 0 && (
-              <span className="text-[13px] text-amber-600/70 ml-2">
-                + {dndSummary.upcomingLfd7d} LFD{dndSummary.upcomingLfd7d > 1 ? 's' : ''} this week
-              </span>
-            )}
-          </div>
-          <a href="/inventory/dnd" className="text-[13px] font-medium text-amber-700 hover:underline">
-            View D&amp;D →
-          </a>
-        </div>
+          )}
+        </Banner>
       )}
 
       {/* ── Gate Health Bar ───────────────────────────────────────────────── */}
       {hasGateAccess && Object.keys(gateDistribution).length > 0 && (
         <section className="mb-6">
           <h3 className="mb-3 text-lg font-semibold leading-[1.3] text-foreground">Gate Health</h3>
-          <div className="ewms-card-grid-auto">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             {Object.entries(gateDistribution)
               .sort(([a], [b]) => Number(a) - Number(b))
               .map(([num, data]) => (
@@ -381,10 +380,10 @@ export function DashboardPage() {
       )}
 
       {/* ── Shipment Table ────────────────────────────────────────────────── */}
-      <div className="bg-card rounded-lg p-6">
+      <div className="@container bg-card rounded-lg p-6">
 
         {/* Controls */}
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
           <h3 className="text-lg font-bold">
             Shipments{' '}
             <span className="text-muted-foreground font-normal text-base">({filteredShipments.length})</span>
@@ -394,12 +393,12 @@ export function DashboardPage() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search shipments..."
-              className="text-sm border rounded-md px-3 py-1.5 w-48 bg-background"
+              className="text-xs border rounded-xl px-3 py-1.5 w-48 bg-background"
             />
             <select
               value={statusFilter}
               onChange={e => setStatusFilter(e.target.value)}
-              className="text-sm border rounded-md px-2 py-1.5 bg-background"
+              className="text-xs border rounded-xl px-2 py-1.5 bg-background"
             >
               <option value="all">All status</option>
               <option value="active">Active</option>
@@ -411,7 +410,7 @@ export function DashboardPage() {
             <select
               value={sortBy}
               onChange={e => setSortBy(e.target.value as 'newest' | 'oldest' | 'gate' | 'eta')}
-              className="text-sm border rounded-md px-2 py-1.5 bg-background"
+              className="text-xs border rounded-xl px-2 py-1.5 bg-background"
             >
               <option value="newest">Newest first</option>
               <option value="oldest">Oldest first</option>
@@ -432,21 +431,20 @@ export function DashboardPage() {
 
         {/* Column headers */}
         {!loading && filteredShipments.length > 0 && (
-          <div className="flex items-center gap-5 pt-1 pb-2 mb-2 border-b border-border overflow-x-auto" style={{ paddingLeft: 21, paddingRight: 20 }}>
-            <div className="min-w-[140px] flex-[1.4] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Shipment</div>
-            <div className="min-w-[120px] flex-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Gates</div>
-            <div className="min-w-[60px] flex-[0.6] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hidden lg:block">Docs</div>
-            <div className="min-w-[56px] flex-[0.5] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right hidden xl:block">ETA</div>
-            <div className="flex-[2] min-w-[120px] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Exporter / Buyer</div>
-            <div className="min-w-[64px] flex-[0.6] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right hidden md:block">Counts</div>
-            <div className="min-w-[56px] flex-[0.5] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right">Added</div>
+          <div className="flex items-center gap-5 px-5 pt-1 pb-2 mb-2 border-b border-border">
+            <div className="w-[200px] @max-[1150px]:w-[170px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Shipment</div>
+            <div className="w-[160px] @max-[1150px]:w-[130px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Gates</div>
+            <div className="w-[80px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground @max-[750px]:hidden">Docs</div>
+            <div className="w-[72px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right @max-[1150px]:hidden">ETA</div>
+            <div className="flex-1 min-w-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Exporter / Buyer</div>
+            <div className="w-[88px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right @max-[950px]:hidden">Counts</div>
+            <div className="w-[72px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right">Added</div>
           </div>
         )}
 
         {/* Rows */}
         {!loading && (
-          <div className="overflow-x-auto">
-            <div className="min-w-[820px] space-y-2">
+          <div className="space-y-2">
             {filteredShipments.map(shipment => {
               const visibleGates = (shipment.shipmentGates ?? [])
                 .filter((g: any) => permittedGateNumbers.has(g.gateConfig?.gateNumber))
@@ -458,23 +456,23 @@ export function DashboardPage() {
                 <a
                   key={shipment.id}
                   href={`/shipments/${shipment.id}`}
-                  className="bg-background rounded-lg px-5 py-4 flex items-center gap-5 hover:shadow-md transition-shadow cursor-pointer border border-transparent hover:border-border"
+                  className="bg-background rounded-lg px-5 py-4 flex items-center gap-5 hover:bg-muted/60 transition-colors cursor-pointer"
                 >
                   {/* Shipment ID + status + project link */}
-                  <div className="min-w-[140px] flex-[1.4]">
-                    <div className="font-mono text-[15px] font-semibold leading-tight">
+                  <div className="w-[200px] @max-[1150px]:w-[170px] shrink-0">
+                    <div className="font-mono text-[13px] font-semibold leading-tight">
                       {shipment.shipmentNumber || (
                         <span className="text-muted-foreground italic text-[13px] font-normal">Pending ID</span>
                       )}
                     </div>
                     <div className="flex items-center gap-1.5 mt-1.5">
-                      <StatusBadge status={shipment.status} />
+                      <StatusBadge status={shipment.status} size='sm' />
                     </div>
                     {(shipment as any).project && (
                       <button
                         type="button"
                         onClick={e => { e.preventDefault(); e.stopPropagation(); window.location.href = `/projects/${(shipment as any).project.id}`; }}
-                        className="text-[13px] text-teal-600 hover:underline font-mono mt-1 block"
+                        className="text-[13px] text-primary hover:underline font-mono mt-1 block"
                       >
                         {(shipment as any).project.projectCode}
                       </button>
@@ -482,7 +480,7 @@ export function DashboardPage() {
                   </div>
 
                   {/* Gate progress dots */}
-                  <div className="flex items-center gap-1.5 min-w-[120px] flex-1 flex-wrap">
+                  <div className="flex items-center gap-1.5 w-[160px] @max-[1150px]:w-[130px] shrink-0 flex-wrap">
                     {visibleGates.map((gate: any) => {
                       const gNum = gate.gateConfig?.gateNumber;
                       return (
@@ -491,9 +489,9 @@ export function DashboardPage() {
                           title={`${gate.gateConfig?.gateName ?? `G${gNum}`}: ${gate.status}`}
                         >
                           <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[12px] font-bold ${
-                            gate.status === 'PASSED'  ? 'bg-teal-500 text-white' :
-                            gate.status === 'ACTIVE'  ? 'bg-teal-500/20 text-teal-700 ring-2 ring-teal-500' :
-                            gate.status === 'BLOCKED' ? 'bg-red-500 text-white animate-pulse' :
+                            gate.status === 'PASSED'  ? 'bg-primary text-primary-foreground' :
+                            gate.status === 'ACTIVE'  ? 'bg-primary/20 text-primary ring-2 ring-primary' :
+                            gate.status === 'BLOCKED' ? 'bg-destructive text-destructive-foreground animate-pulse' :
                             gate.status === 'SKIPPED' ? 'bg-muted text-muted-foreground' :
                             'bg-muted/50 text-muted-foreground'
                           }`}>
@@ -505,21 +503,21 @@ export function DashboardPage() {
                   </div>
 
                   {/* Doc completion mini-bar */}
-                  <div className="min-w-[60px] flex-[0.6] hidden lg:block">
+                  <div className="w-[80px] shrink-0 @max-[750px]:hidden">
                     <div className="flex items-center gap-2">
                       <div className="h-2 rounded-full bg-muted/50 overflow-hidden flex-1">
-                        <div className="h-full rounded-full bg-teal-500" style={{ width: `${(shipment as any).docCompletionPct || 0}%` }} />
+                        <div className="h-full rounded-full bg-primary" style={{ width: `${(shipment as any).docCompletionPct || 0}%` }} />
                       </div>
                       <span className="text-[13px] font-mono text-muted-foreground">{(shipment as any).docCompletionPct || 0}%</span>
                     </div>
                   </div>
 
                   {/* ETA */}
-                  <div className="min-w-[56px] flex-[0.5] text-right hidden xl:block">
+                  <div className="w-[72px] shrink-0 text-right @max-[1150px]:hidden">
                     {(shipment as any).etaPort ? (
                       <div className="text-[12px]">
                         <span className="text-muted-foreground">ETA</span>
-                        <div className="font-mono font-medium">{new Date((shipment as any).etaPort).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</div>
+                        <div className="font-medium">{new Date((shipment as any).etaPort).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</div>
                       </div>
                     ) : (
                       <span className="text-[12px] text-muted-foreground">—</span>
@@ -527,36 +525,41 @@ export function DashboardPage() {
                   </div>
 
                   {/* Exporter + buyer */}
-                  <div className="flex-[2] min-w-[120px]">
-                    <div className="text-[15px] truncate">{shipment.exporterName || '—'}</div>
-                    <div className="text-[13px] text-muted-foreground truncate mt-0.5">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12px] truncate">{shipment.exporterName || '—'}</div>
+                    <div className="text-[12px] text-muted-foreground truncate mt-0.5">
                       {shipment.buyerName || '—'}
                     </div>
                   </div>
 
-                  {/* Doc + ticket counts */}
-                  <div className="min-w-[64px] flex-[0.6] text-right hidden md:block">
-                    {(shipment._count?.documents ?? 0) > 0 && (
-                      <div className="text-[13px]">
-                        <span className="font-mono">{shipment._count.documents}</span>
-                        <span className="text-muted-foreground ml-1">docs</span>
-                      </div>
-                    )}
-                    {(shipment._count?.tickets ?? 0) > 0 && (
-                      <div className="text-[13px] mt-0.5">
-                        <span className="font-mono">{shipment._count.tickets}</span>
-                        <span className="text-muted-foreground ml-1">tickets</span>
-                      </div>
+                  {/* Doc counts */}
+                  <div className="w-[88px] shrink-0 text-right @max-[950px]:hidden">
+                    {(shipment._count?.documents ?? 0) > 0 ? (
+                      <>
+                        <div className="text-[12px]">
+                          <span className="font-mono">{shipment._count.documentsApproved ?? 0}/{shipment._count.documents}</span>
+                          <span className="text-muted-foreground ml-1">docs</span>
+                        </div>
+                        {(shipment._count.documents - (shipment._count.documentsApproved ?? 0)) > 0 && (
+                          <div className="text-[11px] text-muted-foreground mt-0.5">
+                            {shipment._count.documents - (shipment._count.documentsApproved ?? 0)} awaiting
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-[12px] text-muted-foreground">—</span>
                     )}
                   </div>
 
                   {/* Date */}
-                  <div className="min-w-[56px] flex-[0.5] text-right">
-                    <div className="text-[13px] text-muted-foreground font-mono">
-                      {new Date(shipment.createdAt).toLocaleDateString('en-IN', {
-                        day: '2-digit',
-                        month: 'short',
-                      })}
+                  <div className="w-[72px] shrink-0 text-right">
+                    <div className="text-[12px] text-muted-foreground">
+                      {shipment.createdAt && !Number.isNaN(new Date(shipment.createdAt).getTime())
+                        ? new Date(shipment.createdAt).toLocaleDateString('en-IN', {
+                            day: '2-digit',
+                            month: 'short',
+                          })
+                        : '—'}
                     </div>
                   </div>
                 </a>
@@ -575,7 +578,6 @@ export function DashboardPage() {
                 </p>
               </div>
             )}
-            </div>
           </div>
         )}
       </div>

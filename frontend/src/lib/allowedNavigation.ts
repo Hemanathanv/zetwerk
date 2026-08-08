@@ -10,11 +10,11 @@ type PermissionLike = {
 };
 
 const LANDING_ROUTES = [
+  { module: 'dashboard', path: '/dashboard' },
   { module: 'partner', path: '/partner', activities: ['documents.upload'] },
   { module: 'partner', path: '/partner/documents', activities: ['documents.view', 'documents.view_extracted'] },
   { module: 'partner', path: '/partner/warehouse', activities: ['inventory.view_container', 'inventory.view_timeline'] },
   { module: 'partner', path: '/partner/warehouse/stock', activities: ['inventory.view_container'] },
-  { module: 'dashboard', path: '/dashboard' },
   { module: 'shipments', path: '/shipments', activities: ['shipments.view', 'SHP-001'] },
   { module: 'tasks', path: '/tasks', activities: ['tasks.view', 'TSK-001'] },
   { module: 'documents', path: '/documents/generate', activities: DOC_GENERATION_ACTIVITY_CODES },

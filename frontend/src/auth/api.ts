@@ -518,22 +518,30 @@ const authApi = {
           }
           // Cookie is valid; fetch permissions/level using the cookie.
           return Promise.allSettled([
+            api.get<{ user: KeycloakUserInfo }>('/auth/userinfo'),
+            api.get<{ roles: string[] }>('/auth/roles'),
             api.get<{ ok: boolean; data: KeycloakPermissions }>('/auth/permissions'),
             api.get<{ ok: boolean; data: LevelAuthorization }>('/auth/level'),
-          ]).then(([permissionsResult, levelResult]) => {
+          ]).then(([userinfoResult, rolesResult, permissionsResult, levelResult]) => {
+            const userInfo = userinfoResult.status === 'fulfilled'
+              ? userinfoResult.value.data.user
+              : {};
+            const roles = rolesResult.status === 'fulfilled'
+              ? rolesResult.value.data.roles
+              : [];
             const permissions = permissionsResult.status === 'fulfilled'
               ? permissionsResult.value.data.data
-              : fallbackPermissions({}, []);
+              : fallbackPermissions(userInfo, roles);
             const levelAuth = levelResult.status === 'fulfilled'
               ? levelResult.value.data.data
-              : { level: 'L1', activities: permissions.activities };
+              : { level: isAdminIdentity(userInfo, roles) ? 'L4' : 'L1', activities: permissions.activities };
 
             return {
               data: {
                 status: 'success',
                 user: normalizeKeycloakUser(
-                  {},
-                  [],
+                  userInfo,
+                  roles,
                   permissions,
                   levelAuth,
                 ),

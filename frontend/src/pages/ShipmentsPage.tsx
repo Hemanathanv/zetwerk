@@ -56,6 +56,12 @@ type ShipmentsQueryData = {
   fetchedAt: Date;
 };
 
+// Responsive type scale — grows/shrinks with viewport width instead of one fixed compact size
+const FS_HEADER    = 'clamp(10.5px, 0.78vw, 12.5px)';
+const FS_PRIMARY   = 'clamp(12px, 0.95vw, 14px)';
+const FS_SECONDARY = 'clamp(11px, 0.85vw, 12.5px)';
+const FS_BADGE      = 'clamp(11px, 0.8vw, 12.5px)';
+
 const COLUMNS: { label: string; key: SortKey }[] = [
   { label: 'Shipment ID / MBL', key: 'id'        },
   { label: 'Vessel · Route',  key: 'vessel'       },
@@ -148,7 +154,7 @@ function mapApiShipment(s: any): ShipmentListRow {
   const etaDate         = safecubeEtaDate ?? etaPortDate ?? etaDeliveryDate;
   const daysUntil       = etaDate ? Math.ceil((etaDate.getTime() - Date.now()) / 86_400_000) : null;
   const etaDays =
-    daysUntil === null   ? 'No ETA' :
+    daysUntil === null   ? '' :
     daysUntil < -1       ? `${Math.abs(daysUntil)}d past` :
     daysUntil === 0      ? 'Today' :
     daysUntil === 1      ? 'Tomorrow' :
@@ -226,24 +232,49 @@ function alertSortVal(row: ShipmentListRow): number {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function PhaseDots({ current }: { current: number }) {
+function PhaseDots({
+  current,
+  layout = 'row',
+}: {
+  current: number;
+  layout?: 'row' | 'column';
+}) {
+  const isColumn = layout === 'column';
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 5 }}>
-      {[1, 2, 3, 4, 5, 6].map((n) => (
-        <div
-          key={n}
-          title={PHASE_LABELS[n]}
-          style={{
-            width: n === current ? 14 : 7,
-            height: 7,
-            borderRadius: 999,
-            backgroundColor: n <= current ? 'hsl(var(--primary))' : 'hsl(220 14% 88%)',
-            opacity: n < current ? 0.45 : 1,
-            transition: 'width 0.15s',
-          }}
-        />
-      ))}
-      <span style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginLeft: 3, fontFamily: 'var(--app-font-sans)' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: isColumn ? 'column' : 'row',
+        alignItems: isColumn ? 'flex-start' : 'center',
+        gap: isColumn ? 4 : 3,
+        marginTop: 4,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+        {[1, 2, 3, 4, 5, 6].map((n) => (
+          <div
+            key={n}
+            title={PHASE_LABELS[n]}
+            style={{
+              width: n === current ? 12 : 6,
+              height: 6,
+              borderRadius: 999,
+              backgroundColor: n <= current ? 'hsl(var(--primary))' : 'hsl(220 14% 88%)',
+              opacity: n < current ? 0.45 : 1,
+              transition: 'width 0.15s',
+            }}
+          />
+        ))}
+      </div>
+      <span
+        style={{
+          fontSize: FS_SECONDARY,
+          color: 'hsl(var(--muted-foreground))',
+          fontFamily: 'var(--app-font-sans)',
+          marginLeft: isColumn ? 0 : 3,
+        }}
+      >
         {PHASE_LABELS[current]}
       </span>
     </div>
@@ -412,7 +443,7 @@ export function ShipmentsPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="p-7">
+    <div className="p-6">
       <PageHeader
         title="Shipments"
         subtitle={subtitle}
@@ -429,12 +460,12 @@ export function ShipmentsPage() {
 
       {/* Phase filter banner (from Dashboard funnel) */}
       {phaseFilter !== null && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderRadius: 8, marginBottom: 12, background: 'hsl(var(--primary) / 0.07)', border: '1px solid hsl(var(--primary) / 0.2)' }}>
-          <span style={{ fontSize: 14.5, fontWeight: 500, color: 'hsl(var(--primary))' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, marginBottom: 10, background: 'hsl(var(--primary) / 0.07)', border: '1px solid hsl(var(--primary) / 0.2)' }}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: 'hsl(var(--primary))' }}>
             Filtered by phase: <strong>{PHASE_LABELS[phaseFilter]}</strong>
           </span>
-          <button onClick={() => setPhaseFilter(null)} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 14, fontWeight: 500, color: 'hsl(var(--muted-foreground))', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4 }}>
-            <X style={{ width: 12, height: 12 }} />
+          <button onClick={() => setPhaseFilter(null)} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 500, color: 'hsl(var(--muted-foreground))', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4 }}>
+            <X style={{ width: 11, height: 11 }} />
             Clear
           </button>
         </div>
@@ -442,7 +473,7 @@ export function ShipmentsPage() {
 
       {/* Error banner */}
       {error && (
-        <div style={{ padding: '10px 16px', borderRadius: 8, marginBottom: 12, background: 'hsl(0 84% 60% / 0.08)', border: '1px solid hsl(0 84% 60% / 0.2)', fontSize: 14.5, color: 'hsl(0 84% 45%)' }}>
+        <div style={{ padding: '8px 12px', borderRadius: 8, marginBottom: 10, background: 'hsl(0 84% 60% / 0.08)', border: '1px solid hsl(0 84% 60% / 0.2)', fontSize: 13, color: 'hsl(0 84% 45%)' }}>
           Failed to load shipments: {error} —{' '}
           <button onClick={() => shipmentsQuery.refetch()} style={{ textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 'inherit' }}>retry</button>
         </div>
@@ -454,18 +485,18 @@ export function ShipmentsPage() {
         <select
           value={projectFilter}
           onChange={e => setProjectFilter(e.target.value)}
-          className="px-3 py-2 rounded-full text-[13px] font-medium bg-muted text-muted-foreground hover:text-foreground transition-colors border-0 focus:outline-none"
+          className="px-2.5 py-1.5 rounded-full text-[12px] font-medium bg-muted text-muted-foreground hover:text-foreground transition-colors border-0 focus:outline-none"
         >
           {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
         </select>
-        <div className="relative ml-auto" style={{ maxWidth: 320, flex: '1 1 200px', zIndex: 5 }}>
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" style={{ width: 15, height: 15 }} />
+        <div className="relative ml-auto" style={{ maxWidth: 280, flex: '1 1 200px', zIndex: 5 }}>
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" style={{ width: 13, height: 13 }} />
           <Input
             value={search}
             onChange={e => { setPage(1); setSearch(e.target.value); }}
             placeholder="Search shipments..."
-            className="pl-9 focus-visible:ring-1"
-            style={{ fontSize: 14.5 }}
+            className="pl-8 h-8 focus-visible:ring-1"
+            style={{ fontSize: 13 }}
           />
           {shipmentSearchOptions.length > 0 && (
             <div style={{
@@ -478,10 +509,10 @@ export function ShipmentsPage() {
                   key={s.realId}
                   onMouseDown={event => event.preventDefault()}
                   onClick={() => navigate(`/shipments/${s.realId}`)}
-                  style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '9px 11px', textAlign: 'left', display: 'block' }}
+                  style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '8px 10px', textAlign: 'left', display: 'block' }}
                 >
-                  <div className="vs-mono" style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--foreground))' }}>{s.id}</div>
-                  <div style={{ fontSize: 12.5, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>{s.vessel} · {s.mbl || 'No MBL'}</div>
+                  <div className="vs-mono" style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--foreground))' }}>{s.id}</div>
+                  <div style={{ fontSize: 11.5, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>{s.vessel} · {s.mbl || 'No MBL'}</div>
                 </button>
               ))}
             </div>
@@ -491,17 +522,17 @@ export function ShipmentsPage() {
 
       {/* Table */}
       <div className="overflow-x-auto rounded-lg" style={{ boxShadow: 'var(--vs-shadow-card)' }}>
-        <table className="w-full bg-card" style={{ minWidth: 900, borderCollapse: 'collapse' }}>
+        <table className="w-full bg-card" style={{ minWidth: 820, tableLayout: 'fixed', borderCollapse: 'collapse' }}>
           <colgroup>
-            <col style={{ width: 'minmax(130px, 13%)' }} />
-            <col style={{ width: 'minmax(150px, 18%)' }} />
-            <col style={{ width: 'minmax(90px, 11%)' }} />
-            <col style={{ width: 'minmax(80px, 10%)' }} />
-            <col style={{ width: 'minmax(110px, 13%)' }} />
-            <col style={{ width: 'minmax(80px, 10%)' }} />
-            <col style={{ width: 'minmax(100px, 13%)' }} />
-            <col style={{ width: 'minmax(70px, 8%)' }} />
-            <col style={{ width: 'minmax(60px, 6%)'  }} />
+            <col style={{ width: '15%' }} />
+            <col style={{ width: '17%' }} />
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '12%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '8%'  }} />
           </colgroup>
           <thead>
             <tr style={{ backgroundColor: 'hsl(var(--background))', borderBottom: '1px solid hsl(var(--border))' }}>
@@ -509,7 +540,7 @@ export function ShipmentsPage() {
                 <th
                   key={key}
                   onClick={() => handleSort(key)}
-                  style={{ textAlign: 'left', padding: '13px 16px', fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, color: sortKey === key ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}
+                  style={{ textAlign: 'left', padding: '10px 8px', fontSize: FS_HEADER, textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 600, color: sortKey === key ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))', whiteSpace: 'normal', cursor: 'pointer', userSelect: 'none' }}
                 >
                   {label}
                   <SortIcon colKey={key} sortKey={sortKey} sortDir={sortDir} />
@@ -522,16 +553,16 @@ export function ShipmentsPage() {
               [...Array(5)].map((_, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid hsl(220 14% 95%)' }}>
                   {COLUMNS.map((c) => (
-                    <td key={c.key} style={{ padding: 16 }}>
-                      <div style={{ height: 14, borderRadius: 6, background: 'hsl(var(--muted))', width: '70%', animation: 'pulse 1.5s ease-in-out infinite' }} />
-                      <div style={{ height: 10, borderRadius: 6, background: 'hsl(var(--muted))', width: '45%', marginTop: 6, animation: 'pulse 1.5s ease-in-out infinite', opacity: 0.6 }} />
+                    <td key={c.key} style={{ padding: 12 }}>
+                      <div style={{ height: 12, borderRadius: 6, background: 'hsl(var(--muted))', width: '70%', animation: 'pulse 1.5s ease-in-out infinite' }} />
+                      <div style={{ height: 9, borderRadius: 6, background: 'hsl(var(--muted))', width: '45%', marginTop: 5, animation: 'pulse 1.5s ease-in-out infinite', opacity: 0.6 }} />
                     </td>
                   ))}
                 </tr>
               ))
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={9} style={{ padding: 48, textAlign: 'center', color: 'hsl(var(--muted-foreground))', fontSize: 14.5 }}>
+                <td colSpan={9} style={{ padding: 36, textAlign: 'center', color: 'hsl(var(--muted-foreground))', fontSize: 13 }}>
                   {rows.length === 0 ? 'No shipments found.' : 'No shipments match your filters.'}
                 </td>
               </tr>
@@ -544,33 +575,33 @@ export function ShipmentsPage() {
                 onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.backgroundColor = ''; }}
               >
                 {/* Shipment ID */}
-                <td style={{ padding: 16 }}>
-                  <div className="vs-mono font-semibold" style={{ fontSize: 14, color: 'hsl(var(--primary))' }}>{s.id}</div>
-                  <div className="vs-mono" style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>MBL: {s.mbl}</div>
+                <td style={{ padding: 10 }}>
+                  <div className="vs-mono font-semibold" style={{ fontSize: 12.5, color: 'hsl(var(--primary))' }}>{s.id}</div>
+                  <div className="vs-mono" style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>MBL: {s.mbl}</div>
                 </td>
 
                 {/* Vessel / Route */}
-                <td style={{ padding: 16 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{ fontSize: 14, fontWeight: 500 }}>{s.vessel}</div>
+                <td style={{ padding: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <div className="vs-mono" style={{ fontSize: 12.5, fontWeight: 500 }}>{s.vessel}</div>
                     {s.safecubeLinked && (
-                      <span title="Live tracking active" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 14, height: 14, borderRadius: 7, backgroundColor: 'hsl(var(--vs-teal) / 0.15)', color: 'hsl(var(--vs-teal))' }}>
-                        <span style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: 'hsl(var(--vs-teal))', display: 'block' }} />
+                      <span title="Live tracking active" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 12, height: 12, borderRadius: 6, backgroundColor: 'hsl(var(--vs-teal) / 0.15)', color: 'hsl(var(--vs-teal))' }}>
+                        <span style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: 'hsl(var(--vs-teal))', display: 'block' }} />
                       </span>
                     )}
                   </div>
-                  <div className="vs-mono" style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>
+                  <div className="vs-mono" style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>
                     {s.safecubeCurrentLocation ?? s.route}
                   </div>
                 </td>
 
                 {/* Project */}
-                <td style={{ padding: 16 }}>
-                  <div style={{ fontSize: 14, color: 'hsl(var(--foreground))' }}>{s.projectCode || '—'}</div>
+                <td style={{ padding: 12 }}>
+                  <div style={{ fontSize: 12.5, color: 'hsl(var(--foreground))' }}>{s.projectCode || '—'}</div>
                 </td>
 
                 {/* Status */}
-                <td style={{ padding: 16 }}>
+                <td style={{ padding: 10 }}>
                   {(() => {
                     const meta = shipmentStatusMeta(s.listStatus);
                     return (
@@ -579,7 +610,7 @@ export function ShipmentsPage() {
                         alignItems: 'center',
                         padding: '3px 9px',
                         borderRadius: 999,
-                        fontSize: 14,
+                        fontSize: FS_BADGE,
                         fontWeight: 600,
                         color: meta.color,
                         background: meta.bg,
@@ -593,61 +624,61 @@ export function ShipmentsPage() {
                 </td>
 
                 {/* Stage + phase dots */}
-                <td style={{ padding: 16 }}>
+                <td style={{ padding: 12 }}>
                   <StatusPill status={s.stage} variant={s.stageVariant} />
-                  <PhaseDots current={s.journeyPhase} />
+                  <PhaseDots current={s.journeyPhase} layout='column' />
                 </td>
 
                 {/* Load mode / Incoterm */}
-                <td style={{ padding: 16 }}>
+                <td style={{ padding: 12 }}>
                   {s.loadMode ? (
-                    <span className="vs-mono" style={{ display: 'inline-block', padding: '3px 9px', borderRadius: 6, fontSize: 14, fontWeight: 600, background: 'hsl(var(--primary) / 0.08)', color: 'hsl(var(--primary))', border: '1px solid hsl(var(--primary) / 0.2)' }}>
+                    <span className="vs-mono" style={{ display: 'inline-block', padding: '3px 8px', borderRadius: 6, fontSize: FS_BADGE, fontWeight: 600, background: 'hsl(var(--primary) / 0.08)', color: 'hsl(var(--primary))', border: '1px solid hsl(var(--primary) / 0.2)' }}>
                       {s.loadMode}
                     </span>
                   ) : (
-                    <span style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>Break-bulk</span>
+                    <span style={{ fontSize: 12.5, color: 'hsl(var(--muted-foreground))' }}>Break-bulk</span>
                   )}
                   {s.incoterm && (
-                    <div className="vs-mono" style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginTop: 4 }}>{s.incoterm}</div>
+                    <div className="vs-mono" style={{ fontSize: FS_SECONDARY, color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>{s.incoterm}</div>
                   )}
                 </td>
 
                 {/* Documents */}
-                <td style={{ padding: 16 }}>
-                  <div className="vs-mono" style={{ fontSize: 14.5, fontWeight: 600, color: 'hsl(var(--foreground))' }}>
+                <td style={{ padding: 12 }}>
+                  <div className="vs-mono" style={{ fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--foreground))' }}>
                     {s.docsComplete}/{s.docsTotal}
                   </div>
-                  <div style={{ fontSize: 14, marginTop: 4, color: s.docDanger ? 'hsl(var(--vs-danger))' : 'hsl(var(--muted-foreground))' }}>{s.docNote}</div>
+                  <div style={{ fontSize: 12, marginTop: 3, color: s.docDanger ? 'hsl(var(--vs-danger))' : 'hsl(var(--muted-foreground))' }}>{s.docNote}</div>
                 </td>
 
                 {/* ETA */}
-                <td style={{ padding: 16 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                    <div style={{ fontSize: 14, fontWeight: 500 }}>
+                <td style={{ padding: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 500 }}>
                       {s.etaDate ? `${s.etaPort} · ${s.etaDate}` : '—'}
                     </div>
                     {s.safecubeLinked && s.safecubeScheduleStatus && (
                       <ScheduleStatusBadge status={s.safecubeScheduleStatus} delayDays={s.safecubeDelayDays} />
                     )}
                   </div>
-                  <div style={{ fontSize: 14, color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>{s.etaDays}</div>
+                  <div style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>{s.etaDays}</div>
                 </td>
 
                 {/* Alerts */}
-                <td style={{ padding: 16 }}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+                <td style={{ padding: 12 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
                     {s.alert && (
-                      <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 999, fontSize: 14, fontWeight: 500, backgroundColor: ALERT_PILL[s.alert.variant].bg, color: ALERT_PILL[s.alert.variant].color, whiteSpace: 'nowrap' }}>
+                      <span style={{ display: 'inline-block', padding: '3px 9px', borderRadius: 999, fontSize: FS_BADGE, fontWeight: 500, backgroundColor: ALERT_PILL[s.alert.variant].bg, color: ALERT_PILL[s.alert.variant].color, whiteSpace: 'nowrap' }}>
                         {s.alert.text}
                       </span>
                     )}
                     {s.safecubeAlertCount > 0 && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px', borderRadius: 999, fontSize: 14, fontWeight: 600, backgroundColor: 'hsl(var(--vs-danger) / 0.12)', color: 'hsl(var(--vs-danger))', whiteSpace: 'nowrap' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '3px 8px', borderRadius: 999, fontSize: FS_BADGE, fontWeight: 600, backgroundColor: 'hsl(var(--vs-danger) / 0.12)', color: 'hsl(var(--vs-danger))', whiteSpace: 'nowrap' }}>
                         ⚠ {s.safecubeAlertCount} vessel
                       </span>
                     )}
                     {!s.alert && s.safecubeAlertCount === 0 && (
-                      <span style={{ color: 'hsl(var(--muted-foreground))', fontSize: 14 }}>—</span>
+                      <span style={{ color: 'hsl(var(--muted-foreground))', fontSize: FS_BADGE }}>—</span>
                     )}
                   </div>
                 </td>
@@ -658,7 +689,7 @@ export function ShipmentsPage() {
       </div>
 
       {/* Footer */}
-      <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
+      <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', fontSize: 13, color: 'hsl(var(--muted-foreground))' }}>
         <span>
           {loading && rows.length > 0
             ? 'Refreshing...'
@@ -675,7 +706,7 @@ export function ShipmentsPage() {
             <ChevronLeft className="w-3.5 h-3.5" />
             Prev
           </Button>
-          <span style={{ fontSize: 14 }}>Page {page} of {totalPages}</span>
+          <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
           <Button
             variant="outline"
             size="sm"

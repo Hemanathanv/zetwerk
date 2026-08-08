@@ -69,22 +69,22 @@ export function MetricCard({
   const tone = toneStyles[color] ?? toneStyles.teal;
   const isDashboard = variant === 'dashboard';
 
-  const content = (
+  const cardBody = (
     <div
-      className="group relative flex size-full flex-col items-start gap-3 rounded-lg border border-card-border bg-card p-6 text-card-foreground transition-shadow hover:shadow-md"
+      className="group relative flex size-full flex-col items-start gap-3 @max-[210px]:gap-2 rounded-3xl border border-card-border bg-card p-6 @max-[210px]:p-4 @max-[160px]:p-3 text-card-foreground transition-shadow hover:shadow-md"
       data-node-id="607:14563"
       data-name="KPI Card"
     >
       <div className="flex w-full shrink-0 items-center gap-2 overflow-hidden">
         {isDashboard && Icon ? (
           <span
-            className="flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-md"
+            className="flex size-6 @max-[210px]:size-5 shrink-0 items-center justify-center overflow-hidden rounded-md"
             style={{ backgroundColor: tone.bg }}
           >
-            <Icon className="size-4" style={{ color: tone.color }} strokeWidth={1.75} aria-hidden="true" />
+            <Icon className="size-4 @max-[210px]:size-3.5" style={{ color: tone.color }} strokeWidth={1.75} aria-hidden="true" />
           </span>
         ) : null}
-        <span className="min-w-0 flex-1 text-[13px] font-medium leading-[1.4] text-foreground">
+        <span className="min-w-0 flex-1 truncate text-[13px] @max-[210px]:text-[12px] font-medium leading-[1.4] text-foreground">
           {label}
         </span>
         {badge ? (
@@ -94,27 +94,35 @@ export function MetricCard({
         ) : null}
       </div>
 
-      <span className="shrink-0 whitespace-nowrap text-[26px] font-semibold leading-[1.1] tracking-normal text-foreground">
+      <span className="shrink-0 whitespace-nowrap text-[26px] @max-[210px]:text-[20px] @max-[160px]:text-[16px] font-semibold leading-[1.1] tracking-normal text-foreground tabular-nums">
         {value}
       </span>
 
       {isDashboard && resolvedSideStats.length > 0 ? (
-        <div className="flex w-full shrink-0 flex-col items-start overflow-hidden">
+        <div className="flex w-full shrink-0 flex-col items-start">
           <div className="h-px w-full shrink-0 bg-border" />
-          <div className="flex w-full shrink-0 items-start gap-4 overflow-hidden pt-3 whitespace-nowrap">
-            {resolvedSideStats.slice(0, 2).map((stat) => (
-              <div key={`${stat.label}-${stat.value}`} className="flex shrink-0 items-center gap-1 overflow-hidden">
-                <span className="text-[13px] font-semibold leading-normal text-foreground">{stat.value}</span>
-                {stat.label && (
-                  <span className="text-[11px] font-normal leading-[1.3] text-muted-foreground">{stat.label}</span>
-                )}
-              </div>
-            ))}
-          </div>
+            <div className="flex w-full flex-col pt-3 @max-[210px]:pt-2 gap-1">
+              {resolvedSideStats.map((stat) => (
+                <div
+                  key={`${stat.label}-${stat.value}`}
+                  className="flex items-center gap-1"
+                >
+                  <span className="text-[13px] @max-[210px]:text-[12px] font-semibold text-foreground">
+                    {stat.value}
+                  </span>
+
+                  <span className="text-[11px] @max-[210px]:text-[10px] text-muted-foreground">
+                    {stat.label}
+                  </span>
+                </div>
+              ))}
+            </div>
         </div>
       ) : null}
     </div>
   );
+
+  const content = <div className="@container size-full">{cardBody}</div>;
 
   return href ? (
     <a href={href} className="block size-full rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">

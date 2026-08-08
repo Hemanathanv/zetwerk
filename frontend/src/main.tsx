@@ -3,6 +3,8 @@ import App from "./App";
 import { resolveApiUrl } from "@/lib/apiBase";
 import "./index.css";
 
+document.title = "EWMS";
+
 const nativeFetch = window.fetch.bind(window);
 window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   if (typeof input === "string") {

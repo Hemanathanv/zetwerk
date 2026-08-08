@@ -1,6 +1,7 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
+import { firstAllowedLandingPathForUser } from '@/lib/allowedNavigation';
 
 const SHIPS = [
   { top: '6%',  dir: 'moveRight', duration: '30s', delay: '0s',  scale: 1.00, opacity: 0.15 },
@@ -440,10 +441,7 @@ export function LoginPage() {
 
   useEffect(() => {
     if (!isAuthenticated || !user) return;
-    const mods = (user as any)?.modules as string[] | undefined ?? [];
-    const category = String(user?.role?.category ?? '').toLowerCase();
-    if (mods.includes('partner') && (category.includes('external') || category.includes('partner'))) { navigate('/partner'); return; }
-    navigate('/dashboard');
+    navigate(firstAllowedLandingPathForUser(user));
   }, [isAuthenticated, user]);
 
   async function handleSubmit(e: FormEvent) {
@@ -454,18 +452,7 @@ export function LoginPage() {
     const result = await login(email, password);
     setSubmitting(false);
     if (result.ok) {
-      try {
-        const freshUser = JSON.parse(localStorage.getItem('ewms_user') ?? '{}');
-        const mods: string[] = freshUser.modules ?? [];
-        const category = String(freshUser.role?.category ?? '').toLowerCase();
-        if (mods.includes('partner') && (category.includes('external') || category.includes('partner'))) {
-          navigate('/partner');
-        } else {
-          navigate('/dashboard');
-        }
-      } catch {
-        navigate('/dashboard');
-      }
+      navigate('/dashboard');
     } else {
       setError(result.error ?? 'Invalid credentials');
     }
