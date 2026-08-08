@@ -4148,8 +4148,38 @@ async def delete_document(document_id: str, _user=Depends(get_admin_user), _auth
 from keycloak import KeycloakAdmin
 from helpers.config import settings
 
+def _keycloak_server_url_candidates() -> list[str]:
+    configured = f"{settings.KEYCLOAK_URL.rstrip('/')}/"
+    candidates = [configured]
+    if configured.rstrip('/').endswith('/keycloak'):
+        candidates.append(f"{configured.rstrip('/')[:-len('/keycloak')]}/")
+    else:
+        candidates.append(f"{configured.rstrip('/')}/keycloak/")
+    seen: set[str] = set()
+    return [url for url in candidates if not (url in seen or seen.add(url))]
+
+
 def get_keycloak_admin():
-    """Get Keycloak admin client with proper configuration"""
+    """Get Keycloak admin client with production/dev base-url compatibility."""
+    first_error: Exception | None = None
+    for server_url in _keycloak_server_url_candidates():
+        admin = KeycloakAdmin(
+            server_url=server_url,
+            username=settings.KEYCLOAK_ADMIN_USERNAME,
+            password=settings.KEYCLOAK_ADMIN_PASSWORD,
+            realm_name=settings.KEYCLOAK_REALM,
+            user_realm_name="master",
+            client_id="admin-cli",
+            verify=True,
+        )
+        try:
+            admin.get_realm(settings.KEYCLOAK_REALM)
+            return admin
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+    if first_error is not None:
+        raise first_error
     return KeycloakAdmin(
         server_url=settings.KEYCLOAK_URL,
         username=settings.KEYCLOAK_ADMIN_USERNAME,
@@ -4157,7 +4187,7 @@ def get_keycloak_admin():
         realm_name=settings.KEYCLOAK_REALM,
         user_realm_name="master",
         client_id="admin-cli",
-        verify=True
+        verify=True,
     )
 
 # Keycloak Models

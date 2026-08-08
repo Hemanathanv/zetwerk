@@ -41,3 +41,4 @@ keycloak/
 frontend/.env.local
 frontend/storybook-static/
 test/git_push_fix_bundle_20260808_173839
+backend/drive_worker/service_account.json
