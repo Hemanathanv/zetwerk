@@ -70,7 +70,7 @@ function Breadcrumbs() {
 
   return (
     <nav
-      className="flex items-center gap-0.5 px-4 pb-2 text-[13px] text-muted-foreground"
+      className="flex items-center gap-0.5 px-3 pb-2 text-[13px] text-muted-foreground"
       aria-label="Breadcrumb"
     >
       {crumbs.map((crumb, i) => (
@@ -140,26 +140,24 @@ export function TopHeader() {
       style={{ borderColor: 'hsl(var(--border))' }}
       data-testid="top-header"
     >
-      <div className="flex items-center gap-3 px-4 py-3">
-        <div className="flex-1 relative">
-          {moduleSearch && (
-            <>
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-              <input
-                type="search"
-                placeholder={moduleSearch.placeholder}
-                value={searchValue}
-                onChange={(e) => handleModuleSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 text-[14.5px] rounded-md border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
-                style={{ borderColor: 'hsl(var(--border))' }}
-                data-testid="input-module-search"
-              />
-            </>
-          )}
-        </div>
+      <div className="flex items-center gap-2 px-3 py-3">
+        {moduleSearch && (
+          <div className="hidden 2xl:block 2xl:flex-1 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <input
+              type="search"
+              placeholder={moduleSearch.placeholder}
+              value={searchValue}
+              onChange={(e) => handleModuleSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 text-[14.5px] rounded-md border bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+              style={{ borderColor: 'hsl(var(--border))' }}
+              data-testid="input-module-search"
+            />
+          </div>
+        )}
 
         {/* Right cluster */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 ml-auto">
 
           {/* Upload button */}
           {canUploadDocuments && (

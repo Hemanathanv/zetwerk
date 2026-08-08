@@ -99,6 +99,12 @@ interface DraftPayload {
   lineItems: Array<Record<string, unknown>>;
   containers: Array<Record<string, unknown>>;
   stats: Record<string, number>;
+  outwardDispatch?: {
+    warehouse?: { id?: string | null; name?: string | null; address?: string | null; firmsCode?: string | null } | null;
+    warehouseId?: string | null;
+    destinationName?: string | null;
+    destinationAddress?: string | null;
+  };
   customPackageTypes?: string[];
   createdAt?: string | null;
   updatedAt?: string | null;
@@ -533,7 +539,28 @@ function FieldGrid({ section, fields, sourceDocs, manualValues, onManualChange, 
 
 // ─── LineItemTable ────────────────────────────────────────────────────────────
 
-function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange, computedRows, packageTypes = [], onPackageTypeChange }: {
+// Percentage widths for table-layout:fixed — sum to 100% across the 11 known columns
+// so the table always fits the modal width with no horizontal scroll.
+const LINE_ITEM_COL_WIDTH_PCT: Record<string, number> = {
+  'HSN CODE': 9,
+  'PRODUCT CODE': 13,
+  'DESCRIPTION': 14,
+  'QTY (PCS)': 7,
+  'CONTAINER NO': 10,
+  'SEAL NO': 8,
+  'PACKAGE TYPE': 9,
+  'BUNDLES': 7,
+  'QTY/BUNDLE': 8,
+  'NET WT (KG)': 7,
+  'GROSS WT (KG)': 8,
+};
+
+function lineItemColWidthPct(label: string): string {
+  return `${LINE_ITEM_COL_WIDTH_PCT[label.trim().toUpperCase()] ?? 8}%`;
+}
+
+function LineItemTable({ schema, section, rows, sourceDocs, manualValues, onManualChange, computedRows, packageTypes = [], onPackageTypeChange }: {
+  schema:         DocGenSchema;
   section:        GenSection;
   rows:           Record<string, string>[];
   sourceDocs:     { docType: string; label: string }[];
@@ -555,14 +582,17 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
   if (cols.length === 0) return null;
 
   return (
-    <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
-      <table style={{ minWidth: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+    <div style={{ overflowX: 'hidden', width: '100%' }}>
+      <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 12 }}>
         <thead>
           <tr style={{ background: 'hsl(var(--muted))', borderBottom: `1px solid ${BORDER}` }}>
             {cols.map(col => (
                 <th key={col.targetField} style={{
                   padding: '7px 10px', textAlign: 'left', fontWeight: 600, fontSize: 11,
-                  textTransform: 'uppercase', letterSpacing: '0.04em', color: FG, whiteSpace: 'nowrap',
+                  textTransform: 'uppercase', letterSpacing: '0.04em', color: FG, whiteSpace: 'normal',
+                  width: lineItemColWidthPct(col.targetLabel),
+                  position: 'sticky', top: 0, zIndex: 1,
+                  background: 'hsl(var(--muted))',
                 }}>
                   {col.targetLabel}
                 </th>
@@ -580,13 +610,22 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
                   ? (computedRows[ri]?.[col.targetField] ?? row[col.targetField] ?? '')
                   : (row[col.targetField] ?? '');
                 const val = isEditable ? (manualValues[manualKey] ?? baseVal) : baseVal;
+                // Missing-value indication: only required, editable (manual/conditional)
+                // columns are flagged — TOTAL row and read-only/derived cells never are.
+                const isRequiredCol = isEditable && isRequiredManualMapping(schema, col);
+                const isEmpty = isRequiredCol && String(val ?? '').trim() === '';
+                const missingFieldStyle = {
+                  border: `1px solid ${isEmpty ? 'hsl(var(--destructive) / 0.6)' : 'transparent'}`,
+                  backgroundColor: isEmpty ? 'hsl(var(--destructive) / 0.06)' : 'transparent',
+                };
                 return (
                   <td key={col.targetField} style={{
                     padding: 0,
                     backgroundColor: 'hsl(var(--muted) / 0.42)',
                     verticalAlign: 'middle',
                     ...(col.mono ? MONO : {}), fontSize: 12,
-                    whiteSpace: 'nowrap',
+                    whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere',
+                    width: lineItemColWidthPct(col.targetLabel),
                     outline: `1px solid ${BORDER}`,
                     outlineOffset: -1,
                   }}>
@@ -605,10 +644,12 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
                           onManualChange(manualKey, next);
                           onPackageTypeChange?.(ri, next, customTypes);
                         }}
+                        aria-invalid={isEmpty ? 'true' : undefined}
                         style={{
-                          border: 'none', background: 'transparent', outline: 'none',
+                          ...missingFieldStyle,
+                          outline: 'none',
                           padding: '7px 10px', fontSize: 12, fontWeight: 600, color: FG,
-                          width: '100%', minWidth: 120, cursor: 'pointer',
+                          width: '100%', boxSizing: 'border-box', cursor: 'pointer',
                         }}
                       >
                         <option value="PKGS">PKGS</option>
@@ -621,15 +662,17 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
                         value={val}
                         onChange={e => onManualChange(manualKey, e.target.value)}
                         placeholder="Enter..."
+                        aria-invalid={isEmpty ? 'true' : undefined}
                         style={{
-                          border: 'none', background: 'transparent', outline: 'none',
+                          ...missingFieldStyle,
+                          outline: 'none',
                           padding: '7px 10px', fontSize: 12, fontWeight: 600, color: FG,
-                          width: '100%', minWidth: 90,
+                          width: '100%', boxSizing: 'border-box',
                           ...(col.mono ? MONO : {}),
                         }}
                       />
                     ) : (
-                      <span style={{ display: 'block', padding: '7px 10px' }}>
+                      <span style={{ display: 'block', padding: '7px 10px', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                         {val || '—'}
                       </span>
                     )}
@@ -643,6 +686,8 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
               <td key={col.targetField} style={{
                 padding: '7px 10px', fontSize: 12,
                 color: MUTED,
+                width: lineItemColWidthPct(col.targetLabel),
+                whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere',
                 ...(col.mono ? MONO : {}),
               }}>
                 {ci === 0 ? 'TOTAL' : col.mappingType === 'derived' ? `SUM(${col.targetLabel})` : ''}
@@ -899,7 +944,7 @@ function CollapsibleSectionBlock({
           )}
           {section.renderAs === 'fields'
             ? <FieldGrid section={section} fields={fieldValues} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} computedFields={computedFields} />
-            : <LineItemTable section={section} rows={tableRows} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} packageTypes={packageTypes} onPackageTypeChange={onPackageTypeChange} computedRows={computedRows} />
+            : <LineItemTable schema={schema} section={section} rows={tableRows} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} packageTypes={packageTypes} onPackageTypeChange={onPackageTypeChange} computedRows={computedRows} />
           }
         </div>
       )}
@@ -1755,7 +1800,7 @@ function OverflowMenu() {
         }}>
           {[
             { label: 'Save draft',  action: () => { toast.info('Draft saved'); setOpen(false); } },
-            { label: 'Discard',     action: () => { toast.error('Draft discarded'); setOpen(false); } },
+            // { label: 'Discard',     action: () => { toast.error('Draft discarded'); setOpen(false); } },
           ].map(item => (
             <button key={item.label} onClick={item.action} style={{
               width: '100%', textAlign: 'left', padding: '7px 10px',
@@ -1819,36 +1864,38 @@ function DocReviewModal({
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — fixed, full-viewport, flex-centers the dialog on both axes */}
       <div
         onClick={onClose}
         style={{
           position: 'fixed', inset: 0, zIndex: 8000,
           background: 'hsla(0,0%,0%,0.50)',
           backdropFilter: 'blur(3px)',
-        }}
-      />
-
-      {/* Dialog */}
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          position: 'fixed', zIndex: 8001,
-          top: 18, left: 18, right: 18, bottom: 18,
-          margin: 0, maxWidth: 'none', maxHeight: 'none',
-          background: 'hsl(var(--background))',
-          border: `1px solid ${BORDER}`,
-          borderRadius: 10,
-          boxShadow: '0 32px 100px hsla(0,0%,0%,0.28)',
-          display: 'flex', flexDirection: 'column',
-          overflow: 'hidden',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
       >
-        {/* ── Modal header ── */}
+        {/* Dialog */}
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            width: '90vw', height: '85vh',
+            maxWidth: 1400, minWidth: 320,
+            maxHeight: '92vh', minHeight: 400,
+            boxSizing: 'border-box',
+            background: 'hsl(var(--background))',
+            border: `1px solid ${BORDER}`,
+            borderRadius: 16,
+            boxShadow: '0 32px 100px hsla(0,0%,0%,0.28)',
+            display: 'flex', flexDirection: 'column',
+            overflow: 'hidden',
+          }}
+        >
+        {/* ── Modal header (pinned) ── */}
         <div style={{
           padding: '12px 18px', borderBottom: `1px solid ${BORDER}`,
           display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
           background: 'hsl(var(--card))',
+          minWidth: 0,
         }}>
           {/* Title */}
           <div style={{ minWidth: 0, flexShrink: 1 }}>
@@ -1867,9 +1914,12 @@ function DocReviewModal({
             </p>
           </div>
 
-          {/* Sibling doc tabs */}
-          {siblings.length > 1 && (
-            <div style={{ display: 'flex', gap: 3, marginLeft: 14, flexWrap: 'wrap', flexShrink: 0 }}>
+          {/* Sibling doc tabs — scrolls horizontally within its own strip, never widens the modal */}
+          {/* {siblings.length > 1 && (
+            <div style={{
+              display: 'flex', gap: 3, marginLeft: 14, flexWrap: 'nowrap',
+              flexShrink: 1, minWidth: 0, overflowX: 'auto', scrollbarWidth: 'thin',
+            }}>
               {siblings.map(sib => {
                 const sibSch    = DOC_GEN_SCHEMAS[sib.docType];
                 const isActive  = sib.id === item.id;
@@ -1883,6 +1933,7 @@ function DocReviewModal({
                     background: isActive ? 'hsla(173,58%,39%,0.08)' : 'transparent',
                     color: isActive ? TEAL : sibDone ? GREEN : sibBlocked ? AMBER : MUTED,
                     transition: 'all 0.1s',
+                    whiteSpace: 'nowrap', flexShrink: 0,
                   }}>
                     {sibDone && <CheckCircle2 size={9} />}
                     {sibBlocked && !isActive && <Lock size={9} />}
@@ -1891,7 +1942,7 @@ function DocReviewModal({
                 );
               })}
             </div>
-          )}
+          )} */}
 
           <div style={{ flex: 1 }} />
 
@@ -2036,6 +2087,7 @@ function DocReviewModal({
             />
           )}
         </div>
+        </div>
       </div>
 
       {/* Document preview — layered above the review modal */}
@@ -2109,12 +2161,22 @@ function stringifyDraftValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function isDraftBlank(value: string | undefined): boolean {
+  const normalized = (value ?? '').trim();
+  return !normalized || normalized === '-' || normalized === '—' || normalized === '–' || normalized === 'â€”';
+}
+
+function draftValueOr(...values: Array<string | undefined>): string {
+  return values.find(value => !isDraftBlank(value)) ?? '';
+}
+
 function draftToSchema(baseSchema: DocGenSchema, draft: DraftPayload): DocGenSchema {
   const isWarehouseOutwardDraft =
     draft.generatedDocType === 'US_PACKING_LIST' &&
     (draft.sourceDocs.includes('WAREHOUSE_STOCK') || Boolean(draft.sourceDocumentIds.WAREHOUSE_STOCK));
 
   if (isWarehouseOutwardDraft) {
+    const warehouse = draft.outwardDispatch?.warehouse ?? null;
     const fields: Record<string, string> = {};
     const sections: GenSection[] = draft.sections.map(section => ({
       sectionLabel: section.sectionLabel,
@@ -2137,12 +2199,16 @@ function draftToSchema(baseSchema: DocGenSchema, draft: DraftPayload): DocGenSch
     }));
 
     const lineMappings: FieldMapping[] = [
-      { targetField: 'productCode', targetLabel: 'Product Code', sourceDoc: 'WAREHOUSE_STOCK', sourceField: 'productCode', sourceLabel: 'Approved Packing List Stock', mappingType: 'direct', mono: true, isLineItem: true },
-      { targetField: 'productDesc', targetLabel: 'Description', sourceDoc: 'WAREHOUSE_STOCK', sourceField: 'productDesc', sourceLabel: 'Approved Packing List Stock', mappingType: 'direct', isLineItem: true },
-      { targetField: 'hsnCode', targetLabel: 'HS Code', sourceDoc: 'WAREHOUSE_STOCK', sourceField: 'hsnCode', sourceLabel: 'Approved Packing List Stock', mappingType: 'direct', mono: true, isLineItem: true },
-      { targetField: 'totalQtyInPcs', targetLabel: 'Dispatched Qty', sourceDoc: 'WAREHOUSE_DISPATCH', sourceField: 'quantityDispatched', sourceLabel: 'New Outward Dispatch', mappingType: 'direct', mono: true, isLineItem: true },
-      { targetField: 'netWeightKgs', targetLabel: 'Net Wt (kg)', sourceDoc: 'WAREHOUSE_STOCK', sourceField: 'netWeightKgs', sourceLabel: 'Approved Packing List Stock', mappingType: 'direct', mono: true, isLineItem: true },
-      { targetField: 'notes', targetLabel: 'Notes', sourceDoc: 'WAREHOUSE_DISPATCH', sourceField: 'notes', sourceLabel: 'New Outward Dispatch', mappingType: 'direct', isLineItem: true },
+      { targetField: 'lineNo', targetLabel: 'Line', sourceDoc: 'CALCULATED', sourceField: 'lineNo', sourceLabel: 'Line number', mappingType: 'derived', mono: true, isLineItem: true },
+      { targetField: 'productCode', targetLabel: 'Part Number', sourceDoc: 'WAREHOUSE_STOCK', sourceField: 'productCode', sourceLabel: 'Selected stock/product', mappingType: 'direct', mono: true, isLineItem: true },
+      { targetField: 'productDesc', targetLabel: 'Description', sourceDoc: 'WAREHOUSE_STOCK', sourceField: 'productDesc', sourceLabel: 'Selected stock/product', mappingType: 'direct', isLineItem: true },
+      { targetField: 'containerNo', targetLabel: 'Container No', sourceDoc: 'BILL_OF_LADING', sourceField: 'containerNo', sourceLabel: 'BOL container matched from selected line', mappingType: 'direct', mono: true, isLineItem: true },
+      { targetField: 'deliveryDate', targetLabel: 'Delivery Date', sourceDoc: 'WAREHOUSE_DISPATCH', sourceField: 'deliveryDate', sourceLabel: 'User input', mappingType: 'manual', mono: true, isLineItem: true },
+      { targetField: 'totalQtyInPcs', targetLabel: 'Qty Pieces', sourceDoc: 'WAREHOUSE_DISPATCH', sourceField: 'quantityDispatched', sourceLabel: 'User input', mappingType: 'manual', mono: true, isLineItem: true },
+      { targetField: 'packageType', targetLabel: 'Package Type', sourceDoc: 'WAREHOUSE_DISPATCH', sourceField: 'packageType', sourceLabel: 'User input / stock package', mappingType: 'manual', isLineItem: true },
+      { targetField: 'noOfBundles', targetLabel: 'Bundles', sourceDoc: 'PACKING_LIST', sourceField: 'noOfBundles', sourceLabel: 'Approved Packing List Stock', mappingType: 'direct', mono: true, isLineItem: true },
+      { targetField: 'netWeightKgs', targetLabel: 'Net Weight', sourceDoc: 'PACKING_LIST', sourceField: 'netWeightKgs', sourceLabel: 'Approved Packing List Stock', mappingType: 'direct', mono: true, isLineItem: true },
+      { targetField: 'grossWeightKgs', targetLabel: 'Gross Weight', sourceDoc: 'PACKING_LIST', sourceField: 'grossWeightKgs', sourceLabel: 'Approved Packing List Stock', mappingType: 'direct', mono: true, isLineItem: true },
     ];
 
     sections.push({
@@ -2154,12 +2220,23 @@ function draftToSchema(baseSchema: DocGenSchema, draft: DraftPayload): DocGenSch
     const lineItems = draft.lineItems.map(row => Object.fromEntries(
       lineMappings.map(mapping => [mapping.targetField, stringifyDraftValue(row[mapping.targetField])]),
     ));
-    fields.grnDate = fields.documentDate || fields.grnDate || '';
-    fields.bolRef = fields.dispatchNumber || fields.bolRef || '';
-    fields.plRef = fields.plRef || 'Approved Packing List Stock';
-    fields.totalBundles = fields.totalBundles || '';
-    fields.totalNetWeightLbs = fields.totalNetWeightLbs || fields.totalNetWeightKgs || '';
-    fields.totalGrossWeightLbs = fields.totalGrossWeightLbs || '';
+    fields.grnDate = draftValueOr(fields.documentDate, fields.grnDate);
+    fields.additionalDetails = draftValueOr(fields.additionalDetails, fields.bolRef);
+    fields.bolRef = draftValueOr(fields.bolRef, fields.additionalDetails);
+    fields.plRef = draftValueOr(fields.plRef, 'Approved Packing List Stock');
+    fields.warehouseName = draftValueOr(fields.warehouseName, stringifyDraftValue(warehouse?.name));
+    fields.warehouseAddress = draftValueOr(fields.warehouseAddress, stringifyDraftValue(warehouse?.address));
+    fields.threePlName = draftValueOr(fields.threePlName, fields.warehouseName);
+    fields.threePlAddress = draftValueOr(fields.threePlAddress, fields.warehouseAddress);
+    fields.shipperName = draftValueOr(fields.shipperName, fields.warehouseName);
+    fields.shipperAddress = draftValueOr(fields.shipperAddress, fields.warehouseAddress);
+    fields.shipTo = draftValueOr(fields.shipTo, fields.destinationName, stringifyDraftValue(draft.outwardDispatch?.destinationName));
+    fields.shipToAddress = draftValueOr(fields.shipToAddress, fields.destinationAddress, stringifyDraftValue(draft.outwardDispatch?.destinationAddress));
+    fields.consigneeName = draftValueOr(fields.consigneeName, 'Unimatics');
+    fields.consigneeAddress = draftValueOr(fields.consigneeAddress, 'Unimatics Manufacturing Mx,LLC\n14600 Arville Street\nSloan, NV 89054\nUSA');
+    fields.totalBundles = draftValueOr(fields.totalBundles);
+    fields.totalNetWeightLbs = draftValueOr(fields.totalNetWeightLbs, fields.totalNetWeightKgs);
+    fields.totalGrossWeightLbs = draftValueOr(fields.totalGrossWeightLbs, fields.totalGrossWeightKgs);
     const fieldCount = Object.keys(fields).length;
     const lineCount = lineItems.length * lineMappings.length;
 
@@ -2748,17 +2825,31 @@ export function DocumentGeneratePage() {
       }
       const tableSection = schema.sections.find(section => section.renderAs === 'table');
       const tableRows = tableSection ? (schema.mockData.tables[tableSection.sectionLabel] ?? []) : [];
-      const lineItems = tableSection ? tableRows.map((row, rowIndex) => Object.fromEntries(
-        tableSection.mappings
-          .filter(mapping => mapping.isLineItem !== false)
-          .map(mapping => [
-            mapping.targetField,
-            manualValues[`${tableSection.sectionLabel}.${rowIndex}.${mapping.targetField}`]
-              ?? computedDerivations.rowMap[tableSection.sectionLabel]?.[rowIndex]?.[mapping.targetField]
-              ?? row[mapping.targetField]
-              ?? null,
-          ]),
-      )) : undefined;
+      const originalDraft = draftPayloads[liveReviewingItem.id];
+      const isWarehouseOutwardDraft =
+        originalDraft?.generatedDocType === 'US_PACKING_LIST' &&
+        (originalDraft.sourceDocs.includes('WAREHOUSE_STOCK') || Boolean(originalDraft.sourceDocumentIds.WAREHOUSE_STOCK));
+      const lineItems = tableSection ? tableRows.map((row, rowIndex) => {
+        const visibleValues = Object.fromEntries(
+          tableSection.mappings
+            .filter(mapping => mapping.isLineItem !== false)
+            .map(mapping => [
+              mapping.targetField,
+              manualValues[`${tableSection.sectionLabel}.${rowIndex}.${mapping.targetField}`]
+                ?? computedDerivations.rowMap[tableSection.sectionLabel]?.[rowIndex]?.[mapping.targetField]
+                ?? row[mapping.targetField]
+                ?? null,
+            ]),
+        );
+        if (!isWarehouseOutwardDraft) return visibleValues;
+        const originalLine = originalDraft?.lineItems?.[rowIndex] ?? {};
+        return {
+          ...originalLine,
+          ...visibleValues,
+          warehouseStockId: originalLine.warehouseStockId,
+          quantityDispatched: originalLine.quantityDispatched ?? visibleValues.totalQtyInPcs,
+        };
+      }) : undefined;
       await apiPatch<DraftPayload>(`/doc-generation/drafts/${liveReviewingItem.id}`, {
         fields,
         lineItems,

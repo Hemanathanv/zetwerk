@@ -56,7 +56,7 @@ function DsrRow({ row }: { row: any }) {
     }`}>
       {/* Shipment */}
       <td className="py-3 px-3 sticky left-0 bg-card z-10">
-        <a href={`/shipments/${row.shipmentId}`} className="font-mono font-medium text-teal-600 hover:underline">
+        <a href={`/shipments/${row.shipmentId}`} className="data-mono-id text-teal-600 hover:underline">
           {row.shipmentNumber}
         </a>
         <div className="text-[13px] text-muted-foreground truncate max-w-[100px]">{row.exporterName}</div>
@@ -65,7 +65,7 @@ function DsrRow({ row }: { row: any }) {
       {/* Project */}
       <td className="py-3 px-3">
         {row.projectCode
-          ? <a href={`/projects/${row.projectId}`} className="font-mono text-muted-foreground hover:underline text-[13px]">{row.projectCode}</a>
+          ? <a href={`/projects/${row.projectId}`} className="data-mono-id text-muted-foreground hover:underline">{row.projectCode}</a>
           : <span className="text-muted-foreground/30">—</span>
         }
       </td>
@@ -81,7 +81,10 @@ function DsrRow({ row }: { row: any }) {
       {/* Days in gate */}
       <td className="text-center py-3 px-3">
         {row.daysInGate !== null
-          ? <span className={`font-mono text-[13px] ${row.daysInGate > 5 ? 'text-red-600 font-medium' : row.daysInGate > 3 ? 'text-amber-600' : ''}`}>
+          ? <span
+              className={`data-elapsed-time ${row.daysInGate > 5 ? 'text-red-600' : row.daysInGate > 3 ? 'text-amber-600' : ''}`}
+              style={row.daysInGate > 5 ? { fontWeight: 600 } : undefined}
+            >
               {row.daysInGate}d
             </span>
           : <span className="text-muted-foreground/30">—</span>
@@ -94,7 +97,7 @@ function DsrRow({ row }: { row: any }) {
           <div className="h-1.5 w-10 rounded-full bg-muted/50 overflow-hidden">
             <div className="h-full rounded-full bg-teal-500" style={{ width: `${row.docPct}%` }} />
           </div>
-          <span className="font-mono text-[13px]">{row.docPct}%</span>
+          <span className="data-metric-value">{row.docPct}%</span>
         </div>
         {row.pendingDocs > 0 && (
           <div className="text-[8px] text-amber-600 text-center">{row.pendingDocs} pending</div>
@@ -130,10 +133,10 @@ function DsrRow({ row }: { row: any }) {
       <td className="py-3 px-3">
         {row.dndAccruingCount > 0 ? (
           <div>
-            <span className="text-red-600 font-mono font-medium text-[13px]">
+            <span className="data-currency-value block text-red-600">
               {row.dndCurrency} {Number(row.dndTotal).toLocaleString()}
             </span>
-            <div className="text-[12px] text-red-400">{row.dndAccruingCount} accruing</div>
+            <div className="text-[12px] text-red-400 text-right">{row.dndAccruingCount} accruing</div>
           </div>
         ) : row.dndMonitoringCount > 0 ? (
           <div>
@@ -150,7 +153,7 @@ function DsrRow({ row }: { row: any }) {
       </td>
 
       {/* ETA */}
-      <td className="py-3 px-3 font-mono text-[13px]">
+      <td className="py-3 px-3 data-timestamp">
         {row.etaPort ? (
           <div>
             <div>{new Date(row.etaPort).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</div>
@@ -167,10 +170,10 @@ function DsrRow({ row }: { row: any }) {
       <td className="py-3 px-3">
         {row.pendingTickets > 0 ? (
           <div>
-            <span className="font-mono text-[13px]">
+            <span className="data-currency-value block">
               {row.pendingTicketCurrency} {Number(row.pendingTicketAmount).toLocaleString()}
             </span>
-            <div className="text-[8px] text-muted-foreground">{row.pendingTickets} ticket{row.pendingTickets !== 1 ? 's' : ''}</div>
+            <div className="text-[8px] text-muted-foreground text-right">{row.pendingTickets} ticket{row.pendingTickets !== 1 ? 's' : ''}</div>
           </div>
         ) : <span className="text-muted-foreground/30">—</span>}
       </td>

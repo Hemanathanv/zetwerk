@@ -511,7 +511,7 @@ export function ShipmentsPage() {
                   onClick={() => navigate(`/shipments/${s.realId}`)}
                   style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '8px 10px', textAlign: 'left', display: 'block' }}
                 >
-                  <div className="vs-mono" style={{ fontSize: 12, fontWeight: 700, color: 'hsl(var(--foreground))' }}>{s.id}</div>
+                  <div className="data-mono-id" style={{ color: 'hsl(var(--foreground))' }}>{s.id}</div>
                   <div style={{ fontSize: 11.5, color: 'hsl(var(--muted-foreground))', marginTop: 2 }}>{s.vessel} · {s.mbl || 'No MBL'}</div>
                 </button>
               ))}
@@ -576,28 +576,28 @@ export function ShipmentsPage() {
               >
                 {/* Shipment ID */}
                 <td style={{ padding: 10 }}>
-                  <div className="vs-mono font-semibold" style={{ fontSize: 12.5, color: 'hsl(var(--primary))' }}>{s.id}</div>
-                  <div className="vs-mono" style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>MBL: {s.mbl}</div>
+                  <div className="data-mono-id" style={{ color: 'hsl(var(--primary))' }}>{s.id}</div>
+                  <div className="data-mono-id" style={{ color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>MBL: {s.mbl}</div>
                 </td>
 
                 {/* Vessel / Route */}
                 <td style={{ padding: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <div className="vs-mono" style={{ fontSize: 12.5, fontWeight: 500 }}>{s.vessel}</div>
+                    <div className="data-route-text">{s.vessel}</div>
                     {s.safecubeLinked && (
                       <span title="Live tracking active" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 12, height: 12, borderRadius: 6, backgroundColor: 'hsl(var(--vs-teal) / 0.15)', color: 'hsl(var(--vs-teal))' }}>
                         <span style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: 'hsl(var(--vs-teal))', display: 'block' }} />
                       </span>
                     )}
                   </div>
-                  <div className="vs-mono" style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>
+                  <div className="data-route-text" style={{ color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>
                     {s.safecubeCurrentLocation ?? s.route}
                   </div>
                 </td>
 
                 {/* Project */}
                 <td style={{ padding: 12 }}>
-                  <div style={{ fontSize: 12.5, color: 'hsl(var(--foreground))' }}>{s.projectCode || '—'}</div>
+                  <div className="data-mono-id" style={{ color: 'hsl(var(--foreground))' }}>{s.projectCode || '—'}</div>
                 </td>
 
                 {/* Status */}
@@ -645,7 +645,7 @@ export function ShipmentsPage() {
 
                 {/* Documents */}
                 <td style={{ padding: 12 }}>
-                  <div className="vs-mono" style={{ fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--foreground))' }}>
+                  <div className="data-metric-value" style={{ color: 'hsl(var(--foreground))' }}>
                     {s.docsComplete}/{s.docsTotal}
                   </div>
                   <div style={{ fontSize: 12, marginTop: 3, color: s.docDanger ? 'hsl(var(--vs-danger))' : 'hsl(var(--muted-foreground))' }}>{s.docNote}</div>
@@ -661,7 +661,7 @@ export function ShipmentsPage() {
                       <ScheduleStatusBadge status={s.safecubeScheduleStatus} delayDays={s.safecubeDelayDays} />
                     )}
                   </div>
-                  <div style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>{s.etaDays}</div>
+                  <div className="data-elapsed-time" style={{ color: 'hsl(var(--muted-foreground))', marginTop: 3 }}>{s.etaDays}</div>
                 </td>
 
                 {/* Alerts */}
@@ -689,7 +689,7 @@ export function ShipmentsPage() {
       </div>
 
       {/* Footer */}
-      <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', fontSize: 13, color: 'hsl(var(--muted-foreground))' }}>
+      <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
         <span>
           {loading && rows.length > 0
             ? 'Refreshing...'
@@ -706,7 +706,7 @@ export function ShipmentsPage() {
             <ChevronLeft className="w-3.5 h-3.5" />
             Prev
           </Button>
-          <span style={{ fontSize: 12.5 }}>Page {page} of {totalPages}</span>
+          <span style={{ fontSize: 14 }}>Page {page} of {totalPages}</span>
           <Button
             variant="outline"
             size="sm"

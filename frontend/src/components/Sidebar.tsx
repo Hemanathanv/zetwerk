@@ -13,7 +13,7 @@ import { useSidebar } from '@/contexts/SidebarContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionContext';
 import { useLocation as useWouterLocation } from 'wouter';
-import { apiGet } from '@/lib/api';
+import { getAuthToken } from '@/lib/api';
 import { DOC_GENERATION_ACTIVITY_CODES } from '@/lib/docGenerationAccess';
 
 type ChildNavItem = {
@@ -45,7 +45,7 @@ const NAV_GROUPS: { items: NavItem[] }[] = [
       { icon: Wand2,           label: 'Doc Generate',      href: '/documents/generate',                 module: 'documents',  requiredAnyActivities: DOC_GENERATION_ACTIVITY_CODES },
       { icon: Boxes,      label: 'Inventory',      href: '/inventory/containers', module: 'inventory', requiredAnyActivities: ['inventory.view_container', 'inventory.view_timeline', 'GATE-001'] },
       { icon: Warehouse,  label: 'Warehouse',      href: '/inventory/warehouse',  module: 'warehouse', requiredAnyActivities: ['inventory.view_warehouse', 'inventory.warehouse_inventory_stock_position'] },
-      { icon: DollarSign, label: 'D&D Management', href: '/inventory/dnd',        module: 'dnd',       requiredAnyActivities: ['inventory.acknowledge_dnd', 'inventory.update_milestone'] },
+      { icon: DollarSign, label: 'D&D Management', href: '/inventory/dnd',        module: 'inventory' },
     ],
   },
   {
@@ -71,6 +71,9 @@ const NAV_GROUPS: { items: NavItem[] }[] = [
     ],
   },
 ];
+
+export const SIDEBAR_WIDTH_OPEN = 220;
+export const SIDEBAR_WIDTH_COLLAPSED = 64;
 
 const TEAL_ACTIVE_BG   = 'hsla(173,58%,39%,0.12)';
 const TEAL_ACTIVE_TEXT = 'hsl(173 58% 65%)';
@@ -119,14 +122,14 @@ function SidebarSkeleton({ isOpen }: { isOpen: boolean }) {
     <aside
       className="fixed left-0 top-0 h-screen flex flex-col z-40"
       style={{
-        width: isOpen ? 240 : 64,
+        width: isOpen ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_COLLAPSED,
         backgroundColor: 'hsl(var(--sidebar))',
         borderRight: '1px solid hsl(var(--sidebar-border))',
       }}
     >
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: isOpen ? 'space-between' : 'center',
-        padding: isOpen ? '14px 12px 14px 14px' : '14px 0',
+        padding: isOpen ? '14px 10px 14px 12px' : '14px 0',
         borderBottom: '1px solid hsl(var(--sidebar-border))',
         minHeight: 57, flexShrink: 0,
       }}>
@@ -150,9 +153,14 @@ function useNavBadges(): BadgeData {
   const query = useQuery({
     queryKey: ['navigation', 'badges'],
     queryFn: async () => {
-      const data = await apiGet<{ ok: boolean; data: BadgeData }>('/api/navigation/badges');
-      if (!data.ok) throw new Error('Failed to load navigation badges');
-      return data.data;
+      const token = getAuthToken();
+      if (!token) return { tasks: 0, pendingDocuments: 0, pendingTickets: 0, unread: 0 };
+      const res = await fetch('/api/navigation/badges', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Failed to load navigation badges');
+      return data.data as BadgeData;
     },
     refetchInterval: 60_000,
   });
@@ -219,7 +227,7 @@ export function Sidebar() {
     <aside
       className="fixed left-0 top-0 h-screen flex flex-col z-40"
       style={{
-        width: isOpen ? 240 : 64,
+        width: isOpen ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_COLLAPSED,
         backgroundColor: 'hsl(var(--sidebar))',
         borderRight: '1px solid hsl(var(--sidebar-border))',
         transition: 'width 200ms cubic-bezier(0.4, 0, 0.2, 1)',
@@ -231,7 +239,7 @@ export function Sidebar() {
       <div
         style={{
           display: 'flex', alignItems: 'center', justifyContent: isOpen ? 'space-between' : 'center',
-          padding: isOpen ? '14px 12px 14px 14px' : '14px 0',
+          padding: isOpen ? '14px 10px 14px 12px' : '14px 0',
           borderBottom: '1px solid hsl(var(--sidebar-border))',
           minHeight: 57, flexShrink: 0,
         }}
@@ -300,10 +308,10 @@ export function Sidebar() {
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: isOpen ? 12 : 0,
+                        gap: isOpen ? 10 : 0,
                         justifyContent: isOpen ? 'flex-start' : 'center',
-                        padding: isOpen ? '10px 12px' : '10px 0',
-                        margin: '1px 8px',
+                        padding: isOpen ? '10px 10px' : '10px 0',
+                        margin: '1px 6px',
                         borderRadius: 8,
                         cursor: 'default',
                         color: isParentActive ? TEAL_ACTIVE_TEXT : MUTED_TEXT,
@@ -426,10 +434,10 @@ export function Sidebar() {
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: isOpen ? 12 : 0,
+                    gap: isOpen ? 10 : 0,
                     justifyContent: isOpen ? 'flex-start' : 'center',
-                    padding: isOpen ? '10px 12px' : '10px 0',
-                    margin: '1px 8px',
+                    padding: isOpen ? '10px 10px' : '10px 0',
+                    margin: '1px 6px',
                     borderRadius: 8,
                     textDecoration: 'none',
                     position: 'relative',
@@ -509,7 +517,7 @@ export function Sidebar() {
       <div style={{ flexShrink: 0 }}>
         <Separator collapsed={!isOpen} />
 
-        <div style={{ padding: isOpen ? '4px 8px 12px' : '4px 0 12px' }}>
+        <div style={{ padding: isOpen ? '4px 6px 12px' : '4px 0 12px' }}>
           {/* Avatar + info */}
           {isOpen ? (
             <div

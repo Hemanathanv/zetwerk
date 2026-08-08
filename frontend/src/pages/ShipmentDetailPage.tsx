@@ -1,5 +1,5 @@
 import { useParams, useLocation, Link } from 'wouter';
-import { useEffect, useState, useCallback, useRef, Fragment, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef, Fragment, useMemo, type ReactNode } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUpload } from '@/contexts/UploadContext';
 import { StatusPill } from '@/components/vs';
@@ -30,6 +30,10 @@ import {
   DOCUMENT_PARALLEL_DOC_TYPES,
   documentGateDocDef,
 } from '@/config/documentGateConfig';
+
+function DndInputsAccess({ children }: { children: ReactNode }) {
+  return <>{children}</>;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,6 +82,13 @@ const AMBER = 'hsl(38 92% 50%)';
 const FG    = 'hsl(var(--foreground))';
 const MUTED = 'hsl(var(--muted-foreground))';
 const BDR   = 'hsl(var(--border))';
+
+// ─── Compact detail-page type scale ────────────────────────────────────────────
+// This page renders a record identifier, not a list/section page title, so it uses
+// its own scaled-down step below --text-page-title-size (38px) rather than that
+// global token — keeps the heading proportioned like the rest of this dense page
+// without touching the shared token other pages rely on.
+const DETAIL_TITLE_SIZE = 20.05;
 
 // ─── Route constants ──────────────────────────────────────────────────────────
 const PROJECTS_LIST_ROUTE        = '/projects';
@@ -320,8 +331,8 @@ function Card({ children, style }: { children: React.ReactNode; style?: React.CS
 function SectionLabel({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-      <div style={{ fontSize: 18, fontWeight: 700, color: FG, letterSpacing: 0, display: 'flex', alignItems: 'center', gap: 7 }}>{children}</div>
-      {right && <div style={{ fontSize: 14.5, fontWeight: 600, color: MUTED }}>{right}</div>}
+      <div style={{ fontSize: 12.03, fontWeight: 700, color: FG, letterSpacing: 0, display: 'flex', alignItems: 'center', gap: 7 }}>{children}</div>
+      {right && <div style={{ fontSize: 9.72, fontWeight: 600, color: MUTED }}>{right}</div>}
     </div>
   );
 }
@@ -335,7 +346,7 @@ function ActionBtn({ onClick, icon, label, variant = 'outline', disabled = false
     success: { background: 'hsla(142,71%,45%,0.1)', border: '1px solid hsla(142,71%,45%,0.3)', color: 'hsl(142 71% 32%)' },
     primary: { background: 'hsl(var(--primary))', border: '1px solid hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' },
   };
-  return <button onClick={onClick} disabled={disabled} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 8, fontSize: 14.5, fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, whiteSpace: 'nowrap', transition: 'opacity 0.12s', ...s[variant] }}>{icon}{label}</button>;
+  return <button onClick={onClick} disabled={disabled} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 8, fontSize: 8.32, fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, whiteSpace: 'nowrap', transition: 'opacity 0.12s', ...s[variant] }}>{icon}{label}</button>;
 }
 
 // ─── VoyageStepper helpers ────────────────────────────────────────────────────
@@ -420,7 +431,7 @@ function VoyageStepper({ steps, eta, scheduleStatus }: {
                 </div>
               </div>
               {/* Label — truncated with native tooltip showing full name */}
-              <div title={step.label} style={{ marginTop: 7, fontSize: 14.5, fontWeight: isActive ? 700 : 500, color: step.state === STEP.UPCOMING ? MUTED : FG, textAlign: 'center', lineHeight: 1.3, maxWidth: 90, width: '100%', overflowWrap: 'anywhere', whiteSpace: 'normal' }}>
+              <div title={step.label} style={{ marginTop: 7, fontSize: 14.5, fontWeight: isActive ? 700 : 500, color: step.state === STEP.UPCOMING ? MUTED : FG, textAlign: 'center', lineHeight: 1.3, maxWidth: 90, width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {shortLabel}
               </div>
               {/* Sub-label — date or status */}
@@ -456,9 +467,27 @@ function ContextStrip({ shipment, gates, scData, documents }: {
     atSeaDays !== null && { icon: <Anchor size={11} />, text: `~${atSeaDays}d at sea` },
     hasDelay && { icon: <Clock size={11} />, text: `${scData!.delayDays}d delay`, variant: 'delay' as const },
     isOnTime  && { icon: <Check size={11} />,  text: 'On Time',              variant: 'ontime' as const },
-    docsTotal > 0 && { icon: <FileText size={11} />, text: `${docsValidated}/${docsTotal} docs validated` },
-    (shipment.portOfLoading || shipment.portOfDischarge) && { icon: <Navigation size={11} />, text: `${shipment.portOfLoading ?? '—'} → ${shipment.portOfDischarge ?? '—'}${shipment.incoterm ? ` · ${shipment.incoterm}` : ''}` },
-  ].filter(Boolean) as { icon: React.ReactNode; text: string; variant?: 'delay' | 'ontime' }[];
+    docsTotal > 0 && {
+      icon: <FileText size={11} />,
+      text: (
+        <>
+          <span style={{ fontFamily: 'var(--app-font-data-mono)', letterSpacing: 0 }}>{docsValidated}/{docsTotal}</span>
+          {' docs validated'}
+        </>
+      ),
+    },
+    (shipment.portOfLoading || shipment.portOfDischarge) && {
+      icon: <Navigation size={11} />,
+      text: (
+        <>
+          <span style={{ fontFamily: 'var(--app-font-data-mono)', letterSpacing: 0 }}>
+            {shipment.portOfLoading ?? '—'} → {shipment.portOfDischarge ?? '—'}
+          </span>
+          {shipment.incoterm ? ` · ${shipment.incoterm}` : ''}
+        </>
+      ),
+    },
+  ].filter(Boolean) as { icon: React.ReactNode; text: React.ReactNode; variant?: 'delay' | 'ontime' }[];
 
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
@@ -467,7 +496,7 @@ function ContextStrip({ shipment, gates, scData, documents }: {
         const isOnTime = chip.variant === 'ontime';
         return (
           <span key={i} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 14, fontWeight: 500, padding: '4px 10px', borderRadius: 999,
+            display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 8.32, fontWeight: 500, padding: '4px 10px', borderRadius: 999,
             backgroundColor: isDelay ? 'hsla(38,92%,50%,0.12)' : isOnTime ? 'hsla(142,71%,45%,0.1)' : 'hsl(var(--muted)/0.5)',
             color:           isDelay ? AMBER : isOnTime ? GREEN : FG,
             border:          `1px solid ${isDelay ? 'hsl(38 92% 50% / 0.3)' : isOnTime ? 'hsla(142,71%,45%,0.3)' : BDR}`,
@@ -570,12 +599,12 @@ function InventoryJourneyPanel({ scData, milestones, shipment, inventoryItems, p
 
   return (
     <Card style={{ padding: '18px 20px', marginBottom: 16 }}>
-      <SectionLabel right={<span style={{ fontSize: 14.5, color: MUTED }}>{items.length} MILESTONES</span>}>
+      <SectionLabel right={<span style={{ fontSize: 9.72, color: MUTED }}>{items.length} MILESTONES</span>}>
         <Package size={12} style={{ display: 'inline', marginRight: 5 }} />Inventory Journey
       </SectionLabel>
 
       {items.length === 0 ? (
-        <div style={{ fontSize: 14.5, color: MUTED, fontStyle: 'italic', padding: '8px 0' }}>No journey events yet.</div>
+        <div style={{ fontSize: 9.72, color: MUTED, fontStyle: 'italic', padding: '8px 0' }}>No journey events yet.</div>
       ) : (
         <div style={{ position: 'relative' }}>
           {/* Vertical line */}
@@ -599,15 +628,15 @@ function InventoryJourneyPanel({ scData, milestones, shipment, inventoryItems, p
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-                      <span style={{ fontSize: 14.5, fontWeight: item.isCurrent ? 600 : 500, color: item.isCurrent ? FG : isPast ? FG : MUTED, lineHeight: 1.3 }}>
+                      <span style={{ fontSize: 9.72, fontWeight: item.isCurrent ? 600 : 500, color: item.isCurrent ? FG : isPast ? FG : MUTED, lineHeight: 1.3 }}>
                         {item.label}
                       </span>
-                      <span style={{ fontSize: 14.5, color: item.isCurrent ? TEAL : MUTED, fontWeight: item.isCurrent ? 600 : 400, flexShrink: 0 }}>
+                      <span style={{ fontSize: 9.72, color: item.isCurrent ? TEAL : MUTED, fontWeight: item.isCurrent ? 600 : 400, flexShrink: 0 }}>
                         {item.isCurrent ? 'Now' : item.date ? fmtDate(item.date) : '—'}
                       </span>
                     </div>
                     {item.sublabel && (
-                      <div style={{ fontSize: 14.5, color: MUTED, marginTop: 1 }}>{item.sublabel}</div>
+                      <div style={{ fontSize: 9.72, color: MUTED, marginTop: 1 }}>{item.sublabel}</div>
                     )}
                   </div>
                 </div>
@@ -626,8 +655,8 @@ function InventoryJourneyPanel({ scData, milestones, shipment, inventoryItems, p
             { val: totalKg > 0 ? `${(totalKg / 1000).toFixed(1)}t` : '—', label: 'GROSS WT' },
           ].map((k, i) => (
             <div key={i} style={{ flex: 1, textAlign: 'center', borderRight: i < 2 ? `1px solid ${BDR}` : 'none' }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: FG, fontFamily: 'var(--app-font-sans)' }}>{k.val}</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: MUTED, letterSpacing: '0.08em', marginTop: 2 }}>{k.label}</div>
+              <div style={{ fontSize: 13.33, fontWeight: 700, color: FG, fontFamily: 'var(--app-font-sans)' }}>{k.val}</div>
+              <div style={{ fontSize: 8.72, fontWeight: 600, color: MUTED, letterSpacing: '0.08em', marginTop: 2 }}>{k.label}</div>
             </div>
           ))}
         </div>
@@ -704,23 +733,23 @@ function SkuTable({ items }: { items: PlItem[] }) {
   if (!items.length) return null;
   return (
     <div style={{ marginTop: 10, borderTop: `1px solid ${BDR}`, paddingTop: 10 }}>
-      <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: '0.06em', color: MUTED, textTransform: 'uppercase', marginBottom: 6 }}>Contents</div>
+      <div style={{ fontSize: 9.32, fontWeight: 700, letterSpacing: '0.06em', color: MUTED, textTransform: 'uppercase', marginBottom: 6 }}>Contents</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '3px 12px', alignItems: 'baseline' }}>
         {/* header */}
-        <span style={{ fontSize: 14, color: MUTED, fontWeight: 600 }}>SKU / Description</span>
-        <span style={{ fontSize: 14, color: MUTED, fontWeight: 600, textAlign: 'right' }}>Bundles</span>
-        <span style={{ fontSize: 14, color: MUTED, fontWeight: 600, textAlign: 'right' }}>Qty (pcs)</span>
-        <span style={{ fontSize: 14, color: MUTED, fontWeight: 600, textAlign: 'right' }}>Net Wt (kg)</span>
+        <span style={{ fontSize: 9.32, color: MUTED, fontWeight: 600 }}>SKU / Description</span>
+        <span style={{ fontSize: 9.32, color: MUTED, fontWeight: 600, textAlign: 'right' }}>Bundles</span>
+        <span style={{ fontSize: 9.32, color: MUTED, fontWeight: 600, textAlign: 'right' }}>Qty (pcs)</span>
+        <span style={{ fontSize: 9.32, color: MUTED, fontWeight: 600, textAlign: 'right' }}>Net Wt (kg)</span>
         {items.map((item, i) => (
           <Fragment key={item.id ?? i}>
             <div style={{ minWidth: 0 }}>
-              {item.productCode && <span className="vs-mono" style={{ fontSize: 14.5, fontWeight: 600, color: FG }}>{item.productCode}</span>}
-              {item.productDescription && <span style={{ fontSize: 14.5, color: MUTED, marginLeft: item.productCode ? 6 : 0 }}>{item.productDescription}</span>}
-              {item.productSpecification && <span style={{ fontSize: 14, color: MUTED, display: 'block', marginTop: 1 }}>{item.productSpecification}</span>}
+              {item.productCode && <span className="vs-mono" style={{ fontSize: 9.72, fontWeight: 600, color: FG }}>{item.productCode}</span>}
+              {item.productDescription && <span style={{ fontSize: 9.72, color: MUTED, marginLeft: item.productCode ? 6 : 0 }}>{item.productDescription}</span>}
+              {item.productSpecification && <span style={{ fontSize: 9.32, color: MUTED, display: 'block', marginTop: 1 }}>{item.productSpecification}</span>}
             </div>
-            <span style={{ fontSize: 14.5, color: FG, textAlign: 'right' }}>{item.noOfBundles ?? '—'}</span>
-            <span style={{ fontSize: 14.5, color: FG, textAlign: 'right' }}>{item.totalQtyInPcs ?? '—'}</span>
-            <span style={{ fontSize: 14.5, color: FG, textAlign: 'right' }}>{item.netWeightKgs ?? '—'}</span>
+            <span style={{ fontSize: 9.72, color: FG, textAlign: 'right' }}>{item.noOfBundles ?? '—'}</span>
+            <span style={{ fontSize: 9.72, color: FG, textAlign: 'right' }}>{item.totalQtyInPcs ?? '—'}</span>
+            <span style={{ fontSize: 9.72, color: FG, textAlign: 'right' }}>{item.netWeightKgs ?? '—'}</span>
           </Fragment>
         ))}
       </div>
@@ -740,7 +769,7 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
   const getDnd         = (num: string) => dndAlerts.find(a => a.containerNumber === num);
 
   const stateChip = (label: string, color: string, bg: string) => (
-    <span style={{ fontSize: 14, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: bg, color, letterSpacing: '0.04em' }}>{label}</span>
+    <span style={{ fontSize: 9.32, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: bg, color, letterSpacing: '0.04em' }}>{label}</span>
   );
 
   const containerMilestones = (c: ApiShipment['containers'][0]): { label: string; done: boolean; date?: string }[] => {
@@ -760,9 +789,9 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
   };
 
   const headerRight = viewState === 'active' && dndAlerts.some(a => a.status === 'ACCRUING')
-    ? <span style={{ fontSize: 14, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: 'hsla(0,72%,51%,0.1)', color: 'hsl(var(--vs-danger))' }}>D&amp;D ACCRUING</span>
+    ? <span style={{ fontSize: 9.32, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: 'hsla(0,72%,51%,0.1)', color: 'hsl(var(--vs-danger))' }}>D&amp;D ACCRUING</span>
     : viewState === 'approaching'
-    ? <span style={{ fontSize: 14, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: 'hsla(38,92%,50%,0.12)', color: AMBER }}>ARRIVING SOON</span>
+    ? <span style={{ fontSize: 9.32, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: 'hsla(38,92%,50%,0.12)', color: AMBER }}>ARRIVING SOON</span>
     : null;
 
   const rowLink = (id: string) => `/inventory/containers/${id}`;
@@ -779,11 +808,11 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {containers.map(c => (
             <div key={c.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderRadius: 8, background: 'hsl(var(--muted)/0.3)', opacity: 0.7 }}>
-              <span className="vs-mono" style={{ fontSize: 14.5, fontWeight: 600, color: MUTED }}>{c.containerNumber}</span>
-              <span style={{ fontSize: 14.5, color: MUTED }}>{c.containerSize} {c.containerType}</span>
+              <span className="vs-mono" style={{ fontSize: 9.72, fontWeight: 600, color: MUTED }}>{c.containerNumber}</span>
+              <span style={{ fontSize: 9.72, color: MUTED }}>{c.containerSize} {c.containerType}</span>
             </div>
           ))}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14.5, color: MUTED, marginTop: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9.72, color: MUTED, marginTop: 4 }}>
             <Lock size={11} />
             Container-level tracking activates as vessel approaches destination
           </div>
@@ -797,16 +826,16 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
             const sc = getScContainer(c.containerNumber);
             return (
               <Link key={c.id} href={rowLink(c.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', borderRadius: 8, background: 'hsl(var(--muted)/0.3)', border: `1px solid ${BDR}`, textDecoration: 'none' }}>
-                <span className="vs-mono" style={{ fontSize: 14.5, fontWeight: 600, color: FG }}>{c.containerNumber}</span>
+                <span className="vs-mono" style={{ fontSize: 9.72, fontWeight: 600, color: FG }}>{c.containerNumber}</span>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ fontSize: 14.5, color: MUTED }}>{c.containerSize}</span>
+                  <span style={{ fontSize: 9.72, color: MUTED }}>{c.containerSize}</span>
                   {sc?.status && stateChip(sc.status, TEAL, 'hsl(var(--vs-teal)/0.1)')}
                   <ChevronRight size={13} color={MUTED} />
                 </div>
               </Link>
             );
           })}
-          <div style={{ fontSize: 14.5, color: MUTED, marginTop: 4 }}>Full container detail activates at T-5 days</div>
+          <div style={{ fontSize: 9.72, color: MUTED, marginTop: 4 }}>Full container detail activates at T-5 days</div>
         </div>
       )}
 
@@ -820,14 +849,14 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
               <Link key={c.id} href={rowLink(c.id)} style={{ display: 'block', padding: '10px 14px', borderRadius: 8, border: `1px solid ${BDR}`, background: 'hsl(var(--background))', textDecoration: 'none' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span className="vs-mono" style={{ fontSize: 14.5, fontWeight: 600, color: FG }}>{c.containerNumber}</span>
-                    <span style={{ fontSize: 14.5, color: MUTED }}>{c.containerSize}</span>
+                    <span className="vs-mono" style={{ fontSize: 9.72, fontWeight: 600, color: FG }}>{c.containerNumber}</span>
+                    <span style={{ fontSize: 9.72, color: MUTED }}>{c.containerSize}</span>
                     {sc?.status && stateChip(sc.status, TEAL, 'hsl(var(--vs-teal)/0.1)')}
                   </div>
                   <ChevronRight size={13} color={MUTED} />
                 </div>
-                {dnd?.lfd && <div style={{ fontSize: 14.5, color: AMBER, fontWeight: 600, marginTop: 5 }}>LFD: {fmtDate(dnd.lfd)} · {dnd.status}</div>}
-                {c.grossWeightKg && <div style={{ fontSize: 14.5, color: MUTED, marginTop: 2 }}>{c.grossWeightKg.toLocaleString()} kg</div>}
+                {dnd?.lfd && <div style={{ fontSize: 9.72, color: AMBER, fontWeight: 600, marginTop: 5 }}>LFD: {fmtDate(dnd.lfd)} · {dnd.status}</div>}
+                {c.grossWeightKg && <div style={{ fontSize: 9.72, color: MUTED, marginTop: 2 }}>{c.grossWeightKg.toLocaleString()} kg</div>}
               </Link>
             );
           })}
@@ -847,14 +876,14 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
                 {/* header row */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span className="vs-mono" style={{ fontSize: 14.5, fontWeight: 700, color: FG }}>{c.containerNumber}</span>
-                    <span style={{ fontSize: 14.5, color: MUTED }}>{c.containerSize}</span>
+                    <span className="vs-mono" style={{ fontSize: 9.72, fontWeight: 700, color: FG }}>{c.containerNumber}</span>
+                    <span style={{ fontSize: 9.72, color: MUTED }}>{c.containerSize}</span>
                     {sc?.status && stateChip(sc.status, TEAL, 'hsl(var(--vs-teal)/0.12)')}
                     {isAccruing && stateChip(`D&D Day ${Math.floor((Date.now() - new Date(scData!.podAt!).getTime()) / 86400000)}`, 'hsl(var(--vs-danger))', 'hsla(0,72%,51%,0.1)')}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {dnd?.lfd && <span style={{ fontSize: 14.5, color: AMBER, fontWeight: 600 }}>LFD {fmtDate(dnd.lfd)}</span>}
-                    {dnd?.totalCharge && dnd.totalCharge > 0 && <span style={{ fontSize: 14.5, fontWeight: 700, color: 'hsl(var(--vs-danger))' }}>${dnd.totalCharge.toFixed(0)}</span>}
+                    {dnd?.lfd && <span style={{ fontSize: 9.72, color: AMBER, fontWeight: 600 }}>LFD {fmtDate(dnd.lfd)}</span>}
+                    {dnd?.totalCharge && dnd.totalCharge > 0 && <span style={{ fontSize: 9.72, fontWeight: 700, color: 'hsl(var(--vs-danger))' }}>${dnd.totalCharge.toFixed(0)}</span>}
                     <ChevronRight size={13} color={MUTED} />
                   </div>
                 </div>
@@ -866,12 +895,12 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
                       <div style={{ width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: m.done ? GREEN : 'hsl(var(--muted))', border: `2px solid ${m.done ? GREEN : BDR}` }}>
                         {m.done && <Check size={10} color="#fff" />}
                       </div>
-                      <div style={{ fontSize: 14, color: m.done ? FG : MUTED, marginTop: 5, textAlign: 'center', lineHeight: 1.3, maxWidth: 70, overflowWrap: 'anywhere', whiteSpace: 'normal' }}>{m.label}</div>
-                      {m.date && <div style={{ fontSize: 13, color: MUTED, marginTop: 1 }}>{fmtDate(m.date)}</div>}
+                      <div style={{ fontSize: 9.32, color: m.done ? FG : MUTED, marginTop: 5, textAlign: 'center', lineHeight: 1.3, maxWidth: 70 }}>{m.label}</div>
+                      {m.date && <div style={{ fontSize: 8.72, color: MUTED, marginTop: 1 }}>{fmtDate(m.date)}</div>}
                     </div>
                   ))}
                 </div>
-                {c.grossWeightKg && <div style={{ fontSize: 14.5, color: MUTED, marginTop: 8 }}>{c.grossWeightKg.toLocaleString()} kg · {c.containerType ?? ''}</div>}
+                {c.grossWeightKg && <div style={{ fontSize: 9.72, color: MUTED, marginTop: 8 }}>{c.grossWeightKg.toLocaleString()} kg · {c.containerType ?? ''}</div>}
                 <SkuTable items={packingListItems} />
               </Link>
             );
@@ -1043,15 +1072,15 @@ function DocRow360({ docType, docs, isLast }: { docType: string; docs: any[]; is
   const label = `${docLabel(docType)}${count > 1 ? ` (${count})` : ''}`;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', borderBottom: isLast ? 'none' : `1px solid ${BDR}` }}>
-      <div style={{ width: 44, height: 44, borderRadius: 8, background: 'hsl(var(--muted)/0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'var(--app-font-sans)', letterSpacing: '0.02em' }}>
+      <div style={{ width: 44, height: 44, borderRadius: 8, background: 'hsl(var(--muted)/0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9.32, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'var(--app-font-sans)', letterSpacing: '0.02em' }}>
         {dtShort(docType)}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 15, fontWeight: 600, color: FG, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div style={{ fontSize: 10.03, fontWeight: 600, color: FG, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {label}
         </div>
       </div>
-      <span style={{ fontSize: 14, fontWeight: 600, padding: '4px 12px', borderRadius: 999, flexShrink: 0, background: pill.bg, color: pill.color }}>
+      <span style={{ fontSize: 9.32, fontWeight: 600, padding: '4px 12px', borderRadius: 999, flexShrink: 0, background: pill.bg, color: pill.color }}>
         {pill.label}
       </span>
     </div>
@@ -1061,13 +1090,13 @@ function DocRow360({ docType, docs, isLast }: { docType: string; docs: any[]; is
 function AwaitedRow360({ docType, isLast }: { docType: string; isLast: boolean }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', borderBottom: isLast ? 'none' : `1px solid ${BDR}`, opacity: 0.45 }}>
-      <div style={{ width: 44, height: 44, borderRadius: 8, background: 'hsl(var(--muted)/0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'var(--app-font-sans)', letterSpacing: '0.02em' }}>
+      <div style={{ width: 44, height: 44, borderRadius: 8, background: 'hsl(var(--muted)/0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9.32, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'var(--app-font-sans)', letterSpacing: '0.02em' }}>
         {dtShort(docType)}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 15, fontWeight: 600, color: MUTED }}>{docLabel(docType)}</div>
+        <div style={{ fontSize: 10.03, fontWeight: 600, color: MUTED }}>{docLabel(docType)}</div>
       </div>
-      <span style={{ fontSize: 14, fontWeight: 600, padding: '4px 12px', borderRadius: 999, flexShrink: 0, background: 'hsl(var(--muted)/0.3)', color: MUTED }}>
+      <span style={{ fontSize: 9.32, fontWeight: 600, padding: '4px 12px', borderRadius: 999, flexShrink: 0, background: 'hsl(var(--muted)/0.3)', color: MUTED }}>
         Awaited
       </span>
     </div>
@@ -1212,15 +1241,15 @@ function VoyageProgressDocumentTracker({
     <Card style={{ padding: '16px 24px', marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <Anchor size={14} color={TEAL} />
-        <span className="vs-mono" style={{ fontSize: 14, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        <span className="vs-mono" style={{ fontSize: 8.02, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
           Voyage progress
         </span>
-        <span style={{ fontSize: 14, color: BDR }}>·</span>
-        <span className="vs-mono" style={{ fontSize: 14, fontWeight: 700, color: TEAL }}>
+        <span style={{ fontSize: 13, color: BDR }}>·</span>
+        <span className="data-mono-id" style={{ fontWeight: 700, color: TEAL }}>
           {shipment?.shipmentNumber ?? 'Shipment'}
         </span>
         {(shipment?.vesselName || route) && (
-          <span style={{ fontSize: 14, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span className="data-route-text" style={{ color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {[shipment?.vesselName, route].filter(Boolean).join(' · ')}
           </span>
         )}
@@ -1256,7 +1285,7 @@ function VoyageProgressDocumentTracker({
               }}>
                 <ShipmentPortMarker status={row.status} size={marker} />
                 <div style={{
-                  fontSize: 13, fontWeight: 700, textTransform: 'uppercase',
+                  fontSize: 8.02, fontWeight: 700, textTransform: 'uppercase',
                   letterSpacing: '0.06em', lineHeight: 1.3,
                   color: row.status === 'future' ? MUTED : FG,
                   width: '100%', textAlign: 'center',
@@ -1265,8 +1294,8 @@ function VoyageProgressDocumentTracker({
                 }}>
                   {row.label}
                 </div>
-                <span className="vs-mono" style={{
-                  fontSize: 14, fontWeight: 700,
+                <span className="data-metric-value" style={{
+                  fontSize: 8.02,
                   color: row.status === 'future' ? MUTED : row.status === 'blocked' ? 'hsl(var(--vs-danger))' : row.status === 'active' ? TEAL : GREEN,
                 }}>
                   {row.docCount}
@@ -1311,7 +1340,7 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
 
   return (
     <Card style={{ padding: '18px 20px', marginBottom: 16 }}>
-      <SectionLabel right={<span style={{ fontSize: 14.5, fontWeight: 700, color: expectedCount > 0 && validatedCount === expectedCount ? GREEN : MUTED }}>{validatedCount} OF {expectedCount} VALIDATED</span>}>
+      <SectionLabel right={<span style={{ fontSize: 9.72, fontWeight: 700, color: expectedCount > 0 && validatedCount === expectedCount ? GREEN : MUTED }}>{validatedCount} OF {expectedCount} VALIDATED</span>}>
         <FileText size={12} style={{ display: 'inline', marginRight: 5 }} />Documents
       </SectionLabel>
 
@@ -1320,7 +1349,7 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
       {!loading && hasAlert && (
         <div style={{ display: 'flex', gap: 10, padding: '9px 12px', borderRadius: 8, background: 'hsla(38,92%,50%,0.08)', border: `1px solid hsl(38 92% 50% / 0.3)`, marginBottom: 12, alignItems: 'flex-start' }}>
           <AlertTriangle size={13} color={AMBER} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontSize: 14, color: 'hsl(38 92% 30%)' }}>
+          <div style={{ fontSize: 9.32, color: 'hsl(38 92% 30%)' }}>
             <strong>US broker queue:</strong>{' '}
             {pendingUs.map(d => docLabel(d.documentType)).join(', ')} {pendingUs.length === 1 ? 'is' : 'are'} still open
           </div>
@@ -1328,7 +1357,7 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
       )}
 
       {!loading && gateGroups.length === 0 && documents.length === 0 && (
-        <div style={{ fontSize: 14.5, color: MUTED, fontStyle: 'italic' }}>No documents yet.</div>
+        <div style={{ fontSize: 9.72, color: MUTED, fontStyle: 'italic' }}>No documents yet.</div>
       )}
 
       {/* Gate-grouped view */}
@@ -1352,14 +1381,14 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
                   <div style={{
                     width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 13, fontWeight: 700, color: '#fff',
+                    fontSize: 8.72, fontWeight: 700, color: '#fff',
                     backgroundColor: statusColor,
                   }}>
                     {gc.gateNumber}
                   </div>
-                  <span style={{ fontSize: 14.5, fontWeight: 600, color: FG, flex: 1 }}>{SHIPMENT_GATE_LABELS[gateNumber] ?? gc.gateName}</span>
-                  {gc.geography && <span style={{ fontSize: 14, color: MUTED }}>{gc.geography}</span>}
-                  <span style={{ fontSize: 14, fontWeight: 700, color: statusColor, letterSpacing: '0.03em' }}>
+                  <span style={{ fontSize: 9.72, fontWeight: 600, color: FG, flex: 1 }}>{SHIPMENT_GATE_LABELS[gateNumber] ?? gc.gateName}</span>
+                  {gc.geography && <span style={{ fontSize: 9.32, color: MUTED }}>{gc.geography}</span>}
+                  <span style={{ fontSize: 9.32, fontWeight: 700, color: statusColor, letterSpacing: '0.03em' }}>
                     {isPassed ? `✓ ${gate.passedAt ? fmtDate(gate.passedAt) : 'Passed'}` : isSkipped ? 'Skipped' : status}
                   </span>
                 </div>
@@ -1382,9 +1411,9 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
                 <div style={{ width: 18, height: 18, borderRadius: '50%', flexShrink: 0, background: 'hsl(var(--muted)/0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{ fontSize: 13, color: MUTED }}>•</span>
+                  <span style={{ fontSize: 8.72, color: MUTED }}>•</span>
                 </div>
-                <span style={{ fontSize: 14.5, fontWeight: 600, color: MUTED }}>Other</span>
+                <span style={{ fontSize: 9.72, fontWeight: 600, color: MUTED }}>Other</span>
               </div>
               <div style={{ borderRadius: 8, border: `1px solid ${BDR}`, overflow: 'hidden' }}>
                 {groupDocsByType(ungatedDocs).map((group, i, groups) => (
@@ -1988,15 +2017,12 @@ export function ShipmentDndInputsDialog({
             <div className="grid gap-3 md:grid-cols-2">
               <div>
                 <DndFieldLabel>Start Event *</DndFieldLabel>
-                <RequireActivity
-                  code="dnd.activate.start_event_date"
-                  fallback={<Select value={draft.startEvent || undefined} disabled><SelectTrigger><SelectValue placeholder="No permission" /></SelectTrigger></Select>}
-                >
+                <DndInputsAccess>
                   <Select value={draft.startEvent || undefined} disabled={matchStatus !== 'matched'} onValueChange={(startEvent) => setDraft({ ...draft, startEvent, freeDays: '' })}>
                     <SelectTrigger><SelectValue placeholder="Select start event" /></SelectTrigger>
                     <SelectContent>{matchedOptions.events.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}</SelectContent>
                   </Select>
-                </RequireActivity>
+                </DndInputsAccess>
               </div>
               <div>
                 <DndFieldLabel>Free Days *</DndFieldLabel>
@@ -2015,27 +2041,24 @@ export function ShipmentDndInputsDialog({
               </div>
               <div className="space-y-3">
                 <DndFieldLabel>Day Count Basis</DndFieldLabel>
-                <RequireActivity code="dnd.activate.weekends">
+                <DndInputsAccess>
                   <label className="flex items-center gap-2 text-[13px]">
                     <Checkbox checked={draft.excludeWeekends} onCheckedChange={(checked) => setDraft({ ...draft, excludeWeekends: checked === true })} />
                     Exclude weekends from chargeable day count
                   </label>
-                </RequireActivity>
-                <RequireActivity code="dnd.activate.holiday_days">
+                </DndInputsAccess>
+                <DndInputsAccess>
                   <label className="flex items-center gap-2 text-[13px]">
                     <Checkbox checked={draft.excludeHolidays} onCheckedChange={(checked) => setDraft({ ...draft, excludeHolidays: checked === true })} />
                     Exclude public holidays from chargeable day count
                   </label>
-                </RequireActivity>
+                </DndInputsAccess>
               </div>
               <div>
                 <DndFieldLabel>Start Date *</DndFieldLabel>
-                <RequireActivity
-                  code="dnd.activate.start_event_date"
-                  fallback={<Input type="date" value={draft.startDate} disabled />}
-                >
+                <DndInputsAccess>
                   <Input type="date" value={draft.startDate} onChange={(event) => setDraft({ ...draft, startDate: event.target.value })} />
-                </RequireActivity>
+                </DndInputsAccess>
               </div>
               <div>
                 <DndFieldLabel>Return / End Date</DndFieldLabel>
@@ -2077,9 +2100,9 @@ export function ShipmentDndInputsDialog({
         <DialogFooter className="border-t border-border px-6 py-4">
           <Button type="button" variant="outline" onClick={() => setShowRules((value) => !value)} className="mr-auto gap-2"><FileText className="size-4" /> Rules & Logic</Button>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <RequireActivity code="dnd.activate">
+          <DndInputsAccess>
             <Button type="button" onClick={saveInputs} className="gap-2"><CheckCircle2 className="size-4" /> Save D&D Inputs</Button>
-          </RequireActivity>
+          </DndInputsAccess>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -2194,7 +2217,7 @@ export function ShipmentDetailPage() {
 
   // ─── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: '24px 28px', minHeight: '100%', maxWidth: 1600, margin: '0 auto', width: '100%' }}>
+    <div style={{ padding: '24px 28px', minHeight: '100%' }}>
       <style>{`
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
         @keyframes spin{to{transform:rotate(360deg)}}
@@ -2209,13 +2232,13 @@ export function ShipmentDetailPage() {
           <span style={{ opacity: 0.5 }}>›</span>
           <button onClick={() => navigate(PROJECT_DETAIL_ROUTE(projectCtx.projectId))} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'hsl(var(--primary))', fontWeight: 500, fontSize: 14.5 }}>{projectCtx.projectRef}</button>
           <span style={{ opacity: 0.5 }}>›</span>
-          <span className="vs-mono">{shipment?.shipmentNumber ?? shipmentId}</span>
+          <span className="data-mono-id">{shipment?.shipmentNumber ?? shipmentId}</span>
         </div>
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, fontSize: 14.5, color: MUTED }}>
           <button onClick={() => navigate('/dashboard')} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'hsl(var(--primary))', fontWeight: 500, fontSize: 14.5 }}>← Shipments</button>
           <span>/</span>
-          <span className="vs-mono">{shipment?.shipmentNumber ?? shipmentId}</span>
+          <span className="data-mono-id">{shipment?.shipmentNumber ?? shipmentId}</span>
         </div>
       )}
 
@@ -2329,7 +2352,7 @@ export function ShipmentDetailPage() {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
-              <h2 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: FG, margin: 0, lineHeight: 1.15 }}>
+              <h2 className="data-mono-id" style={{ fontSize: DETAIL_TITLE_SIZE, fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: FG, margin: 0, lineHeight: 1.15 }}>
                 {loading ? 'Loading…' : (shipment?.shipmentNumber ?? shipmentId)}
               </h2>
               {shipment && !loading && <StatusPill status={shipment.currentStageName ?? shipment.status} variant="transit" />}
@@ -2337,20 +2360,22 @@ export function ShipmentDetailPage() {
               {isCancelled && <StatusPill status="Cancelled" variant="danger" />}
             </div>
             {shipment && (
-              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 14px', fontSize: 14.5, color: MUTED }}>
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 14px', fontSize: 8.72, color: MUTED }}>
                 {shipment.loadMode && <span style={{ fontWeight: 500, color: FG }}>Load: {shipment.loadMode}</span>}
-                {shipment.blNumber && <span>MBL: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.blNumber}</span></span>}
-                {shipment.vesselName && <span>Vessel: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.vesselName}</span></span>}
-                {(shipment.portOfLoading || shipment.portOfDischarge) && <span>Route: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.portOfLoading ?? '—'} → {shipment.portOfDischarge ?? '—'}</span></span>}
+                {shipment.blNumber && <span>MBL: <span className="data-mono-id" style={{ fontWeight: 600, color: FG }}>{shipment.blNumber}</span></span>}
+                {shipment.vesselName && <span>Vessel: <span className="data-route-text" style={{ color: FG }}>{shipment.vesselName}</span></span>}
+                {(shipment.portOfLoading || shipment.portOfDischarge) && <span>Route: <span className="data-route-text" style={{ color: FG }}>{shipment.portOfLoading ?? '—'} → {shipment.portOfDischarge ?? '—'}</span></span>}
                 {revTicket && <span>Value: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{fmtAmount(revTicket.amount, revTicket.currency)}</span></span>}
-                {(shipment as any).project && <a href={`/projects/${(shipment as any).project.id}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: TEAL, textDecoration: 'none', fontSize: 14 }}><FolderOpen size={12} />{(shipment as any).project.projectCode}</a>}
+                {(shipment as any).project && <a href={`/projects/${(shipment as any).project.id}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: TEAL, textDecoration: 'none', fontSize: 8.72 }}><FolderOpen size={12} />{(shipment as any).project.projectCode}</a>}
               </div>
             )}
-            {error && <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, color: 'hsl(var(--vs-danger))' }}><AlertCircle size={14} /><span style={{ fontSize: 14.5 }}>{error}</span></div>}
+            {error && <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, color: 'hsl(var(--vs-danger))' }}><AlertCircle size={14} /><span style={{ fontSize: 8.72 }}>{error}</span></div>}
           </div>
 
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
-            <ActionBtn onClick={() => setDndInputsOpen(true)} icon={<Calculator size={14} />} label="D&D Inputs" variant="outline" />
+            <DndInputsAccess>
+              <ActionBtn onClick={() => setDndInputsOpen(true)} icon={<Calculator size={14} />} label="D&D Inputs" variant="outline" />
+            </DndInputsAccess>
             <RequireActivity code="GATE-002">
               {isOnHold
                 ? <ActionBtn onClick={() => handleShipmentAction('resume')} icon={<PlayCircle size={14} />} label="Resume" variant="success" disabled={acting} />
@@ -2379,9 +2404,9 @@ export function ShipmentDetailPage() {
       {!scLoading && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: MUTED, margin: 0 }}>Vessel tracking</h3>
+            <h3 style={{ fontSize: 8.02, fontWeight: 600, color: MUTED, margin: 0 }}>Vessel tracking</h3>
             {mapProps?.shippingStatus && (
-              <span style={{ fontSize: 11, color: MUTED }}>{mapProps.shippingStatus}</span>
+              <span style={{ fontSize: 6.72, color: MUTED }}>{mapProps.shippingStatus}</span>
             )}
           </div>
           {mapProps ? (
@@ -2397,12 +2422,7 @@ export function ShipmentDetailPage() {
       )}
 
       {/* ── 2-column 360° body ── */}
-      <style>{`
-        @media (max-width: 1279px) {
-          .shipment-detail-grid { grid-template-columns: 1fr !important; }
-        }
-      `}</style>
-      <div className="shipment-detail-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 55fr) minmax(0, 45fr)', gap: 20, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '55fr 45fr', gap: 20, alignItems: 'start' }}>
 
         {/* LEFT — Inventory Journey + Containers */}
         <div>

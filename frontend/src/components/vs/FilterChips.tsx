@@ -5,20 +5,28 @@ type Chip = {
   count?: number;
 };
 
+type FilterChipsSize = 'default' | 'compact';
+
 type FilterChipsProps = {
   chips: Chip[];
   activeIndex: number;
   onSelect: (index: number) => void;
   className?: string;
+  /** 'compact' shrinks font/padding and forces a single non-wrapping row (scrolls if it
+   * genuinely can't fit) — opt-in only, 'default' preserves the original look/behavior. */
+  size?: FilterChipsSize;
 };
 
-export function FilterChips({ chips, activeIndex, onSelect, className }: FilterChipsProps) {
+export function FilterChips({ chips, activeIndex, onSelect, className, size = 'default' }: FilterChipsProps) {
+  const isCompact = size === 'compact';
   return (
     <div
       className={cn(
-        'inline-flex max-w-full flex-wrap items-center rounded-full bg-muted p-0.5',
+        'inline-flex max-w-full items-center rounded-full bg-muted p-0.5',
+        isCompact ? 'flex-nowrap overflow-x-auto' : 'flex-wrap',
         className,
       )}
+      style={isCompact ? { scrollbarWidth: 'thin' } : undefined}
       role="tablist"
       aria-label="Filter options"
     >
@@ -32,7 +40,8 @@ export function FilterChips({ chips, activeIndex, onSelect, className }: FilterC
             aria-selected={isActive}
             onClick={() => onSelect(i)}
             className={cn(
-              'h-10 shrink-0 rounded-full px-4 text-sm font-medium transition-colors',
+              'shrink-0 whitespace-nowrap rounded-full font-medium transition-colors',
+              isCompact ? 'h-8 px-2.5 text-xs' : 'h-10 px-4 text-sm',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
               isActive
                 ? 'border border-border bg-card text-primary shadow-sm'

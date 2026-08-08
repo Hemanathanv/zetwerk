@@ -66,13 +66,13 @@ function GateHealthCard({ gateNumber, data }: { gateNumber: string; data: GateHe
                 <span className="truncate text-sm text-foreground">{label}</span>
               </div>
               <div className="text-right">
-                <div className="text-[13px] font-medium leading-[1.4] text-[hsl(var(--vs-success))] tabular-nums">
+                <div className="data-metric-value text-[hsl(var(--vs-success))]">
                   {stats.active}
                 </div>
                 <div className="text-[11px] font-semibold uppercase leading-[1.2] tracking-[0.05em] text-muted-foreground">Active</div>
               </div>
               <div className="text-right">
-                <div className="text-[13px] font-medium leading-[1.4] text-destructive tabular-nums">
+                <div className="data-metric-value text-destructive">
                   {stats.blocked}
                 </div>
                 <div className="text-[11px] font-semibold uppercase leading-[1.2] tracking-[0.05em] text-muted-foreground">Blocked</div>
@@ -356,7 +356,7 @@ export function DashboardPage() {
         >
           <strong>{dndSummary.accruing}</strong> container{dndSummary.accruing > 1 ? 's' : ''} accruing D&amp;D
           {' — '}
-          <span className="tabular-nums">${Number(dndSummary.totalAccruedCharge ?? 0).toLocaleString()}</span> total
+          <span className="data-currency-value inline">${Number(dndSummary.totalAccruedCharge ?? 0).toLocaleString()}</span> total
           {dndSummary.upcomingLfd7d > 0 && (
             <span className="ml-2 opacity-80">
               + {dndSummary.upcomingLfd7d} LFD{dndSummary.upcomingLfd7d > 1 ? 's' : ''} this week
@@ -460,7 +460,7 @@ export function DashboardPage() {
                 >
                   {/* Shipment ID + status + project link */}
                   <div className="w-[200px] @max-[1150px]:w-[170px] shrink-0">
-                    <div className="font-mono text-[13px] font-semibold leading-tight">
+                    <div className="data-mono-id">
                       {shipment.shipmentNumber || (
                         <span className="text-muted-foreground italic text-[13px] font-normal">Pending ID</span>
                       )}
@@ -472,7 +472,7 @@ export function DashboardPage() {
                       <button
                         type="button"
                         onClick={e => { e.preventDefault(); e.stopPropagation(); window.location.href = `/projects/${(shipment as any).project.id}`; }}
-                        className="text-[13px] text-primary hover:underline font-mono mt-1 block"
+                        className="data-mono-id text-primary hover:underline mt-1 block"
                       >
                         {(shipment as any).project.projectCode}
                       </button>
@@ -508,7 +508,7 @@ export function DashboardPage() {
                       <div className="h-2 rounded-full bg-muted/50 overflow-hidden flex-1">
                         <div className="h-full rounded-full bg-primary" style={{ width: `${(shipment as any).docCompletionPct || 0}%` }} />
                       </div>
-                      <span className="text-[13px] font-mono text-muted-foreground">{(shipment as any).docCompletionPct || 0}%</span>
+                      <span className="data-metric-value text-muted-foreground">{(shipment as any).docCompletionPct || 0}%</span>
                     </div>
                   </div>
 
@@ -536,9 +536,9 @@ export function DashboardPage() {
                   <div className="w-[88px] shrink-0 text-right @max-[950px]:hidden">
                     {(shipment._count?.documents ?? 0) > 0 ? (
                       <>
-                        <div className="text-[12px]">
-                          <span className="font-mono">{shipment._count.documentsApproved ?? 0}/{shipment._count.documents}</span>
-                          <span className="text-muted-foreground ml-1">docs</span>
+                        <div className="text-[12px] flex flex-wrap items-baseline justify-end gap-x-1">
+                          <span className="data-metric-value">{shipment._count.documentsApproved ?? 0}/{shipment._count.documents}</span>
+                          <span className="text-muted-foreground">docs</span>
                         </div>
                         {(shipment._count.documents - (shipment._count.documentsApproved ?? 0)) > 0 && (
                           <div className="text-[11px] text-muted-foreground mt-0.5">
