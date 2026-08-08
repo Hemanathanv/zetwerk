@@ -19,6 +19,7 @@ from documents_ocr.cross_validation import (
 )
 from helpers.config import settings
 from helpers.dependencies import get_admin_user, get_current_user
+from helpers.rbac import require_activity, require_any_activity
 from helpers.utils import hash_password
 from objectstore import delete_document_object, get_download_url, list_buckets, list_prefix
 
@@ -208,9 +209,15 @@ SHEET_ACTIVITY_SETS = {
         "documents.reassign_document_to_shipment", "documents.download_export", "documents.view",
         "documents.view_extracted",
     ],
+    "documents_dnd_inputs": [
+        "documents.dnd_inputs",
+        "documents.dnd_inputs.start_event",
+        "documents.dnd_inputs.exclude_holidays",
+        "documents.dnd_inputs.exclude_weekends",
+    ],
     "documents_approval": [
         "documents.edit_extracted", "documents.submit_for_approval", "documents.approve_draft",
-        "documents.reject_extraction", "documents.revoke_approval", "documents.override_approved_fields",
+        "documents.reject_extraction", "documents.override_approved_fields",
     ],
     "generation": [
         "documents.view_draft", "documents.fill_manual_fields", "documents.modify_generated_fields",
@@ -241,10 +248,18 @@ SHEET_ACTIVITY_SETS = {
         "inventory.view_warehouse", "inventory.warehouse_inventory_stock_position",
     ],
     "dnd": [
-        "dnd.activate", "dnd.activate.start_event_date",
-        "dnd.activate.holiday_days", "dnd.activate.weekends",
-        "dnd.tariff.create", "dnd.tariff.edit", "dnd.tariff.view",
+        "dnd.activate", "dnd.tariff.create", "dnd.tariff.edit", "dnd.tariff.view",
         "dnd.tariff.force_expire", "dnd.holiday_calendar.upload",
+    ],
+    "tasks": [
+        "tasks.view", "tasks.update", "tasks.assign", "tasks.escalate", "tasks.delegate",
+    ],
+    "accounting": [
+        "accounting.view_queue", "accounting.view_ap_aging", "accounting.review_ticket",
+        "accounting.edit_entry", "accounting.reject_ticket", "accounting.export_data",
+    ],
+    "reports": [
+        "reports.view_dashboard", "reports.generate_dsr", "reports.export_report",
     ],
     "admin": [
         "admin.manage", "users.manage", "roles.view", "roles.manage",
@@ -273,7 +288,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L4"],
         "defaultDataScope": "ALL",
         "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "warehouse", "dnd", "accounting", "reports", "admin", "settings"],
-        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "dnd", "admin"),
+        "activityCodes": _activities_for("documents_basic", "documents_dnd_inputs", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "warehouse", "dnd", "tasks", "accounting", "reports", "admin"),
     },
     "Org Admin": {
         "name": "Org Admin",
@@ -283,7 +298,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L4"],
         "defaultDataScope": "ALL",
         "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "warehouse", "dnd", "accounting", "reports", "admin", "settings"],
-        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "dnd", "admin"),
+        "activityCodes": _activities_for("documents_basic", "documents_dnd_inputs", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "warehouse", "dnd", "tasks", "accounting", "reports", "admin"),
     },
     "Ops Manager": {
         "name": "Ops Manager",
@@ -293,7 +308,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L3"],
         "defaultDataScope": "ALL",
         "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "warehouse", "dnd", "accounting", "reports", "admin", "settings"],
-        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "admin") + [
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "mapping", "shipments", "inventory", "warehouse", "dnd", "tasks", "accounting", "reports", "admin") + [
             "dnd.activate", "dnd.activate.start_event_date", "dnd.activate.holiday_days",
             "dnd.activate.weekends", "dnd.tariff.create", "dnd.tariff.edit",
             "dnd.tariff.view", "dnd.holiday_calendar.upload",
@@ -307,7 +322,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L1", "L2"],
         "defaultDataScope": "TEAM",
         "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "dnd"],
-        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "shipments", "inventory") + [
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "shipments", "inventory", "tasks") + [
             "dnd.activate", "dnd.activate.start_event_date", "dnd.activate.holiday_days",
             "dnd.activate.weekends", "dnd.tariff.view",
         ],
@@ -320,7 +335,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L1", "L2"],
         "defaultDataScope": "TEAM",
         "defaultModules": ["dashboard", "shipments", "tasks", "documents", "inventory", "dnd"],
-        "activityCodes": _activities_for("documents_basic", "validation", "shipments", "inventory") + [
+        "activityCodes": _activities_for("documents_basic", "validation", "shipments", "inventory", "tasks") + [
             "dnd.activate", "dnd.activate.start_event_date", "dnd.activate.holiday_days",
             "dnd.activate.weekends", "dnd.tariff.view",
         ],
@@ -333,7 +348,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L1", "L2"],
         "defaultDataScope": "ALL",
         "defaultModules": ["dashboard", "accounting", "documents", "reports"],
-        "activityCodes": _activities_for("documents_basic", "validation"),
+        "activityCodes": _activities_for("documents_basic", "validation", "accounting", "reports"),
     },
     "Finance AP US": {
         "name": "Finance AP US",
@@ -343,7 +358,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L1", "L2"],
         "defaultDataScope": "ALL",
         "defaultModules": ["dashboard", "accounting", "documents", "reports"],
-        "activityCodes": _activities_for("documents_basic", "validation"),
+        "activityCodes": _activities_for("documents_basic", "validation", "accounting", "reports"),
     },
     "Finance Revenue": {
         "name": "Finance Revenue",
@@ -353,7 +368,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L1", "L2"],
         "defaultDataScope": "ALL",
         "defaultModules": ["dashboard", "accounting", "documents", "reports"],
-        "activityCodes": _activities_for("documents_basic", "generation"),
+        "activityCodes": _activities_for("documents_basic", "generation", "accounting", "reports"),
     },
     "Finance Controller": {
         "name": "Finance Controller",
@@ -363,7 +378,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L3", "L4"],
         "defaultDataScope": "ALL",
         "defaultModules": ["dashboard", "accounting", "documents", "reports", "admin"],
-        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation"),
+        "activityCodes": _activities_for("documents_basic", "documents_approval", "generation", "validation", "accounting", "reports"),
     },
     "Auditor": {
         "name": "Auditor",
@@ -373,7 +388,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L2", "L3"],
         "defaultDataScope": "ALL",
         "defaultModules": ["dashboard", "shipments", "documents", "reports"],
-        "activityCodes": ["documents.view", "documents.view_extracted", "documents.download_export", "documents.view_validation_results", "shipments.view"],
+        "activityCodes": ["documents.view", "documents.view_extracted", "documents.download_export", "documents.view_validation_results", "shipments.view", "reports.view_dashboard"],
     },
     "CHA Partner": {
         "name": "CHA Partner",
@@ -383,7 +398,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L1", "L2"],
         "defaultDataScope": "TAGGED",
         "defaultModules": ["shipments", "documents", "tasks"],
-        "activityCodes": ["shipments.view", "documents.upload", "documents.view"],
+        "activityCodes": ["shipments.view", "documents.upload", "documents.view", "tasks.view"],
     },
     "Freight Forwarder": {
         "name": "Freight Forwarder",
@@ -393,7 +408,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L1", "L2"],
         "defaultDataScope": "TAGGED",
         "defaultModules": ["shipments", "documents", "tasks"],
-        "activityCodes": ["shipments.view", "documents.upload", "documents.view", "documents.view_extracted", "documents.download_export"],
+        "activityCodes": ["shipments.view", "documents.upload", "documents.view", "documents.view_extracted", "documents.download_export", "tasks.view"],
     },
     "US Broker": {
         "name": "US Broker",
@@ -403,7 +418,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L1", "L2"],
         "defaultDataScope": "TAGGED",
         "defaultModules": ["shipments", "documents", "tasks"],
-        "activityCodes": ["shipments.view", "documents.upload", "documents.view", "documents.view_extracted"],
+        "activityCodes": ["shipments.view", "documents.upload", "documents.view", "documents.view_extracted", "tasks.view"],
     },
     "3PL Partner": {
         "name": "3PL Partner",
@@ -413,7 +428,7 @@ ROLE_DEFAULTS: dict[str, dict[str, Any]] = {
         "allowedLevels": ["L1", "L2"],
         "defaultDataScope": "TAGGED",
         "defaultModules": ["shipments", "documents", "inventory", "warehouse", "tasks"],
-        "activityCodes": ["shipments.view", "documents.upload", "documents.view", "inventory.view_warehouse", "inventory.view_container"],
+        "activityCodes": ["shipments.view", "documents.upload", "documents.view", "inventory.view_warehouse", "inventory.view_container", "tasks.view"],
     },
     "Customer Portal": {
         "name": "Customer Portal",
@@ -514,22 +529,26 @@ ACTIVITY_DEFINITIONS = [
     {"id": "activity-documents-upload", "activityCode": "documents.upload", "name": "Upload documents", "category": "documents", "minLevel": "L1", "scopeType": "docType"},
     {"id": "activity-documents-view-extracted", "activityCode": "documents.view_extracted", "name": "View extracted document data", "category": "documents", "minLevel": "L1", "scopeType": "docType"},
     {"id": "activity-documents-edit-extracted", "activityCode": "documents.edit_extracted", "name": "Edit extracted document data", "category": "documents", "minLevel": "L2", "scopeType": "docType"},
+    {"id": "activity-documents-submit-for-approval", "activityCode": "documents.submit_for_approval", "name": "Submit extraction for approval", "category": "documents", "minLevel": "L1", "scopeType": "docType"},
     {"id": "activity-documents-generate-draft", "activityCode": "documents.generate_draft", "name": "Generate document drafts", "category": "documents", "minLevel": "L2", "scopeType": "docType"},
     {"id": "activity-documents-approve-draft", "activityCode": "documents.approve_draft", "name": "Approve document drafts", "category": "documents", "minLevel": "L2", "scopeType": "docType"},
+    {"id": "activity-documents-reject-extraction", "activityCode": "documents.reject_extraction", "name": "Reject extraction", "category": "documents", "minLevel": "L2", "scopeType": "docType"},
+    {"id": "activity-documents-override-approved-fields", "activityCode": "documents.override_approved_fields", "name": "Override approved fields", "category": "documents", "minLevel": "L3", "scopeType": "docType"},
     {"id": "activity-documents-override-validation", "activityCode": "documents.override_validation", "name": "Override document validation", "category": "documents", "minLevel": "L3", "scopeType": "docType"},
     {"id": "activity-documents-reprocess-ocr", "activityCode": "documents.reprocess_ocr", "name": "Reprocess OCR", "category": "documents", "minLevel": "L3", "scopeType": "docType"},
     {"id": "activity-documents-download-export", "activityCode": "documents.download_export", "name": "Download document exports", "category": "documents", "minLevel": "L1", "scopeType": "docType"},
     {"id": "activity-documents-delete", "activityCode": "documents.delete", "name": "Delete documents", "category": "documents", "minLevel": "L4", "scopeType": "docType"},
     {"id": "activity-documents-manage", "activityCode": "documents.manage", "name": "Manage documents", "category": "documents", "minLevel": "L2", "scopeType": "docType"},
     {"id": "activity-documents-view", "activityCode": "documents.view", "name": "View documents", "category": "documents", "minLevel": "L1", "scopeType": "docType"},
+    {"id": "activity-documents-dnd-inputs", "activityCode": "documents.dnd_inputs", "name": "D&D Inputs", "category": "document", "displayGroup": "Document Activities", "subModule": "D&D Inputs", "moduleCode": "documents", "minLevel": "L2", "scopeType": "docType"},
+    {"id": "activity-documents-dnd-inputs-start-event", "activityCode": "documents.dnd_inputs.start_event", "name": "Start event", "category": "document", "displayGroup": "Document Activities", "subModule": "D&D Inputs", "moduleCode": "documents", "scope": "Dropdown", "minLevel": "L2", "scopeType": "docType"},
+    {"id": "activity-documents-dnd-inputs-exclude-weekends", "activityCode": "documents.dnd_inputs.exclude_weekends", "name": "Exclude weekends", "category": "document", "displayGroup": "Document Activities", "subModule": "D&D Inputs", "moduleCode": "documents", "scope": "Checkbox", "minLevel": "L2", "scopeType": "docType"},
+    {"id": "activity-documents-dnd-inputs-exclude-holidays", "activityCode": "documents.dnd_inputs.exclude_holidays", "name": "Exclude public holidays", "category": "document", "displayGroup": "Document Activities", "subModule": "D&D Inputs", "moduleCode": "documents", "scope": "Checkbox", "minLevel": "L2", "scopeType": "docType"},
     {"id": "activity-inventory-view-timeline", "activityCode": "inventory.view_timeline", "name": "View inventory timeline", "category": "inventory", "minLevel": "L1"},
     {"id": "activity-inventory-update-milestone", "activityCode": "inventory.update_milestone", "name": "Update milestones", "category": "inventory", "minLevel": "L2"},
     {"id": "activity-inventory-upload-pod", "activityCode": "inventory.upload_pod", "name": "Upload POD", "category": "inventory", "minLevel": "L2"},
     {"id": "activity-inventory-acknowledge-dnd", "activityCode": "inventory.acknowledge_dnd", "name": "Acknowledge D&D", "category": "inventory", "minLevel": "L2"},
     {"id": "activity-dnd-activate", "activityCode": "dnd.activate", "name": "Activate D&D", "category": "dnd_activate", "displayGroup": "Demurrage and detention", "subModule": "Activate D&D", "moduleCode": "dnd", "minLevel": "L2"},
-    {"id": "activity-dnd-activate-start-event-date", "activityCode": "dnd.activate.start_event_date", "name": "Start event date", "category": "dnd_activate", "displayGroup": "Demurrage and detention", "subModule": "Activate D&D", "moduleCode": "dnd", "scope": "Dropdown", "minLevel": "L2"},
-    {"id": "activity-dnd-activate-holiday-days", "activityCode": "dnd.activate.holiday_days", "name": "Holiday days", "category": "dnd_activate", "displayGroup": "Demurrage and detention", "subModule": "Activate D&D", "moduleCode": "dnd", "scope": "Checkbox", "minLevel": "L2"},
-    {"id": "activity-dnd-activate-weekends", "activityCode": "dnd.activate.weekends", "name": "Weekends", "category": "dnd_activate", "displayGroup": "Demurrage and detention", "subModule": "Activate D&D", "moduleCode": "dnd", "scope": "Checkbox", "minLevel": "L2"},
     {"id": "activity-dnd-tariff-create", "activityCode": "dnd.tariff.create", "name": "Create a Tariff master", "category": "dnd_tariff_master", "displayGroup": "Demurrage and detention", "subModule": "Tariff master", "moduleCode": "dnd", "minLevel": "L3"},
     {"id": "activity-dnd-tariff-edit", "activityCode": "dnd.tariff.edit", "name": "Edit Tariff master", "category": "dnd_tariff_master", "displayGroup": "Demurrage and detention", "subModule": "Tariff master", "moduleCode": "dnd", "minLevel": "L3"},
     {"id": "activity-dnd-tariff-view", "activityCode": "dnd.tariff.view", "name": "View tariff master", "category": "dnd_tariff_master", "displayGroup": "Demurrage and detention", "subModule": "Tariff master", "moduleCode": "dnd", "minLevel": "L1"},
@@ -574,6 +593,10 @@ ACTIVITY_MODULE_OVERRIDES = {
     "inventory.view_last_free_days_shipment_based": "dnd",
     "inventory.view_lfd_calendar": "dnd",
     "inventory.modify_lfd": "dnd",
+    "documents.dnd_inputs": "documents",
+    "documents.dnd_inputs.start_event": "documents",
+    "documents.dnd_inputs.exclude_holidays": "documents",
+    "documents.dnd_inputs.exclude_weekends": "documents",
     "dnd.activate": "dnd",
     "dnd.activate.start_event_date": "dnd",
     "dnd.activate.holiday_days": "dnd",
@@ -583,6 +606,24 @@ ACTIVITY_MODULE_OVERRIDES = {
     "dnd.tariff.view": "dnd",
     "dnd.tariff.force_expire": "dnd",
     "dnd.holiday_calendar.upload": "dnd",
+    "users.manage": "admin",
+    "roles.view": "admin",
+    "roles.manage": "admin",
+    "SHP-001": "shipments",
+    "SHP-002": "shipments",
+    "SHP-003": "shipments",
+    "SHP-005": "shipments",
+    "GATE-001": "inventory",
+    "GATE-002": "shipments",
+    "DOC-003": "documents",
+    "ACC-001": "accounting",
+    "ACC-003": "accounting",
+    "ACC-004": "accounting",
+    "TSK-001": "tasks",
+    "TSK-002": "tasks",
+    "TSK-003": "tasks",
+    "TSK-004": "tasks",
+    "TSK-007": "tasks",
 }
 
 KEYCLOAK_ROLE_ATTRIBUTE_VALUE_MAX = 250
@@ -602,7 +643,6 @@ SHEET_STATUS_ACTIVITY_ROWS = [
     ("documents", "OCR & Extraction", "documents.submit_for_approval", "Submit for Approval (if approval enabled)", "Doc names", "Pending Approval", None),
     ("documents", "OCR & Extraction", "documents.approve_draft", "Approve Extraction (if approval disabled OR Supervisor approves)", "Doc names", "Approved", None),
     ("documents", "OCR & Extraction", "documents.reject_extraction", "Reject Extraction", "Doc names", "Rejected", None),
-    ("documents", "OCR & Extraction", "documents.revoke_approval", "Revoke Approval", "Doc names", "Under Review", None),
     ("documents", "OCR & Extraction", "documents.override_approved_fields", "Override Approved Fields", "Doc names", "Amended", None),
     ("documents", "Generated Documents", "documents.view_draft", "View Draft", "Doc names", "Draft", None),
     ("documents", "Generated Documents", "documents.fill_manual_fields", "Fill Manual Fields", "Doc names", "Draft", None),
@@ -619,6 +659,7 @@ SHEET_STATUS_ACTIVITY_ROWS = [
     ("documents", "Validation", "documents.resolve_validation_failure", "Resolve Validation Failure", "Doc names", "Pending Revalidation", None),
     ("documents", "Validation", "documents.trigger_re_validation", "Trigger Re-validation", "Doc names", "Validation In Progress", None),
     ("documents", "Validation", "documents.override_validation", "Override Validation", "Doc names", "Validated (Override)", None),
+    ("documents", "Document", "documents.dnd_inputs", "D&D Inputs", "Doc names", "Inputs", "Controls access to the D&D Inputs button on BOL documents"),
     ("documents", "Container Mapping", "documents.map_container_to_sku", "Map Container to SKU", "Doc names", "Mapped", None),
     ("documents", "Container Mapping", "documents.submit_mapping_for_approval", "Submit Mapping for Approval (if applicable)", "Doc names", "Pending Approval", None),
     ("documents", "Container Mapping", "documents.approve_container_mapping", "Approve Container Mapping", "Doc names", "Approved", None),
@@ -652,7 +693,6 @@ SHEET_STATUS_ACTIVITY_ROWS = [
 
 SHEET_ACTIVITY_MIN_LEVELS = {
     "documents.reject_extraction": "L2",
-    "documents.revoke_approval": "L3",
     "documents.override_approved_fields": "L3",
     "documents.view_draft": "L2",
     "documents.fill_manual_fields": "L1",
@@ -668,6 +708,7 @@ SHEET_ACTIVITY_MIN_LEVELS = {
     "documents.view_validation_results": "L1",
     "documents.resolve_validation_failure": "L2",
     "documents.trigger_re_validation": "L2",
+    "documents.dnd_inputs": "L2",
     "documents.map_container_to_sku": "L1",
     "documents.submit_mapping_for_approval": "L2",
     "documents.approve_container_mapping": "L3",
@@ -780,7 +821,7 @@ def _merge_sheet_status_activities(activities: list[dict[str, Any]]) -> list[dic
 
 ACTIVITY_DEFINITIONS = _merge_sheet_status_activities(ACTIVITY_DEFINITIONS)
 
-DISABLED_ACTIVITY_MODULE_CODES = {"accounting", "reports"}
+DISABLED_ACTIVITY_MODULE_CODES: set[str] = set()
 ACTIVITY_DEFINITIONS = [
     activity for activity in ACTIVITY_DEFINITIONS
     if ACTIVITY_MODULE_OVERRIDES.get(
@@ -793,6 +834,19 @@ ACTIVITY_MODULES = {
     activity["activityCode"]: ACTIVITY_MODULE_OVERRIDES.get(activity["activityCode"], activity.get("moduleCode") or activity["category"])
     for activity in ACTIVITY_DEFINITIONS
     if ACTIVITY_MODULE_OVERRIDES.get(activity["activityCode"], activity.get("moduleCode") or activity.get("category")) in {module["moduleCode"] for module in MODULE_DEFINITIONS}
+}
+
+MODULE_OPENING_ACTIVITY_CODES = {
+    "shipments": ("shipments.view",),
+    "tasks": ("tasks.view",),
+    "documents": ("documents.view",),
+    "inventory": ("inventory.view_container",),
+    "warehouse": ("inventory.view_warehouse",),
+    "dnd": ("inventory.view_dnd_charges",),
+    "accounting": ("accounting.view_queue",),
+    "reports": ("reports.view_dashboard",),
+    "admin": ("roles.view",),
+    "settings": ("roles.view",),
 }
 
 ALL_ADMIN_MODULE_CODES = [
@@ -886,6 +940,20 @@ class RoleActivitySlaRequest(BaseModel):
     escalationPct: int = 75
     blockerPct: int = 100
     description: str | None = None
+    module: str | None = None
+    subModule: str | None = None
+    taskEnabled: bool | None = None
+    triggerCategory: str | None = None
+    triggerLogic: str | None = None
+    taskMessage: str | None = None
+    reminderMessage: str | None = None
+    warningMessage: str | None = None
+    escalationMessage: str | None = None
+    blockerMessage: str | None = None
+    reminderTrigger: str | None = None
+    warningTrigger: str | None = None
+    escalationTrigger: str | None = None
+    blockerTrigger: str | None = None
 
 
 class RoleProfileRequest(BaseModel):
@@ -919,6 +987,7 @@ class EscalationConfigRequest(BaseModel):
     warningPct: int | None = None
     escalationPct: int | None = None
     blockerPct: int | None = None
+    taskEnabled: bool | None = None
     channels: dict[str, Any] | None = None
     targets: dict[str, Any] | None = None
 
@@ -1058,6 +1127,341 @@ SLA_ACTIVITY_CONFIG_BY_CODE: dict[str, dict[str, str]] = {
     },
 }
 
+TRIGGER_SLA_CONFIG_BY_CODE: dict[str, dict[str, Any]] = {
+    "documents.upload": {
+        "module": "DOCUMENTS",
+        "subModule": "Document",
+        "activityType": "upload_document",
+        "activityName": "Upload Document",
+        "taskEnabled": True,
+        "triggerCategory": "document_upload",
+        "triggerLogic": "IF doc.status=='not_uploaded' AND shipment.gate_active==true",
+        "taskMessage": "New Task Assigned - {Task Name}: \"A new task has been assigned to you.{br}Task: {Task Name}{br}Shipment: {Shipment No}{br}Due By: {Due Date}\"",
+        "reminderPct": 50,
+        "reminderTrigger": "0.5",
+        "reminderMessage": "Reminder - {Task Name} Due Soon: \"Reminder - task pending.{br}Task: {Task Name}{br}Time Remaining: {Remaining Time}\"",
+        "warningPct": 75,
+        "warningTrigger": "0.75",
+        "warningMessage": "Warning - SLA Nearing Expiry: \"SLA nearing expiry.{br}Task: {Task Name}{br}Due By: {Due Date}\"",
+        "escalationPct": 100,
+        "escalationTrigger": "1",
+        "escalationMessage": "USER - SLA Breached - Task Escalated: \"SLA exceeded for {Task Name}. Delay: {Delay Duration}\"{br}APPROVER - SLA Breached - Task Escalated: \"Task {Task Name} assigned to {Assigned USER} has breached SLA. Delay: {Delay Duration}\"",
+        "blockerPct": 150,
+        "blockerTrigger": "1.5",
+        "blockerMessage": "USER - Workflow Blocked: \"Workflow blocked - {Task Name} still pending.\"{br}APPROVER - Workflow Blocked: \"Workflow blocked on {Task Name}, assigned to {Assigned USER}.\"{br}ADMIN - Workflow Blocked - Shipment {Shipment No}: \"Workflow Blocker - Shipment {Shipment No} halted at {Task Name}. SLA exceeded by {Delay Duration}.\"",
+    },
+    "documents.re_upload_document": {
+        "module": "DOCUMENTS",
+        "subModule": "Document",
+        "activityType": "re_upload_document",
+        "activityName": "Re-upload Document",
+        "taskEnabled": True,
+        "triggerCategory": "document_upload",
+        "triggerLogic": "IF doc.status=='rejected'",
+        "taskMessage": "Document Rejected - {Document Name}: \"Document rejected. Reason: {Remarks}. Please upload the revised document.\"",
+        "reminderPct": 50,
+        "reminderTrigger": "0.5",
+        "reminderMessage": "Reminder - Re-upload Pending: \"Reminder - revised document pending upload.{br}Time Remaining: {Remaining Time}\"",
+        "warningPct": 75,
+        "warningTrigger": "0.75",
+        "warningMessage": "Warning - SLA Nearing Expiry: \"SLA nearing expiry for revised document upload.\"",
+        "escalationPct": 100,
+        "escalationTrigger": "1",
+        "escalationMessage": "USER - SLA Breached - Re-upload: \"SLA exceeded for re-upload of {Document Name}.\"{br}APPROVER - SLA Breached - Re-upload: \"{Assigned USER} has breached SLA for re-upload of {Document Name}.\"",
+        "blockerPct": 150,
+        "blockerTrigger": "1.5",
+        "blockerMessage": "USER - Workflow Blocked: \"Workflow blocked - revised {Document Name} not uploaded.\"{br}APPROVER - Workflow Blocked: \"Workflow blocked on re-upload, assigned to {Assigned USER}.\"{br}ADMIN - Workflow Blocked - Shipment {Shipment No}: \"Blocker - Shipment {Shipment No} halted at document re-upload.\"",
+    },
+    "documents.edit_extracted": {
+        "module": "DOCUMENTS",
+        "subModule": "OCR & Extraction",
+        "activityType": "amend_extracted_fields",
+        "activityName": "Amend Extracted Fields",
+        "taskEnabled": True,
+        "triggerCategory": "document_review",
+        "triggerLogic": "IF validation.status=='failed'",
+        "taskMessage": "Validation Failed - {Document Name}: \"Validation issues identified in {Document Name}. Rule: {Rule Name}. Fields: {Field List}.\"",
+        "reminderPct": 50,
+        "reminderTrigger": "0.5",
+        "reminderMessage": "Reminder - Amendment Pending: \"Reminder - extraction amendment pending.{br}Time Remaining: {Remaining Time}\"",
+        "warningPct": 75,
+        "warningTrigger": "0.75",
+        "warningMessage": "Warning - SLA Nearing Expiry: \"SLA nearing expiry for amendment of {Document Name}.\"",
+        "escalationPct": 100,
+        "escalationTrigger": "1",
+        "escalationMessage": "USER - SLA Breached - Amendment: \"SLA exceeded for amendment of {Document Name}.\"{br}APPROVER - SLA Breached - Amendment: \"{Assigned USER} has breached SLA on {Document Name} amendment.\"",
+        "blockerPct": 150,
+        "blockerTrigger": "1.5",
+        "blockerMessage": "USER - Workflow Blocked: \"Workflow blocked - {Document Name} amendment pending.\"{br}APPROVER - Workflow Blocked: \"Workflow blocked, assigned to {Assigned USER}.\"{br}ADMIN - Workflow Blocked - Shipment {Shipment No}: \"Blocker - Shipment {Shipment No} halted at extraction amendment.\"",
+    },
+    "documents.approve_draft": {
+        "module": "DOCUMENTS",
+        "subModule": "OCR & Extraction",
+        "activityType": "approve_extraction",
+        "activityName": "Approve Extraction",
+        "taskEnabled": True,
+        "triggerCategory": "document_review",
+        "triggerLogic": "IF extraction.status=='pending_approval'",
+        "taskMessage": "Approval Required - {Document Name} Extraction: \"Extraction pending your approval.{br}Document: {Document Name}{br}Submitted By: {Submitted By}\"",
+        "reminderPct": 50,
+        "reminderTrigger": "0.5",
+        "reminderMessage": "Reminder - Extraction Approval Pending: \"Reminder - extraction approval pending.{br}Time Remaining: {Remaining Time}\"",
+        "warningPct": 75,
+        "warningTrigger": "0.75",
+        "warningMessage": "Warning - SLA Nearing Expiry: \"SLA nearing expiry for extraction approval.\"",
+        "escalationPct": 100,
+        "escalationTrigger": "1",
+        "escalationMessage": "USER - SLA Breached - Extraction Approval: \"SLA exceeded for approval of {Document Name}.\"{br}APPROVER - SLA Breached - Extraction Approval: \"{Assigned USER} has breached SLA on extraction approval.\"",
+        "blockerPct": 150,
+        "blockerTrigger": "1.5",
+        "blockerMessage": "USER - Workflow Blocked: \"Workflow blocked - extraction approval pending.\"{br}APPROVER - Workflow Blocked: \"Workflow blocked, assigned to {Assigned USER}.\"{br}ADMIN - Workflow Blocked - Shipment {Shipment No}: \"Blocker - Shipment {Shipment No} halted at extraction approval.\"",
+    },
+    "documents.fill_manual_fields": {
+        "module": "DOCUMENTS",
+        "subModule": "Generated Documents",
+        "activityType": "fill_manual_fields",
+        "activityName": "Fill Manual Fields",
+        "taskEnabled": True,
+        "triggerCategory": "document_review",
+        "triggerLogic": "IF draft.status=='generated' AND manualFields.completed==false",
+        "taskMessage": "Action Required - Manual Fields Pending for {Document Name}: \"Manual fields pending.{br}Document: {Document Name}{br}Missing Fields: {Field List}\"",
+        "reminderPct": 50,
+        "reminderTrigger": "0.5",
+        "reminderMessage": "Reminder - Manual Fields Pending: \"Reminder - manual fields pending.{br}Time Remaining: {Remaining Time}\"",
+        "warningPct": 75,
+        "warningTrigger": "0.75",
+        "warningMessage": "Warning - SLA Nearing Expiry: \"SLA nearing expiry for manual field entry.\"",
+        "escalationPct": 100,
+        "escalationTrigger": "1",
+        "escalationMessage": "USER - SLA Breached - Manual Fields: \"SLA exceeded for manual fields on {Document Name}.\"{br}APPROVER - SLA Breached - Manual Fields: \"{Assigned USER} has breached SLA on manual field entry.\"",
+        "blockerPct": 150,
+        "blockerTrigger": "1.5",
+        "blockerMessage": "USER - Workflow Blocked: \"Workflow blocked - manual fields pending.\"{br}APPROVER - Workflow Blocked: \"Workflow blocked, assigned to {Assigned USER}.\"{br}ADMIN - Workflow Blocked - Shipment {Shipment No}: \"Blocker - Shipment {Shipment No} halted at manual field entry.\"",
+    },
+    "documents.submit_for_review": {
+        "module": "DOCUMENTS",
+        "subModule": "Generated Documents",
+        "activityType": "submit_for_review",
+        "activityName": "Submit for Review",
+        "taskEnabled": True,
+        "triggerCategory": "document_review",
+        "triggerLogic": "IF draft.status=='generated' AND review.status=='not_submitted'",
+        "taskMessage": "Action Required - Submit {Document Name} for Review: \"Document is ready for review submission.{br}Document: {Document Name}\"",
+        "reminderPct": 50,
+        "reminderTrigger": "0.5",
+        "reminderMessage": "Reminder - Submit for Review Pending: \"Reminder - document submission pending.{br}Time Remaining: {Remaining Time}\"",
+        "warningPct": 75,
+        "warningTrigger": "0.75",
+        "warningMessage": "Warning - SLA Nearing Expiry: \"SLA nearing expiry for review submission.\"",
+        "escalationPct": 100,
+        "escalationTrigger": "1",
+        "escalationMessage": "USER - SLA Breached - Submit for Review: \"SLA exceeded for submitting {Document Name} for review.\"{br}APPROVER - SLA Breached - Submit for Review: \"{Assigned USER} has breached SLA on review submission.\"",
+        "blockerPct": 150,
+        "blockerTrigger": "1.5",
+        "blockerMessage": "USER - Workflow Blocked: \"Workflow blocked - submit for review pending.\"{br}APPROVER - Workflow Blocked: \"Workflow blocked, assigned to {Assigned USER}.\"{br}ADMIN - Workflow Blocked - Shipment {Shipment No}: \"Blocker - Shipment {Shipment No} halted at submit for review.\"",
+    },
+    "documents.approve_generated_document": {
+        "module": "DOCUMENTS",
+        "subModule": "Generated Documents",
+        "activityType": "approve_generated_document",
+        "activityName": "Approve Generated Document",
+        "taskEnabled": True,
+        "triggerCategory": "document_review",
+        "triggerLogic": "IF draft.status=='pending_review'",
+        "taskMessage": "Review Required - {Document Name}: \"Document pending your review.{br}Document: {Document Name}{br}Submitted By: {Submitted By}\"",
+        "reminderPct": 50,
+        "reminderTrigger": "0.5",
+        "reminderMessage": "Reminder - Document Review Pending: \"Reminder - document review pending.{br}Time Remaining: {Remaining Time}\"",
+        "warningPct": 75,
+        "warningTrigger": "0.75",
+        "warningMessage": "Warning - SLA Nearing Expiry: \"SLA nearing expiry for document review.\"",
+        "escalationPct": 100,
+        "escalationTrigger": "1",
+        "escalationMessage": "USER - SLA Breached - Document Review: \"SLA exceeded for review of {Document Name}.\"{br}APPROVER - SLA Breached - Document Review: \"{Assigned USER} has breached SLA on document review.\"",
+        "blockerPct": 150,
+        "blockerTrigger": "1.5",
+        "blockerMessage": "USER - Workflow Blocked: \"Workflow blocked - review pending.\"{br}APPROVER - Workflow Blocked: \"Workflow blocked, assigned to {Assigned USER}.\"{br}ADMIN - Workflow Blocked - Shipment {Shipment No}: \"Blocker - Shipment {Shipment No} halted at document review.\"",
+    },
+    "documents.resolve_validation_failure": {
+        "module": "DOCUMENTS",
+        "subModule": "Validation",
+        "activityType": "resolve_validation_failure",
+        "activityName": "Resolve Validation Failure",
+        "taskEnabled": True,
+        "triggerCategory": "document_review",
+        "triggerLogic": "IF validation.status=='failed'",
+        "taskMessage": "Validation Failed - {Document Name}: \"Validation issues identified in {Document Name}. Please resolve.\"",
+        "reminderPct": 50,
+        "reminderTrigger": "0.5",
+        "reminderMessage": "Reminder - Validation Resolution Pending: \"Reminder - validation resolution pending.{br}Time Remaining: {Remaining Time}\"",
+        "warningPct": 75,
+        "warningTrigger": "0.75",
+        "warningMessage": "Warning - SLA Nearing Expiry: \"SLA nearing expiry for validation resolution.\"",
+        "escalationPct": 100,
+        "escalationTrigger": "1",
+        "escalationMessage": "USER - SLA Breached - Validation: \"SLA exceeded for validation resolution on {Document Name}.\"{br}APPROVER - SLA Breached - Validation: \"{Assigned USER} has breached SLA on validation resolution.\"",
+        "blockerPct": 150,
+        "blockerTrigger": "1.5",
+        "blockerMessage": "USER - Workflow Blocked: \"Workflow blocked - validation unresolved.\"{br}APPROVER - Workflow Blocked: \"Workflow blocked, assigned to {Assigned USER}.\"{br}ADMIN - Workflow Blocked - Shipment {Shipment No}: \"Blocker - Shipment {Shipment No} halted at validation.\"",
+    },
+    "documents.map_container_to_sku": {
+        "module": "DOCUMENTS",
+        "subModule": "Container Mapping",
+        "activityType": "map_container_to_sku",
+        "activityName": "Map Container to SKU",
+        "taskEnabled": True,
+        "triggerCategory": "document_review",
+        "triggerLogic": "IF GR.status=='received' AND mapping.status=='not_started'",
+        "taskMessage": "Action Required - Container-SKU Mapping Pending: \"Container-to-SKU mapping pending.{br}Shipment: {Shipment No}{br}Container: {Container No}\"",
+        "reminderPct": 50,
+        "reminderTrigger": "0.5",
+        "reminderMessage": "Reminder - Mapping Pending: \"Reminder - mapping pending.{br}Time Remaining: {Remaining Time}\"",
+        "warningPct": 75,
+        "warningTrigger": "0.75",
+        "warningMessage": "Warning - SLA Nearing Expiry: \"SLA nearing expiry for container mapping.\"",
+        "escalationPct": 100,
+        "escalationTrigger": "1",
+        "escalationMessage": "USER - SLA Breached - Container Mapping: \"SLA exceeded for container mapping.\"{br}APPROVER - SLA Breached - Container Mapping: \"{Assigned USER} has breached SLA on container mapping.\"",
+        "blockerPct": 150,
+        "blockerTrigger": "1.5",
+        "blockerMessage": "USER - Workflow Blocked: \"Workflow blocked - mapping pending.\"{br}APPROVER - Workflow Blocked: \"Workflow blocked, assigned to {Assigned USER}.\"{br}ADMIN - Workflow Blocked - Shipment {Shipment No}: \"Blocker - Shipment {Shipment No} halted at container mapping.\"",
+    },
+    "documents.approve_container_mapping": {
+        "module": "DOCUMENTS",
+        "subModule": "Container Mapping",
+        "activityType": "approve_container_mapping",
+        "activityName": "Approve Container Mapping",
+        "taskEnabled": True,
+        "triggerCategory": "document_review",
+        "triggerLogic": "IF mapping.status=='pending_approval'",
+        "taskMessage": "Approval Required - Container Mapping: \"Mapping pending your approval.{br}Submitted By: {Submitted By}\"",
+        "reminderPct": 50,
+        "reminderTrigger": "0.5",
+        "reminderMessage": "Reminder - Mapping Approval Pending: \"Reminder - mapping approval pending.{br}Time Remaining: {Remaining Time}\"",
+        "warningPct": 75,
+        "warningTrigger": "0.75",
+        "warningMessage": "Warning - SLA Nearing Expiry: \"SLA nearing expiry for mapping approval.\"",
+        "escalationPct": 100,
+        "escalationTrigger": "1",
+        "escalationMessage": "USER - SLA Breached - Mapping Approval: \"SLA exceeded for mapping approval.\"{br}APPROVER - SLA Breached - Mapping Approval: \"{Assigned USER} has breached SLA on mapping approval.\"",
+        "blockerPct": 150,
+        "blockerTrigger": "1.5",
+        "blockerMessage": "USER - Workflow Blocked: \"Workflow blocked - mapping approval pending.\"{br}APPROVER - Workflow Blocked: \"Workflow blocked, assigned to {Assigned USER}.\"{br}ADMIN - Workflow Blocked - Shipment {Shipment No}: \"Blocker - Shipment {Shipment No} halted at mapping approval.\"",
+    },
+    "inventory.create_outward_grn_new_dispatch": {
+        "module": "INVENTORY",
+        "subModule": "Outward",
+        "activityType": "create_outward_grn_new_dispatch",
+        "activityName": "Create Outward GRN / New Dispatch",
+        "taskEnabled": True,
+        "triggerCategory": "milestone_update",
+        "triggerLogic": "IF dispatchRequest.status=='initiated' AND outwardGRN.exists==false",
+        "taskMessage": "Action Required - Dispatch Pending: \"Outward dispatch (GRN) needs to be created.{br}Shipment: {Shipment No}{br}SKU(s): {SKU List}\"",
+        "reminderPct": 50,
+        "warningPct": 75,
+        "escalationPct": 100,
+        "blockerPct": 150,
+    },
+    "inventory.approve_dispatch": {
+        "module": "INVENTORY",
+        "subModule": "Outward",
+        "activityType": "approve_dispatch",
+        "activityName": "Approve Dispatch",
+        "taskEnabled": True,
+        "triggerCategory": "milestone_update",
+        "triggerLogic": "IF outwardGRN.status=='pending_approval'",
+        "taskMessage": "Approval Required - Outward Dispatch: \"Dispatch pending your approval.{br}GRN: {GRN No}{br}Submitted By: {Submitted By}\"",
+        "reminderPct": 50,
+        "warningPct": 75,
+        "escalationPct": 100,
+        "blockerPct": 150,
+    },
+    "inventory.3_way_recon": {
+        "module": "INVENTORY",
+        "subModule": "Reconciliation",
+        "activityType": "three_way_recon",
+        "activityName": "3-Way Recon",
+        "taskEnabled": True,
+        "triggerCategory": "document_review",
+        "triggerLogic": "IF SI.status=='approved' AND GRN.status=='approved' AND invoice.status=='approved' AND recon.status=='not_started'",
+        "taskMessage": "Action Required - 3-Way Reconciliation: \"3-Way Reconciliation is pending.{br}Shipment: {Shipment No}\"",
+        "reminderPct": 50,
+        "warningPct": 75,
+        "escalationPct": 100,
+        "blockerPct": 150,
+    },
+    "inventory.returned": {
+        "module": "INVENTORY",
+        "subModule": "GRN Inbound",
+        "activityType": "returned_delivered_gr_pod",
+        "activityName": "Returned / Delivered (GR/POD)",
+        "taskEnabled": True,
+        "triggerCategory": "milestone_update",
+        "reminderPct": 50,
+        "warningPct": 75,
+        "escalationPct": 100,
+        "blockerPct": 150,
+    },
+    "inventory.delivered": {
+        "module": "INVENTORY",
+        "subModule": "GRN Inbound",
+        "activityType": "returned_delivered_gr_pod",
+        "activityName": "Returned / Delivered (GR/POD)",
+        "taskEnabled": True,
+        "triggerCategory": "milestone_update",
+        "reminderPct": 50,
+        "warningPct": 75,
+        "escalationPct": 100,
+        "blockerPct": 150,
+    },
+    "dnd.tariff.view": {
+        "module": "D&D",
+        "subModule": "Tariff",
+        "activityType": "tariff_not_configured_expired",
+        "activityName": "Tariff Not Configured/Expired",
+        "taskEnabled": False,
+        "triggerCategory": "dnd_acknowledgment",
+        "reminderPct": 50,
+        "warningPct": 75,
+        "escalationPct": 100,
+    },
+    "inventory.view_last_free_days_shipment_based": {
+        "module": "D&D",
+        "subModule": "LFD",
+        "activityType": "approaching_demurrage_detention_lfd",
+        "activityName": "Approaching Demurrage/Detention LFD",
+        "taskEnabled": False,
+        "triggerCategory": "dnd_acknowledgment",
+        "reminderTrigger": "Native 3-day",
+        "warningTrigger": "Native 1-day",
+        "escalationTrigger": "0-day",
+        "reminderPct": 50,
+        "warningPct": 75,
+        "escalationPct": 100,
+    },
+    "inventory.view_dnd_charges": {
+        "module": "D&D",
+        "subModule": "Charges",
+        "activityType": "dnd_charges_started",
+        "activityName": "D&D Charges Started",
+        "taskEnabled": False,
+        "triggerCategory": "dnd_acknowledgment",
+        "escalationTrigger": "Immediate",
+        "reminderPct": 0,
+        "warningPct": 0,
+        "escalationPct": 100,
+    },
+}
+
+for activity_code, trigger_config in TRIGGER_SLA_CONFIG_BY_CODE.items():
+    SLA_ACTIVITY_CONFIG_BY_CODE.setdefault(activity_code, {})
+    SLA_ACTIVITY_CONFIG_BY_CODE[activity_code].update({
+        "activityType": str(trigger_config.get("activityType") or activity_code.replace(".", "_")),
+        "activityName": str(trigger_config.get("activityName") or activity_code),
+        "description": str(trigger_config.get("triggerLogic") or ""),
+        "baseDoc": SLA_ACTIVITY_CONFIG_BY_CODE.get(activity_code, {}).get("baseDoc", ""),
+    })
+
 SLA_ELIGIBLE_ACTIVITY_ROWS: list[tuple[str, str, str, str]] = [
     ("Document", "Upload Document", "SCOPE OF DOCS BASED - every doc to have a SLA", "Doc names"),
     ("Generated Documents", "Fill Manual Fields", "Scope -3 docs", GENERATED_DOCUMENT_SOURCE_DOCS),
@@ -1082,18 +1486,37 @@ def _slug(value: str) -> str:
 
 def _escalation_config_from_sla_row(index: int, scope: str, activity_name: str, description: str, base_doc: str) -> dict[str, Any]:
     activity_type = _slug(activity_name)
+    trigger_config = next(
+        (
+            config for config in TRIGGER_SLA_CONFIG_BY_CODE.values()
+            if str(config.get("activityType") or "") == activity_type
+        ),
+        {},
+    )
     return {
         "id": f"sla_{index:03d}_{activity_type}",
         "activityType": activity_type,
         "activityName": activity_name,
-        "description": description,
+        "description": description or str(trigger_config.get("triggerLogic") or ""),
         "scope": scope,
         "baseDoc": base_doc,
         "baseSlaHours": 24,
-        "reminderPct": 0,
-        "warningPct": 50,
-        "escalationPct": 75,
-        "blockerPct": 100,
+        "reminderPct": int(trigger_config.get("reminderPct", 0)),
+        "warningPct": int(trigger_config.get("warningPct", 50)),
+        "escalationPct": int(trigger_config.get("escalationPct", 75)),
+        "blockerPct": int(trigger_config.get("blockerPct", 100)),
+        "taskEnabled": bool(trigger_config.get("taskEnabled", True)),
+        "triggerCategory": str(trigger_config.get("triggerCategory") or ""),
+        "triggerLogic": str(trigger_config.get("triggerLogic") or ""),
+        "taskMessage": str(trigger_config.get("taskMessage") or ""),
+        "reminderMessage": str(trigger_config.get("reminderMessage") or ""),
+        "warningMessage": str(trigger_config.get("warningMessage") or ""),
+        "escalationMessage": str(trigger_config.get("escalationMessage") or ""),
+        "blockerMessage": str(trigger_config.get("blockerMessage") or ""),
+        "reminderTrigger": str(trigger_config.get("reminderTrigger") or ""),
+        "warningTrigger": str(trigger_config.get("warningTrigger") or ""),
+        "escalationTrigger": str(trigger_config.get("escalationTrigger") or ""),
+        "blockerTrigger": str(trigger_config.get("blockerTrigger") or ""),
         "channels": DEFAULT_ESCALATION_CHANNELS,
         "targets": {},
     }
@@ -1129,6 +1552,18 @@ def _escalation_row_to_config(row: dict[str, Any]) -> dict[str, Any]:
         "warningPct": int(row.get("warning_pct") or 50),
         "escalationPct": int(row.get("escalation_pct") or 75),
         "blockerPct": int(row.get("blocker_pct") or 100),
+        "taskEnabled": bool(row.get("task_enabled", True)),
+        "triggerCategory": row.get("trigger_category") or "",
+        "triggerLogic": row.get("trigger_logic") or "",
+        "taskMessage": row.get("task_message") or "",
+        "reminderMessage": row.get("reminder_message") or "",
+        "warningMessage": row.get("warning_message") or "",
+        "escalationMessage": row.get("escalation_message") or "",
+        "blockerMessage": row.get("blocker_message") or "",
+        "reminderTrigger": row.get("reminder_trigger") or "",
+        "warningTrigger": row.get("warning_trigger") or "",
+        "escalationTrigger": row.get("escalation_trigger") or "",
+        "blockerTrigger": row.get("blocker_trigger") or "",
         "channels": channels or DEFAULT_ESCALATION_CHANNELS,
         "targets": targets or {},
     }
@@ -1336,6 +1771,7 @@ def _activity_sla_from_request(request: RoleProfileRequest) -> list[dict[str, An
         base_sla_hours = float(item.baseSlaHours or 0)
         if base_sla_hours <= 0:
             continue
+        trigger_config = TRIGGER_SLA_CONFIG_BY_CODE.get(activity_code, {})
         rows.append({
             "activityCode": activity_code,
             "activityType": activity_type,
@@ -1344,10 +1780,24 @@ def _activity_sla_from_request(request: RoleProfileRequest) -> list[dict[str, An
             "scope": scope,
             "baseDoc": base_doc,
             "baseSlaHours": base_sla_hours,
-            "reminderPct": max(0, min(100, int(item.reminderPct))),
-            "warningPct": max(0, min(100, int(item.warningPct))),
-            "escalationPct": max(0, min(100, int(item.escalationPct))),
-            "blockerPct": max(0, min(100, int(item.blockerPct))),
+            "reminderPct": max(0, min(500, int(item.reminderPct))),
+            "warningPct": max(0, min(500, int(item.warningPct))),
+            "escalationPct": max(0, min(500, int(item.escalationPct))),
+            "blockerPct": max(0, min(500, int(item.blockerPct))),
+            "module": item.module or trigger_config.get("module") or "",
+            "subModule": item.subModule or trigger_config.get("subModule") or "",
+            "taskEnabled": bool(item.taskEnabled if item.taskEnabled is not None else trigger_config.get("taskEnabled", True)),
+            "triggerCategory": item.triggerCategory or trigger_config.get("triggerCategory") or "",
+            "triggerLogic": item.triggerLogic or trigger_config.get("triggerLogic") or "",
+            "taskMessage": item.taskMessage or trigger_config.get("taskMessage") or "",
+            "reminderMessage": item.reminderMessage or trigger_config.get("reminderMessage") or "",
+            "warningMessage": item.warningMessage or trigger_config.get("warningMessage") or "",
+            "escalationMessage": item.escalationMessage or trigger_config.get("escalationMessage") or "",
+            "blockerMessage": item.blockerMessage or trigger_config.get("blockerMessage") or "",
+            "reminderTrigger": item.reminderTrigger or trigger_config.get("reminderTrigger") or "",
+            "warningTrigger": item.warningTrigger or trigger_config.get("warningTrigger") or "",
+            "escalationTrigger": item.escalationTrigger or trigger_config.get("escalationTrigger") or "",
+            "blockerTrigger": item.blockerTrigger or trigger_config.get("blockerTrigger") or "",
         })
     return rows
 
@@ -1400,7 +1850,7 @@ def _validate_role_activity_sla(request: RoleProfileRequest, activity_sla: list[
                 row.get("escalationPct"),
                 row.get("blockerPct"),
             ]
-            if any(not isinstance(value, int) or value < 0 or value > 100 for value in thresholds):
+            if any(not isinstance(value, int) or value < 0 or value > 500 for value in thresholds):
                 invalid.append(label)
     if missing:
         raise HTTPException(status_code=400, detail=f"Missing SLA for: {', '.join(missing)}")
@@ -1434,7 +1884,29 @@ def _enabled_activity_codes_from_request(request: RoleProfileRequest) -> set[str
             continue
         if module in modules or (module == "admin" and "settings" in modules) or ("partner" in modules and module in {"documents", "shipments", "inventory", "warehouse"}):
             enabled.add(code)
+    for module in modules:
+        openers = MODULE_OPENING_ACTIVITY_CODES.get(module, ())
+        if openers and not any(opener in enabled for opener in openers):
+            enabled.add(openers[0])
     return enabled
+
+
+def _ensure_module_opening_activities_for_modules(activity_codes: list[str], modules: list[str]) -> list[str]:
+    enabled = {str(code).strip() for code in activity_codes if str(code).strip() and str(code).strip() in ACTIVITY_MODULES}
+    module_set = {str(module).strip() for module in modules if str(module).strip()}
+    enabled = {
+        code for code in enabled
+        if (
+            ACTIVITY_MODULES.get(code) in module_set
+            or (ACTIVITY_MODULES.get(code) == "admin" and "settings" in module_set)
+            or ("partner" in module_set and ACTIVITY_MODULES.get(code) in {"documents", "shipments", "inventory", "warehouse"})
+        )
+    }
+    for module in module_set:
+        openers = MODULE_OPENING_ACTIVITY_CODES.get(module, ())
+        if openers and not any(opener in enabled for opener in openers):
+            enabled.add(openers[0])
+    return sorted(enabled)
 
 
 def _keycloak_attr_values(values: list[Any] | tuple[Any, ...] | set[Any] | None) -> list[str]:
@@ -1450,7 +1922,10 @@ def _role_profile_from_keycloak(role: dict, *, user_count: int = 0, detail: bool
     is_admin_default_role = default_key in {"Super Admin", "Org Admin"}
     modules = ALL_ADMIN_MODULE_CODES if is_admin_default_role else (_attr_values(attrs, "ewms.modules") or list(defaults.get("defaultModules", [])))
     levels = ["L4"] if is_admin_default_role else (_attr_values(attrs, "ewms.levels") or list(defaults.get("allowedLevels", [])))
-    activity_codes = ALL_ADMIN_ACTIVITY_CODES if is_admin_default_role else (_attr_values(attrs, "ewms.activities") or list(defaults.get("activityCodes", [])))
+    activity_codes = ALL_ADMIN_ACTIVITY_CODES if is_admin_default_role else _ensure_module_opening_activities_for_modules(
+        _attr_values(attrs, "ewms.activities") or list(defaults.get("activityCodes", [])),
+        modules,
+    )
     document_scope = _attr_values(attrs, "ewms.documentScope") or _default_document_scope(role_name, defaults)
     doc_type_scopes = _parse_doc_type_scopes(attrs)
     activity_sla = _parse_activity_sla(attrs)
@@ -1785,6 +2260,19 @@ async def _ensure_warehouse_locations_table(prisma) -> None:
         )
         """,
     )
+    for ddl in [
+        'ALTER TABLE "public"."warehouse_locations" ADD COLUMN IF NOT EXISTS "address" TEXT',
+        'ALTER TABLE "public"."warehouse_locations" ADD COLUMN IF NOT EXISTS "firms_code" TEXT',
+        'ALTER TABLE "public"."warehouse_locations" ADD COLUMN IF NOT EXISTS "partner_org_id" TEXT',
+        'ALTER TABLE "public"."warehouse_locations" ADD COLUMN IF NOT EXISTS "inbound_sla_hrs" DOUBLE PRECISION',
+        'ALTER TABLE "public"."warehouse_locations" ADD COLUMN IF NOT EXISTS "outbound_sla_hrs" DOUBLE PRECISION',
+        'ALTER TABLE "public"."warehouse_locations" ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN NOT NULL DEFAULT TRUE',
+        'ALTER TABLE "public"."warehouse_locations" ADD COLUMN IF NOT EXISTS "qc_checklist" JSONB',
+        'ALTER TABLE "public"."warehouse_locations" ADD COLUMN IF NOT EXISTS "location_type" TEXT NOT NULL DEFAULT \'WAREHOUSE\'',
+        'ALTER TABLE "public"."warehouse_locations" ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+        'ALTER TABLE "public"."warehouse_locations" ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()',
+    ]:
+        await _execute_raw(prisma, ddl)
     await _execute_raw(
         prisma,
         """
@@ -1862,6 +2350,18 @@ async def _ensure_escalation_config_table(prisma) -> None:
           "warning_pct" INTEGER NOT NULL DEFAULT 50,
           "escalation_pct" INTEGER NOT NULL DEFAULT 75,
           "blocker_pct" INTEGER NOT NULL DEFAULT 100,
+          "task_enabled" BOOLEAN NOT NULL DEFAULT TRUE,
+          "trigger_category" TEXT NOT NULL DEFAULT '',
+          "trigger_logic" TEXT NOT NULL DEFAULT '',
+          "task_message" TEXT NOT NULL DEFAULT '',
+          "reminder_message" TEXT NOT NULL DEFAULT '',
+          "warning_message" TEXT NOT NULL DEFAULT '',
+          "escalation_message" TEXT NOT NULL DEFAULT '',
+          "blocker_message" TEXT NOT NULL DEFAULT '',
+          "reminder_trigger" TEXT NOT NULL DEFAULT '',
+          "warning_trigger" TEXT NOT NULL DEFAULT '',
+          "escalation_trigger" TEXT NOT NULL DEFAULT '',
+          "blocker_trigger" TEXT NOT NULL DEFAULT '',
           "channels" JSONB NOT NULL DEFAULT '{}'::jsonb,
           "targets" JSONB NOT NULL DEFAULT '{}'::jsonb,
           "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -1869,6 +2369,21 @@ async def _ensure_escalation_config_table(prisma) -> None:
         )
         """,
     )
+    for ddl in [
+        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "task_enabled" BOOLEAN NOT NULL DEFAULT TRUE',
+        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "trigger_category" TEXT NOT NULL DEFAULT \'\'',
+        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "trigger_logic" TEXT NOT NULL DEFAULT \'\'',
+        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "task_message" TEXT NOT NULL DEFAULT \'\'',
+        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "reminder_message" TEXT NOT NULL DEFAULT \'\'',
+        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "warning_message" TEXT NOT NULL DEFAULT \'\'',
+        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "escalation_message" TEXT NOT NULL DEFAULT \'\'',
+        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "blocker_message" TEXT NOT NULL DEFAULT \'\'',
+        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "reminder_trigger" TEXT NOT NULL DEFAULT \'\'',
+        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "warning_trigger" TEXT NOT NULL DEFAULT \'\'',
+        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "escalation_trigger" TEXT NOT NULL DEFAULT \'\'',
+        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "blocker_trigger" TEXT NOT NULL DEFAULT \'\'',
+    ]:
+        await _execute_raw(prisma, ddl)
     await _execute_raw(
         prisma,
         """
@@ -1894,14 +2409,37 @@ async def _seed_default_escalation_configs(prisma) -> None:
             INSERT INTO "public"."escalation_configs" (
               "id", "activity_type", "activity_name", "description", "scope", "base_doc",
               "base_sla_hours", "reminder_pct", "warning_pct", "escalation_pct", "blocker_pct",
+              "task_enabled", "trigger_category", "trigger_logic", "task_message", "reminder_message",
+              "warning_message", "escalation_message", "blocker_message", "reminder_trigger",
+              "warning_trigger", "escalation_trigger", "blocker_trigger",
               "channels", "targets"
             )
             VALUES (
               $1, $2, $3, $4, $5, $6,
               $7, $8, $9, $10, $11,
-              $12::jsonb, $13::jsonb
+              $12, $13, $14, $15, $16,
+              $17, $18, $19, $20,
+              $21, $22, $23,
+              $24::jsonb, $25::jsonb
             )
-            ON CONFLICT ("id") DO NOTHING
+            ON CONFLICT ("id") DO UPDATE
+            SET "reminder_pct" = EXCLUDED."reminder_pct",
+                "warning_pct" = EXCLUDED."warning_pct",
+                "escalation_pct" = EXCLUDED."escalation_pct",
+                "blocker_pct" = EXCLUDED."blocker_pct",
+                "task_enabled" = EXCLUDED."task_enabled",
+                "trigger_category" = EXCLUDED."trigger_category",
+                "trigger_logic" = EXCLUDED."trigger_logic",
+                "task_message" = EXCLUDED."task_message",
+                "reminder_message" = EXCLUDED."reminder_message",
+                "warning_message" = EXCLUDED."warning_message",
+                "escalation_message" = EXCLUDED."escalation_message",
+                "blocker_message" = EXCLUDED."blocker_message",
+                "reminder_trigger" = EXCLUDED."reminder_trigger",
+                "warning_trigger" = EXCLUDED."warning_trigger",
+                "escalation_trigger" = EXCLUDED."escalation_trigger",
+                "blocker_trigger" = EXCLUDED."blocker_trigger",
+                "updated_at" = NOW()
             """,
             str(item["id"]),
             str(item["activityType"]),
@@ -1914,6 +2452,18 @@ async def _seed_default_escalation_configs(prisma) -> None:
             int(item.get("warningPct") or 50),
             int(item.get("escalationPct") or 75),
             int(item.get("blockerPct") or 100),
+            bool(item.get("taskEnabled", True)),
+            str(item.get("triggerCategory") or ""),
+            str(item.get("triggerLogic") or ""),
+            str(item.get("taskMessage") or ""),
+            str(item.get("reminderMessage") or ""),
+            str(item.get("warningMessage") or ""),
+            str(item.get("escalationMessage") or ""),
+            str(item.get("blockerMessage") or ""),
+            str(item.get("reminderTrigger") or ""),
+            str(item.get("warningTrigger") or ""),
+            str(item.get("escalationTrigger") or ""),
+            str(item.get("blockerTrigger") or ""),
             json.dumps(item.get("channels") or DEFAULT_ESCALATION_CHANNELS),
             json.dumps(item.get("targets") or {}),
         )
@@ -2015,6 +2565,18 @@ async def _upsert_activity_sla_configs(prisma, activity_sla: list[dict[str, Any]
             "warningPct": int(item.get("warningPct") if item.get("warningPct") is not None else (existing or {}).get("warningPct", 50)),
             "escalationPct": int(item.get("escalationPct") if item.get("escalationPct") is not None else (existing or {}).get("escalationPct", 75)),
             "blockerPct": int(item.get("blockerPct") if item.get("blockerPct") is not None else (existing or {}).get("blockerPct", 100)),
+            "taskEnabled": bool(item.get("taskEnabled") if item.get("taskEnabled") is not None else (existing or {}).get("taskEnabled", True)),
+            "triggerCategory": item.get("triggerCategory") or (existing or {}).get("triggerCategory") or "",
+            "triggerLogic": item.get("triggerLogic") or (existing or {}).get("triggerLogic") or "",
+            "taskMessage": item.get("taskMessage") or (existing or {}).get("taskMessage") or "",
+            "reminderMessage": item.get("reminderMessage") or (existing or {}).get("reminderMessage") or "",
+            "warningMessage": item.get("warningMessage") or (existing or {}).get("warningMessage") or "",
+            "escalationMessage": item.get("escalationMessage") or (existing or {}).get("escalationMessage") or "",
+            "blockerMessage": item.get("blockerMessage") or (existing or {}).get("blockerMessage") or "",
+            "reminderTrigger": item.get("reminderTrigger") or (existing or {}).get("reminderTrigger") or "",
+            "warningTrigger": item.get("warningTrigger") or (existing or {}).get("warningTrigger") or "",
+            "escalationTrigger": item.get("escalationTrigger") or (existing or {}).get("escalationTrigger") or "",
+            "blockerTrigger": item.get("blockerTrigger") or (existing or {}).get("blockerTrigger") or "",
             "channels": (existing or {}).get("channels") or DEFAULT_ESCALATION_CHANNELS,
             "targets": (existing or {}).get("targets") or {},
         }
@@ -2024,12 +2586,18 @@ async def _upsert_activity_sla_configs(prisma, activity_sla: list[dict[str, Any]
             INSERT INTO "public"."escalation_configs" (
               "id", "activity_type", "activity_name", "description", "scope", "base_doc",
               "base_sla_hours", "reminder_pct", "warning_pct", "escalation_pct", "blocker_pct",
+              "task_enabled", "trigger_category", "trigger_logic", "task_message", "reminder_message",
+              "warning_message", "escalation_message", "blocker_message", "reminder_trigger",
+              "warning_trigger", "escalation_trigger", "blocker_trigger",
               "channels", "targets"
             )
             VALUES (
               $1, $2, $3, $4, $5, $6,
               $7, $8, $9, $10, $11,
-              $12::jsonb, $13::jsonb
+              $12, $13, $14, $15, $16,
+              $17, $18, $19, $20,
+              $21, $22, $23,
+              $24::jsonb, $25::jsonb
             )
             ON CONFLICT ("id") DO UPDATE
             SET "activity_type" = EXCLUDED."activity_type",
@@ -2042,6 +2610,18 @@ async def _upsert_activity_sla_configs(prisma, activity_sla: list[dict[str, Any]
                 "warning_pct" = EXCLUDED."warning_pct",
                 "escalation_pct" = EXCLUDED."escalation_pct",
                 "blocker_pct" = EXCLUDED."blocker_pct",
+                "task_enabled" = EXCLUDED."task_enabled",
+                "trigger_category" = EXCLUDED."trigger_category",
+                "trigger_logic" = EXCLUDED."trigger_logic",
+                "task_message" = EXCLUDED."task_message",
+                "reminder_message" = EXCLUDED."reminder_message",
+                "warning_message" = EXCLUDED."warning_message",
+                "escalation_message" = EXCLUDED."escalation_message",
+                "blocker_message" = EXCLUDED."blocker_message",
+                "reminder_trigger" = EXCLUDED."reminder_trigger",
+                "warning_trigger" = EXCLUDED."warning_trigger",
+                "escalation_trigger" = EXCLUDED."escalation_trigger",
+                "blocker_trigger" = EXCLUDED."blocker_trigger",
                 "channels" = EXCLUDED."channels",
                 "targets" = EXCLUDED."targets",
                 "updated_at" = NOW()
@@ -2057,6 +2637,18 @@ async def _upsert_activity_sla_configs(prisma, activity_sla: list[dict[str, Any]
             int(current["warningPct"]),
             int(current["escalationPct"]),
             int(current["blockerPct"]),
+            bool(current["taskEnabled"]),
+            str(current["triggerCategory"]),
+            str(current["triggerLogic"]),
+            str(current["taskMessage"]),
+            str(current["reminderMessage"]),
+            str(current["warningMessage"]),
+            str(current["escalationMessage"]),
+            str(current["blockerMessage"]),
+            str(current["reminderTrigger"]),
+            str(current["warningTrigger"]),
+            str(current["escalationTrigger"]),
+            str(current["blockerTrigger"]),
             json.dumps(current["channels"]),
             json.dumps(current["targets"]),
         )
@@ -2161,7 +2753,7 @@ async def list_admin_ticket_categories(_user=Depends(get_admin_user)):
 
 @router.get("/registries/modules")
 @legacy_router.get("/registries/modules")
-async def list_admin_modules(_user=Depends(get_admin_user)):
+async def list_admin_modules(_user=Depends(get_admin_user), _authz=Depends(require_any_activity("admin.manage", "roles.view", "users.manage"))):
     return {"ok": True, "data": MODULE_DEFINITIONS}
 
 
@@ -2173,10 +2765,10 @@ async def list_admin_organisations(_user=Depends(get_admin_user)):
 
 @router.get("/teams")
 @legacy_router.get("/teams")
-async def list_admin_teams(_user=Depends(get_admin_user)):
+async def list_admin_teams(_user=Depends(get_admin_user), _authz=Depends(require_any_activity("admin.manage", "users.manage", "admin.manage_users"))):
     keycloak_admin = get_keycloak_admin()
     try:
-        groups = _safe_keycloak_groups(keycloak_admin)
+        groups = keycloak_admin.get_groups({})
         rows = []
         for group in groups:
             attrs = group.get("attributes") or {}
@@ -2186,13 +2778,13 @@ async def list_admin_teams(_user=Depends(get_admin_user)):
             rows.append(_team_row(group, user_count=len(members or [])))
         rows.sort(key=lambda item: item["name"].lower())
         return {"ok": True, "data": rows}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Could not load Keycloak teams: {exc}")
+    except Exception:
+        return {"ok": True, "data": []}
 
 
 @router.post("/teams")
 @legacy_router.post("/teams")
-async def create_admin_team(request: TeamRequest, _user=Depends(get_admin_user)):
+async def create_admin_team(request: TeamRequest, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("users.manage", "admin.manage_users"))):
     if not request.name.strip():
         return {"ok": False, "error": "Team name is required."}
     keycloak_admin = get_keycloak_admin()
@@ -2209,7 +2801,7 @@ async def create_admin_team(request: TeamRequest, _user=Depends(get_admin_user))
 
 @router.put("/teams/{team_id}")
 @legacy_router.put("/teams/{team_id}")
-async def update_admin_team(team_id: str, request: TeamRequest, _user=Depends(get_admin_user)):
+async def update_admin_team(team_id: str, request: TeamRequest, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("users.manage", "admin.manage_users"))):
     if not request.name.strip():
         return {"ok": False, "error": "Team name is required."}
     keycloak_admin = get_keycloak_admin()
@@ -2225,7 +2817,7 @@ async def update_admin_team(team_id: str, request: TeamRequest, _user=Depends(ge
 
 @router.delete("/teams/{team_id}")
 @legacy_router.delete("/teams/{team_id}")
-async def delete_admin_team(team_id: str, _user=Depends(get_admin_user)):
+async def delete_admin_team(team_id: str, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("users.manage", "admin.manage_users"))):
     keycloak_admin = get_keycloak_admin()
     try:
         members = keycloak_admin.get_group_members(team_id)
@@ -2239,13 +2831,13 @@ async def delete_admin_team(team_id: str, _user=Depends(get_admin_user)):
 
 @router.get("/activities")
 @legacy_router.get("/activities")
-async def list_admin_activities(_user=Depends(get_admin_user)):
+async def list_admin_activities(_user=Depends(get_admin_user), _authz=Depends(require_any_activity("roles.view", "roles.manage", "admin.configure_roles", "admin.manage"))):
     return {"ok": True, "data": ACTIVITY_DEFINITIONS}
 
 
 @router.get("/activities/sla")
 @legacy_router.get("/activities/sla")
-async def list_admin_activity_sla(_user=Depends(get_admin_user)):
+async def list_admin_activity_sla(_user=Depends(get_admin_user), _authz=Depends(require_any_activity("roles.view", "roles.manage", "admin.configure_roles", "admin.manage"))):
     prisma = await get_prisma()
     configs = await _list_escalation_configs(prisma)
     by_activity_scope = {
@@ -2409,14 +3001,14 @@ async def update_admin_warehouse_qc_checklist(
 
 @router.get("/escalation")
 @legacy_router.get("/escalation")
-async def list_admin_escalation(_user=Depends(get_admin_user)):
+async def list_admin_escalation(_user=Depends(get_admin_user), _authz=Depends(require_any_activity("roles.view", "roles.manage", "admin.manage"))):
     prisma = await get_prisma()
     return {"ok": True, "data": await _list_escalation_configs(prisma)}
 
 
 @router.post("/escalation")
 @legacy_router.post("/escalation")
-async def create_admin_escalation(request: EscalationConfigRequest, _user=Depends(get_admin_user)):
+async def create_admin_escalation(request: EscalationConfigRequest, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("roles.manage", "admin.configure_roles", "admin.manage"))):
     prisma = await get_prisma()
     data = request.model_dump(exclude_unset=True)
     activity_type = str(data.get("activityType") or "").strip()
@@ -2474,7 +3066,7 @@ async def create_admin_escalation(request: EscalationConfigRequest, _user=Depend
 
 @router.put("/escalation/{config_id}")
 @legacy_router.put("/escalation/{config_id}")
-async def update_admin_escalation(config_id: str, request: EscalationConfigRequest, _user=Depends(get_admin_user)):
+async def update_admin_escalation(config_id: str, request: EscalationConfigRequest, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("roles.manage", "admin.configure_roles", "admin.manage"))):
     prisma = await get_prisma()
     current = await _get_escalation_config(prisma, config_id)
     if not current:
@@ -2521,7 +3113,7 @@ async def update_admin_escalation(config_id: str, request: EscalationConfigReque
 
 @router.delete("/escalation/{config_id}")
 @legacy_router.delete("/escalation/{config_id}")
-async def delete_admin_escalation(config_id: str, _user=Depends(get_admin_user)):
+async def delete_admin_escalation(config_id: str, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("roles.manage", "admin.configure_roles", "admin.manage"))):
     prisma = await get_prisma()
     current = await _get_escalation_config(prisma, config_id)
     if not current:
@@ -2552,27 +3144,24 @@ async def delete_admin_escalation(config_id: str, _user=Depends(get_admin_user))
 
 @router.get("/partners")
 @legacy_router.get("/partners")
-async def list_admin_partners(_user=Depends(get_admin_user)):
+async def list_admin_partners(_user=Depends(get_admin_user), _authz=Depends(require_any_activity("admin.manage_partners", "admin.manage"))):
     return {"ok": True, "data": []}
 
 
 @router.get("/settings/team-overview")
 @legacy_router.get("/settings/team-overview")
-async def get_team_overview(_user=Depends(get_admin_user)):
+async def get_team_overview(_user=Depends(get_admin_user), _authz=Depends(require_any_activity("users.manage", "admin.manage_users", "admin.manage"))):
     keycloak_admin = get_keycloak_admin()
     try:
-        users = _safe_keycloak_users(keycloak_admin)
-        groups = _safe_keycloak_groups(keycloak_admin)
+        users = keycloak_admin.get_users({})
+        groups = keycloak_admin.get_groups({})
         active_users = [user for user in users if user.get("enabled", False)]
         admin_users = 0
         partner_users = 0
         override_users = 0
         for user in active_users:
-            try:
-                user = keycloak_admin.get_user(user["id"])
-                assigned_roles = keycloak_admin.get_realm_roles_of_user(user["id"])
-            except Exception:
-                continue
+            user = keycloak_admin.get_user(user["id"])
+            assigned_roles = keycloak_admin.get_realm_roles_of_user(user["id"])
             role_names = [str(role.get("name") or "") for role in assigned_roles]
             local_role = _local_role_from_keycloak_roles(role_names, str(user.get("email") or ""))
             if local_role in {"ADMIN", "SUPER_ADMIN"}:
@@ -2611,7 +3200,7 @@ async def get_team_overview(_user=Depends(get_admin_user)):
 
 @router.get("/settings/access-audit")
 @legacy_router.get("/settings/access-audit")
-async def list_access_audit(_user=Depends(get_admin_user)):
+async def list_access_audit(_user=Depends(get_admin_user), _authz=Depends(require_any_activity("admin.view_audit_log", "admin.manage"))):
     prisma = await get_prisma()
     try:
         await prisma.execute_raw(
@@ -2659,13 +3248,13 @@ async def list_access_audit(_user=Depends(get_admin_user)):
 
 @router.get("/delegations")
 @legacy_router.get("/delegations")
-async def list_admin_delegations(_user=Depends(get_admin_user)):
+async def list_admin_delegations(_user=Depends(get_admin_user), _authz=Depends(require_any_activity("users.manage", "admin.manage_users", "admin.manage"))):
     return {"ok": True, "data": []}
 
 
 @router.post("/users/{user_id}/delegate")
 @legacy_router.post("/users/{user_id}/delegate")
-async def create_admin_delegation(user_id: str, request: DelegationRequest, _user=Depends(get_admin_user)):
+async def create_admin_delegation(user_id: str, request: DelegationRequest, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("users.manage", "admin.manage_users"))):
     return {
         "ok": True,
         "data": {
@@ -2683,15 +3272,18 @@ async def create_admin_delegation(user_id: str, request: DelegationRequest, _use
 
 @router.delete("/delegations/{delegation_id}")
 @legacy_router.delete("/delegations/{delegation_id}")
-async def delete_admin_delegation(delegation_id: str, _user=Depends(get_admin_user)):
+async def delete_admin_delegation(delegation_id: str, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("users.manage", "admin.manage_users"))):
     return {"ok": True}
 
 
 @router.get("/settings/setup-status")
 @legacy_router.get("/settings/setup-status")
 async def get_admin_setup_status(_user=Depends(get_admin_user)):
-    prisma = await get_prisma()
-    await _load_validation_rule_overrides_from_db(prisma)
+    try:
+        prisma = await get_prisma()
+        await _load_validation_rule_overrides_from_db(prisma)
+    except Exception:
+        pass
     return {
         "ok": True,
         "data": {
@@ -2714,7 +3306,7 @@ async def get_admin_setup_status(_user=Depends(get_admin_user)):
 
 @router.get("/validation-rules")
 @legacy_router.get("/validation-rules")
-async def list_validation_rules(templateId: str = Query(...), _user=Depends(get_admin_user)):
+async def list_validation_rules(templateId: str = Query(...), _user=Depends(get_admin_user), _authz=Depends(require_any_activity("admin.configure_doctypes", "admin.edit_workflows", "admin.manage"))):
     if not _template_exists(templateId):
         raise HTTPException(status_code=404, detail="Workflow template not found")
     prisma = await get_prisma()
@@ -2731,6 +3323,7 @@ async def update_validation_rule(
     rule_id: str,
     request: UpdateValidationRuleRequest,
     user=Depends(get_admin_user),
+    _authz=Depends(require_any_activity("admin.configure_doctypes", "admin.edit_workflows", "admin.manage")),
 ):
     template_id, rule_code = _split_validation_rule_id(rule_id)
     if not _template_exists(template_id):
@@ -2769,163 +3362,13 @@ def _local_role_from_keycloak_roles(roles: list[str], email: str = "") -> str:
     return "USER"
 
 
-def _level_sort_value(level: Any) -> int:
-    digits = "".join(ch for ch in str(level or "") if ch.isdigit())
-    return int(digits or "1")
-
-
-def _safe_keycloak_users(keycloak_admin, query: dict | None = None) -> list[dict]:
-    query = query or {}
-    try:
-        return keycloak_admin.get_users(query) or []
-    except TypeError:
-        try:
-            return keycloak_admin.get_users(**query) or []
-        except TypeError:
-            return keycloak_admin.get_users() or []
-
-
-def _safe_keycloak_groups(keycloak_admin, query: dict | None = None) -> list[dict]:
-    query = query or {}
-    try:
-        return keycloak_admin.get_groups(query) or []
-    except TypeError:
-        try:
-            return keycloak_admin.get_groups(**query) or []
-        except TypeError:
-            return keycloak_admin.get_groups() or []
-
-
-def _safe_realm_role_details(keycloak_admin, assigned_roles: list[dict]) -> list[dict]:
-    roles: list[dict] = []
-    for role in assigned_roles or []:
-        name = str(role.get("name") or "").strip()
-        if not name:
-            continue
-        try:
-            roles.append(keycloak_admin.get_realm_role(name))
-        except Exception:
-            roles.append(role)
-    return roles
-
-
-def _safe_user_groups(keycloak_admin, user_id: str) -> list[dict]:
-    try:
-        return keycloak_admin.get_user_groups(user_id) or []
-    except Exception:
-        return []
-
-
-def _clear_user_login_failures(keycloak_admin, user_id: str) -> None:
-    for method_name in (
-        "clear_user_login_failures",
-        "clear_bruteforce_attempts_for_user",
-        "clear_attack_detection_user",
-    ):
-        method = getattr(keycloak_admin, method_name, None)
-        if not callable(method):
-            continue
-        try:
-            method(user_id)
-            return
-        except TypeError:
-            try:
-                method(user_id=user_id)
-                return
-            except Exception:
-                continue
-        except Exception:
-            continue
-
-
-def _reset_keycloak_password_non_temporary(keycloak_admin, user_id: str, password: str) -> None:
-    password_value = str(password or "")
-    credential = {"type": "password", "value": password_value, "temporary": False}
-    keycloak_admin.set_user_password(user_id, password_value, temporary=False)
-
-    connection = getattr(keycloak_admin, "connection", None)
-    raw_put = getattr(connection, "raw_put", None)
-    if not callable(raw_put):
-        return
-
-    paths = [
-        f"admin/realms/{settings.KEYCLOAK_REALM}/users/{user_id}/reset-password",
-        f"/admin/realms/{settings.KEYCLOAK_REALM}/users/{user_id}/reset-password",
-    ]
-    for path in paths:
-        try:
-            raw_put(path, data=json.dumps(credential))
-            return
-        except TypeError:
-            try:
-                raw_put(path, data=json.dumps(credential), headers={"Content-Type": "application/json"})
-                return
-            except Exception:
-                continue
-        except Exception:
-            continue
-
-
-def _repair_keycloak_login_state(keycloak_admin, user_id: str, user_payload: dict[str, Any], *, activate: bool = True) -> dict[str, Any]:
-    try:
-        current = keycloak_admin.get_user(user_id) or {}
-    except Exception:
-        current = {}
-    repaired = dict(current)
-    repaired.update(user_payload or {})
-    repaired["id"] = str(current.get("id") or user_id)
-    repaired["username"] = str(repaired.get("username") or repaired.get("email") or "")
-    repaired["email"] = str(repaired.get("email") or repaired.get("username") or "")
-    repaired["enabled"] = True if activate else bool(repaired.get("enabled", True))
-    repaired["emailVerified"] = True
-    repaired["requiredActions"] = []
-    repaired.pop("access", None)
-    keycloak_admin.update_user(user_id, repaired)
-    _clear_user_login_failures(keycloak_admin, user_id)
-    try:
-        refreshed = keycloak_admin.get_user(user_id) or repaired
-    except Exception:
-        refreshed = repaired
-    remaining_actions = refreshed.get("requiredActions") or []
-    if remaining_actions:
-        refreshed = dict(refreshed)
-        refreshed["requiredActions"] = []
-        refreshed.pop("access", None)
-        keycloak_admin.update_user(user_id, refreshed)
-        try:
-            refreshed = keycloak_admin.get_user(user_id) or refreshed
-        except Exception:
-            pass
-    return dict(refreshed or repaired)
-
-
-async def _safe_sync_local_user_from_keycloak(*, prisma, keycloak_user: dict, roles: list[dict]):
-    if prisma is None:
-        return None
-    try:
-        return await _sync_local_user_from_keycloak(
-            prisma=prisma,
-            keycloak_user=keycloak_user,
-            roles=roles,
-        )
-    except Exception:
-        return None
-
-
 def _keycloak_user_name(user: dict) -> str:
-    name_parts = []
-    for part in ("firstName", "lastName"):
-        value = str(user.get(part) or "").strip()
-        if value and value != ".":
-            name_parts.append(value)
-    full_name = " ".join(name_parts).strip()
-    attrs = user.get("attributes") or {}
-    return (
-        full_name
-        or _attr_value(attrs, "fullName", "")
-        or _attr_value(attrs, "name", "")
-        or str(user.get("email") or user.get("username") or "")
-    )
+    full_name = " ".join(
+        str(user.get(part) or "").strip()
+        for part in ("firstName", "lastName")
+        if str(user.get(part) or "").strip()
+    ).strip()
+    return full_name or str(user.get("username") or user.get("email") or "")
 
 
 def _primary_role_name(role_names: list[str]) -> str:
@@ -2944,47 +3387,6 @@ def _primary_role_name(role_names: list[str]) -> str:
     if "India Logistics" in normalized:
         return normalized["India Logistics"]
     return "India Logistics"
-
-
-def _fallback_keycloak_user_row(user: dict, roles: list[dict], groups: list[dict] | None = None) -> dict:
-    role_names = [str(role.get("name") or "") for role in roles or [] if role.get("name")]
-    email = str(user.get("email") or user.get("username") or "").strip().lower()
-    primary_role = _primary_role_name(role_names) if role_names else "India Logistics"
-    canonical_role = _canonical_role_name(primary_role)
-    defaults = ROLE_DEFAULTS.get(canonical_role, ROLE_DEFAULTS.get("India Logistics", {}))
-    attrs = _user_attrs(user)
-    team_id = _attr_value(attrs, "ewms.teamId", "")
-    if not team_id and groups:
-        team_id = str((groups[0] or {}).get("id") or "")
-    display_name = str(defaults.get("name") or _display_role_name(primary_role))
-    role_category = str(defaults.get("roleCategory") or _role_category(canonical_role))
-    return {
-        "id": str(user.get("id") or ""),
-        "orgId": _attr_value(attrs, "ewms.orgId", "default-org"),
-        "roleId": canonical_role if canonical_role in ROLE_DEFAULTS else primary_role,
-        "email": email,
-        "fullName": _keycloak_user_name(user) or email,
-        "userType": _attr_value(attrs, "ewms.userType", "external" if role_category in {"org_external", "external", "EXTERNAL_PARTNER"} else "internal"),
-        "status": "active" if user.get("enabled", False) else "inactive",
-        "phone": _attr_value(attrs, "phone", ""),
-        "level": _attr_value(attrs, "ewms.level", str((defaults.get("allowedLevels") or ["L1"])[-1])),
-        "teamId": team_id,
-        "dataScope": _normalize_data_scope(_attr_value(attrs, "ewms.dataScope", str(defaults.get("defaultDataScope") or "TEAM"))),
-        "documentScope": _default_document_scope(canonical_role, defaults),
-        "docTypeScopes": {},
-        "geographyOrigin": _attr_value(attrs, "ewms.geographyOrigin", ""),
-        "geographyDestination": _attr_value(attrs, "ewms.geographyDestination", ""),
-        "approvalLimitInr": float(_attr_value(attrs, "ewms.approvalLimitInr", "0") or 0) or None,
-        "approvalLimitUsd": float(_attr_value(attrs, "ewms.approvalLimitUsd", "0") or 0) or None,
-        "createdAt": datetime.fromtimestamp((int(user.get("createdTimestamp") or 0) / 1000), timezone.utc).isoformat() if user.get("createdTimestamp") else None,
-        "lastLoginAt": None,
-        "keycloakRoles": role_names,
-        "role": {
-            "id": canonical_role if canonical_role in ROLE_DEFAULTS else primary_role,
-            "name": display_name,
-            "roleCategory": role_category,
-        },
-    }
 
 
 def _keycloak_user_row(user: dict, roles: list[dict], groups: list[dict] | None = None) -> dict:
@@ -3013,7 +3415,7 @@ def _keycloak_user_row(user: dict, roles: list[dict], groups: list[dict] | None 
     level = _attr_value(
         attrs,
         "ewms.level",
-        str(reference_user.get("level") or sorted(role_levels or ["L1"], key=_level_sort_value)[-1]),
+        str(reference_user.get("level") or sorted(role_levels or ["L1"], key=lambda item: int(str(item).replace("L", "") or "1"))[-1]),
     )
     role_data_scope = _normalize_data_scope(_attr_value(role_attrs, "ewms.dataScope", str(role_defaults.get("defaultDataScope") or "TEAM")))
     data_scope = _normalize_data_scope(_attr_value(attrs, "ewms.dataScope", str(reference_user.get("dataScope") or role_data_scope)))
@@ -3152,14 +3554,14 @@ def _guess_content_type(name: str) -> str | None:
 
 @router.get("/users")
 @legacy_router.get("/users")
-async def list_admin_users(_user=Depends(get_admin_user)):
+async def list_admin_users(_user=Depends(get_admin_user), _authz=Depends(require_any_activity("users.manage", "admin.manage_users", "admin.manage"))):
     keycloak_admin = get_keycloak_admin()
     try:
         prisma = await get_prisma()
     except Exception:
         prisma = None
     try:
-        users = _safe_keycloak_users(keycloak_admin)
+        users = keycloak_admin.get_users({})
         rows = []
         for keycloak_user in users:
             keycloak_user = keycloak_admin.get_user(keycloak_user["id"])
@@ -3176,17 +3578,19 @@ async def list_admin_users(_user=Depends(get_admin_user)):
                 if expected_role not in assigned_canonical_roles:
                     _assign_primary_role(keycloak_admin, keycloak_user["id"], expected_role)
                     assigned_roles = keycloak_admin.get_realm_roles_of_user(keycloak_user["id"])
-            roles = _safe_realm_role_details(keycloak_admin, assigned_roles)
-            groups = _safe_user_groups(keycloak_admin, keycloak_user["id"])
-            await _safe_sync_local_user_from_keycloak(
-                prisma=prisma,
-                keycloak_user=keycloak_user,
-                roles=roles,
-            )
-            try:
-                rows.append(_keycloak_user_row(keycloak_user, roles, groups))
-            except Exception:
-                rows.append(_fallback_keycloak_user_row(keycloak_user, assigned_roles, groups))
+            roles = [
+                keycloak_admin.get_realm_role(str(role["name"]))
+                for role in assigned_roles
+                if role.get("name")
+            ]
+            groups = keycloak_admin.get_user_groups(keycloak_user["id"])
+            if prisma is not None:
+                await _sync_local_user_from_keycloak(
+                    prisma=prisma,
+                    keycloak_user=keycloak_user,
+                    roles=roles,
+                )
+            rows.append(_keycloak_user_row(keycloak_user, roles, groups))
         rows.sort(key=lambda item: item["email"].lower())
         return {"ok": True, "data": rows}
     except Exception as exc:
@@ -3194,21 +3598,8 @@ async def list_admin_users(_user=Depends(get_admin_user)):
 
 
 def _split_full_name(full_name: str) -> tuple[str, str]:
-    cleaned = " ".join(str(full_name or "").strip().split())
-    first_name, _, last_name = cleaned.partition(" ")
-    if not first_name:
-        first_name = cleaned or "User"
-    if not last_name:
-        last_name = "."
-    return first_name, last_name
-
-
-def _display_name_attributes(full_name: str, first_name: str, last_name: str) -> dict[str, list[str]]:
-    display_name = " ".join(part for part in [first_name, "" if last_name == "." else last_name] if part).strip() or full_name or first_name
-    return {
-        "name": [display_name],
-        "fullName": [display_name],
-    }
+    first_name, _, last_name = full_name.strip().partition(" ")
+    return first_name or full_name.strip(), last_name
 
 
 def _assign_primary_role(keycloak_admin, user_id: str, role_name: str) -> None:
@@ -3253,22 +3644,17 @@ async def _sync_keycloak_user_to_local(prisma, keycloak_admin, user_id: str):
 
 @router.post("/users")
 @legacy_router.post("/users")
-async def create_admin_user(request: AdminUserRequest, _user=Depends(get_admin_user)):
+async def create_admin_user(request: AdminUserRequest, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("users.manage", "admin.manage_users"))):
     email = str(request.email or "").strip().lower()
     full_name = str(request.fullName or "").strip()
     role_name = str(request.roleId or "").strip()
     if not email or not full_name or not role_name:
         return {"ok": False, "error": "Email, full name, and role are required."}
-    initial_password = str(request.password or "").strip()
-    if not initial_password:
-        return {"ok": False, "error": "Initial password is required for new users."}
     keycloak_admin = get_keycloak_admin()
     prisma = await get_prisma()
     first_name, last_name = _split_full_name(full_name)
     try:
         user_id = keycloak_admin.get_user_id(email)
-        attrs = _user_attributes_from_request(request)
-        attrs.update(_display_name_attributes(full_name, first_name, last_name))
         payload = {
             "username": email,
             "email": email,
@@ -3276,11 +3662,10 @@ async def create_admin_user(request: AdminUserRequest, _user=Depends(get_admin_u
             "lastName": last_name,
             "enabled": request.status != "inactive",
             "emailVerified": True,
-            "requiredActions": [],
-            "attributes": attrs,
+            "attributes": _user_attributes_from_request(request),
         }
         if user_id:
-            payload = _repair_keycloak_login_state(keycloak_admin, user_id, payload, activate=request.status != "inactive")
+            keycloak_admin.update_user(user_id, payload)
         else:
             user_id = keycloak_admin.create_user(
                 {
@@ -3288,22 +3673,25 @@ async def create_admin_user(request: AdminUserRequest, _user=Depends(get_admin_u
                     "credentials": [
                         {
                             "type": "password",
-                            "value": initial_password,
+                            "value": request.password or "ChangeMe123!",
                             "temporary": False,
                         }
                     ],
                 },
                 exist_ok=True,
             )
-        _reset_keycloak_password_non_temporary(keycloak_admin, user_id, initial_password)
-        _repair_keycloak_login_state(keycloak_admin, user_id, payload, activate=request.status != "inactive")
+        if request.password:
+            keycloak_admin.set_user_password(user_id, request.password, temporary=False)
         _assign_primary_role(keycloak_admin, user_id, role_name)
         _sync_user_team(keycloak_admin, user_id, request.teamId)
+        await _sync_keycloak_user_to_local(prisma, keycloak_admin, user_id)
         user = keycloak_admin.get_user(user_id)
-        assigned_roles = keycloak_admin.get_realm_roles_of_user(user_id)
-        roles = _safe_realm_role_details(keycloak_admin, assigned_roles)
-        groups = _safe_user_groups(keycloak_admin, user_id)
-        await _safe_sync_local_user_from_keycloak(prisma=prisma, keycloak_user=user, roles=roles)
+        roles = [
+            keycloak_admin.get_realm_role(str(role["name"]))
+            for role in keycloak_admin.get_realm_roles_of_user(user_id)
+            if role.get("name")
+        ]
+        groups = keycloak_admin.get_user_groups(user_id)
         return {"ok": True, "data": _keycloak_user_row(user, roles, groups)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Could not create Keycloak user: {exc}")
@@ -3311,7 +3699,7 @@ async def create_admin_user(request: AdminUserRequest, _user=Depends(get_admin_u
 
 @router.put("/users/{user_id}")
 @legacy_router.put("/users/{user_id}")
-async def update_admin_user(user_id: str, request: AdminUserRequest, _user=Depends(get_admin_user)):
+async def update_admin_user(user_id: str, request: AdminUserRequest, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("users.manage", "admin.manage_users"))):
     keycloak_admin = get_keycloak_admin()
     prisma = await get_prisma()
     try:
@@ -3321,10 +3709,6 @@ async def update_admin_user(user_id: str, request: AdminUserRequest, _user=Depen
         enabled = existing.get("enabled", True)
         if request.status:
             enabled = request.status == "active"
-        if request.password:
-            enabled = True
-        attrs = _user_attributes_from_request(request, existing)
-        attrs.update(_display_name_attributes(full_name, first_name, last_name))
         payload = {
             "email": existing.get("email") or existing.get("username"),
             "username": existing.get("username") or existing.get("email"),
@@ -3332,24 +3716,23 @@ async def update_admin_user(user_id: str, request: AdminUserRequest, _user=Depen
             "lastName": last_name,
             "enabled": enabled,
             "emailVerified": True,
-            "attributes": attrs,
+            "attributes": _user_attributes_from_request(request, existing),
         }
+        keycloak_admin.update_user(user_id, payload)
         if request.password:
-            payload = _repair_keycloak_login_state(keycloak_admin, user_id, payload, activate=True)
-        else:
-            keycloak_admin.update_user(user_id, payload)
-        if request.password:
-            _reset_keycloak_password_non_temporary(keycloak_admin, user_id, request.password.strip())
-            payload = _repair_keycloak_login_state(keycloak_admin, user_id, payload, activate=True)
+            keycloak_admin.set_user_password(user_id, request.password, temporary=False)
         if request.roleId:
             _assign_primary_role(keycloak_admin, user_id, request.roleId)
         if request.teamId is not None:
             _sync_user_team(keycloak_admin, user_id, request.teamId)
+        await _sync_keycloak_user_to_local(prisma, keycloak_admin, user_id)
         user = keycloak_admin.get_user(user_id)
-        assigned_roles = keycloak_admin.get_realm_roles_of_user(user_id)
-        roles = _safe_realm_role_details(keycloak_admin, assigned_roles)
-        groups = _safe_user_groups(keycloak_admin, user_id)
-        await _safe_sync_local_user_from_keycloak(prisma=prisma, keycloak_user=user, roles=roles)
+        roles = [
+            keycloak_admin.get_realm_role(str(role["name"]))
+            for role in keycloak_admin.get_realm_roles_of_user(user_id)
+            if role.get("name")
+        ]
+        groups = keycloak_admin.get_user_groups(user_id)
         return {"ok": True, "data": _keycloak_user_row(user, roles, groups)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Could not update Keycloak user: {exc}")
@@ -3357,15 +3740,13 @@ async def update_admin_user(user_id: str, request: AdminUserRequest, _user=Depen
 
 @router.patch("/users/{user_id}/deactivate")
 @legacy_router.patch("/users/{user_id}/deactivate")
-async def deactivate_admin_user(user_id: str, _user=Depends(get_admin_user)):
+async def deactivate_admin_user(user_id: str, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("users.manage", "admin.manage_users"))):
     keycloak_admin = get_keycloak_admin()
     prisma = await get_prisma()
     try:
         existing = keycloak_admin.get_user(user_id)
         keycloak_admin.update_user(user_id, {**existing, "enabled": False})
-        assigned_roles = keycloak_admin.get_realm_roles_of_user(user_id)
-        roles = _safe_realm_role_details(keycloak_admin, assigned_roles)
-        await _safe_sync_local_user_from_keycloak(prisma=prisma, keycloak_user={**existing, "enabled": False}, roles=roles)
+        await _sync_keycloak_user_to_local(prisma, keycloak_admin, user_id)
         return {"ok": True}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Could not deactivate Keycloak user: {exc}")
@@ -3373,11 +3754,11 @@ async def deactivate_admin_user(user_id: str, _user=Depends(get_admin_user)):
 
 @router.get("/roles")
 @legacy_router.get("/roles")
-async def list_admin_roles(_user=Depends(get_admin_user)):
+async def list_admin_roles(_user=Depends(get_admin_user), _authz=Depends(require_any_activity("roles.view", "roles.manage", "admin.configure_roles", "admin.manage"))):
     try:
         keycloak_admin = get_keycloak_admin()
         roles = keycloak_admin.get_realm_roles()
-        users = _safe_keycloak_users(keycloak_admin)
+        users = keycloak_admin.get_users({})
         role_counts: dict[str, int] = {}
         for user in users:
             email = str(user.get("email") or user.get("username") or "").strip().lower()
@@ -3457,7 +3838,7 @@ async def list_admin_roles(_user=Depends(get_admin_user)):
 
 @router.get("/roles/{role_id}")
 @legacy_router.get("/roles/{role_id}")
-async def get_admin_role(role_id: str, _user=Depends(get_admin_user)):
+async def get_admin_role(role_id: str, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("roles.view", "roles.manage", "admin.configure_roles", "admin.manage"))):
     keycloak_admin = get_keycloak_admin()
     try:
         role = _ensure_keycloak_role(keycloak_admin, role_id)
@@ -3479,7 +3860,7 @@ async def get_admin_role(role_id: str, _user=Depends(get_admin_user)):
 
 @router.post("/roles")
 @legacy_router.post("/roles")
-async def create_admin_role(request: RoleProfileRequest, _user=Depends(get_admin_user)):
+async def create_admin_role(request: RoleProfileRequest, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("roles.manage", "admin.configure_roles"))):
     keycloak_admin = get_keycloak_admin()
     modules = _enabled_modules_from_request(request)
     payload = _role_payload_from_request(request)
@@ -3500,7 +3881,7 @@ async def create_admin_role(request: RoleProfileRequest, _user=Depends(get_admin
 
 @router.put("/roles/{role_id}")
 @legacy_router.put("/roles/{role_id}")
-async def update_admin_role(role_id: str, request: RoleProfileRequest, _user=Depends(get_admin_user)):
+async def update_admin_role(role_id: str, request: RoleProfileRequest, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("roles.manage", "admin.configure_roles"))):
     keycloak_admin = get_keycloak_admin()
     try:
         existing = _ensure_keycloak_role(keycloak_admin, role_id)
@@ -3526,7 +3907,7 @@ async def update_admin_role(role_id: str, request: RoleProfileRequest, _user=Dep
 
 @router.delete("/roles/{role_id}")
 @legacy_router.delete("/roles/{role_id}")
-async def delete_admin_role(role_id: str, _user=Depends(get_admin_user)):
+async def delete_admin_role(role_id: str, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("roles.manage", "admin.configure_roles"))):
     if _canonical_role_name(role_id) in ROLE_DEFAULTS or role_id.lower() in {"admin", "user"}:
         return {"ok": False, "error": "System roles cannot be deleted."}
     keycloak_admin = get_keycloak_admin()
@@ -3542,7 +3923,7 @@ async def delete_admin_role(role_id: str, _user=Depends(get_admin_user)):
 
 @router.post("/users/invite")
 @legacy_router.post("/users/invite")
-async def invite_admin_user(request: InviteUserRequest, admin_user=Depends(get_admin_user)):
+async def invite_admin_user(request: InviteUserRequest, admin_user=Depends(get_admin_user), _authz=Depends(require_any_activity("users.manage", "admin.manage_users"))):
     email = request.email.strip().lower()
     full_name = request.fullName.strip()
     if not email or not full_name:
@@ -3581,7 +3962,7 @@ async def invite_admin_user(request: InviteUserRequest, admin_user=Depends(get_a
                     "credentials": [
                         {
                             "type": "password",
-                            "value": request.password,
+                            "value": request.password or "ChangeMe123!",
                             "temporary": False,
                         }
                     ],
@@ -3677,7 +4058,7 @@ async def _delete_document_with_related_and_storage(*, prisma, document_id: str)
 
 
 @router.get("/storage/buckets", response_model=BucketListResponse)
-async def get_storage_buckets(_user=Depends(get_admin_user)):
+async def get_storage_buckets(_user=Depends(get_admin_user), _authz=Depends(require_any_activity("admin.security_settings", "admin.manage"))):
     try:
         return BucketListResponse(buckets=list_buckets())
     except Exception as exc:
@@ -3689,6 +4070,7 @@ async def get_storage_listing(
     bucket: str = Query(...),
     prefix: str = Query(""),
     _user=Depends(get_admin_user),
+    _authz=Depends(require_any_activity("admin.security_settings", "admin.manage")),
 ):
     try:
         folders, files = list_prefix(bucket=bucket, prefix=prefix)
@@ -3723,7 +4105,7 @@ async def get_storage_listing(
 
 
 @router.delete("/storage/file")
-async def delete_storage_file(request: DeleteFileRequest, _user=Depends(get_admin_user)):
+async def delete_storage_file(request: DeleteFileRequest, _user=Depends(get_admin_user), _authz=Depends(require_any_activity("admin.security_settings", "admin.manage"))):
     prisma = await get_prisma()
 
     page = await prisma.documentpage.find_first(
@@ -3752,7 +4134,7 @@ async def delete_storage_file(request: DeleteFileRequest, _user=Depends(get_admi
 
 
 @router.delete("/documents/{document_id}", response_model=DeleteDocumentResponse)
-async def delete_document(document_id: str, _user=Depends(get_admin_user)):
+async def delete_document(document_id: str, _user=Depends(get_admin_user), _authz=Depends(require_activity("documents.delete"))):
     prisma = await get_prisma()
     return await _delete_document_with_related_and_storage(
         prisma=prisma,
@@ -3766,43 +4148,17 @@ async def delete_document(document_id: str, _user=Depends(get_admin_user)):
 from keycloak import KeycloakAdmin
 from helpers.config import settings
 
-def _keycloak_server_url_candidates() -> list[str]:
-    configured = f"{settings.KEYCLOAK_URL.rstrip('/')}/"
-    candidates = [configured]
-    if configured.rstrip('/').endswith('/keycloak'):
-        candidates.append(f"{configured.rstrip('/')[:-len('/keycloak')]}/")
-    else:
-        candidates.append(f"{configured.rstrip('/')}/keycloak/")
-    seen: set[str] = set()
-    return [url for url in candidates if not (url in seen or seen.add(url))]
-
-
-def _keycloak_admin_for_url(server_url: str) -> KeycloakAdmin:
+def get_keycloak_admin():
+    """Get Keycloak admin client with proper configuration"""
     return KeycloakAdmin(
-        server_url=server_url,
+        server_url=settings.KEYCLOAK_URL,
         username=settings.KEYCLOAK_ADMIN_USERNAME,
         password=settings.KEYCLOAK_ADMIN_PASSWORD,
         realm_name=settings.KEYCLOAK_REALM,
         user_realm_name="master",
         client_id="admin-cli",
-        verify=True,
+        verify=True
     )
-
-
-def get_keycloak_admin():
-    """Get Keycloak admin client with production-safe URL normalization."""
-    first_error: Exception | None = None
-    for server_url in _keycloak_server_url_candidates():
-        admin = _keycloak_admin_for_url(server_url)
-        try:
-            admin.get_realm(settings.KEYCLOAK_REALM)
-            return admin
-        except Exception as exc:
-            if first_error is None:
-                first_error = exc
-    if first_error is not None:
-        raise first_error
-    return _keycloak_admin_for_url(f"{settings.KEYCLOAK_URL.rstrip('/')}/")
 
 # Keycloak Models
 class KeycloakUserCreate(BaseModel):

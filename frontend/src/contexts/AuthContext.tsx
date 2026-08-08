@@ -27,6 +27,10 @@ const ADMIN_ACTIVITIES = [
   'documents.delete',
   'documents.discard_draft',
   'documents.download_export',
+  'documents.dnd_inputs',
+  'documents.dnd_inputs.exclude_holidays',
+  'documents.dnd_inputs.exclude_weekends',
+  'documents.dnd_inputs.start_event',
   'documents.edit_extracted',
   'documents.fill_manual_fields',
   'documents.generate_draft',
@@ -56,6 +60,11 @@ const ADMIN_ACTIVITIES = [
   'documents.view_draft',
   'documents.view_extracted',
   'documents.view_validation_results',
+  'dnd.holiday_calendar.upload',
+  'dnd.tariff.create',
+  'dnd.tariff.edit',
+  'dnd.tariff.force_expire',
+  'dnd.tariff.view',
   'inventory.3_way_recon',
   'inventory.acknowledge_dnd',
   'inventory.adjust_stock_with_remarks',
@@ -144,7 +153,7 @@ export function useAuth() {
   const keycloakPermissions = (auth.user as any)?.rbacPermissions as RbacPermissions | undefined;
   const isKnownAdmin = auth.user?.email?.toLowerCase() === 'admin@sprconsultech.com';
   const normalizedSystemRole = String(auth.user?.systemRole ?? '').toUpperCase().replace(/-/g, '_');
-  const isAdmin = isKnownAdmin || normalizedSystemRole === 'ADMIN' || normalizedSystemRole === 'SUPER_ADMIN';
+  const isAdmin = isKnownAdmin || ['ADMIN', 'ORG_ADMIN', 'SPR_ADMIN', 'SUPER_ADMIN', 'SUPER_ADMINISTRATOR'].includes(normalizedSystemRole);
   const adminPermissions = isAdmin && keycloakPermissions
     ? {
         ...keycloakPermissions,

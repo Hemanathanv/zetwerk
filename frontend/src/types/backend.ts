@@ -92,6 +92,8 @@ export type DocumentRecord = {
   id: string;
   docType: DocType;
   status: DocumentStatus;
+  issuerName?: string | null;
+  sourceName?: string | null;
   validationStatus?: "PASSED" | "WARNING" | "BLOCKED" | "WAITING" | string | null;
   validationSummary?: {
     total?: number;

@@ -53,6 +53,35 @@ services:
     networks:
       - ewms-net
 
+  drive-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.driveworker
+      secrets:
+        - backend_env
+    image: zetwerk-drive-worker:local
+    <<: *backend-env
+    environment:
+      RUN_OCR_WORKERS_IN_API: "false"
+      DATABASE_URL: ${DATABASE_URL:-postgresql://ewms-postgres:ewms%40%232026%21@postgres:5432/ewms-db}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      KEYCLOAK_URL: http://ewms-keycloak:8080/keycloak
+      DRIVE_DOC_TYPE: ${DRIVE_DOC_TYPE:-SALES_INVOICE}
+      DRIVE_SOURCE_FOLDER_ID: ${DRIVE_SOURCE_FOLDER_ID:-1IRjTYGPde8LBD1jJVfDUzRmO62cnu3G3}
+      DRIVE_PROCESSED_FOLDER_ID: ${DRIVE_PROCESSED_FOLDER_ID:-}
+      DRIVE_POLL_INTERVAL_SECONDS: ${DRIVE_POLL_INTERVAL_SECONDS:-3600}
+      DRIVE_UPLOADED_BY: ${DRIVE_UPLOADED_BY:-drive-worker}
+    depends_on:
+      views-init:
+        condition: service_completed_successfully
+      upload-worker:
+        condition: service_started
+      ocr-worker:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - ewms-net
+
   detect-worker:
     build:
       context: ./backend

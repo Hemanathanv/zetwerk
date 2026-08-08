@@ -41,11 +41,11 @@ const NAV_GROUPS: { items: NavItem[] }[] = [
       { icon: FolderOpen,      label: 'Projects',          href: '/projects',                           module: 'shipments',  requiredAnyActivities: ['shipments.view', 'SHP-001'] },
       { icon: ClipboardList,   label: 'My Tasks',          href: '/tasks',                              module: 'tasks',      requiredAnyActivities: ['tasks.view', 'TSK-001'], badgeKey: 'tasks' },
       { icon: FileText,        label: 'Documents',         href: '/documents',                          module: 'documents',  requiredAnyActivities: ['documents.view', 'documents.view_extracted'] },
-      { icon: ScanText,        label: 'Upload & Process',  href: '/documents/upload',                   module: 'documents',  requiredAnyActivities: ['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr'] },
+      { icon: ScanText,        label: 'Upload & Process',  href: '/documents/upload',                   module: 'documents',  requiredAnyActivities: ['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reject_extraction', 'documents.override_approved_fields', 'documents.reprocess_ocr'] },
       { icon: Wand2,           label: 'Doc Generate',      href: '/documents/generate',                 module: 'documents',  requiredAnyActivities: DOC_GENERATION_ACTIVITY_CODES },
       { icon: Boxes,      label: 'Inventory',      href: '/inventory/containers', module: 'inventory', requiredAnyActivities: ['inventory.view_container', 'inventory.view_timeline', 'GATE-001'] },
       { icon: Warehouse,  label: 'Warehouse',      href: '/inventory/warehouse',  module: 'warehouse', requiredAnyActivities: ['inventory.view_warehouse', 'inventory.warehouse_inventory_stock_position'] },
-      { icon: DollarSign, label: 'D&D Management', href: '/inventory/dnd',        module: 'inventory' },
+      { icon: DollarSign, label: 'D&D Management', href: '/inventory/dnd',        module: 'dnd', requiredAnyActivities: ['inventory.view_dnd_charges', 'dnd.tariff.view', 'dnd.holiday_calendar.upload'] },
     ],
   },
   {

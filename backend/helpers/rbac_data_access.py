@@ -4,7 +4,7 @@ import json
 from typing import Any, Final
 
 
-ALL_DOCUMENT_ACCESS_ROLES: Final[set[str]] = {"SUPER_ADMIN", "ADMIN", "OPS_MANAGER"}
+ALL_DOCUMENT_ACCESS_ROLES: Final[set[str]] = {"SUPER_ADMIN", "ADMIN", "SPR_ADMIN", "OPS_MANAGER"}
 
 ROLE_DOCUMENT_TYPES: Final[dict[str, set[str]]] = {
     "INDIA_LOGISTICS": {
@@ -61,49 +61,111 @@ ROLE_DOC_TYPE_ACTIONS: Final[dict[str, dict[str, set[str]]]] = {
     "SUPER_ADMIN": {
         "upload": {"*"},
         "approve_extraction": {"*"},
+        "edit_extracted": {"*"},
+        "submit_for_approval": {"*"},
+        "approve_draft": {"*"},
+        "reject_extraction": {"*"},
+        "override_approved_fields": {"*"},
         "review_generation": {"*"},
+        "container_mapping": {"*"},
+        "re_upload_document": {"*"},
+        "reprocess_ocr": {"*"},
         "view": {"*"},
     },
     "ADMIN": {
         "upload": {"*"},
         "approve_extraction": {"*"},
+        "edit_extracted": {"*"},
+        "submit_for_approval": {"*"},
+        "approve_draft": {"*"},
+        "reject_extraction": {"*"},
+        "override_approved_fields": {"*"},
         "review_generation": {"*"},
+        "container_mapping": {"*"},
+        "re_upload_document": {"*"},
+        "reprocess_ocr": {"*"},
         "view": {"*"},
     },
     "OPS_MANAGER": {
         "upload": {"*"},
         "approve_extraction": {"*"},
+        "edit_extracted": {"*"},
+        "submit_for_approval": {"*"},
+        "approve_draft": {"*"},
+        "reject_extraction": {"*"},
+        "override_approved_fields": {"*"},
         "review_generation": {"*"},
+        "container_mapping": {"*"},
+        "re_upload_document": {"*"},
+        "reprocess_ocr": {"*"},
         "view": {"*"},
     },
     "INDIA_LOGISTICS": {
         "upload": {"SALES_INVOICE", "PACKING_LIST", "SHIPPING_BILL", "BILL_OF_LADING"},
         "approve_extraction": {"SALES_INVOICE", "PACKING_LIST", "SHIPPING_BILL", "BILL_OF_LADING"},
+        "edit_extracted": {"SALES_INVOICE", "PACKING_LIST", "SHIPPING_BILL", "BILL_OF_LADING"},
+        "submit_for_approval": {"SALES_INVOICE", "PACKING_LIST", "SHIPPING_BILL", "BILL_OF_LADING"},
+        "approve_draft": {"SALES_INVOICE", "PACKING_LIST", "SHIPPING_BILL", "BILL_OF_LADING"},
+        "reject_extraction": {"SALES_INVOICE", "PACKING_LIST", "SHIPPING_BILL", "BILL_OF_LADING"},
+        "override_approved_fields": {"SALES_INVOICE", "PACKING_LIST", "SHIPPING_BILL", "BILL_OF_LADING"},
         "review_generation": {"PACKING_LIST"},
+        "container_mapping": {"BILL_OF_LADING"},
+        "re_upload_document": {"SALES_INVOICE", "PACKING_LIST", "SHIPPING_BILL", "BILL_OF_LADING"},
+        "reprocess_ocr": {"SALES_INVOICE", "PACKING_LIST", "SHIPPING_BILL", "BILL_OF_LADING"},
         "view": ROLE_DOCUMENT_TYPES["INDIA_LOGISTICS"],
     },
     "US_LOGISTICS": {
         "upload": {"ENTRY_SUMMARY", "DRAFT_CBP_FORM_7501_BROKER", "US_CARGO_RELEASE_ORDER", "US_CUSTOMS_RELEASE_ORDER", "US_DELIVERY_ORDER", "US_PACKING_LIST"},
         "approve_extraction": set(),
+        "edit_extracted": set(),
+        "submit_for_approval": set(),
+        "approve_draft": set(),
+        "reject_extraction": set(),
+        "override_approved_fields": set(),
         "review_generation": {"US_PACKING_LIST"},
+        "container_mapping": {"BILL_OF_LADING"},
+        "re_upload_document": {"ENTRY_SUMMARY", "DRAFT_CBP_FORM_7501_BROKER", "US_CARGO_RELEASE_ORDER", "US_CUSTOMS_RELEASE_ORDER", "US_DELIVERY_ORDER", "US_PACKING_LIST"},
+        "reprocess_ocr": {"ENTRY_SUMMARY", "DRAFT_CBP_FORM_7501_BROKER", "US_CARGO_RELEASE_ORDER", "US_CUSTOMS_RELEASE_ORDER", "US_DELIVERY_ORDER", "US_PACKING_LIST"},
         "view": ROLE_DOCUMENT_TYPES["US_LOGISTICS"],
     },
     "US_BROKER": {
         "upload": {"ENTRY_SUMMARY", "DRAFT_CBP_FORM_7501_BROKER", "ISF"},
         "approve_extraction": set(),
+        "edit_extracted": set(),
+        "submit_for_approval": set(),
+        "approve_draft": set(),
+        "reject_extraction": set(),
+        "override_approved_fields": set(),
         "review_generation": set(),
+        "re_upload_document": {"ENTRY_SUMMARY", "DRAFT_CBP_FORM_7501_BROKER", "ISF"},
+        "reprocess_ocr": {"ENTRY_SUMMARY", "DRAFT_CBP_FORM_7501_BROKER", "ISF"},
         "view": ROLE_DOCUMENT_TYPES["US_BROKER"],
     },
     "FINANCE_AP_INDIA": {
         "upload": set(),
         "approve_extraction": set(),
+        "edit_extracted": set(),
+        "submit_for_approval": set(),
+        "approve_draft": set(),
+        "reject_extraction": set(),
+        "override_approved_fields": set(),
         "review_generation": set(),
+        "re_upload_document": set(),
+        "reprocess_ocr": set(),
         "view": ROLE_DOCUMENT_TYPES["FINANCE_AP_INDIA"],
     },
     "THREE_PL_PARTNER": {
         "upload": {"GRN_INBOUND", "PORT_TO_WH", "WH_TO_CUSTOMER"},
         "approve_extraction": set(),
+        "edit_extracted": set(),
+        "submit_for_approval": set(),
+        "approve_draft": set(),
+        "reject_extraction": set(),
+        "override_approved_fields": set(),
         "review_generation": set(),
+        "container_mapping": {"BILL_OF_LADING"},
+        "re_upload_document": {"GRN_INBOUND", "PORT_TO_WH", "WH_TO_CUSTOMER"},
+        "reprocess_ocr": {"GRN_INBOUND", "PORT_TO_WH", "WH_TO_CUSTOMER"},
         "view": ROLE_DOCUMENT_TYPES["THREE_PL_PARTNER"],
     },
 }
@@ -119,6 +181,8 @@ ROLE_ALIASES: Final[dict[str, str]] = {
     "SUPER_ADMIN": "SUPER_ADMIN",
     "SUPER_ADMINISTRATOR": "SUPER_ADMIN",
     "SUPER ADMIN": "SUPER_ADMIN",
+    "SPR_ADMIN": "SPR_ADMIN",
+    "SPR ADMIN": "SPR_ADMIN",
     "ORG_ADMIN": "ADMIN",
     "ORG ADMIN": "ADMIN",
     "ADMIN": "ADMIN",
@@ -154,9 +218,29 @@ def _attr_values(attributes: dict | None, key: str) -> list[str]:
     raw = (attributes or {}).get(key)
     if raw is None:
         return []
+    values: list[Any]
     if isinstance(raw, list):
-        return [str(item) for item in raw if str(item)]
-    return [str(raw)] if str(raw) else []
+        values = raw
+    else:
+        values = [raw]
+    normalized: list[str] = []
+    for item in values:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, list):
+                    normalized.extend(str(value).strip() for value in parsed if str(value).strip())
+                    continue
+            except Exception:
+                pass
+        if "," in text:
+            normalized.extend(part.strip() for part in text.split(",") if part.strip())
+            continue
+        normalized.append(text)
+    return normalized
 
 
 def _attr_value(attributes: dict | None, key: str, default: str = "") -> str:
@@ -226,7 +310,20 @@ def role_doc_type_scopes_from_attrs(attributes: dict | None) -> dict[str, set[st
 
 DOC_TYPE_ACTION_ACTIVITY_CODES: Final[dict[str, tuple[str, ...]]] = {
     "upload": ("documents.upload",),
-    "approve_extraction": ("documents.approve_draft", "documents.edit_extracted"),
+    "re_upload_document": ("documents.re_upload_document",),
+    "reprocess_ocr": ("documents.reprocess_ocr", "documents.reject_extraction"),
+    "edit_extracted": ("documents.edit_extracted",),
+    "submit_for_approval": ("documents.submit_for_approval",),
+    "approve_draft": ("documents.approve_draft",),
+    "reject_extraction": ("documents.reject_extraction",),
+    "override_approved_fields": ("documents.override_approved_fields",),
+    "approve_extraction": (
+        "documents.approve_draft",
+        "documents.edit_extracted",
+        "documents.submit_for_approval",
+        "documents.reject_extraction",
+        "documents.override_approved_fields",
+    ),
     "review_generation": (
         "documents.generate_draft",
         "documents.view_draft",
@@ -241,6 +338,7 @@ DOC_TYPE_ACTION_ACTIVITY_CODES: Final[dict[str, tuple[str, ...]]] = {
         "documents.approve_draft",
     ),
     "view": ("documents.view", "documents.view_extracted", "documents.download_export"),
+    "container_mapping": ("documents.map_container_to_sku",),
 }
 
 IMPLIED_ACTIVITY_CODES: Final[dict[str, set[str]]] = {
@@ -250,10 +348,18 @@ IMPLIED_ACTIVITY_CODES: Final[dict[str, set[str]]] = {
         "documents.edit_extracted",
         "documents.generate_draft",
         "documents.approve_draft",
+        "documents.submit_for_approval",
+        "documents.reject_extraction",
+        "documents.override_approved_fields",
         "documents.override_validation",
         "documents.reprocess_ocr",
         "documents.download_export",
         "documents.delete",
+        "documents.map_container_to_sku",
+        "documents.submit_mapping_for_approval",
+        "documents.approve_container_mapping",
+        "documents.reject_container_mapping",
+        "documents.dnd_inputs",
     },
     "documents.view_draft": {"documents.generate_draft", "DOC-003"},
     "documents.fill_manual_fields": {"documents.generate_draft", "DOC-003"},
@@ -264,18 +370,31 @@ IMPLIED_ACTIVITY_CODES: Final[dict[str, set[str]]] = {
     "documents.reject_generated_document": {"documents.generate_draft", "DOC-003"},
     "documents.re_trigger_generation": {"documents.generate_draft", "DOC-003"},
     "documents.discard_draft": {"documents.generate_draft", "DOC-003"},
+    "documents.reject_extraction": {"documents.reprocess_ocr"},
 }
 
 LEGACY_ACTIVITY_ALIASES: Final[dict[str, set[str]]] = {
     "documents.generate_draft": {"DOC-003"},
     "documents.approve_draft": {"DOC-003"},
     "dnd.view_tariffs": {"dnd.tariff.view"},
-    "dnd.view_charges": {"dnd.activate"},
+    "dnd.view_charges": {"dnd.activate", "documents.dnd_inputs"},
+    "dnd.activate": {"documents.dnd_inputs"},
+    "dnd.activate.start_event_date": {"documents.dnd_inputs.start_event"},
+    "dnd.activate.holiday_days": {"documents.dnd_inputs.exclude_holidays"},
+    "dnd.activate.weekends": {"documents.dnd_inputs.exclude_weekends"},
+    "documents.dnd_inputs": {"dnd.activate"},
+    "documents.dnd_inputs.start_event": {"dnd.activate.start_event_date"},
+    "documents.dnd_inputs.exclude_holidays": {"dnd.activate.holiday_days"},
+    "documents.dnd_inputs.exclude_weekends": {"dnd.activate.weekends"},
     "dnd.save_inputs": {
         "dnd.activate",
         "dnd.activate.start_event_date",
         "dnd.activate.holiday_days",
         "dnd.activate.weekends",
+        "documents.dnd_inputs",
+        "documents.dnd_inputs.start_event",
+        "documents.dnd_inputs.exclude_holidays",
+        "documents.dnd_inputs.exclude_weekends",
     },
     "dnd.manage_carriers": {"dnd.tariff.create", "dnd.tariff.edit"},
     "dnd.upload_holidays": {"dnd.holiday_calendar.upload"},
@@ -319,6 +438,13 @@ def _scoped_doc_types_for_action(attributes: dict | None, action: str) -> set[st
     return scoped
 
 
+def _action_scope_or_document_scope(attributes: dict | None, action: str) -> set[str]:
+    scoped = _scoped_doc_types_for_action(attributes, action)
+    if scoped:
+        return scoped
+    return role_document_scope_from_attrs(attributes) or set()
+
+
 def can_access_all_documents(user: Any) -> bool:
     return access_role(user) in ALL_DOCUMENT_ACCESS_ROLES
 
@@ -340,15 +466,31 @@ def doc_type_permissions_for_role(role_name: str, attributes: dict | None = None
         scope = sorted(explicit_document_scope)
         return {
             "upload": scope,
+            "re_upload_document": scope,
+            "reprocess_ocr": scope,
+            "edit_extracted": scope,
+            "submit_for_approval": scope,
+            "approve_draft": scope,
+            "reject_extraction": scope,
+            "override_approved_fields": scope,
             "approve_extraction": scope,
             "review_generation": scope,
+            "container_mapping": scope,
             "view": scope,
         }
     if explicit_document_scope is not None or explicit_activity_scopes:
         return {
-            "upload": sorted(_scoped_doc_types_for_action(attributes, "upload")),
-            "approve_extraction": sorted(_scoped_doc_types_for_action(attributes, "approve_extraction")),
-            "review_generation": sorted(_scoped_doc_types_for_action(attributes, "review_generation")),
+            "upload": sorted(_action_scope_or_document_scope(attributes, "upload")),
+            "re_upload_document": sorted(_action_scope_or_document_scope(attributes, "re_upload_document")),
+            "reprocess_ocr": sorted(_action_scope_or_document_scope(attributes, "reprocess_ocr")),
+            "edit_extracted": sorted(_action_scope_or_document_scope(attributes, "edit_extracted")),
+            "submit_for_approval": sorted(_action_scope_or_document_scope(attributes, "submit_for_approval")),
+            "approve_draft": sorted(_action_scope_or_document_scope(attributes, "approve_draft")),
+            "reject_extraction": sorted(_action_scope_or_document_scope(attributes, "reject_extraction")),
+            "override_approved_fields": sorted(_action_scope_or_document_scope(attributes, "override_approved_fields")),
+            "approve_extraction": sorted(_action_scope_or_document_scope(attributes, "approve_extraction")),
+            "review_generation": sorted(_action_scope_or_document_scope(attributes, "review_generation")),
+            "container_mapping": sorted(_action_scope_or_document_scope(attributes, "container_mapping")),
             "view": sorted(explicit_document_scope or _scoped_doc_types_for_action(attributes, "view")),
         }
     actions = ROLE_DOC_TYPE_ACTIONS.get(normalize_role_name(role_name), {})
@@ -367,7 +509,7 @@ def doc_type_action_scope(user: Any, action: str) -> set[str] | None:
     if explicit_document_scope is not None or explicit_activity_scopes:
         if action == "view":
             return explicit_document_scope or _scoped_doc_types_for_action(attrs, action)
-        return _scoped_doc_types_for_action(attrs, action)
+        return _action_scope_or_document_scope(attrs, action)
     actions = ROLE_DOC_TYPE_ACTIONS.get(access_role(user), {})
     scope = actions.get(action)
     if scope is None:

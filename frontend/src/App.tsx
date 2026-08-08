@@ -1,4 +1,5 @@
 import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from 'wouter';
+import { useEffect } from 'react';
 import { useAdminExitRefresh } from '@/hooks/useOperationalData';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from 'next-themes';
@@ -10,7 +11,7 @@ import { PermissionProvider, usePermissions } from '@/contexts/PermissionContext
 import { RequireAnyModule, RequireModule } from '@/components/PermissionGate';
 import { ConfigProvider } from '@/contexts/ConfigContext';
 import { UploadProvider } from '@/contexts/UploadContext';
-import { Sidebar } from '@/components/Sidebar';
+import { Sidebar, SIDEBAR_WIDTH_OPEN, SIDEBAR_WIDTH_COLLAPSED } from '@/components/Sidebar';
 import { TopHeader } from '@/components/TopHeader';
 import { UploadSheet } from '@/components/UploadSheet';
 import { DOC_GENERATION_ACTIVITY_CODES } from '@/lib/docGenerationAccess';
@@ -70,6 +71,20 @@ import { EwmsScrollArea } from '@/components/ewms/Media';
 const queryClient = new QueryClient();
 
 function UnauthorizedPage() {
+  const [, navigate] = useLocation();
+  const { modules, activities, loaded } = usePermissions();
+  const landingPath = loaded ? firstAllowedLandingPath(modules, activities) : '/unauthorized';
+
+  useEffect(() => {
+    if (loaded && landingPath !== '/unauthorized') {
+      navigate(landingPath, { replace: true });
+    }
+  }, [landingPath, loaded, navigate]);
+
+  if (loaded && landingPath !== '/unauthorized') {
+    return <EwmsShipLoader fullPage />;
+  }
+
   return (
     <div className="flex items-center justify-center h-full min-h-[60vh]">
       <div className="text-center space-y-2 px-4">
@@ -81,6 +96,20 @@ function UnauthorizedPage() {
       </div>
     </div>
   );
+}
+
+function AllowedLandingRedirect() {
+  const [, navigate] = useLocation();
+  const { modules, activities, loaded } = usePermissions();
+  const landingPath = loaded ? firstAllowedLandingPath(modules, activities) : '/unauthorized';
+
+  useEffect(() => {
+    if (loaded) {
+      navigate(landingPath, { replace: true });
+    }
+  }, [landingPath, loaded, navigate]);
+
+  return <EwmsShipLoader fullPage />;
 }
 
 export function UnderBuildPage({ title = 'Currently under build' }: { title?: string }) {
@@ -96,7 +125,7 @@ export function UnderBuildPage({ title = 'Currently under build' }: { title?: st
 
 function AppLayout() {
   const { isOpen } = useSidebar();
-  const sidebarWidth = isOpen ? 240 : 60;
+  const sidebarWidth = isOpen ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_COLLAPSED;
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
@@ -172,15 +201,13 @@ function AppLayout() {
             </Route>
             <Route path="/inventory/dnd">
               <RequireModule module="dnd" fallback={<Redirect to="/unauthorized" />}>
-                <RequireAnyActivity codes={['inventory.acknowledge_dnd', 'inventory.update_milestone']} fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={['inventory.view_dnd_charges', 'dnd.tariff.view', 'dnd.holiday_calendar.upload']} fallback={<Redirect to="/unauthorized" />}>
                   <DndManagementPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/inventory">
-              <RequireModule module="inventory" fallback={<Redirect to="/unauthorized" />}>
-                <Redirect to="/inventory/containers" />
-              </RequireModule>
+              <AllowedLandingRedirect />
             </Route>
             <Route path="/projects/:id">
               <RequireModule module="shipments" fallback={<Redirect to="/unauthorized" />}>
@@ -239,28 +266,28 @@ function AppLayout() {
             </Route>
             <Route path="/documents/upload/:id/approve">
               <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
-                <RequireAnyActivity codes={['documents.edit_extracted', 'documents.approve_draft']} fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={['documents.edit_extracted', 'documents.approve_draft', 'documents.reject_extraction', 'documents.override_approved_fields']} fallback={<Redirect to="/unauthorized" />}>
                   <DocumentDetailPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/upload/generated/:id/details">
               <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
-                <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reject_extraction', 'documents.override_approved_fields', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
                   <UploadProcessPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/upload/:id/details">
               <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
-                <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reject_extraction', 'documents.override_approved_fields', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
                   <UploadProcessPage />
                 </RequireAnyActivity>
               </RequireModule>
             </Route>
             <Route path="/documents/upload/queue">
               <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
-                <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reject_extraction', 'documents.override_approved_fields', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
                   <UploadProcessPage />
                 </RequireAnyActivity>
               </RequireModule>
@@ -274,7 +301,7 @@ function AppLayout() {
             </Route>
             <Route path="/documents/upload">
               <RequireModule module="documents" fallback={<Redirect to="/unauthorized" />}>
-                <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
+                <RequireAnyActivity codes={['documents.upload', 'documents.edit_extracted', 'documents.approve_draft', 'documents.reject_extraction', 'documents.override_approved_fields', 'documents.reprocess_ocr']} fallback={<Redirect to="/unauthorized" />}>
                   <UploadProcessPage />
                 </RequireAnyActivity>
               </RequireModule>
@@ -360,10 +387,10 @@ function AppLayout() {
               </RequireModule>
             </Route>
             <Route path="/portal/tracking/:id">
-              <Redirect to="/dashboard" />
+              <AllowedLandingRedirect />
             </Route>
             <Route path="/portal">
-              <Redirect to="/dashboard" />
+              <AllowedLandingRedirect />
             </Route>
             <Route path="/invoices">
               <RequireModule module="accounting" fallback={<Redirect to="/unauthorized" />}>
@@ -383,14 +410,14 @@ function AppLayout() {
             <Route path="/platform"><PlatformGuard><PlatformShell /></PlatformGuard></Route>
             <Route path="/user-settings" component={SettingsPage} />
             <Route path="/schema">
-              <RequireModule module="admin" fallback={<Redirect to="/unauthorized" />}>
+              <RequireAnyModule modules={['settings', 'admin']} fallback={<Redirect to="/unauthorized" />}>
                 <RequireAnyActivity codes={['admin.configure_doctypes', 'roles.view']} fallback={<Redirect to="/unauthorized" />}>
                   <SchemaReferencePage />
                 </RequireAnyActivity>
-              </RequireModule>
+              </RequireAnyModule>
             </Route>
             <Route>
-              <UnderBuildPage />
+              <AllowedLandingRedirect />
             </Route>
           </Switch>
         </EwmsScrollArea>
@@ -456,7 +483,6 @@ function AuthenticatedApp() {
 function AppRoutes() {
   const { isAuthenticated, loading, user } = useAuth();
   const { modules, activities, loaded: permissionsLoaded } = usePermissions();
-  const [location] = useLocation();
 
   if (loading || (isAuthenticated && !permissionsLoaded)) return <EwmsShipLoader fullPage />;
 
@@ -465,13 +491,19 @@ function AppRoutes() {
     return firstAllowedLandingPath(modules, activities);
   })();
 
-  if (location === '/') {
-    return isAuthenticated
-      ? <Redirect to={landingPath} />
-      : <LoginPage />;
-  }
-
-  return isAuthenticated ? <AuthenticatedApp /> : <Redirect to="/" />;
+  return (
+    <Switch>
+      <Route path="/">
+        {isAuthenticated
+          ? <Redirect to={landingPath} />
+          : <LoginPage />
+        }
+      </Route>
+      <Route>
+        {isAuthenticated ? <AuthenticatedApp /> : <Redirect to="/" />}
+      </Route>
+    </Switch>
+  );
 }
 
 function AppWithPermissions() {

@@ -74,7 +74,12 @@ def _resolve_poppler_path() -> str | None:
     )
 
 
+def _ocr_page_dpi() -> int:
+    return max(100, min(220, int(getattr(settings, "OCR_PAGE_IMAGE_DPI", 160) or 160)))
+
+
 def _render_pdf_pages(file_bytes: bytes) -> list[Image.Image]:
+    dpi = _ocr_page_dpi()
     try:
         poppler_path = _resolve_poppler_path()
     except RuntimeError:
@@ -84,7 +89,7 @@ def _render_pdf_pages(file_bytes: bytes) -> list[Image.Image]:
         try:
             pages = convert_from_bytes(
                 file_bytes,
-                dpi=200,
+                dpi=dpi,
                 fmt="png",
                 poppler_path=poppler_path,
             )
@@ -96,7 +101,7 @@ def _render_pdf_pages(file_bytes: bytes) -> list[Image.Image]:
     try:
         rendered: list[Image.Image] = []
         with fitz.open(stream=file_bytes, filetype="pdf") as doc:
-            scale = 200 / 72
+            scale = dpi / 72
             matrix = fitz.Matrix(scale, scale)
             for page in doc:
                 pixmap = page.get_pixmap(matrix=matrix, alpha=False)
@@ -105,6 +110,14 @@ def _render_pdf_pages(file_bytes: bytes) -> list[Image.Image]:
         return rendered
     except Exception:
         return []
+
+
+def _ocr_page_image_format() -> tuple[str, str, str, dict[str, Any]]:
+    configured = str(getattr(settings, "OCR_PAGE_IMAGE_FORMAT", "JPEG") or "JPEG").strip().upper()
+    if configured in {"JPG", "JPEG"}:
+        quality = max(60, min(95, int(getattr(settings, "OCR_PAGE_JPEG_QUALITY", 82) or 82)))
+        return "JPEG", ".jpg", "image/jpeg", {"quality": quality, "optimize": True}
+    return "PNG", ".png", "image/png", {}
 
 
 def get_arq_redis_settings() -> RedisSettings:
@@ -406,7 +419,7 @@ async def process_upload_job(ctx: dict[str, Any], payload: dict[str, Any]) -> di
     except Exception as exc:
         await prisma.document.update(
             where={"id": document_id},
-            data={"status": "REJECTED"},
+            data={"status": "UPLOADED"},
         )
         print(
             f"[arq][upload] failed documentId={document_id} reason=page_generation_error:{exc}",
@@ -433,10 +446,10 @@ async def process_upload_job(ctx: dict[str, Any], payload: dict[str, Any]) -> di
     except Exception as exc:
         await prisma.document.update(
             where={"id": document_id},
-            data={"status": "REJECTED"},
+            data={"status": "UPLOADED"},
         )
         print(
-            f"[arq][upload] failed documentId={document_id} reason=ocr_enqueue_error:{exc} status->REJECTED",
+            f"[arq][upload] failed documentId={document_id} reason=ocr_enqueue_error:{exc} status->UPLOADED",
             flush=True,
         )
         return {"status": "failed", "reason": f"ocr_enqueue_error: {exc}", "documentId": document_id}
@@ -472,10 +485,11 @@ async def _ensure_document_pages(*, prisma, document: Any, module: str) -> None:
             data={"totalPages": page_count},
         )
 
+    image_format, extension, content_type, save_kwargs = _ocr_page_image_format()
     for index, image in enumerate(images, start=1):
-        page_file_name = f"{Path(str(document.fileName)).stem}_page_{index:03d}.png"
+        page_file_name = f"{Path(str(document.fileName)).stem}_page_{index:03d}{extension}"
         page_buffer = BytesIO()
-        image.save(page_buffer, format="PNG")
+        image.convert("RGB").save(page_buffer, format=image_format, **save_kwargs)
         page_bytes = page_buffer.getvalue()
         page_object_key = build_object_key(page_file_name, module, upload_time)
         await asyncio.to_thread(
@@ -483,7 +497,7 @@ async def _ensure_document_pages(*, prisma, document: Any, module: str) -> None:
             body=page_bytes,
             bucket=str(document.bucket),
             object_key=page_object_key,
-            content_type="image/png",
+            content_type=content_type,
         )
         await prisma.documentpage.create(
             data={
@@ -561,10 +575,10 @@ async def process_ocr_job(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[
         try:
             await prisma.document.update(
                 where={"id": document_id},
-                data={"status": "REJECTED"},
+                data={"status": "UPLOADED"},
             )
             print(
-                f"[arq][ocr] timeout_cancelled documentId={document_id} status->REJECTED",
+                f"[arq][ocr] timeout_cancelled documentId={document_id} status->UPLOADED",
                 flush=True,
             )
         except Exception as update_exc:
@@ -577,10 +591,10 @@ async def process_ocr_job(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[
         try:
             await prisma.document.update(
                 where={"id": document_id},
-                data={"status": "REJECTED"},
+                data={"status": "UPLOADED"},
             )
             print(
-                f"[arq][ocr] failed documentId={document_id} status->REJECTED error={exc}",
+                f"[arq][ocr] failed documentId={document_id} status->UPLOADED error={exc}",
                 flush=True,
             )
         except Exception as update_exc:
@@ -616,10 +630,10 @@ async def on_job_failure(ctx: dict[str, Any], job_name: str, payload: dict[str, 
         try:
             await prisma.document.update(
                 where={"id": str(document_id)},
-                data={"status": "REJECTED"},
+                data={"status": "UPLOADED"},
             )
             print(
-                f"[arq][recover] job={job_name} documentId={document_id} status->REJECTED",
+                f"[arq][recover] job={job_name} documentId={document_id} status->UPLOADED",
                 flush=True,
             )
         except Exception:

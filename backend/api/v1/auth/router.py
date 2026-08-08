@@ -7,7 +7,7 @@ import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from typing import Any, Optional, List
 
 from helpers.config import settings
 from helpers.rbac_data_access import doc_type_permissions_for_role, role_document_scope_from_attrs
@@ -154,9 +154,29 @@ def _attr_values(attributes: dict | None, key: str) -> list[str]:
     raw = (attributes or {}).get(key)
     if raw is None:
         return []
+    values: list[Any]
     if isinstance(raw, list):
-        return [str(item) for item in raw if str(item)]
-    return [str(raw)] if str(raw) else []
+        values = raw
+    else:
+        values = [raw]
+    normalized: list[str] = []
+    for item in values:
+        text = str(item or "").strip()
+        if not text:
+            continue
+        if text.startswith("[") and text.endswith("]"):
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, list):
+                    normalized.extend(str(value).strip() for value in parsed if str(value).strip())
+                    continue
+            except Exception:
+                pass
+        if "," in text:
+            normalized.extend(part.strip() for part in text.split(",") if part.strip())
+            continue
+        normalized.append(text)
+    return normalized
 
 
 def _attr_value(attributes: dict | None, key: str, default: str = "") -> str:
@@ -232,7 +252,7 @@ ALL_ADMIN_ACTIVITIES = sorted({
 
 def _is_admin_role(role_name: str) -> bool:
     normalized = str(role_name or "").upper().replace("-", "_").replace(" ", "_")
-    return normalized in {"ADMIN", "ORG_ADMIN", "SUPER_ADMIN", "SUPER_ADMINISTRATOR"}
+    return normalized in {"ADMIN", "ORG_ADMIN", "SPR_ADMIN", "SUPER_ADMIN", "SUPER_ADMINISTRATOR"}
 
 
 ACTIVITY_MODULE_OVERRIDES = {
@@ -243,6 +263,10 @@ ACTIVITY_MODULE_OVERRIDES = {
     "inventory.view_last_free_days_shipment_based": "dnd",
     "inventory.view_lfd_calendar": "dnd",
     "inventory.modify_lfd": "dnd",
+    "documents.dnd_inputs": "documents",
+    "documents.dnd_inputs.start_event": "documents",
+    "documents.dnd_inputs.exclude_holidays": "documents",
+    "documents.dnd_inputs.exclude_weekends": "documents",
     "dnd.activate": "dnd",
     "dnd.activate.start_event_date": "dnd",
     "dnd.activate.holiday_days": "dnd",
@@ -304,14 +328,37 @@ def _filter_activities_for_modules(activities: list[str], modules: list[str]) ->
         module = _activity_module(activity)
         if not module:
             continue
-        if module in module_set or ("partner" in module_set and module in {"documents", "shipments", "inventory", "warehouse"}):
+        if module in module_set or (module == "admin" and "settings" in module_set) or ("partner" in module_set and module in {"documents", "shipments", "inventory", "warehouse"}):
             filtered.append(activity)
     return sorted(set(filtered))
 
 
+MODULE_OPENING_ACTIVITY_CODES = {
+    "shipments": ("shipments.view",),
+    "tasks": ("tasks.view",),
+    "documents": ("documents.view",),
+    "inventory": ("inventory.view_container",),
+    "warehouse": ("inventory.view_warehouse",),
+    "dnd": ("inventory.view_dnd_charges",),
+    "accounting": ("accounting.view_queue",),
+    "reports": ("reports.view_dashboard",),
+    "admin": ("roles.view",),
+    "settings": ("roles.view",),
+}
+
+
+def _ensure_module_opening_activities(activities: list[str], modules: list[str]) -> list[str]:
+    codes = set(activities)
+    for module in modules:
+        openers = MODULE_OPENING_ACTIVITY_CODES.get(str(module), ())
+        if openers and not any(opener in codes for opener in openers):
+            codes.add(openers[0])
+    return sorted(codes)
+
+
 def _primary_role_name(role_names: list[str]) -> str:
     normalized = {role.upper().replace("-", "_").replace(" ", "_"): role for role in role_names}
-    for role in ("SUPER_ADMIN", "SUPER_ADMINISTRATOR", "ORG_ADMIN", "ADMIN"):
+    for role in ("SUPER_ADMIN", "SUPER_ADMINISTRATOR", "ORG_ADMIN", "SPR_ADMIN", "ADMIN"):
         if role in normalized:
             return normalized[role]
     for role in role_names:
@@ -319,7 +366,7 @@ def _primary_role_name(role_names: list[str]) -> str:
         if (
             not role.startswith("default-roles-")
             and role not in {"offline_access", "uma_authorization"}
-            and normalized_role not in {"USER", "ADMIN", "ORG_ADMIN", "SUPER_ADMIN", "SUPER_ADMINISTRATOR"}
+            and normalized_role not in {"USER", "ADMIN", "ORG_ADMIN", "SPR_ADMIN", "SUPER_ADMIN", "SUPER_ADMINISTRATOR"}
         ):
             return role
     if "USER" in normalized:
@@ -345,10 +392,10 @@ def _permissions_from_role(role: dict) -> dict:
         activities = _legacy_activity_codes(ALL_ADMIN_ACTIVITIES)
     else:
         modules = _expand_modules(_attr_values(attrs, "ewms.modules"))
-        activities = _filter_activities_for_modules(
+        activities = _ensure_module_opening_activities(_filter_activities_for_modules(
             _legacy_activity_codes(_attr_values(attrs, "ewms.activities")),
             modules,
-        )
+        ), modules)
     activity_doc_types = {}
     try:
         parsed_scopes = json.loads(_attr_json_value(attrs, "ewms.docTypeScopes", "{}"))
@@ -512,11 +559,20 @@ IMPLIED_ACTIVITY_CODES = {
         "documents.edit_extracted",
         "documents.generate_draft",
         "documents.approve_draft",
+        "documents.submit_for_approval",
+        "documents.reject_extraction",
+        "documents.override_approved_fields",
         "documents.override_validation",
         "documents.reprocess_ocr",
         "documents.download_export",
         "documents.delete",
+        "documents.map_container_to_sku",
+        "documents.submit_mapping_for_approval",
+        "documents.approve_container_mapping",
+        "documents.reject_container_mapping",
+        "documents.dnd_inputs",
     },
+    "documents.reject_extraction": {"documents.reprocess_ocr"},
     "shipments.manage": {
         "shipments.view",
         "shipments.create",
@@ -546,12 +602,24 @@ LEGACY_ACTIVITY_ALIASES = {
     "tasks.escalate": {"TSK-004"},
     "tasks.delegate": {"TSK-007"},
     "dnd.view_tariffs": {"dnd.tariff.view"},
-    "dnd.view_charges": {"dnd.activate"},
+    "dnd.view_charges": {"dnd.activate", "documents.dnd_inputs"},
+    "dnd.activate": {"documents.dnd_inputs"},
+    "dnd.activate.start_event_date": {"documents.dnd_inputs.start_event"},
+    "dnd.activate.holiday_days": {"documents.dnd_inputs.exclude_holidays"},
+    "dnd.activate.weekends": {"documents.dnd_inputs.exclude_weekends"},
+    "documents.dnd_inputs": {"dnd.activate"},
+    "documents.dnd_inputs.start_event": {"dnd.activate.start_event_date"},
+    "documents.dnd_inputs.exclude_holidays": {"dnd.activate.holiday_days"},
+    "documents.dnd_inputs.exclude_weekends": {"dnd.activate.weekends"},
     "dnd.save_inputs": {
         "dnd.activate",
         "dnd.activate.start_event_date",
         "dnd.activate.holiday_days",
         "dnd.activate.weekends",
+        "documents.dnd_inputs",
+        "documents.dnd_inputs.start_event",
+        "documents.dnd_inputs.exclude_holidays",
+        "documents.dnd_inputs.exclude_weekends",
     },
     "dnd.manage_carriers": {"dnd.tariff.create", "dnd.tariff.edit"},
     "dnd.upload_holidays": {"dnd.holiday_calendar.upload"},
@@ -613,6 +681,27 @@ def _user_level_from_keycloak(keycloak_admin, userinfo: dict, role: dict) -> str
         return default_level
 
 
+def _current_user_role_names(keycloak_admin, userinfo: dict, token_roles: list[str]) -> list[str]:
+    user_id = str(userinfo.get("sub") or "")
+    email = str(userinfo.get("email") or userinfo.get("preferred_username") or "").lower()
+    try:
+        if user_id:
+            assigned_roles = keycloak_admin.get_realm_roles_of_user(user_id)
+        else:
+            keycloak_id = keycloak_admin.get_user_id(email)
+            assigned_roles = keycloak_admin.get_realm_roles_of_user(keycloak_id) if keycloak_id else []
+        role_names = [
+            str(role.get("name") or "")
+            for role in assigned_roles
+            if str(role.get("name") or "").strip()
+        ]
+        if role_names:
+            return role_names
+    except Exception:
+        pass
+    return token_roles
+
+
 @router.get("/permissions")
 async def get_permissions(
     userinfo: dict = Depends(get_keycloak_user),
@@ -624,6 +713,7 @@ async def get_permissions(
     role_name = _primary_role_name(roles)
     try:
         keycloak_admin = get_keycloak_admin()
+        role_name = _primary_role_name(_current_user_role_names(keycloak_admin, userinfo, roles))
         role = keycloak_admin.get_realm_role(role_name)
         user_level = _user_level_from_keycloak(keycloak_admin, userinfo, role)
     except Exception:
@@ -646,10 +736,7 @@ async def get_permissions(
     permissions = _permissions_from_role(role)
     if _is_admin_role(role_name) and not _attr_values(role.get("attributes") or {}, "ewms.levels"):
         user_level = "L4"
-    permissions["activities"] = _expand_activity_codes(permissions["activities"]) if _is_admin_role(role_name) else _filter_activities_for_level(
-        _expand_activity_codes(permissions["activities"]),
-        user_level,
-    )
+    permissions["activities"] = _expand_activity_codes(permissions["activities"])
     return {"ok": True, "data": permissions}
 
 
@@ -664,6 +751,7 @@ async def get_level(
     role_name = _primary_role_name(roles)
     try:
         keycloak_admin = get_keycloak_admin()
+        role_name = _primary_role_name(_current_user_role_names(keycloak_admin, userinfo, roles))
         role = keycloak_admin.get_realm_role(role_name)
         level = _user_level_from_keycloak(keycloak_admin, userinfo, role)
         if _is_admin_role(role_name) and not _attr_values(role.get("attributes") or {}, "ewms.levels"):
@@ -674,11 +762,8 @@ async def get_level(
         else:
             role_activities = _attr_values(role.get("attributes") or {}, "ewms.activities")
             role_modules = _expand_modules(_attr_values(role.get("attributes") or {}, "ewms.modules"))
-            activities = _filter_activities_for_level(
-                _expand_activity_codes(
-                    _filter_activities_for_modules(_legacy_activity_codes(role_activities), role_modules)
-                ),
-                level,
+            activities = _expand_activity_codes(
+                _ensure_module_opening_activities(_filter_activities_for_modules(_legacy_activity_codes(role_activities), role_modules), role_modules)
             )
     except Exception:
         role = {"attributes": {"ewms.levels": ["L1"]}}

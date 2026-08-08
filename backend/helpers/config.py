@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     LLM_MAX_TOKENS: int = 2048
     OCR_JOB_TIMEOUT_SECONDS: int = 0
     OCR_MAX_REQUEST_ENCODED_BYTES: int = 27 * 1024 * 1024
+    OCR_PAGE_IMAGE_DPI: int = 160
+    OCR_PAGE_IMAGE_FORMAT: str = "JPEG"
+    OCR_PAGE_JPEG_QUALITY: int = 82
     OCR_API_URL: str = "https://openrouter.ai/api/v1/chat/completions"
     OCR_GEMINI_HTTP_TIMEOUT_SECONDS: int = 900
     OCR_GEMINI_MAX_ATTEMPTS: int = 7

@@ -183,7 +183,19 @@ export function useCanViewDocType(docType: string): boolean {
   return viewList.includes('*') || viewList.includes(docType);
 }
 
-export type DocTypeAction = 'upload' | 'approve_extraction' | 'review_generation' | 'view';
+export type DocTypeAction =
+  | 'upload'
+  | 'edit_extracted'
+  | 'approve_extraction'
+  | 'submit_for_approval'
+  | 'approve_draft'
+  | 'reject_extraction'
+  | 'override_approved_fields'
+  | 'review_generation'
+  | 'container_mapping'
+  | 're_upload_document'
+  | 'reprocess_ocr'
+  | 'view';
 
 export function useDocTypePermissions(): { canDo: (docType: string, action: DocTypeAction) => boolean } {
   const { docTypes } = usePermissions();

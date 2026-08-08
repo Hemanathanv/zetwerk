@@ -3,6 +3,7 @@ from io import BytesIO
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import re
 from typing import Any, Final
 from uuid import uuid4
@@ -10,7 +11,6 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
-from botocore.exceptions import ClientError
 
 from db import get_prisma
 from documents_ocr.queue import (
@@ -47,7 +47,7 @@ from helpers.rbac_data_access import (
     has_role_document_scope,
     user_id,
 )
-from helpers.rbac import require_activity
+from helpers.rbac import require_activity, require_any_activity
 from helpers.shipment_operational import create_or_update_shipment_from_bol_document, ensure_operational_shipment_tables
 from objectstore import (
     DEFAULT_BUCKET,
@@ -149,6 +149,8 @@ class DocumentListItem(BaseModel):
     id: str
     docType: str
     status: str
+    issuerName: str | None = None
+    sourceName: str | None = None
     validationStatus: str | None = None
     validationSummary: dict[str, Any] | None = None
     validationResults: list[dict[str, Any]] = Field(default_factory=list)
@@ -190,13 +192,6 @@ class DocumentListResponse(BaseModel):
     counts: DocumentListCounts
 
 
-class DocumentPreviewUrlResponse(BaseModel):
-    previewUrl: str
-    bucket: str
-    objectKey: str
-    expiresIn: int = 3600
-
-
 class DocumentPageItem(BaseModel):
     id: str
     documentId: str
@@ -225,6 +220,8 @@ class DocumentDetailItem(BaseModel):
     id: str
     docType: str
     status: str
+    issuerName: str | None = None
+    sourceName: str | None = None
     validationStatus: str | None = None
     validationSummary: dict[str, Any] | None = None
     validationResults: list[dict[str, Any]] = Field(default_factory=list)
@@ -498,6 +495,33 @@ def _extract_ocr_confidence(extraction: object | None) -> float | None:
     return None
 
 
+ISSUER_FIELD_CANDIDATES = (
+    "issuerName",
+    "issuerCompanyName",
+    "shipperName",
+    "exporterName",
+    "sellerName",
+    "carrierName",
+    "consignorName",
+    "vendorName",
+    "supplierName",
+    "companyName",
+    "sourceName",
+)
+
+
+def _extract_display_issuer(extraction: object | None) -> str | None:
+    if not extraction:
+        return None
+    raw = getattr(extraction, "rawData", None)
+    raw_data = raw if isinstance(raw, dict) else {}
+    for key in ISSUER_FIELD_CANDIDATES:
+        value = getattr(extraction, key, None) or raw_data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 def _to_iso(value) -> str | None:
     if value is None:
         return None
@@ -525,9 +549,9 @@ async def _status_from_db_with_stale_recovery(*, prisma, row: Any) -> str:
     try:
         await prisma.document.update(
             where={"id": str(row.id)},
-            data={"status": "REJECTED"},
+            data={"status": "UPLOADED"},
         )
-        return "REJECTED"
+        return "UPLOADED"
     except Exception:
         return status
 
@@ -1069,7 +1093,7 @@ async def upload_document(
     await _ensure_database_doc_type_supported(prisma, normalized_doc_type)
 
     default_bucket_from_doc_type = _bucket_slug_from_doc_type(normalized_doc_type)
-    raw_bucket = bucket or DEFAULT_BUCKET or settings.S3_DEFAULT_BUCKET or default_bucket_from_doc_type
+    raw_bucket = bucket or default_bucket_from_doc_type or DEFAULT_BUCKET or settings.S3_DEFAULT_BUCKET
     target_bucket = normalize_bucket_name(raw_bucket)
     bucket_error = validate_bucket_name(target_bucket)
     if bucket_error:
@@ -1173,14 +1197,6 @@ async def upload_document(
                 delete_document_object(object_bucket, object_key)
             except Exception:
                 pass
-        if isinstance(exc, ClientError):
-            error = exc.response.get("Error", {})
-            code = str(error.get("Code") or "S3Error")
-            message = str(error.get("Message") or exc)
-            raise HTTPException(
-                status_code=502,
-                detail=f"S3 upload failed for bucket {target_bucket!r}: {code}: {message}",
-            )
         if "InvalidBucketName" in str(exc):
             raise HTTPException(
                 status_code=400,
@@ -1202,7 +1218,7 @@ DOCUMENT_SECTION_STATUS_FILTERS: Final[dict[str, set[str]]] = {
     "needs-approval": {"EXTRACTED"},
     "processing": {"QUEUED", "PROCESSING", "REPROCESSING"},
     "cross-validating": {"REVIEWED"},
-    "draft-review": {"UPLOADED", "REJECTED"},
+    "draft-review": {"UPLOADED"},
     "done": {"ARCHIVED", "REVIEWED"},
 }
 _DOCUMENT_QUEUE_INDEXES_READY = False
@@ -1328,6 +1344,114 @@ async def _document_count(*, prisma, user: Any, section: str) -> int:
         return int(await prisma.document.count(where=_document_section_where(user=user, section=section)))
     except Exception:
         return 0
+
+
+async def _document_counts(*, prisma, user: Any) -> DocumentListCounts:
+    try:
+        await _ensure_cross_validation_tables(prisma)
+        access_where, access_params, _ = document_sql_where("d", user)
+        validation_active_clause = _validation_active_clause("d")
+        rows = await prisma.query_raw(
+            f"""
+            SELECT
+              COUNT(*) AS total,
+              COUNT(*) FILTER (WHERE d."status"::text = 'EXTRACTED') AS needs_approval,
+              COUNT(*) FILTER (WHERE d."status"::text IN ('QUEUED', 'PROCESSING', 'REPROCESSING')) AS processing,
+              COUNT(*) FILTER (
+                WHERE d."status"::text = 'REVIEWED'
+                  AND {validation_active_clause}
+              ) AS cross_validating,
+              COUNT(*) FILTER (WHERE d."status"::text = 'UPLOADED') AS draft_review,
+              COUNT(*) FILTER (
+                WHERE d."status"::text = 'ARCHIVED'
+                   OR (d."status"::text = 'REVIEWED' AND NOT {validation_active_clause})
+              ) AS done
+            FROM "public"."documents" d
+            WHERE {access_where}
+            """,
+            *access_params,
+        )
+        row = rows[0] if rows else {}
+        return DocumentListCounts(
+            total=int(row.get("total") or 0),
+            needsApproval=int(row.get("needs_approval") or 0),
+            processing=int(row.get("processing") or 0),
+            crossValidating=int(row.get("cross_validating") or 0),
+            draftReview=int(row.get("draft_review") or 0),
+            done=int(row.get("done") or 0),
+        )
+    except Exception:
+        return DocumentListCounts(
+            total=await _document_count(prisma=prisma, user=user, section="all"),
+            needsApproval=await _document_count(prisma=prisma, user=user, section="needs-approval"),
+            processing=await _document_count(prisma=prisma, user=user, section="processing"),
+            crossValidating=await _document_count(prisma=prisma, user=user, section="cross-validating"),
+            draftReview=await _document_count(prisma=prisma, user=user, section="draft-review"),
+            done=await _document_count(prisma=prisma, user=user, section="done"),
+        )
+
+
+
+
+async def _document_page_rows(
+    *,
+    prisma,
+    user: Any,
+    section: str,
+    where: dict[str, Any],
+    skip: int,
+    page_size: int,
+) -> list[Any]:
+    if section not in {"cross-validating", "done"}:
+        return await prisma.document.find_many(
+            where=where,
+            order={"createdAt": "desc"},
+            skip=skip,
+            take=page_size,
+        )
+
+    await _ensure_cross_validation_tables(prisma)
+    access_where, access_params, next_param = document_sql_where("d", user)
+    validation_active_clause = _validation_active_clause("d")
+    if section == "done":
+        section_clause = f'''
+          (
+            d."status"::text = 'ARCHIVED'
+            OR (d."status"::text = 'REVIEWED' AND NOT {validation_active_clause})
+          )
+        '''
+    else:
+        section_clause = f'''d."status"::text = 'REVIEWED' AND {validation_active_clause}'''
+
+    rows = await prisma.query_raw(
+        f'''
+        SELECT
+          d."id"::text AS "id",
+          d."doc_type"::text AS "docType",
+          d."status"::text AS "status",
+          d."validation_status"::text AS "validationStatus",
+          d."bucket" AS "bucket",
+          d."object_key" AS "objectKey",
+          d."file_name" AS "fileName",
+          d."content_type" AS "contentType",
+          d."size_bytes" AS "sizeBytes",
+          d."total_pages" AS "totalPages",
+          d."created_at" AS "createdAt",
+          d."updated_at" AS "updatedAt"
+        FROM "public"."documents" d
+        WHERE {access_where}
+          AND {section_clause}
+        ORDER BY d."created_at" DESC
+        OFFSET ${next_param}
+        LIMIT ${next_param + 1}
+        ''',
+        *access_params,
+        skip,
+        page_size,
+    )
+    return [SimpleNamespace(**dict(row)) for row in rows]
+
+
 
 
 def _document_matches_section(status: str, validation_status: str | None, section: str) -> bool:
@@ -1474,15 +1598,25 @@ async def list_documents(
     try:
         await _ensure_document_queue_indexes(prisma)
         where = _document_section_where(user=user, section=normalized_section)
-        total = int(await prisma.document.count(where=where))
+        counts = await _document_counts(prisma=prisma, user=user)
+        total = {
+            "all": counts.total,
+            "needs-approval": counts.needsApproval,
+            "processing": counts.processing,
+            "cross-validating": counts.crossValidating,
+            "draft-review": counts.draftReview,
+            "done": counts.done,
+        }.get(normalized_section, counts.total)
         total_pages = max(1, (total + page_size - 1) // page_size)
         safe_page = min(page, total_pages)
         skip = (safe_page - 1) * page_size
-        rows = await prisma.document.find_many(
+        rows = await _document_page_rows(
+            prisma=prisma,
+            user=user,
+            section=normalized_section,
             where=where,
-            order={"createdAt": "desc"},
             skip=skip,
-            take=page_size,
+            page_size=page_size,
         )
         validation_snapshots = await _document_validation_snapshots(
             prisma,
@@ -1504,6 +1638,8 @@ async def list_documents(
                 DocumentListItem(
                     id=row.id,
                     docType=str(row.docType),
+                    issuerName=_extract_display_issuer(extraction),
+                    sourceName=_extract_display_issuer(extraction),
                     filePath=_storage_path(row.bucket, row.objectKey),
                     fileName=row.fileName,
                     bucket=row.bucket,
@@ -1522,29 +1658,6 @@ async def list_documents(
                     ocrConfidence=_extract_ocr_confidence(extraction),
                 )
             )
-        (
-            total_count,
-            needs_approval_count,
-            processing_count,
-            cross_validating_count,
-            draft_review_count,
-            done_count,
-        ) = await asyncio.gather(
-            _document_count(prisma=prisma, user=user, section="all"),
-            _document_count(prisma=prisma, user=user, section="needs-approval"),
-            _document_count(prisma=prisma, user=user, section="processing"),
-            _document_count(prisma=prisma, user=user, section="cross-validating"),
-            _document_count(prisma=prisma, user=user, section="draft-review"),
-            _document_count(prisma=prisma, user=user, section="done"),
-        )
-        counts = DocumentListCounts(
-            total=total_count,
-            needsApproval=needs_approval_count,
-            processing=processing_count,
-            crossValidating=cross_validating_count,
-            draftReview=draft_review_count,
-            done=done_count,
-        )
         return DocumentListResponse(
             documents=documents,
             counts=counts,
@@ -1562,11 +1675,16 @@ async def list_documents(
 
 
 @router.get("/documents-approved")
-async def list_approved_documents_for_shipments(user=Depends(get_current_user)):
+async def list_approved_documents_for_shipments(
+    shipment_id: str | None = Query(default=None, alias="shipmentId"),
+    user=Depends(get_current_user),
+):
     """Read the automatically updated document-module SQL view."""
     prisma = await get_prisma()
     await ensure_document_module_views(prisma)
     access_where, access_params, _ = document_module_sql_where("d", user)
+    shipment_param = f"${len(access_params) + 1}"
+    projection_params = [*access_params, shipment_id]
     projection = await prisma.query_raw(
         f"""
         SELECT v.document_id, v.doc_type, v.file_name, v.document_number,
@@ -1575,12 +1693,18 @@ async def list_approved_documents_for_shipments(user=Depends(get_current_user)):
                COALESCE(dvs."status", d."validation_status") AS validation_status
         FROM document_module.v_shipment_gate_documents v
         JOIN public.documents d ON d.id = v.document_id
+        LEFT JOIN public.shipments s ON s.id::text = v.shipment_id::text
         LEFT JOIN document_module.document_validation_status dvs
           ON dvs."document_id"::text = v.document_id::text
         WHERE {access_where}
+          AND (
+            {shipment_param}::text IS NULL
+            OR v.shipment_id::text = {shipment_param}::text
+            OR s.shipment_number::text = {shipment_param}::text
+          )
         ORDER BY v.approved_at DESC
         """,
-        *access_params,
+        *projection_params,
     )
     documents: list[dict[str, Any]] = []
     for row in projection:
@@ -1609,9 +1733,22 @@ async def list_approved_documents_for_shipments(user=Depends(get_current_user)):
         FROM docgen.drafts
         WHERE status = 'GENERATED'::docgen."DocGenerationStatus"
           AND created_by::text = $1::text
+          AND (
+            $2::text IS NULL
+            OR EXISTS (
+              SELECT 1
+              FROM jsonb_each_text(COALESCE(source_document_ids, '{}'::jsonb)) source_doc(key, value)
+              JOIN document_module.v_shipment_gate_documents source_v
+                ON source_v.document_id::text = source_doc.value
+              LEFT JOIN public.shipments source_s ON source_s.id::text = source_v.shipment_id::text
+              WHERE source_v.shipment_id::text = $2::text
+                 OR source_s.shipment_number::text = $2::text
+            )
+          )
         ORDER BY updated_at DESC
         """,
         str(user.id),
+        shipment_id,
     )
     for row in generated_rows:
         payload = row.get("rendered_payload") or {}
@@ -1675,6 +1812,8 @@ async def get_document_queue_item(document_id: str, user=Depends(get_current_use
     return DocumentListItem(
         id=row.id,
         docType=str(row.docType),
+        issuerName=_extract_display_issuer(extraction),
+        sourceName=_extract_display_issuer(extraction),
         filePath=_storage_path(row.bucket, row.objectKey),
         fileName=row.fileName,
         bucket=row.bucket,
@@ -1740,6 +1879,8 @@ async def get_document(document_id: str, user=Depends(get_current_user)):
             id=str(row.id),
             docType=str(row.docType),
             status=status,
+            issuerName=_extract_display_issuer(extraction_obj),
+            sourceName=_extract_display_issuer(extraction_obj),
             validationStatus=validation_snapshot.get("status"),
             validationSummary=validation_snapshot.get("summary"),
             validationResults=validation_snapshot.get("results") or [],
@@ -1764,33 +1905,12 @@ async def get_document(document_id: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Failed to serialize document detail: {exc}")
 
 
-@router.get("/documents/{document_id}/preview-url", response_model=DocumentPreviewUrlResponse)
-async def get_document_preview_url(document_id: str, user=Depends(get_current_user)):
-    prisma = await get_prisma()
-    where = document_prisma_where(user)
-    where["id"] = document_id
-    row = await prisma.document.find_first(where=where)
-    if not row:
-        raise HTTPException(status_code=404, detail="Document not found")
-
-    try:
-        preview_url = get_download_url(str(row.bucket), str(row.objectKey))
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Failed to create S3 preview URL: {exc}")
-
-    return DocumentPreviewUrlResponse(
-        previewUrl=preview_url,
-        bucket=str(row.bucket),
-        objectKey=str(row.objectKey),
-    )
-
-
 @router.patch("/documents/{document_id}/extraction")
 async def update_document_extraction(
     document_id: str,
     payload: UpdateExtractionRequest,
     user=Depends(get_current_user),
-    _authz=Depends(require_activity("documents.edit_extracted")),
+    authz=Depends(require_any_activity("documents.edit_extracted", "documents.override_approved_fields")),
 ):
     prisma = await get_prisma()
     where = document_prisma_where(user)
@@ -1802,7 +1922,14 @@ async def update_document_extraction(
         raise HTTPException(status_code=404, detail="Document not found")
 
     doc_type = str(document.docType)
-    _require_doc_type_action(user, "approve_extraction", doc_type)
+    document_status = str(getattr(document, "status", "") or "").upper()
+    is_approved_document = document_status in {"REVIEWED", "ARCHIVED"}
+    activity_set = set(authz.get("activities") or [])
+    role_name = str(authz.get("role") or "").upper().replace("-", "_").replace(" ", "_")
+    is_admin = role_name in {"ADMIN", "ORG_ADMIN", "SPR_ADMIN", "SUPER_ADMIN", "SUPER_ADMINISTRATOR"}
+    if is_approved_document and "documents.override_approved_fields" not in activity_set and not is_admin:
+        raise HTTPException(status_code=403, detail="Permission denied: missing activity documents.override_approved_fields")
+    _require_doc_type_action(user, "override_approved_fields" if is_approved_document else "edit_extracted", doc_type)
     parent_model = DOC_TYPE_TO_PRISMA_PARENT_MODEL.get(doc_type)
     accessor_name = DOC_TYPE_TO_EXTRACTION_ACCESSOR.get(doc_type)
     if not parent_model or not accessor_name:
@@ -1858,7 +1985,9 @@ async def get_bol_container_mapping(
     page_size: int = Query(20, alias="pageSize", ge=1, le=100),
     unmapped_only: bool = Query(False, alias="unmappedOnly"),
     user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.map_container_to_sku")),
 ):
+    _require_doc_type_action(user, "container_mapping", "BILL_OF_LADING")
     try:
         return await build_container_mapping(
             prisma=await get_prisma(),
@@ -1879,9 +2008,9 @@ async def update_bol_container_mapping(
     document_id: str,
     payload: SaveContainerMappingRequest,
     user=Depends(get_current_user),
-    _authz=Depends(require_activity("documents.approve_draft")),
+    _authz=Depends(require_activity("documents.map_container_to_sku")),
 ):
-    _require_doc_type_action(user, "approve_extraction", "BILL_OF_LADING")
+    _require_doc_type_action(user, "container_mapping", "BILL_OF_LADING")
     try:
         return await save_container_mapping(
             prisma=await get_prisma(),
@@ -2217,7 +2346,7 @@ async def update_document_warehouse_mapping(
 async def retry_document_ocr(
     document_id: str,
     user=Depends(get_current_user),
-    _authz=Depends(require_activity("documents.reprocess_ocr")),
+    _authz=Depends(require_any_activity("documents.reprocess_ocr", "documents.reject_extraction")),
 ):
     prisma = await get_prisma()
     where = document_prisma_where(user)
@@ -2227,6 +2356,8 @@ async def retry_document_ocr(
     )
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
+
+    _require_doc_type_action(user, "reprocess_ocr", str(document.docType))
 
     await prisma.document.update(
         where={"id": document_id},
@@ -2255,7 +2386,7 @@ async def reupload_document_for_validation(
     file: UploadFile = File(...),
     refreshGeneratedDrafts: bool = Form(False),
     user=Depends(get_current_user),
-    _authz=Depends(require_activity("documents.upload")),
+    _authz=Depends(require_activity("documents.re_upload_document")),
 ):
     prisma = await get_prisma()
     where = document_prisma_where(user)
@@ -2282,7 +2413,7 @@ async def reupload_document_for_validation(
             raise HTTPException(status_code=400, detail=f"Invalid PDF file: {exc}") from exc
 
     doc_type = str(document.docType)
-    _require_doc_type_action(user, "upload", doc_type)
+    _require_doc_type_action(user, "re_upload_document", doc_type)
     target_bucket = str(document.bucket)
     target_module = _bucket_slug_from_doc_type(doc_type)
     upload_time = datetime.now()
@@ -2350,7 +2481,7 @@ async def stop_document_ocr(
     documents = await _query_raw(
         prisma,
         f"""
-        SELECT d."id"::text AS id, d."status"::text AS status
+        SELECT d."id"::text AS id, d."status"::text AS status, d."doc_type"::text AS doc_type
         FROM "public"."documents" d
         WHERE d."id"::text = $1::text
           AND {access_where}
@@ -2362,6 +2493,8 @@ async def stop_document_ocr(
     document = documents[0] if documents else None
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
+
+    _require_doc_type_action(user, "reprocess_ocr", str(document.get("doc_type") or ""))
 
     current_status = str(document.get("status") or "").upper()
     if current_status not in {"UPLOADED", "QUEUED", "PROCESSING", "REPROCESSING"}:
@@ -2704,17 +2837,43 @@ def _bol_has_tracking_reference(extraction: Any) -> bool:
     )
 
 
-def _bol_approval_blockers(extraction: Any) -> list[str]:
+async def _bol_dnd_inputs_activated(prisma, document_id: str) -> bool:
+    table_rows = await _query_raw(
+        prisma,
+        "SELECT to_regclass('public.dnd_shipment_inputs')::text AS table_name",
+    )
+    if not table_rows or not table_rows[0].get("table_name"):
+        return False
+    await _execute_raw(
+        prisma,
+        "ALTER TABLE public.dnd_shipment_inputs ADD COLUMN IF NOT EXISTS dnd_status TEXT NOT NULL DEFAULT 'PENDING_SELECTION'",
+    )
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT dnd_status
+        FROM public.dnd_shipment_inputs
+        WHERE shipment_id = $1
+        LIMIT 1
+        """,
+        f"bol-{document_id}",
+    )
+    return bool(rows and str(rows[0].get("dnd_status") or "").upper() == "ACTIVATED")
+
+
+async def _bol_approval_blockers(prisma, document_id: str, extraction: Any) -> list[str]:
     blockers: list[str] = []
+    if not _bol_has_tracking_reference(extraction):
+        blockers.append("enter SafeCube Inputs: either MBL number or booking reference number")
+    if not await _bol_dnd_inputs_activated(prisma, document_id):
+        blockers.append("complete and save D&D Inputs")
     if not _bol_container_mapping_approved(extraction):
         blockers.append("approve the BOL container mapping")
-    if not _bol_has_tracking_reference(extraction):
-        blockers.append("enter either MBL number or booking reference number")
     return blockers
 
 
-def _raise_bol_approval_blockers(extraction: Any) -> None:
-    blockers = _bol_approval_blockers(extraction)
+async def _raise_bol_approval_blockers(prisma, document_id: str, extraction: Any) -> None:
+    blockers = await _bol_approval_blockers(prisma, document_id, extraction)
     if blockers:
         raise HTTPException(
             status_code=400,
@@ -2912,6 +3071,105 @@ def _validation_overall_status(summary_dict: dict[str, Any]) -> str:
     if int(summary_dict.get("warnings") or 0) > 0:
         return "WARNING"
     return "PASSED"
+
+
+def _missing_validation_target_types(*, rules: list[Any], documents_by_type: dict[str, Any]) -> list[str]:
+    missing: set[str] = set()
+    for rule in rules:
+        target_doc_type = str(getattr(rule, "target_doc_type", "") or "").upper()
+        if not target_doc_type or target_doc_type in {"SELF", "MASTER_DATA"}:
+            continue
+        if target_doc_type not in documents_by_type:
+            missing.add(target_doc_type)
+    return sorted(missing)
+
+
+async def _persist_document_validation_status(
+    prisma,
+    *,
+    document_id: str,
+    shipment_id: str,
+    status: str,
+    summary: dict[str, Any],
+) -> None:
+    await _execute_raw(
+        prisma,
+        """
+        INSERT INTO "document_module"."document_validation_status" (
+          "document_id", "shipment_id", "status", "summary", "total_rules",
+          "blocking_failures", "warnings", "waiting", "updated_at"
+        )
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, NOW())
+        ON CONFLICT ("document_id") DO UPDATE SET
+          "shipment_id" = EXCLUDED."shipment_id",
+          "status" = EXCLUDED."status",
+          "summary" = EXCLUDED."summary",
+          "total_rules" = EXCLUDED."total_rules",
+          "blocking_failures" = EXCLUDED."blocking_failures",
+          "warnings" = EXCLUDED."warnings",
+          "waiting" = EXCLUDED."waiting",
+          "updated_at" = NOW()
+        """,
+        document_id,
+        shipment_id,
+        status,
+        _json_dumps(summary),
+        int(summary.get("total") or 0),
+        int(summary.get("blockingFailures") or 0),
+        int(summary.get("warnings") or 0),
+        int(summary.get("waiting") or 0),
+    )
+    await _execute_raw(
+        prisma,
+        """
+        UPDATE "public"."documents"
+        SET "validation_status" = $2, "updated_at" = NOW()
+        WHERE "id"::text = $1::text
+        """,
+        document_id,
+        status,
+    )
+
+
+async def _recheck_waiting_validations_for_arrived_doc(
+    prisma,
+    *,
+    uploaded_by: str,
+    user_id: str,
+    arrived_doc_type: str,
+    current_document_id: str,
+) -> None:
+    waiting_rows = await _query_raw(
+        prisma,
+        """
+        SELECT DISTINCT d."id"::text AS "document_id", d."doc_type"::text AS "doc_type"
+        FROM "document_module"."document_validation_status" dvs
+        JOIN "public"."documents" d ON d."id"::text = dvs."document_id"
+        WHERE dvs."status" = 'WAITING'
+          AND d."uploaded_by"::text = $1::text
+          AND d."is_deleted" = FALSE
+          AND d."id"::text <> $2::text
+        LIMIT 20
+        """,
+        uploaded_by,
+        current_document_id,
+    )
+    arrived = str(arrived_doc_type or "").upper()
+    for row in waiting_rows:
+        waiting_doc_type = str(row.get("doc_type") or "").upper()
+        if not waiting_doc_type:
+            continue
+        rules = get_rules_for_doc_type(waiting_doc_type, template_id="breakbulk-template")
+        if not any(str(getattr(rule, "target_doc_type", "") or "").upper() == arrived for rule in rules):
+            continue
+        await _run_and_persist_document_validation(
+            prisma,
+            document_id=str(row["document_id"]),
+            doc_type=waiting_doc_type,
+            uploaded_by=uploaded_by,
+            user_id=user_id,
+            recheck_waiting_sources=False,
+        )
 
 
 def _validation_display_status_and_order(*, status: str, blocking_behavior: str) -> tuple[str, int]:
@@ -3175,6 +3433,52 @@ async def _run_and_persist_document_validation(
         uploaded_by=uploaded_by,
     )
     rules = get_rules_for_doc_type(doc_type, template_id="breakbulk-template")
+    missing_target_types = _missing_validation_target_types(
+        rules=rules,
+        documents_by_type=documents_by_type,
+    )
+    if missing_target_types:
+        summary_dict = {
+            "total": len(rules),
+            "passed": 0,
+            "failed": 0,
+            "warnings": 0,
+            "waiting": len(missing_target_types),
+            "skipped": 0,
+            "blockingFailures": 0,
+            "okToProgress": True,
+            "alerts": [
+                {
+                    "level": "WAITING",
+                    "message": f"Waiting for {doc_type_name} before cross-validation runs.",
+                    "targetDocType": doc_type_name,
+                }
+                for doc_type_name in missing_target_types
+            ],
+            "results": [],
+            "waitingForDocTypes": missing_target_types,
+        }
+        await _persist_document_validation_status(
+            prisma,
+            document_id=document_id,
+            shipment_id=shipment_id,
+            status="WAITING",
+            summary=summary_dict,
+        )
+        if recheck_waiting_sources:
+            await _recheck_waiting_validations_for_arrived_doc(
+                prisma,
+                uploaded_by=uploaded_by,
+                user_id=user_id,
+                arrived_doc_type=doc_type,
+                current_document_id=document_id,
+            )
+        return {
+            "shipmentId": shipment_id,
+            "status": "WAITING",
+            **summary_dict,
+        }
+
     summary = run_cross_validation(
         source_doc_type=doc_type,
         documents_by_type=documents_by_type,
@@ -3216,70 +3520,22 @@ async def _run_and_persist_document_validation(
         )
 
     overall_status = _validation_overall_status(summary_dict)
-    await _execute_raw(
+    await _persist_document_validation_status(
         prisma,
-        """
-        INSERT INTO "document_module"."document_validation_status" (
-          "document_id", "shipment_id", "status", "summary", "total_rules",
-          "blocking_failures", "warnings", "waiting", "updated_at"
-        )
-        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, NOW())
-        ON CONFLICT ("document_id") DO UPDATE SET
-          "shipment_id" = EXCLUDED."shipment_id",
-          "status" = EXCLUDED."status",
-          "summary" = EXCLUDED."summary",
-          "total_rules" = EXCLUDED."total_rules",
-          "blocking_failures" = EXCLUDED."blocking_failures",
-          "warnings" = EXCLUDED."warnings",
-          "waiting" = EXCLUDED."waiting",
-          "updated_at" = NOW()
-        """,
-        document_id,
-        shipment_id,
-        overall_status,
-        _json_dumps(summary_dict),
-        int(summary_dict.get("total") or 0),
-        int(summary_dict.get("blockingFailures") or 0),
-        int(summary_dict.get("warnings") or 0),
-        int(summary_dict.get("waiting") or 0),
-    )
-    await _execute_raw(
-        prisma,
-        """
-        UPDATE "public"."documents"
-        SET "validation_status" = $2, "updated_at" = NOW()
-        WHERE "id"::text = $1::text
-        """,
-        document_id,
-        overall_status,
+        document_id=document_id,
+        shipment_id=shipment_id,
+        status=overall_status,
+        summary=summary_dict,
     )
 
     if recheck_waiting_sources:
-        waiting_sources = await _query_raw(
+        await _recheck_waiting_validations_for_arrived_doc(
             prisma,
-            """
-            SELECT DISTINCT vr."document_id", d."doc_type"::text AS "doc_type"
-            FROM "document_module"."validation_results" vr
-            JOIN "public"."documents" d ON d."id"::text = vr."document_id"
-            WHERE vr."status" = 'WAITING'
-              AND vr."target_doc_type" = $1
-              AND d."uploaded_by"::text = $2::text
-              AND vr."document_id" <> $3
-            LIMIT 20
-            """,
-            doc_type,
-            uploaded_by,
-            document_id,
+            uploaded_by=uploaded_by,
+            user_id=user_id,
+            arrived_doc_type=doc_type,
+            current_document_id=document_id,
         )
-        for row in waiting_sources:
-            await _run_and_persist_document_validation(
-                prisma,
-                document_id=str(row["document_id"]),
-                doc_type=str(row["doc_type"]),
-                uploaded_by=uploaded_by,
-                user_id=user_id,
-                recheck_waiting_sources=False,
-            )
 
     return {
         "shipmentId": shipment_id,
@@ -3314,7 +3570,7 @@ async def auto_review_and_validate_document(
         raise LookupError("Extraction data not found for this document")
 
     if doc_type == "BILL_OF_LADING":
-        _raise_bol_approval_blockers(extraction)
+        await _raise_bol_approval_blockers(prisma, document_id, extraction)
 
     reviewed_at = datetime.now()
     await model_accessor.update(
@@ -3359,7 +3615,7 @@ async def approve_document_extraction(
         raise HTTPException(status_code=404, detail="Document not found")
 
     doc_type = str(document.docType)
-    _require_doc_type_action(user, "approve_extraction", doc_type)
+    _require_doc_type_action(user, "approve_draft", doc_type)
     accessor = DOC_TYPE_TO_EXTRACTION_ACCESSOR.get(doc_type)
     if not accessor:
         raise HTTPException(status_code=400, detail=f"Approval is not configured for {doc_type}")
@@ -3373,7 +3629,7 @@ async def approve_document_extraction(
         raise HTTPException(status_code=404, detail="Extraction data not found for this document")
 
     if doc_type == "BILL_OF_LADING":
-        _raise_bol_approval_blockers(extraction)
+        await _raise_bol_approval_blockers(prisma, document_id, extraction)
 
     parent_model = DOC_TYPE_TO_PRISMA_PARENT_MODEL.get(doc_type)
     if not parent_model:

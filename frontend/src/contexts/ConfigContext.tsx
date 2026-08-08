@@ -120,6 +120,15 @@ const ConfigContext = createContext<ConfigContextType>({
 
 // ─── Provider ──────────────────────────────────────────────────────────────────
 
+async function settleConfig<T>(request: Promise<{ data?: T }>, fallback: T): Promise<T> {
+  try {
+    const response = await request;
+    return response.data ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function ConfigProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   const [state, setState] = useState<ConfigState>(initialState);
@@ -179,33 +188,40 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   const refreshAll = useCallback(async () => {
     setState(s => ({ ...s, loading: true, error: null }));
-    try {
-      const [rolesRes, orgsRes, teamsRes, templatesRes, dtRes, ptRes, catRes, modRes, actRes] = await Promise.all([
-        apiGet<any>('/api/admin/roles'),
-        apiGet<any>('/api/admin/organisations'),
-        apiGet<any>('/api/admin/teams').catch(() => ({ data: [] })),
-        apiGet<any>('/api/admin/templates'),
-        apiGet<any>('/api/admin/registries/doc-types'),
-        apiGet<any>('/api/admin/registries/partner-types'),
-        apiGet<any>('/api/admin/registries/ticket-categories'),
-        apiGet<any>('/api/admin/registries/modules'),
-        apiGet<any>('/api/admin/activities'),
-      ]);
-      setState({
-        roles:            rolesRes.data     ?? [],
-        organisations:    orgsRes.data      ?? [],
-        teams:            teamsRes.data     ?? [],
-        templates:        templatesRes.data ?? [],
-        docTypes:         dtRes.data        ?? [],
-        partnerTypes:     ptRes.data        ?? [],
-        ticketCategories: catRes.data       ?? [],
-        modules:          modRes.data       ?? [],
-        activities:       actRes.data       ?? [],
-        loading: false, error: null,
-      });
-    } catch (err: any) {
-      setState(s => ({ ...s, loading: false, error: err?.message ?? 'Config load failed' }));
-    }
+    const [
+      roles,
+      organisations,
+      teams,
+      templates,
+      docTypes,
+      partnerTypes,
+      ticketCategories,
+      modules,
+      activities,
+    ] = await Promise.all([
+      settleConfig<ConfigRole[]>(apiGet<any>('/api/admin/roles'), []),
+      settleConfig<ConfigOrg[]>(apiGet<any>('/api/admin/organisations'), []),
+      settleConfig<ConfigTeam[]>(apiGet<any>('/api/admin/teams'), []),
+      settleConfig<ConfigTemplate[]>(apiGet<any>('/api/admin/templates'), []),
+      settleConfig<ConfigDocType[]>(apiGet<any>('/api/admin/registries/doc-types'), []),
+      settleConfig<ConfigPartnerType[]>(apiGet<any>('/api/admin/registries/partner-types'), []),
+      settleConfig<ConfigTicketCategory[]>(apiGet<any>('/api/admin/registries/ticket-categories'), []),
+      settleConfig<ConfigModule[]>(apiGet<any>('/api/admin/registries/modules'), []),
+      settleConfig<ConfigActivity[]>(apiGet<any>('/api/admin/activities'), []),
+    ]);
+    setState({
+      roles,
+      organisations,
+      teams,
+      templates,
+      docTypes,
+      partnerTypes,
+      ticketCategories,
+      modules,
+      activities,
+      loading: false,
+      error: null,
+    });
   }, []);
 
   useEffect(() => {

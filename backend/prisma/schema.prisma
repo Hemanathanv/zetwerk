@@ -498,6 +498,109 @@ model DocumentVersion {
   @@map("document_versions")
 }
 
+// -----------------------------------------------------------------
+// D&D - DEMURRAGE AND DETENTION
+// -----------------------------------------------------------------
+
+model DndTariff {
+  id               String   @id
+  carrier          String
+  scac             String?
+  lane             String?
+  cargo            String
+  status           String   @default("Draft")
+  version          Int      @default(1)
+  lanePairs        Json     @default("[]") @map("lane_pairs")
+  chargeTypes      Json     @default("[]") @map("charge_types")
+  pricingMethods   Json     @default("{}") @map("pricing_methods")
+  freeTime         Json     @default("[]") @map("free_time")
+  exclusionDefault Json     @default("{}") @map("exclusion_default")
+  metadata         Json     @default("{}")
+  effectiveFrom    DateTime? @map("effective_from") @db.Date
+  effectiveTo      DateTime? @map("effective_to") @db.Date
+  linkedShipments  Int      @default(0) @map("linked_shipments")
+  createdBy        String?  @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([carrier, cargo, status], map: "idx_dnd_tariffs_match")
+  @@schema("public")
+  @@map("dnd_tariffs")
+}
+
+model DndActivityAudit {
+  id          String   @id
+  action      String
+  description String
+  entityType  String?  @map("entity_type")
+  entityId    String?  @map("entity_id")
+  userId      String?  @map("user_id")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt(sort: Desc)], map: "idx_dnd_activity_audit_created")
+  @@schema("public")
+  @@map("dnd_activity_audit")
+}
+
+model DndHolidayCalendar {
+  id          String   @id
+  portCode    String   @map("port_code")
+  holidayDate DateTime @map("holiday_date") @db.Date
+  holidayName String   @map("holiday_name")
+  year        Int
+  holidayType String?  @map("holiday_type")
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([portCode, year, holidayDate])
+  @@schema("public")
+  @@map("dnd_holiday_calendar")
+}
+
+model DndCarrierMaster {
+  id          String   @id
+  carrierName String   @map("carrier_name")
+  scac        String
+  isActive    Boolean  @default(true) @map("is_active")
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([carrierName, scac])
+  @@index([carrierName, isActive], map: "idx_dnd_carrier_master_name")
+  @@schema("public")
+  @@map("dnd_carrier_master")
+}
+
+model DndShipmentInput {
+  shipmentId      String   @id @map("shipment_id")
+  carrierName     String?  @map("carrier_name")
+  scac            String?
+  startEvent      String?  @map("start_event")
+  freeDays        String?  @map("free_days")
+  pricingMethod   String?  @map("pricing_method")
+  startDate       DateTime? @map("start_date") @db.Date
+  endDate         DateTime? @map("end_date") @db.Date
+  excludeWeekends Boolean  @default(true) @map("exclude_weekends")
+  excludeHolidays Boolean  @default(true) @map("exclude_holidays")
+  carrierState    String   @default("matched") @map("carrier_state")
+  dndStatus       String   @default("PENDING_SELECTION") @map("dnd_status")
+  matchedTariffId String?  @map("matched_tariff_id")
+  chargeableDays  Int?     @map("chargeable_days")
+  lastFreeDay     DateTime? @map("last_free_day") @db.Date
+  estimatedCharge Decimal? @map("estimated_charge")
+  currency        String?
+  basis           String?
+  savedBy         String?  @map("saved_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@schema("public")
+  @@map("dnd_shipment_inputs")
+}
+
 
 // -----------------------------------------------------------------
 // AIEXTRACTION - SCHEMA

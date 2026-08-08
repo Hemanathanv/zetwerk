@@ -285,7 +285,7 @@ def _build_preview_html(invoice: dict[str, str | None], line_items: list[dict[st
 </head>
 <body>
   <h1>Sales Invoice {html.escape(title)}</h1>
-  <div class=\"source\">Generated preview from {html.escape(source_uri)}</div>
+  <div class=\"source\">Generated preview from {html.escape(Path(source_uri).name)}</div>
   <section class=\"grid\">{summary_html}</section>
   <table>
     <thead><tr><th>#</th><th>Product Code</th><th>Description</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Total</th></tr></thead>

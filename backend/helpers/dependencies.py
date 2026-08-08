@@ -10,7 +10,7 @@ from helpers.config import settings
 from helpers.rbac_data_access import normalize_role_name
 
 bearer_scheme = HTTPBearer(auto_error=False)
-KEYCLOAK_SERVER_URL = f"{settings.KEYCLOAK_URL.rstrip('/')}/"
+KEYCLOAK_SERVER_URL = f"{settings.KEYCLOAK_URL.rstrip(chr(47))}/"
 keycloak_openid = KeycloakOpenID(
     server_url=KEYCLOAK_SERVER_URL,
     client_id=settings.KEYCLOAK_CLIENT_ID,
@@ -47,7 +47,7 @@ async def get_session_token(
     # Fall back to the httpOnly access_token cookie set by the auth router
     if access_token:
         return access_token
-    
+
     return None
 
 
@@ -56,26 +56,26 @@ async def is_authenticated(
 ) -> bool:
     """
     Check if user is authenticated. Returns True or False.
-    
+
     Can be used as a decorator:
         @router.get("/protected")
         @is_authenticated
         async def protected_route():
             return {"message": "You are authenticated"}
-    
+
     Or as a dependency:
         @router.get("/protected")
         async def protected_route(authenticated = Depends(is_authenticated)):
             if not authenticated:
                 raise HTTPException(status_code=401, detail="Not authenticated")
             return {"message": "You are authenticated"}
-    
+
     Returns:
         bool: True if user is authenticated, False otherwise
     """
     if not token:
         return False
-    
+
     try:
         user = await _get_session_user(token)
         if user:
@@ -90,13 +90,13 @@ def authenticate(func: Callable) -> Callable:
     """
     Decorator to check authentication and raise error if not authenticated.
     Returns True/False from is_authenticated().
-    
+
     Usage:
         @router.get("/protected")
         @authenticate
         async def protected_route():
             return {"message": "You are authenticated"}
-    
+
     Raises:
         HTTPException (401): If user is not authenticated or inactive
     """
@@ -173,6 +173,10 @@ def _role_from_keycloak_roles(roles: list[str]) -> str:
     normalized = {normalize_role_name(role) for role in roles}
     if "SUPER_ADMIN" in normalized:
         return "SUPER_ADMIN"
+    if "SPR_ADMIN" in normalized:
+        return "SPR_ADMIN"
+    if "ORG_ADMIN" in normalized:
+        return "ADMIN"
     if "ADMIN" in normalized:
         return "ADMIN"
     return "USER"
@@ -182,6 +186,9 @@ def _primary_keycloak_role(roles: list[str]) -> str:
     normalized = {normalize_role_name(role): str(role) for role in roles}
     for role in (
         "SUPER_ADMIN",
+        "SUPER_ADMINISTRATOR",
+        "SPR_ADMIN",
+        "ORG_ADMIN",
         "ADMIN",
         "OPS_MANAGER",
         "INDIA_LOGISTICS",
@@ -223,30 +230,47 @@ def _keycloak_admin_client() -> KeycloakAdmin:
     )
 
 
-def _role_attributes(role_name: str) -> dict:
+def _role_attributes(role_name: str, admin: KeycloakAdmin | None = None) -> dict:
     try:
-        role = _keycloak_admin_client().get_realm_role(role_name)
+        role = (admin or _keycloak_admin_client()).get_realm_role(role_name)
         return role.get("attributes") or {}
     except Exception:
         return {}
 
 
+def _current_user_role_names(admin: KeycloakAdmin, userinfo: dict, token_roles: list[str]) -> list[str]:
+    user_id = str(userinfo.get("sub") or "")
+    email = str(userinfo.get("email") or userinfo.get("preferred_username") or "").lower()
+    try:
+        if user_id:
+            assigned_roles = admin.get_realm_roles_of_user(user_id)
+        else:
+            keycloak_id = admin.get_user_id(email)
+            assigned_roles = admin.get_realm_roles_of_user(keycloak_id) if keycloak_id else []
+        role_names = [
+            str(role.get("name") or "")
+            for role in assigned_roles
+            if str(role.get("name") or "").strip()
+        ]
+        if role_names:
+            return role_names
+    except Exception:
+        pass
+    return token_roles
+
+
 async def _get_keycloak_local_user(token: str):
     try:
+        userinfo = keycloak_openid.userinfo(token)
         token_info = keycloak_openid.decode_token(
             token,
             keycloak_openid.public_key(),
         )
-        roles = _extract_keycloak_roles(token_info)
+        token_roles = _extract_keycloak_roles(token_info)
     except Exception:
         return None
 
-    try:
-        userinfo = {**token_info, **keycloak_openid.userinfo(token)}
-    except Exception:
-        userinfo = token_info
-
-    email = str(userinfo.get("email") or userinfo.get("preferred_username") or "").strip().lower()
+    email = str(userinfo.get("email") or "").strip().lower()
     if not email:
         return None
 
@@ -262,9 +286,11 @@ async def _get_keycloak_local_user(token: str):
         )
         or str(userinfo.get("preferred_username") or email).strip()
     )
+    admin_client = _keycloak_admin_client()
+    roles = _current_user_role_names(admin_client, userinfo, token_roles)
     role = "ADMIN" if email in KEYCLOAK_ADMIN_EMAILS else _role_from_keycloak_roles(roles)
     primary_role = _primary_keycloak_role(roles)
-    role_attrs = _role_attributes(primary_role)
+    role_attrs = _role_attributes(primary_role, admin_client)
     try:
         prisma = await get_prisma()
     except Exception:
@@ -332,10 +358,18 @@ async def _get_keycloak_local_user(token: str):
 
 
 async def get_admin_user(user=Depends(get_current_user)):
-    role = getattr(user, "role", None)
-    normalized_role = getattr(role, "value", None) or str(role)
+    candidate_roles = [
+        getattr(user, "keycloakPrimaryRole", None),
+        getattr(user, "role", None),
+        *(getattr(user, "keycloakRoles", None) or []),
+    ]
+    normalized_roles = {
+        normalize_role_name(getattr(role, "value", None) or str(role))
+        for role in candidate_roles
+        if str(getattr(role, "value", None) or role or "").strip()
+    }
 
-    if normalized_role not in {"ADMIN", "SUPER_ADMIN"}:
+    if not normalized_roles.intersection({"ADMIN", "ORG_ADMIN", "SPR_ADMIN", "SUPER_ADMIN", "SUPER_ADMINISTRATOR"}):
         raise HTTPException(
             status_code=403,
             detail="Admin access required",
@@ -347,7 +381,7 @@ async def validate_token(token: str) -> bool:
     """
     Check if a given token is valid or not.
     Returns only boolean response.
-    
+
     Usage:
         # In your code
         is_valid = await validate_token(user_token)
@@ -355,27 +389,27 @@ async def validate_token(token: str) -> bool:
             print("Token is valid")
         else:
             print("Token is invalid")
-    
+
     Args:
         token (str): The token string to validate
-    
+
     Returns:
         bool: True if token is valid, False otherwise
-    
+
     Checks:
         - Token exists in database
         - Token has not expired
         - User account is active
     """
-    
-    
+
+
     print(token, "TOKENNN")
     if not token or not isinstance(token, str) or token.strip() == "":
         return False
-    
+
     try:
         prisma = await get_prisma()
-        
+
         session = await prisma.session.find_first(
             where={
                 "token": token.strip(),
@@ -383,15 +417,15 @@ async def validate_token(token: str) -> bool:
             },
             include={"user": True}
         )
-        
+
         print(session, "SESSION")
         if not session or not session.user:
             return False
-        
+
         if not session.user.isActive:
             return False
-        
+
         return True
-         
+
     except Exception:
         return False

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
-import { AlertTriangle, ArrowLeft, Check, CheckCircle2, Circle, Clock3, Eye, FileText, Info, Loader2, Pencil, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, Circle, Clock3, Eye, FileText, Info, Loader2, Pencil, Ship, X } from 'lucide-react';
 import { documentApi } from '@/auth/api';
 import type { DocumentDetailRecord, JsonValue } from '@/types/backend';
 import { getDocConfig } from '@/config/docFieldConfig';

@@ -1066,10 +1066,12 @@ async def load_page_images_for_document(*, prisma, document_id: str) -> list[Pag
 
     page_images: list[PageImage] = []
     for page in pages:
+        object_key = str(page.objectKey or "")
+        mime_type = "image/jpeg" if object_key.lower().endswith((".jpg", ".jpeg")) else "image/png"
         page_images.append(
             {
                 "bytes": await asyncio.to_thread(download_bytes, page.bucket, page.objectKey),
-                "mime_type": "image/png",
+                "mime_type": mime_type,
             }
         )
     return page_images
@@ -1093,10 +1095,10 @@ async def run_post_upload_ocr(
     if processor is None:
         await prisma.document.update(
             where={"id": document.id},
-            data={"status": "REJECTED"},
+            data={"status": "UPLOADED"},
         )
         print(
-            f"[pipeline][skip] documentId={document.id} reason=unsupported_document_type status->REJECTED",
+            f"[pipeline][skip] documentId={document.id} reason=unsupported_document_type status->UPLOADED",
             flush=True,
         )
         return {"status": "skipped", "reason": "unsupported_document_type"}
@@ -1108,9 +1110,9 @@ async def run_post_upload_ocr(
     if not images:
         await prisma.document.update(
             where={"id": document.id},
-            data={"status": "REJECTED"},
+            data={"status": "UPLOADED"},
         )
-        print(f"[pipeline][skip] documentId={document.id} reason=no_pages status->REJECTED", flush=True)
+        print(f"[pipeline][skip] documentId={document.id} reason=no_pages status->UPLOADED", flush=True)
         return {"status": "skipped", "reason": "no_pages"}
     print(f"[pipeline][pages] documentId={document.id} count={len(images)}", flush=True)
 
@@ -1166,7 +1168,7 @@ async def run_post_upload_ocr(
     except ValidationError as exc:
         await prisma.document.update(
             where={"id": document.id},
-            data={"status": "REJECTED"},
+            data={"status": "UPLOADED"},
         )
         print(
             f"[pipeline][failed] documentId={document.id} reason=validation_error details={exc}",
@@ -1176,7 +1178,7 @@ async def run_post_upload_ocr(
     except Exception as exc:
         await prisma.document.update(
             where={"id": document.id},
-            data={"status": "REJECTED"},
+            data={"status": "UPLOADED"},
         )
         print(f"[pipeline][failed] documentId={document.id} reason={exc}", flush=True)
         return {"status": "failed", "reason": str(exc)}
@@ -1269,7 +1271,7 @@ async def run_post_upload_ocr(
     except Exception as exc:
         await prisma.document.update(
             where={"id": document.id},
-            data={"status": "REJECTED"},
+            data={"status": "UPLOADED"},
         )
         print(f"[pipeline][failed] documentId={document.id} reason=persist_error:{exc}", flush=True)
         return {"status": "failed", "reason": f"persist_error: {exc}"}

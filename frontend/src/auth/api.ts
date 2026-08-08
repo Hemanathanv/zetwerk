@@ -313,6 +313,10 @@ const ADMIN_FALLBACK_ACTIVITIES = [
   'documents.delete',
   'documents.discard_draft',
   'documents.download_export',
+  'documents.dnd_inputs',
+  'documents.dnd_inputs.exclude_holidays',
+  'documents.dnd_inputs.exclude_weekends',
+  'documents.dnd_inputs.start_event',
   'documents.edit_extracted',
   'documents.fill_manual_fields',
   'documents.generate_draft',
@@ -342,6 +346,11 @@ const ADMIN_FALLBACK_ACTIVITIES = [
   'documents.view_draft',
   'documents.view_extracted',
   'documents.view_validation_results',
+  'dnd.holiday_calendar.upload',
+  'dnd.tariff.create',
+  'dnd.tariff.edit',
+  'dnd.tariff.force_expire',
+  'dnd.tariff.view',
   'inventory.3_way_recon',
   'inventory.acknowledge_dnd',
   'inventory.adjust_stock_with_remarks',
@@ -410,6 +419,7 @@ function isAdminIdentity(userInfo: KeycloakUserInfo, roles: string[]): boolean {
     email === 'admin@sprconsultech.com' ||
     normalizedRoles.has('ADMIN') ||
     normalizedRoles.has('ORG_ADMIN') ||
+    normalizedRoles.has('SPR_ADMIN') ||
     normalizedRoles.has('SUPER_ADMIN') ||
     normalizedRoles.has('SUPER_ADMINISTRATOR')
   );
@@ -424,8 +434,16 @@ function fallbackPermissions(userInfo: KeycloakUserInfo, roles: string[]): Keycl
     docTypes: isAdmin
       ? {
           upload: ['*'],
+          edit_extracted: ['*'],
+          submit_for_approval: ['*'],
+          approve_draft: ['*'],
+          reject_extraction: ['*'],
+          override_approved_fields: ['*'],
           approve_extraction: ['*'],
           review_generation: ['*'],
+          container_mapping: ['*'],
+          re_upload_document: ['*'],
+          reprocess_ocr: ['*'],
           view: ['*'],
         }
       : {},

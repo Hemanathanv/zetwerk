@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from db import get_prisma
 from helpers.config import settings
 from helpers.dependencies import get_current_user
-from helpers.rbac import require_activity
+from helpers.rbac import require_activity, require_any_activity
 
 
 def _load_dnd_logic():
@@ -123,7 +123,7 @@ def _user_id(user: Any) -> str | None:
     return str(value) if value else None
 
 
-async def _list_tariffs(user=Depends(get_current_user), _authz=Depends(require_activity("dnd.tariff.view"))):
+async def _list_tariffs(user=Depends(get_current_user), _authz=Depends(require_any_activity("dnd.tariff.view", "documents.dnd_inputs"))):
     prisma = await get_prisma()
     try:
         return {"data": await dnd_logic.list_tariffs(prisma)}
@@ -134,7 +134,7 @@ async def _list_tariffs(user=Depends(get_current_user), _authz=Depends(require_a
 async def _publish_tariff(
     payload: TariffPublishPayload,
     user=Depends(get_current_user),
-    _authz=Depends(require_activity("dnd.tariff.create")),
+    _authz=Depends(require_any_activity("dnd.tariff.create", "dnd.tariff.edit")),
 ):
     prisma = await get_prisma()
     try:
@@ -167,7 +167,7 @@ async def _force_expire_tariff(
 async def _match_tariff(
     payload: TariffMatchPayload,
     user=Depends(get_current_user),
-    _authz=Depends(require_activity("dnd.activate")),
+    _authz=Depends(require_activity("documents.dnd_inputs")),
 ):
     prisma = await get_prisma()
     try:
@@ -190,7 +190,7 @@ async def _match_tariff(
         raise HTTPException(status_code=500, detail=f"Failed to match D&D tariff: {exc}") from exc
 
 
-async def _list_carriers(user=Depends(get_current_user), _authz=Depends(require_activity("dnd.tariff.view"))):
+async def _list_carriers(user=Depends(get_current_user), _authz=Depends(require_any_activity("dnd.tariff.view", "documents.dnd_inputs"))):
     prisma = await get_prisma()
     try:
         return {"data": await dnd_logic.list_carriers(prisma)}
@@ -220,7 +220,7 @@ async def _create_carrier(
 async def _get_shipment_inputs(
     shipment_id: str,
     user=Depends(get_current_user),
-    _authz=Depends(require_activity("dnd.activate")),
+    _authz=Depends(require_activity("documents.dnd_inputs")),
 ):
     prisma = await get_prisma()
     try:
@@ -233,17 +233,8 @@ async def _save_shipment_inputs(
     shipment_id: str,
     payload: ShipmentInputsPayload,
     user=Depends(get_current_user),
-    authz=Depends(require_activity("dnd.activate")),
+    _authz=Depends(require_activity("documents.dnd_inputs")),
 ):
-    activities = set(authz.get("activities") or [])
-    authz_role = str(authz.get("role") or "").upper().replace("-", "_").replace(" ", "_")
-    is_super_admin = authz_role in {"SUPER_ADMIN", "SUPER_ADMINISTRATOR"}
-    if payload.startEvent and "dnd.activate.start_event_date" not in activities and not is_super_admin:
-        raise HTTPException(status_code=403, detail="Permission denied: missing activity dnd.activate.start_event_date")
-    if payload.excludeHolidays and "dnd.activate.holiday_days" not in activities and not is_super_admin:
-        raise HTTPException(status_code=403, detail="Permission denied: missing activity dnd.activate.holiday_days")
-    if payload.excludeWeekends and "dnd.activate.weekends" not in activities and not is_super_admin:
-        raise HTTPException(status_code=403, detail="Permission denied: missing activity dnd.activate.weekends")
     prisma = await get_prisma()
     try:
         return {
@@ -260,7 +251,7 @@ async def _save_shipment_inputs(
         raise HTTPException(status_code=500, detail=f"Failed to save D&D inputs: {exc}") from exc
 
 
-async def _list_holidays(user=Depends(get_current_user), _authz=Depends(require_activity("dnd.tariff.view"))):
+async def _list_holidays(user=Depends(get_current_user), _authz=Depends(require_any_activity("dnd.tariff.view", "dnd.holiday_calendar.upload", "documents.dnd_inputs"))):
     prisma = await get_prisma()
     try:
         await dnd_logic.ensure_dnd_tables(prisma)
@@ -305,7 +296,7 @@ async def _holiday_template(user=Depends(get_current_user), _authz=Depends(requi
     }
 
 
-async def _active_charges(user=Depends(get_current_user), _authz=Depends(require_activity("dnd.activate"))):
+async def _active_charges(user=Depends(get_current_user), _authz=Depends(require_activity("inventory.view_dnd_charges"))):
     prisma = await get_prisma()
     try:
         return {"data": await dnd_logic.list_active_charges(prisma)}
@@ -313,7 +304,7 @@ async def _active_charges(user=Depends(get_current_user), _authz=Depends(require
         raise HTTPException(status_code=500, detail=f"Failed to list active D&D charges: {exc}") from exc
 
 
-async def _alerts(user=Depends(get_current_user), _authz=Depends(require_activity("dnd.activate"))):
+async def _alerts(user=Depends(get_current_user), _authz=Depends(require_activity("inventory.view_dnd_charges"))):
     prisma = await get_prisma()
     try:
         return {"data": await dnd_logic.list_alerts(prisma)}
@@ -321,11 +312,34 @@ async def _alerts(user=Depends(get_current_user), _authz=Depends(require_activit
         raise HTTPException(status_code=500, detail=f"Failed to list D&D alerts: {exc}") from exc
 
 
+async def _summary(user=Depends(get_current_user), _authz=Depends(require_activity("inventory.view_dnd_charges"))):
+    prisma = await get_prisma()
+    try:
+        active = await dnd_logic.list_active_charges(prisma)
+    except Exception:
+        active = []
+    try:
+        alerts = await dnd_logic.list_alerts(prisma)
+    except Exception:
+        alerts = {"notifications": [], "audits": []}
+    accruing = [row for row in active if str(row.get("managementStatus") or "") == "Charges Accruing"]
+    approaching = [row for row in active if str(row.get("managementStatus") or "") == "Approaching LFD"]
+    return {
+        "ok": True,
+        "data": {
+            "active": len(active),
+            "accruing": len(accruing),
+            "approaching": len(approaching),
+            "alerts": len((alerts or {}).get("notifications") or []),
+        },
+    }
+
+
 async def _record_return(
     charge_id: str,
     payload: ReturnPayload,
     user=Depends(get_current_user),
-    _authz=Depends(require_activity("dnd.activate")),
+    _authz=Depends(require_activity("inventory.modify_lfd")),
 ):
     return {
         "data": {
@@ -349,6 +363,7 @@ for api_router in (router,):
     api_router.add_api_route("/holidays", _list_holidays, methods=["GET"])
     api_router.add_api_route("/holidays/upload", _upload_holidays, methods=["POST"])
     api_router.add_api_route("/holidays/template", _holiday_template, methods=["GET"])
+    api_router.add_api_route("/summary", _summary, methods=["GET"])
     api_router.add_api_route("/active", _active_charges, methods=["GET"])
     api_router.add_api_route("/alerts", _alerts, methods=["GET"])
     api_router.add_api_route("/{charge_id}/return", _record_return, methods=["POST"])

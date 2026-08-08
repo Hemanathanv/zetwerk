@@ -213,6 +213,26 @@ async def save_container_mapping(
     assignments: list[dict[str, str | None]],
 ) -> dict[str, Any]:
     """Persist reviewed container selections on matched Packing List rows."""
+    bol_rows = await prisma.query_raw(
+        """
+        SELECT raw_data
+        FROM aiextraction.bills_of_lading
+        WHERE document_id::text = $1::text
+        LIMIT 1
+        """,
+        bol_document_id,
+    )
+    raw_data = bol_rows[0].get("raw_data") if bol_rows else {}
+    if isinstance(raw_data, dict) and raw_data.get("containerMappingApproved") is True:
+        rows = raw_data.get("containerMappingRows")
+        return {
+            "ok": True,
+            "updated": 0,
+            "mappingApproved": True,
+            "alreadyApproved": True,
+            "rows": rows if isinstance(rows, list) else [],
+        }
+
     mapping = await build_container_mapping(
         prisma=prisma, bol_document_id=bol_document_id, uploaded_by=uploaded_by,
         paginate=False,

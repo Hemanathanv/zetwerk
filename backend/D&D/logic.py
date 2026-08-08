@@ -305,7 +305,35 @@ def normalize_carrier_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+DND_APPROACHING_LFD_DAYS = 3
+DND_STATUS_MEANINGS = {
+    "In Free Time": "Shipment is currently under D&D monitoring within free time.",
+    "Approaching LFD": "Shipment is nearing the Last Free Day based on the configured threshold.",
+    "Charges Accruing": "Shipment has exceeded the LFD and D&D charges are being incurred.",
+    "Completed": "Container has been picked up or returned and D&D calculation is complete.",
+    "Inactive": "D&D tracking is not applicable or has been disabled.",
+}
+
+
+def dnd_management_status(row: dict[str, Any]) -> str:
+    raw_status = str(row.get("dnd_status") or "").upper()
+    if raw_status and raw_status != "ACTIVATED":
+        return "Inactive"
+    if row.get("end_date"):
+        return "Completed"
+    lfd = parse_iso_date(row.get("last_free_day"))
+    if lfd:
+        today = datetime.now(timezone.utc).date()
+        diff = (lfd - today).days
+        if diff < 0:
+            return "Charges Accruing"
+        if diff <= DND_APPROACHING_LFD_DAYS:
+            return "Approaching LFD"
+    return "In Free Time"
+
+
 def normalize_shipment_inputs_row(row: dict[str, Any]) -> dict[str, Any]:
+    management_status = dnd_management_status(row)
     return {
         "shipmentId": row.get("shipment_id"),
         "carrierName": row.get("carrier_name"),
@@ -322,6 +350,8 @@ def normalize_shipment_inputs_row(row: dict[str, Any]) -> dict[str, Any]:
         "matchedTariffId": row.get("matched_tariff_id"),
         "chargeableDays": row.get("chargeable_days"),
         "lastFreeDay": iso(row.get("last_free_day")),
+        "managementStatus": management_status,
+        "managementStatusMeaning": DND_STATUS_MEANINGS[management_status],
         "estimatedCharge": float(row["estimated_charge"]) if row.get("estimated_charge") is not None else None,
         "currency": row.get("currency"),
         "basis": row.get("basis"),
@@ -985,6 +1015,7 @@ async def publish_tariff(prisma, payload: dict[str, Any], user_id: str | None = 
     await ensure_dnd_tables(prisma)
     validate_tariff_payload(payload)
     pricing_warnings = validate_pricing_methods(payload)
+    requested_status = "Draft" if str(payload.get("status") or "").lower() == "draft" else "Active"
     exclusion_default = payload.get("exclusionDefault") or {}
     if isinstance(exclusion_default, dict) and not is_usa_scope(payload):
         exclusion_default = {**exclusion_default, "holidays": False}
@@ -996,7 +1027,7 @@ async def publish_tariff(prisma, payload: dict[str, Any], user_id: str | None = 
         "weightConfig": payload.get("weightConfig"),
         "pricingWarnings": pricing_warnings,
     }
-    overlapping = await find_overlapping_active_tariff(prisma, payload)
+    overlapping = await find_overlapping_active_tariff(prisma, payload) if requested_status == "Active" else None
     version = int(overlapping.get("version") or 1) + 1 if overlapping else 1
     tariff_id = payload.get("id") or f"T-{datetime.utcnow().strftime('%y%m%d')}-{str(uuid4())[:8].upper()}"
     if overlapping:
@@ -1027,9 +1058,9 @@ async def publish_tariff(prisma, payload: dict[str, Any], user_id: str | None = 
           linked_shipments, created_by, created_at, updated_at
         )
         VALUES (
-          $1, $2, $3, $4, $5, 'Active', $6, $7::jsonb, $8::jsonb,
-          $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13::date, $14::date,
-          0, $15, NOW(), NOW()
+          $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb,
+          $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14::date, $15::date,
+          0, $16, NOW(), NOW()
         )
         """,
         tariff_id,
@@ -1037,6 +1068,7 @@ async def publish_tariff(prisma, payload: dict[str, Any], user_id: str | None = 
         str(payload.get("scac") or "").strip().upper() or None,
         payload.get("lane"),
         payload.get("cargo"),
+        requested_status,
         version,
         json.dumps(payload.get("lanePairs") or []),
         json.dumps(normalize_charge_types(payload.get("chargeTypes") or [])),
@@ -1054,8 +1086,8 @@ async def publish_tariff(prisma, payload: dict[str, Any], user_id: str | None = 
     result["pricingWarnings"] = pricing_warnings
     await record_audit(
         prisma,
-        action="publish",
-        description=f"Published D&D tariff {result['id']} v{result['version']}",
+        action="save_draft" if requested_status == "Draft" else "publish",
+        description=f"{'Saved draft' if requested_status == 'Draft' else 'Published'} D&D tariff {result['id']} v{result['version']}",
         entity_type="tariff",
         entity_id=result["id"],
         user_id=user_id,
