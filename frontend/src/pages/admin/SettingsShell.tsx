@@ -8,15 +8,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import SetupChecklist from './settings/SetupChecklist';
 import TeamAccessSection from './settings/TeamAccessSection';
 import ValidationGuided from './settings/ValidationGuided';
-import FinanceGuided from './settings/FinanceGuided';
 import SystemGuided from './settings/SystemGuided';
 import { AdminValidationPage } from './AdminValidationPage';
-import { AdminAccountingPage } from './AdminAccountingPage';
 import { AdminAuditPage } from './AdminAuditPage';
 import { AdminCompliancePage } from './AdminCompliancePage';
 import { AdminWarehousesPage } from './AdminWarehousesPage';
 import { SafeCubeSettingsCard } from '../settings/SafeCubeSettingsCard';
 import { useToast } from '@/hooks/use-toast';
+import { DndMasterContent } from '../inventory/DndManagementPage';
 
 const T = {
   bg:          'hsl(var(--background))',
@@ -103,7 +102,7 @@ const sections = [
   { id: 'team',        label: 'Team & Access',         icon: Users },
   { id: 'workflow',    label: 'Workflow & Documents',  icon: GitBranch },
   { id: 'validation',  label: 'Validation Rules',      icon: Shield },
-  { id: 'finance',     label: 'Finance & Cost',        icon: DollarSign },
+  { id: 'finance',     label: 'D&D Master',            icon: DollarSign },
   { id: 'compliance',  label: 'Compliance Checks',     icon: ClipboardCheck },
   { id: 'warehouses',  label: 'Warehouses',            icon: Warehouse },
   { id: 'tracking',    label: 'Vessel Tracking',        icon: Navigation },
@@ -177,10 +176,6 @@ function UnderBuildPanel({ title }: { title: string }) {
   );
 }
 
-function FinanceAdvanced() {
-  return <AdminAccountingPage />;
-}
-
 function SystemAdvanced() {
   return (
     <div>
@@ -201,6 +196,15 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
   const orgName = (user as any)?.org?.name as string | undefined;
 
   const activeLabel = sections.find(s => s.id === activeSection)?.label ?? 'Settings';
+
+  useEffect(() => {
+    function handleSidebarEvent(event: Event) {
+      const detail = (event as CustomEvent<{ collapsed?: boolean }>).detail;
+      if (typeof detail?.collapsed === 'boolean') setSidebarCollapsed(detail.collapsed);
+    }
+    window.addEventListener('ewms-settings-sidebar', handleSidebarEvent);
+    return () => window.removeEventListener('ewms-settings-sidebar', handleSidebarEvent);
+  }, []);
 
   return (
     <div
@@ -271,7 +275,9 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
             return (
               <button
                 key={s.id}
-                onClick={() => { setActiveSection(s.id); }}
+                onClick={() => {
+                  setActiveSection(s.id);
+                }}
                 title={sidebarCollapsed ? s.label : undefined}
                 style={{
                   width: '100%',
@@ -443,10 +449,10 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
           )}
           {activeSection === 'finance' && (
             <SettingsPanel
-              title="Finance & Cost Rules"
-              description="Control when finance tickets are created and how costs are tracked."
-              guidedContent={<FinanceGuided />}
-              advancedContent={<FinanceAdvanced />}
+              title="D&D Master"
+              description="Maintain D&D tariff master content and holiday calendars for cost calculations."
+              guidedContent={<DndMasterContent embedded />}
+              advancedContent={<DndMasterContent embedded />}
               showAdvanced={showAdvanced}
             />
           )}

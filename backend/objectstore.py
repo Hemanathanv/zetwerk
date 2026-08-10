@@ -137,7 +137,12 @@ def _ensure_bucket(bucket: str) -> None:
     client = s3_admin or s3
     try:
         client.head_bucket(Bucket=bucket)
+        return
     except ClientError as err:
+        if IS_PROD:
+            # Production buckets are provisioned outside the app. Uploads should
+            # only create objects under S3_KEY_PREFIX/module/date, never buckets.
+            raise
         code = err.response.get("Error", {}).get("Code", "")
         if code in {"404", "NoSuchBucket", "NotFound"}:
             _create_bucket(client, bucket)

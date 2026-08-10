@@ -506,7 +506,9 @@ type QueueCard = {
   provenanceLabel?: string;
   containerMappingAction?: () => void;
   dndInputsAction?: () => void;
+  canUseContainerMapping?: boolean;
   canUseDndInputs?: boolean;
+  dndInputsContext?: { bolCarrierName?: string | null; origin?: string | null; destination?: string | null; cargo?: string | null; };
 };
 
 type ValidationSummary = {
@@ -824,7 +826,7 @@ function QueueCardEl({ card, onApproveClick, onStopClick, onRetryClick, onCardCl
                 D&D Inputs
               </Button>
             )}
-            {card.containerMappingAction && (
+            {card.containerMappingAction && card.canUseContainerMapping && (
               <Button
                 type="button"
                 variant="outline"
@@ -1591,6 +1593,31 @@ function generatedProvenanceLabel(sourceName: string): string {
   return sourceName.includes('& filename (') ? sourceName : `Generated from ${sourceName}`;
 }
 
+function extractedString(value: unknown, targetKeys: string[]): string | null {
+  const wanted = new Set(targetKeys.map(key => key.toLowerCase()));
+  const seen = new Set<unknown>();
+  let match: string | null = null;
+
+  function visit(node: unknown, key = '') {
+    if (match || node == null || seen.has(node)) return;
+    if (typeof node === 'object') seen.add(node);
+    if (key && wanted.has(key.toLowerCase()) && (typeof node === 'string' || typeof node === 'number')) {
+      const text = String(node).trim();
+      if (text) match = text;
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach(item => visit(item));
+      return;
+    }
+    if (typeof node === 'object') {
+      Object.entries(node as Record<string, unknown>).forEach(([childKey, childValue]) => visit(childValue, childKey));
+    }
+  }
+
+  visit(value);
+  return match;
+}
 function apiDocToQueueCard(d: any): QueueCard {
   const documentType = d.documentType ?? d.docType ?? 'Document';
   const dt = String(documentType).toUpperCase();
@@ -1616,6 +1643,14 @@ function apiDocToQueueCard(d: any): QueueCard {
   const confPct = conf > 0 ? `${Math.round(conf * 100)}% avg confidence · ` : '';
   const ship = d.shipment?.shipmentNumber ?? '';
   const fileNameLabel = storageFileName(d.fileName) || storageFileName(d.objectKey);
+  const extractionData = d.extractedData ?? d.extraction?.rawData ?? d.billOfLadingExtraction?.rawData ?? d.bolExtraction?.rawData ?? d.extraction ?? d.billOfLadingExtraction ?? d.bolExtraction ?? d;
+  const isBolDocument = dt === 'BILL_OF_LADING' || dt === 'BOL' || dt === 'BL';
+  const dndInputsContext = isBolDocument ? {
+    bolCarrierName: cleanDisplayLabel(d.dndCarrierName) || extractedString(extractionData, ['carrierCompanyName', 'carrierName', 'vesselCarrierName']),
+    origin: cleanDisplayLabel(d.dndOrigin) || extractedString(extractionData, ['portOfLoading', 'placeOfReceipt', 'placeOfAcceptance']),
+    destination: cleanDisplayLabel(d.dndDestination) || extractedString(extractionData, ['portOfDischarge', 'finalDestination', 'placeOfDelivery']),
+    cargo: cleanDisplayLabel(d.dndCargo) || 'FCL',
+  } : undefined;
   const issuerLabel = cleanDisplayLabel(d.issuerName)
     || cleanDisplayLabel(d.sourceName)
     || cleanDisplayLabel(d.extractedData?.issuerName)
@@ -1709,6 +1744,7 @@ function apiDocToQueueCard(d: any): QueueCard {
     context: contextLabel,
     timestamp: timeAgo(d.createdAt),
     createdAt: d.createdAt,
+    dndInputsContext,
   };
 }
 
@@ -2065,6 +2101,7 @@ export function UploadProcessPage() {
   const [containerMappingDocumentId, setContainerMappingDocumentId] = useState<string | null>(null);
   const [dndInputsOpen, setDndInputsOpen] = useState(false);
   const [dndInputsDocumentId, setDndInputsDocumentId] = useState<string | null>(null);
+  const [dndInputsContext, setDndInputsContext] = useState<QueueCard['dndInputsContext'] | null>(null);
   const now = useNow();
   const routedDetail = useMemo(() => parseValidationDetailsRoute(location), [location]);
   const queueSection = activeChip === WAITING_FOR_BOL_CHIP_INDEX
@@ -2134,7 +2171,8 @@ export function UploadProcessPage() {
         return {
           ...card,
           containerMappingAction: () => openContainerMapping(card.docId!),
-          dndInputsAction: () => openDndInputs(card.docId!),
+          dndInputsAction: () => openDndInputs(card.docId!, card.dndInputsContext),
+          canUseContainerMapping: activities.includes('documents.map_container_to_sku'),
           canUseDndInputs: activities.includes('documents.dnd_inputs'),
         };
       }
@@ -2622,8 +2660,9 @@ export function UploadProcessPage() {
     setContainerMappingOpen(true);
   }
 
-  function openDndInputs(documentId: string) {
+  function openDndInputs(documentId: string, context?: QueueCard['dndInputsContext']) {
     setDndInputsDocumentId(documentId);
+    setDndInputsContext(context ?? null);
     setDndInputsOpen(true);
   }
 
@@ -2728,7 +2767,14 @@ export function UploadProcessPage() {
       <ShipmentDndInputsDialog
         open={dndInputsOpen}
         shipmentId={dndInputsDocumentId ? `bol-${dndInputsDocumentId}` : 'bol'}
-        onOpenChange={setDndInputsOpen}
+        bolCarrierName={dndInputsContext?.bolCarrierName}
+        origin={dndInputsContext?.origin}
+        destination={dndInputsContext?.destination}
+        cargo={dndInputsContext?.cargo ?? 'FCL'}
+        onOpenChange={(open) => {
+          setDndInputsOpen(open);
+          if (!open) setDndInputsContext(null);
+        }}
       />
       <ValidationDetailSheet
         card={detailCard}

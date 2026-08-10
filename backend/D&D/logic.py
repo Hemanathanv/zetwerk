@@ -681,6 +681,56 @@ async def create_carrier(prisma, payload: dict[str, Any], user_id: str | None = 
     return carrier
 
 
+def _first_text(source: dict[str, Any], keys: tuple[str, ...]) -> str | None:
+    for key in keys:
+        value = source.get(key)
+        if isinstance(value, (str, int, float)) and str(value).strip():
+            return str(value).strip()
+    return None
+
+
+async def bol_dnd_context(prisma, shipment_id: str) -> dict[str, Any]:
+    if not str(shipment_id or "").startswith("bol-"):
+        return {}
+    print(f"Fetching D&D context for shipment_id: {shipment_id}")
+    document_id = str(shipment_id)[4:]
+    rows = await query_raw(
+        prisma,
+        """
+        SELECT
+          carrier_company_name, vessel_carrier_name,
+          port_of_loading, place_of_receipt, place_of_acceptance,
+          port_of_discharge, final_destination, place_of_delivery,
+          raw_data
+        FROM aiextraction.bills_of_lading
+        WHERE document_id::text = $1::text
+        LIMIT 1
+        """,
+        document_id,
+    )
+    if not rows:
+        return {}
+    row = rows[0]
+    raw_data = coerce_json(row.get("raw_data"), {})
+    raw = raw_data if isinstance(raw_data, dict) else {}
+    flat = {
+        "carrierCompanyName": row.get("carrier_company_name") or raw.get("carrierCompanyName") or raw.get("carrier_name"),
+        "vesselCarrierName": row.get("vessel_carrier_name") or raw.get("vesselCarrierName") or raw.get("vessel_carrier_name"),
+        "portOfLoading": row.get("port_of_loading") or raw.get("portOfLoading") or raw.get("port_of_loading"),
+        "placeOfReceipt": row.get("place_of_receipt") or raw.get("placeOfReceipt") or raw.get("place_of_receipt"),
+        "placeOfAcceptance": row.get("place_of_acceptance") or raw.get("placeOfAcceptance") or raw.get("place_of_acceptance"),
+        "portOfDischarge": row.get("port_of_discharge") or raw.get("portOfDischarge") or raw.get("port_of_discharge"),
+        "finalDestination": row.get("final_destination") or raw.get("finalDestination") or raw.get("final_destination"),
+        "placeOfDelivery": row.get("place_of_delivery") or raw.get("placeOfDelivery") or raw.get("place_of_delivery"),
+    }
+    return {
+        "carrierName": _first_text(flat, ("carrierCompanyName", "vesselCarrierName")),
+        "origin": _first_text(flat, ("portOfLoading", "placeOfReceipt", "placeOfAcceptance")),
+        "destination": _first_text(flat, ("portOfDischarge", "finalDestination", "placeOfDelivery")),
+        "cargo": "FCL",
+    }
+
+
 async def get_shipment_inputs(prisma, shipment_id: str) -> dict[str, Any] | None:
     await ensure_dnd_tables(prisma)
     rows = await query_raw(
@@ -693,7 +743,29 @@ async def get_shipment_inputs(prisma, shipment_id: str) -> dict[str, Any] | None
         """,
         shipment_id,
     )
-    return normalize_shipment_inputs_row(rows[0]) if rows else None
+    context = await bol_dnd_context(prisma, shipment_id)
+    if rows:
+        saved = normalize_shipment_inputs_row(rows[0])
+        return {**context, **saved, "carrierName": saved.get("carrierName") or context.get("carrierName")}
+    if not context:
+        return None
+    return {
+        "shipmentId": shipment_id,
+        "carrierName": context.get("carrierName"),
+        "origin": context.get("origin"),
+        "destination": context.get("destination"),
+        "cargo": context.get("cargo") or "FCL",
+        "chargeTypes": ["Demurrage", "Detention"],
+        "startEvent": "",
+        "freeDays": "",
+        "pricingMethod": "",
+        "startDate": "",
+        "endDate": "",
+        "excludeWeekends": True,
+        "excludeHolidays": True,
+        "carrierState": "matched" if context.get("carrierName") else "unrecognized",
+        "dndStatus": "PENDING_SELECTION" if context.get("carrierName") else "CARRIER_REVIEW",
+    }
 
 
 async def match_tariff(

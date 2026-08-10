@@ -1664,16 +1664,13 @@ function AnalyticsSkeleton() {
   return (
     <div style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* 4 scorecard tiles */}
-      <style>{`
-        @media (max-width: 1023px) { .task-analytics-skeleton-scorecard { grid-template-columns: repeat(2, 1fr) !important; } }
-      `}</style>
-      <div className="task-analytics-skeleton-scorecard" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} style={{ height: 96, borderRadius: 8, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
         ))}
       </div>
       {/* 5-col grid: col-span-3 role chart + col-span-2 trend */}
-      <div className="task-analytics-skeleton-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 20 }}>
         <div style={{ height: 256, borderRadius: 8, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
         <div style={{ height: 256, borderRadius: 8, backgroundColor: 'hsl(var(--muted)/0.3)' }} className="animate-pulse" />
       </div>
@@ -1720,7 +1717,7 @@ function ScorecardRow({ s }: { s: AnalyticsData['scorecard'] }) {
   const redIfAny = (v: number) => v > 0 ? RED : TEAL;
   const overdueColor = (v: number) => v > 2 ? RED : v > 0.5 ? AMBER : TEAL;
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
       <ScorecardTile label="Open Tasks"      value={s.openCount}       colorFn={openColor} />
       <ScorecardTile label="SLA Breached"    value={s.breachedCount}   colorFn={redIfAny}  pulse />
       <ScorecardTile label="Avg Days Overdue" value={s.avgDaysOverdue} suffix="d" colorFn={overdueColor} />
@@ -2012,10 +2009,7 @@ function TaskAnalyticsPanel() {
       <ScorecardRow s={scorecard} />
 
       {/* Two-column: role chart (3) + trend (2) */}
-      <style>{`
-        @media (max-width: 1023px) { .task-analytics-body-grid { grid-template-columns: 1fr !important; } }
-      `}</style>
-      <div className="task-analytics-body-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(0, 2fr)', gap: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: 20 }}>
         <div style={{ backgroundColor: CARD, borderRadius: 8, padding: '18px 20px', border: `1px solid ${BORDER}` }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: FG, marginBottom: 14 }}>Tasks by Role</div>
           <TasksByRoleChart rows={tasksByRole} />
@@ -2050,10 +2044,12 @@ export function TasksPage() {
   const queryClient = useQueryClient();
   const isExternal = !!(user?.role?.category?.includes('external'));
   const isL3Plus = ['L3', 'L4'].includes((user as any)?.level ?? '');
-  const canSeeOverview = isL3Plus && !isExternal && activities.includes('TSK-001');
+  const hasActivity = (modernCode: string, legacyCode: string) =>
+    activities.includes(modernCode) || activities.includes(legacyCode);
+  const canSeeOverview = isL3Plus && !isExternal && hasActivity('tasks.view', 'TSK-001');
 
   // Can show checkboxes
-  const canManageTasks = activities.includes('TSK-002') || activities.includes('TSK-003');
+  const canManageTasks = hasActivity('tasks.update', 'TSK-002') || hasActivity('tasks.assign', 'TSK-003');
 
   const [activeTab, setActiveTab]       = useState<'tasks' | 'overview'>('tasks');
   const [scope, setScope]               = useState<TaskScope>('mine');
@@ -2233,7 +2229,7 @@ export function TasksPage() {
         backgroundColor: CARD,
       }}>
         {/* Title row */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <ClipboardList size={18} style={{ color: TEAL }} />
             <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: 0, color: FG }}>
@@ -2253,7 +2249,7 @@ export function TasksPage() {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {/* Search */}
-            <div style={{ position: 'relative', flex: '1 1 160px', maxWidth: 260 }}>
+            <div style={{ position: 'relative' }}>
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}

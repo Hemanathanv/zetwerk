@@ -59,7 +59,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // The login response no longer contains access_token/refresh_token.
       const authResponse = await authApi.checkAuth();
       setUser(authResponse.data.user);
-      setLocation('/dashboard');
     } catch (error) {
       console.error('Login failed:', error);
       throw error;

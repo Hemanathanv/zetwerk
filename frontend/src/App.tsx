@@ -69,6 +69,7 @@ import { firstAllowedLandingPath } from '@/lib/allowedNavigation';
 import { EwmsScrollArea } from '@/components/ewms/Media';
 
 const queryClient = new QueryClient();
+const INTENDED_PATH_KEY = 'ewms:intended-path';
 
 function UnauthorizedPage() {
   const [, navigate] = useLocation();
@@ -111,6 +112,38 @@ function AllowedLandingRedirect() {
 
   return <EwmsShipLoader fullPage />;
 }
+
+function RememberPathAndRedirectToLogin() {
+  const [location, navigate] = useLocation();
+
+  useEffect(() => {
+    const path = window.location.pathname + window.location.search + window.location.hash;
+    const isPublicAuthPath = path === '/' || path.startsWith('/login') || path.startsWith('/forgot-password') || path.startsWith('/reset-password');
+    if (!isPublicAuthPath) {
+      window.sessionStorage.setItem(INTENDED_PATH_KEY, path);
+    }
+    navigate('/', { replace: true });
+  }, [location, navigate]);
+
+  return <EwmsShipLoader fullPage />;
+}
+
+function AuthenticatedRootRedirect({ landingPath }: { landingPath: string }) {
+  const [, navigate] = useLocation();
+
+  useEffect(() => {
+    const intendedPath = window.sessionStorage.getItem(INTENDED_PATH_KEY);
+    if (intendedPath && intendedPath !== '/' && intendedPath !== '/login') {
+      window.sessionStorage.removeItem(INTENDED_PATH_KEY);
+      navigate(intendedPath, { replace: true });
+      return;
+    }
+    navigate(landingPath, { replace: true });
+  }, [landingPath, navigate]);
+
+  return <EwmsShipLoader fullPage />;
+}
+
 
 export function UnderBuildPage({ title = 'Currently under build' }: { title?: string }) {
   return (
@@ -495,12 +528,12 @@ function AppRoutes() {
     <Switch>
       <Route path="/">
         {isAuthenticated
-          ? <Redirect to={landingPath} />
+          ? <AuthenticatedRootRedirect landingPath={landingPath} />
           : <LoginPage />
         }
       </Route>
       <Route>
-        {isAuthenticated ? <AuthenticatedApp /> : <Redirect to="/" />}
+        {isAuthenticated ? <AuthenticatedApp /> : <RememberPathAndRedirectToLogin />}
       </Route>
     </Switch>
   );

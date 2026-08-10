@@ -7,9 +7,8 @@ import {
   CalendarDays, Plus, Search,
 } from 'lucide-react';
 import { apiGet, apiPost, getAuthToken } from '@/lib/api';
-import { RequireActivity } from '@/components/PermissionGate';
 import { useShipments } from '@/hooks/useOperationalData';
-import { useAuth } from '@/contexts/AuthContext';
+import { usePermissions } from '@/contexts/PermissionContext';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -165,6 +164,7 @@ function normalizeTariffRecord(record: TariffRecord): TariffRecord {
 }
 
 function TariffMasterConsole() {
+  const { activities } = usePermissions();
   const [tariffs, setTariffs] = useState<TariffRecord[]>([]);
   const [carriers, setCarriers] = useState<CarrierMaster[]>([]);
   const [tariffsLoading, setTariffsLoading] = useState(true);
@@ -173,6 +173,9 @@ function TariffMasterConsole() {
   const [draft, setDraft] = useState(createBlankTariffDraft);
   const [createOpen, setCreateOpen] = useState(false);
   const [publishNote, setPublishNote] = useState<string | null>(null);
+  const canCreateTariff = activities.includes('dnd.tariff.create');
+  const canEditTariff = activities.includes('dnd.tariff.edit');
+  const canForceExpireTariff = activities.includes('dnd.tariff.force_expire');
 
   const filteredTariffs = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -225,7 +228,11 @@ function TariffMasterConsole() {
     void loadCarriers();
   }, []);
 
-  async function publishTariff() {
+  async function submitTariff(status: 'Draft' | 'Active') {
+    if (!canCreateTariff && !canEditTariff) {
+      setPublishNote('You do not have permission to create or edit D&D tariffs.');
+      return;
+    }
     const enabledMethods = Object.values(draft.pricingMethods).filter((method) => method.enabled);
     const validFreeTime = draft.freeTime.some((group) => group.event && group.days.length > 0);
     const validLanePairs = draft.lanePairs
@@ -238,7 +245,7 @@ function TariffMasterConsole() {
       }));
     const usaScope = isUsaScope(draft);
     if (!draft.carrier || validLanePairs.length === 0 || draft.chargeTypes.length === 0 || enabledMethods.length === 0 || !validFreeTime) {
-      setPublishNote('Complete carrier, port pair, charge type, free time, and at least one pricing method before publishing.');
+      setPublishNote('Complete carrier, port pair, charge type, free time, and at least one pricing method before saving.');
       return;
     }
 
@@ -246,7 +253,7 @@ function TariffMasterConsole() {
       const response = await apiPost<ApiData<TariffRecord & { sunsetTariffId?: string | null }>>('/dnd/tariffs/publish', {
         carrier: draft.carrier,
         scac: draft.scac,
-        status: draft.status,
+        status,
         description: draft.description,
         lane: draft.lane,
         originCountry: draft.originCountry,
@@ -261,17 +268,31 @@ function TariffMasterConsole() {
         effFrom: draft.effFrom,
         effTo: draft.effTo,
       });
-      setPublishNote(response.data.sunsetTariffId
-        ? `${response.data.sunsetTariffId} moved to Sunsetting. ${response.data.id} v${response.data.version} is now Active.`
-        : `${response.data.id} published as a new Active tariff.`);
+      setPublishNote(status === 'Draft'
+        ? `${response.data.id} saved as Draft.`
+        : response.data.sunsetTariffId
+          ? `${response.data.sunsetTariffId} moved to Sunsetting. ${response.data.id} v${response.data.version} is now Active.`
+          : `${response.data.id} published as a new Active tariff.`);
       setCreateOpen(false);
       await loadTariffs();
     } catch (error) {
-      setPublishNote(error instanceof Error ? error.message : 'Could not publish D&D tariff');
+      setPublishNote(error instanceof Error ? error.message : 'Could not save D&D tariff');
     }
   }
 
+  async function publishTariff() {
+    await submitTariff('Active');
+  }
+
+  async function saveDraft() {
+    await submitTariff('Draft');
+  }
+
   async function forceExpireTariff(tariff: TariffRecord) {
+    if (!canForceExpireTariff) {
+      setPublishNote('You do not have permission to force-expire D&D tariffs.');
+      return;
+    }
     if (!confirm(`Force expire ${tariff.id} v${tariff.version}?`)) return;
     try {
       const response = await apiPost<ApiData<TariffRecord>>(`/dnd/tariffs/${tariff.id}/force-expire`, {});
@@ -319,7 +340,7 @@ function TariffMasterConsole() {
                 onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}
                 options={['all', 'Active', 'Sunsetting', 'Draft'].map((value) => ({ value, label: value }))}
               />
-              <RequireActivity code="dnd.tariff.create">
+              {canCreateTariff && (
                 <Button
                   type="button"
                   onClick={() => {
@@ -331,7 +352,7 @@ function TariffMasterConsole() {
                 >
                   <Plus className="size-4" /> Create Tariff
                 </Button>
-              </RequireActivity>
+              )}
             </div>
           </div>
 
@@ -370,12 +391,10 @@ function TariffMasterConsole() {
                     <td className="px-3 py-3"><Badge intent={tariffStatusIntent(tariff.status)} size="sm" hasDot>{tariff.status}</Badge></td>
                     <td className="px-3 py-3 text-right font-mono">{tariff.linkedShipments}</td>
                     <td className="px-3 py-3 text-right">
-                      {tariff.status !== 'Expired' && (
-                        <RequireActivity code="dnd.tariff.force_expire">
+                      {canForceExpireTariff && tariff.status !== 'Expired' && (
                         <Button type="button" variant="outline" size="sm" onClick={() => forceExpireTariff(tariff)}>
                           Force Expire
                         </Button>
-                        </RequireActivity>
                       )}
                     </td>
                   </tr>
@@ -401,7 +420,9 @@ function TariffMasterConsole() {
         onOpenChange={setCreateOpen}
         onDraftChange={setDraft}
         onCarriersChange={setCarriers}
+        onSaveDraft={saveDraft}
         onPublish={publishTariff}
+        canSaveTariff={canCreateTariff || canEditTariff}
       />
     </div>
   );
@@ -447,7 +468,9 @@ function TariffCreateDialog({
   onOpenChange,
   onDraftChange,
   onCarriersChange,
+  onSaveDraft,
   onPublish,
+  canSaveTariff,
 }: {
   open: boolean;
   draft: TariffDraft;
@@ -456,11 +479,34 @@ function TariffCreateDialog({
   onOpenChange: (open: boolean) => void;
   onDraftChange: (draft: TariffDraft) => void;
   onCarriersChange: (carriers: CarrierMaster[]) => void;
+  onSaveDraft: () => void;
   onPublish: () => void;
+  canSaveTariff: boolean;
 }) {
   const usaScope = isUsaScope(draft);
   const methods = enabledPricingMethods(draft);
   const warnings = slabWarnings(draft.pricingMethods.slab.rows ?? []);
+  const reviewPortPairs = draft.lanePairs
+    .map((pair) => {
+      const origin = [pair.origin, pair.originName].filter(Boolean).join(' - ') || '-';
+      const dest = [pair.dest, pair.destName].filter(Boolean).join(' - ') || '-';
+      return `${origin} -> ${dest}`;
+    })
+    .join('\n');
+  const reviewFreeTime = draft.freeTime
+    .map((group) => `${group.event || '-'}: ${group.days.length ? `${group.days.join(', ')}d` : '-'}`)
+    .join('\n');
+  const reviewRows = [
+    ['Carrier', draft.carrier || '-'],
+    ['Trade Lane', draft.lane || '-'],
+    ['Port Pairs', reviewPortPairs || '-'],
+    ['Cargo / Charge Type', `${draft.cargo || '-'} / ${draft.chargeTypes.join(' + ') || '-'}`],
+    ['Pricing Method(s)', methods.map(methodName).join(' + ') || 'None configured'],
+    ['Free-Time Groups', reviewFreeTime || '-'],
+    ['Exclusion Default', `Weekends: ${draft.exclusionDefault.weekends ? 'Checked' : 'Unchecked'} · Holidays: ${usaScope && draft.exclusionDefault.holidays ? 'Checked' : 'Unchecked'}`],
+    ['Effective', `${draft.effFrom || '-'} -> ${draft.effTo || '-'}`],
+    ['Status on Publish', 'Active'],
+  ];
   const [newCarrierOpen, setNewCarrierOpen] = useState(false);
   const [newCarrierName, setNewCarrierName] = useState('');
   const [newScac, setNewScac] = useState('');
@@ -622,9 +668,7 @@ function TariffCreateDialog({
                 <Select value={draft.carrier} onValueChange={selectCarrier}>
                   <SelectTrigger><SelectValue placeholder="Select carrier" /></SelectTrigger>
                   <SelectContent>
-                    <RequireActivity code="dnd.tariff.create">
-                      <SelectItem value={ADD_NEW_CARRIER_VALUE}>+ Add new carrier</SelectItem>
-                    </RequireActivity>
+                    <SelectItem value={ADD_NEW_CARRIER_VALUE}>+ Add new carrier</SelectItem>
                     {carrierNames.map((carrier) => <SelectItem key={carrier} value={carrier}>{carrier}</SelectItem>)}
                   </SelectContent>
                 </Select>
@@ -819,14 +863,14 @@ function TariffCreateDialog({
           </section>
 
           <section className="rounded-md border border-border p-4">
-            <SectionTitle title="Review & Publish" desc="Publishing runs the uniqueness-key check automatically." />
-            <div className="grid gap-2 text-[13px] md:grid-cols-2">
-              <div><span className="text-muted-foreground">Carrier / Lane</span><div className="font-medium">{draft.carrier} / {draft.lane}</div></div>
-              <div><span className="text-muted-foreground">Cargo / Charge Type</span><div className="font-medium">{draft.cargo} / {draft.chargeTypes.join(' + ') || '-'}</div></div>
-              <div><span className="text-muted-foreground">Pricing Method(s)</span><div className="font-medium">{methods.map(methodName).join(', ')}</div></div>
-              <div><span className="text-muted-foreground">Free-Time Groups</span><div className="font-medium">{draft.freeTime.map((group) => `${group.event}: ${group.days.join(', ') || '-'}d`).join(' | ')}</div></div>
-              <div><span className="text-muted-foreground">Exclusion Default</span><div className="font-medium">Weekends: {draft.exclusionDefault.weekends ? 'Checked' : 'Unchecked'}; Holidays: {usaScope && draft.exclusionDefault.holidays ? 'Checked' : 'Unchecked'}</div></div>
-              <div><span className="text-muted-foreground">Effective</span><div className="font-medium">{draft.effFrom} to {draft.effTo}</div></div>
+            <SectionTitle title="Review & Publish" desc="A point-in-time summary of everything configured above. Publishing runs the uniqueness-key check automatically." />
+            <div className="rounded-md border border-border">
+              {reviewRows.map(([label, value]) => (
+                <div key={label} className="grid grid-cols-[190px_1fr] gap-4 border-b border-border px-4 py-3 last:border-b-0">
+                  <span className="text-[13px] text-muted-foreground">{label}</span>
+                  <span className="whitespace-pre-line text-right font-mono text-[13px] font-semibold">{value}</span>
+                </div>
+              ))}
             </div>
             {publishNote && <div className="mt-3 rounded-md border border-primary/20 bg-primary/5 p-3 text-[13px]">{publishNote}</div>}
           </section>
@@ -834,9 +878,8 @@ function TariffCreateDialog({
 
         <DialogFooter className="border-t border-border px-6 py-4">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <RequireActivity code="dnd.tariff.create">
-            <Button type="button" onClick={onPublish} className="gap-2"><CheckCircle className="size-4" /> Publish Tariff</Button>
-          </RequireActivity>
+          <Button type="button" variant="outline" onClick={onSaveDraft} disabled={!canSaveTariff}>Save Draft</Button>
+          <Button type="button" onClick={onPublish} disabled={!canSaveTariff} className="gap-2"><CheckCircle className="size-4" /> Publish Tariff</Button>
         </DialogFooter>
       </DialogContent>
       <Dialog open={newCarrierOpen} onOpenChange={setNewCarrierOpen}>
@@ -858,9 +901,7 @@ function TariffCreateDialog({
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setNewCarrierOpen(false)}>Cancel</Button>
-            <RequireActivity code="dnd.tariff.create">
-              <Button type="button" onClick={saveNewCarrier}>Save Carrier</Button>
-            </RequireActivity>
+            <Button type="button" onClick={saveNewCarrier}>Save Carrier</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -898,6 +939,7 @@ function parseHolidayCsv(text: string) {
 }
 
 function HolidayCalendarConsole() {
+  const { activities } = usePermissions();
   const [rows, setRows] = useState<HolidayUploadRow[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -942,6 +984,7 @@ function HolidayCalendarConsole() {
 
   const accepted = rows.filter((row) => row.result === 'Accepted').length;
   const rejected = rows.filter((row) => row.result === 'Rejected').length;
+  const canUploadHolidays = activities.includes('dnd.holiday_calendar.upload');
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -966,16 +1009,14 @@ function HolidayCalendarConsole() {
               className="hidden"
               onChange={handleHolidayFileChange}
             />
-            <RequireActivity code="dnd.holiday_calendar.upload">
-              <Button type="button" variant="outline" size="sm" onClick={downloadTemplate} className="gap-2">
-                <Download className="size-4" /> Download Template
-              </Button>
-            </RequireActivity>
-            <RequireActivity code="dnd.holiday_calendar.upload">
+            <Button type="button" variant="outline" size="sm" onClick={downloadTemplate} className="gap-2">
+              <Download className="size-4" /> Download Template
+            </Button>
+            {canUploadHolidays && (
               <Button type="button" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading} className="gap-2">
                 <Upload className="size-4" /> {uploading ? 'Uploading...' : 'Upload'}
               </Button>
-            </RequireActivity>
+            )}
           </div>
         </div>
 
@@ -1295,14 +1336,12 @@ function DndChargeRow({
           )}
 
           {!charge.returnDate && charge.status !== 'CLOSED' && (
-            <RequireActivity code="SHP-002">
-              <button
-                onClick={() => onRecordReturn(charge)}
-                className="text-[13px] text-teal-600 hover:underline mt-3 block"
-              >
-                Record container return
-              </button>
-            </RequireActivity>
+            <button
+              onClick={() => onRecordReturn(charge)}
+              className="text-[13px] text-teal-600 hover:underline mt-3 block"
+            >
+              Record container return
+            </button>
           )}
         </div>
       )}
@@ -1911,23 +1950,45 @@ function AlertHistoryTab({ alerts }: { alerts: any }) {
   );
 }
 
-// ─── Main page ────────────────────────────────────────
-export function DndManagementPage() {
+// ─── D&D Master content for Settings ────────────────────────────────────────
+export function DndMasterContent({ embedded = false }: { embedded?: boolean }) {
+  const { activities } = usePermissions();
+  const canViewTariffs = activities.includes('dnd.tariff.view');
+  const canUploadHolidays = activities.includes('dnd.holiday_calendar.upload');
+  const availableModes = useMemo(() => MODULE_MODES.filter((mode) => (
+    mode.value === 'tariffMaster' ? canViewTariffs : canUploadHolidays
+  )), [canUploadHolidays, canViewTariffs]);
   const [moduleMode, setModuleMode] = useState<DndModuleMode>('tariffMaster');
 
+  useEffect(() => {
+    if (!availableModes.some((mode) => mode.value === moduleMode)) {
+      setModuleMode((availableModes[0]?.value ?? 'tariffMaster') as DndModuleMode);
+    }
+  }, [availableModes, moduleMode]);
+
+  if (!availableModes.length) {
+    return (
+      <div className={embedded ? "space-y-5" : "ewms-page-shell"}>
+        <div className="ewms-surface ewms-card-default text-[13px] text-muted-foreground">
+          No D&D master activities are assigned to this role.
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="ewms-page-shell">
-      <div className="mb-6">
+    <div className={embedded ? "space-y-5" : "ewms-page-shell"}>
+      <div className={embedded ? "mb-5" : "mb-6"}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>
+            <h1 style={{ fontSize: embedded ? 20 : 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>
               {moduleMode === 'tariffMaster' ? 'D&D Tariff Master' : 'Holiday Calendar'}
             </h1>
           </div>
           <SegmentedControl
             value={moduleMode}
             onValueChange={(value) => setModuleMode(value as DndModuleMode)}
-            options={MODULE_MODES.map((mode) => ({ value: mode.value, label: mode.label }))}
+            options={availableModes.map((mode) => ({ value: mode.value, label: mode.label }))}
           />
         </div>
         {moduleMode === 'holidayCalendar' && (
@@ -1942,6 +2003,272 @@ export function DndManagementPage() {
       ) : (
         <TariffMasterConsole />
       )}
+
+    </div>
+  );
+}
+
+type DndManagementStatus = 'In Free Time' | 'Approaching LFD' | 'Charges Accruing' | 'Completed' | 'Inactive';
+
+type DndManagementRow = {
+  id: string;
+  shipment: string;
+  project: string;
+  carrier: string;
+  cargo: string;
+  status: DndManagementStatus;
+  statusMeaning: string;
+  demurrageLfd: string;
+  demurrageCharge: string;
+  detentionLfd: string;
+  detentionCharge: string;
+  totalDnd: string;
+  totalAmount: number;
+  currency: string;
+};
+
+const DND_APPROACHING_LFD_DAYS = 3;
+
+const DND_STATUS_RULES: Record<DndManagementStatus, {
+  intent: 'success' | 'warning' | 'danger' | 'neutral';
+  meaning: string;
+}> = {
+  'In Free Time': {
+    intent: 'success',
+    meaning: 'Shipment is currently under D&D monitoring within free time.',
+  },
+  'Approaching LFD': {
+    intent: 'warning',
+    meaning: 'Shipment is nearing the Last Free Day based on the configured threshold.',
+  },
+  'Charges Accruing': {
+    intent: 'danger',
+    meaning: 'Shipment has exceeded the LFD and D&D charges are being incurred.',
+  },
+  Completed: {
+    intent: 'success',
+    meaning: 'Container has been picked up or returned and D&D calculation is complete.',
+  },
+  Inactive: {
+    intent: 'neutral',
+    meaning: 'D&D tracking is not applicable or has been disabled.',
+  },
+};
+
+function daysUntil(dateValue: string | null | undefined): number | null {
+  if (!dateValue) return null;
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+  return Math.ceil((date.getTime() - today.getTime()) / 86400000);
+}
+
+function displayLfd(dateValue: string | null | undefined): string {
+  const diff = daysUntil(dateValue);
+  if (diff === 1) return 'Tomorrow';
+  if (diff === 0) return 'Today';
+  return fmtDate(dateValue);
+}
+
+function formatMoney(amount: number | null | undefined, currency = 'USD'): string {
+  const value = Number(amount ?? 0);
+  return `${currency} ${Number.isFinite(value) ? value.toLocaleString() : '0'}`;
+}
+
+function dndManagementStatus(item: any): DndManagementStatus {
+  const raw = String(item?.dndStatus ?? '').toUpperCase();
+  if (raw && raw !== 'ACTIVATED') return 'Inactive';
+  if (item?.endDate) return 'Completed';
+  const diff = daysUntil(item?.lastFreeDay);
+  if (diff !== null && diff < 0) return 'Charges Accruing';
+  if (diff !== null && diff <= DND_APPROACHING_LFD_DAYS) return 'Approaching LFD';
+  return 'In Free Time';
+}
+
+function statusBadgeIntent(status: DndManagementStatus): 'success' | 'warning' | 'danger' | 'neutral' {
+  return DND_STATUS_RULES[status].intent;
+}
+
+function statusMeaning(status: DndManagementStatus): string {
+  return DND_STATUS_RULES[status].meaning;
+}
+
+function toDndManagementRow(item: any, shipment: any | undefined): DndManagementRow {
+  const currency = item.currency || 'USD';
+  const amount = Number(item.estimatedCharge ?? 0);
+  const status = (item.managementStatus && DND_STATUS_RULES[item.managementStatus as DndManagementStatus])
+    ? item.managementStatus as DndManagementStatus
+    : dndManagementStatus(item);
+  const shipmentNumber = shipment?.shipmentNumber || item.shipmentNumber || item.shipmentId || 'Pending ID';
+  const project = shipment?.project?.projectCode || shipment?.projectCode || shipment?.template?.name || '-';
+  const cargo = shipment?.loadMode || item.cargo || item.basis || '-';
+  const carrier = item.carrierName || shipment?.vesselName || '-';
+  const demurrageCharge = status === 'Charges Accruing' || status === 'Completed'
+    ? formatMoney(amount, currency)
+    : formatMoney(0, currency);
+  return {
+    id: String(item.shipmentId || shipmentNumber),
+    shipment: shipmentNumber,
+    project,
+    carrier,
+    cargo,
+    status,
+    statusMeaning: item.managementStatusMeaning || statusMeaning(status),
+    demurrageLfd: displayLfd(item.lastFreeDay),
+    demurrageCharge,
+    detentionLfd: '-',
+    detentionCharge: '-',
+    totalDnd: formatMoney(amount, currency),
+    totalAmount: amount,
+    currency,
+  };
+}
+
+export function DndManagementPage() {
+  const { shipments } = useShipments();
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadDndManagement() {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await apiGet<ApiData<any[]>>('/dnd/active');
+      setItems(response.data ?? []);
+    } catch (loadError) {
+      setItems([]);
+      setError(loadError instanceof Error ? loadError.message : 'Could not load D&D management data');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadDndManagement();
+  }, []);
+
+  const shipmentMap = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const shipment of shipments) {
+      if (shipment?.id) map.set(String(shipment.id), shipment);
+      if (shipment?.shipmentNumber) map.set(String(shipment.shipmentNumber), shipment);
+    }
+    return map;
+  }, [shipments]);
+
+  const rows = useMemo(
+    () => items.map((item) => toDndManagementRow(item, shipmentMap.get(String(item.shipmentId)))),
+    [items, shipmentMap],
+  );
+
+  const exposureByCurrency = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const row of rows) {
+      totals.set(row.currency, (totals.get(row.currency) ?? 0) + row.totalAmount);
+    }
+    return Array.from(totals.entries());
+  }, [rows]);
+
+  const kpis = [
+    { label: 'D&D Shipments', value: rows.length.toLocaleString(), description: 'Total shipments under D&D monitoring' },
+    { label: 'Active D&D', value: rows.filter((row) => row.status !== 'Completed' && row.status !== 'Inactive').length.toLocaleString(), description: 'Shipments currently monitored' },
+    { label: 'D&D Exposure', value: exposureByCurrency.length ? exposureByCurrency.map(([currency, value]) => formatMoney(value, currency)).join(' / ') : 'USD 0', description: 'Total estimated or incurred D&D amount' },
+    { label: 'In Free Time', value: rows.filter((row) => row.status === 'In Free Time').length.toLocaleString(), description: 'Shipments within free time' },
+  ];
+
+  return (
+    <div className="ewms-page-shell">
+      <div className="mb-6">
+        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>
+          D&D Management
+        </h1>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        {kpis.map((kpi) => (
+          <div key={kpi.label} className="ewms-surface ewms-card-default">
+            <div className="text-[12px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">{kpi.label}</div>
+            <div className="mt-2 font-mono text-2xl font-semibold text-foreground">{loading ? '...' : kpi.value}</div>
+            <div className="mt-2 text-[12px] text-muted-foreground">{kpi.description}</div>
+          </div>
+        ))}
+      </div>
+
+      <section className="ewms-surface ewms-card-default mt-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="m-0 text-[16px] font-semibold">Management page</h2>
+            <p className="m-0 mt-1 text-[13px] text-muted-foreground">
+              Shipment-level D&D status, last free days, and estimated charges.
+            </p>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={loadDndManagement} disabled={loading}>
+            Refresh
+          </Button>
+        </div>
+
+        {error && (
+          <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
+            {error}
+          </div>
+        )}
+
+        <div className="overflow-x-auto rounded-md border border-border">
+          <table className="w-full min-w-[1260px] text-[13px]">
+            <thead className="bg-muted/40 text-[11px] uppercase tracking-[0.04em] text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 text-left font-semibold">Shipment</th>
+                <th className="px-3 py-2 text-left font-semibold">Project</th>
+                <th className="px-3 py-2 text-left font-semibold">Carrier</th>
+                <th className="px-3 py-2 text-left font-semibold">Cargo</th>
+                <th className="px-3 py-2 text-left font-semibold">Status</th>
+                <th className="px-3 py-2 text-left font-semibold">Status Rule</th>
+                <th className="px-3 py-2 text-right font-semibold">Demurrage LFD</th>
+                <th className="px-3 py-2 text-left font-semibold">Demurrage Charge</th>
+                <th className="px-3 py-2 text-right font-semibold">Detention LFD</th>
+                <th className="px-3 py-2 text-left font-semibold">Detention Charge</th>
+                <th className="px-3 py-2 text-left font-semibold">Total D&D</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id} className="border-t border-border">
+                  <td className="px-3 py-3 font-mono font-semibold">{row.shipment}</td>
+                  <td className="px-3 py-3">{row.project}</td>
+                  <td className="px-3 py-3">{row.carrier}</td>
+                  <td className="px-3 py-3">{row.cargo}</td>
+                  <td className="px-3 py-3">
+                    <Badge intent={statusBadgeIntent(row.status)} size="sm">{row.status}</Badge>
+                  </td>
+                  <td className="px-3 py-3 max-w-[260px] text-[12px] leading-5 text-muted-foreground">{row.statusMeaning}</td>
+                  <td className="px-3 py-3 text-right font-mono">{row.demurrageLfd}</td>
+                  <td className="px-3 py-3 font-mono">{row.demurrageCharge}</td>
+                  <td className="px-3 py-3 text-right font-mono">{row.detentionLfd}</td>
+                  <td className="px-3 py-3 font-mono">{row.detentionCharge}</td>
+                  <td className="px-3 py-3 font-mono font-semibold">{row.totalDnd}</td>
+                </tr>
+              ))}
+              {!loading && rows.length === 0 && (
+                <tr>
+                  <td colSpan={11} className="px-3 py-8 text-center text-[13px] text-muted-foreground">
+                    No D&D shipments found.
+                  </td>
+                </tr>
+              )}
+              {loading && (
+                <tr>
+                  <td colSpan={11} className="px-3 py-8 text-center text-[13px] text-muted-foreground">
+                    Loading D&D shipments...
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
     </div>
   );

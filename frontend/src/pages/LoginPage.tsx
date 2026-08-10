@@ -3,6 +3,8 @@ import { useLocation } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
 import { firstAllowedLandingPathForUser } from '@/lib/allowedNavigation';
 
+const INTENDED_PATH_KEY = 'ewms:intended-path';
+
 const SHIPS = [
   { top: '6%',  dir: 'moveRight', duration: '30s', delay: '0s',  scale: 1.00, opacity: 0.15 },
   { top: '26%', dir: 'moveLeft',  duration: '38s', delay: '4s',  scale: 0.85, opacity: 0.10 },
@@ -441,8 +443,14 @@ export function LoginPage() {
 
   useEffect(() => {
     if (!isAuthenticated || !user) return;
-    navigate(firstAllowedLandingPathForUser(user));
-  }, [isAuthenticated, user]);
+    const intendedPath = window.sessionStorage.getItem(INTENDED_PATH_KEY);
+    if (intendedPath && intendedPath !== '/' && intendedPath !== '/login') {
+      window.sessionStorage.removeItem(INTENDED_PATH_KEY);
+      navigate(intendedPath, { replace: true });
+      return;
+    }
+    navigate(firstAllowedLandingPathForUser(user), { replace: true });
+  }, [isAuthenticated, user, navigate]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -452,7 +460,11 @@ export function LoginPage() {
     const result = await login(email, password);
     setSubmitting(false);
     if (result.ok) {
-      navigate('/dashboard');
+      const intendedPath = window.sessionStorage.getItem(INTENDED_PATH_KEY);
+      if (intendedPath && intendedPath !== '/' && intendedPath !== '/login') {
+        window.sessionStorage.removeItem(INTENDED_PATH_KEY);
+        navigate(intendedPath, { replace: true });
+      }
     } else {
       setError(result.error ?? 'Invalid credentials');
     }

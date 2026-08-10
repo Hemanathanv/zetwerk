@@ -539,28 +539,7 @@ function FieldGrid({ section, fields, sourceDocs, manualValues, onManualChange, 
 
 // ─── LineItemTable ────────────────────────────────────────────────────────────
 
-// Percentage widths for table-layout:fixed — sum to 100% across the 11 known columns
-// so the table always fits the modal width with no horizontal scroll.
-const LINE_ITEM_COL_WIDTH_PCT: Record<string, number> = {
-  'HSN CODE': 9,
-  'PRODUCT CODE': 13,
-  'DESCRIPTION': 14,
-  'QTY (PCS)': 7,
-  'CONTAINER NO': 10,
-  'SEAL NO': 8,
-  'PACKAGE TYPE': 9,
-  'BUNDLES': 7,
-  'QTY/BUNDLE': 8,
-  'NET WT (KG)': 7,
-  'GROSS WT (KG)': 8,
-};
-
-function lineItemColWidthPct(label: string): string {
-  return `${LINE_ITEM_COL_WIDTH_PCT[label.trim().toUpperCase()] ?? 8}%`;
-}
-
-function LineItemTable({ schema, section, rows, sourceDocs, manualValues, onManualChange, computedRows, packageTypes = [], onPackageTypeChange }: {
-  schema:         DocGenSchema;
+function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange, computedRows, packageTypes = [], onPackageTypeChange }: {
   section:        GenSection;
   rows:           Record<string, string>[];
   sourceDocs:     { docType: string; label: string }[];
@@ -582,17 +561,14 @@ function LineItemTable({ schema, section, rows, sourceDocs, manualValues, onManu
   if (cols.length === 0) return null;
 
   return (
-    <div style={{ overflowX: 'hidden', width: '100%' }}>
-      <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 12 }}>
+    <div style={{ overflowX: 'auto', maxWidth: '100%' }}>
+      <table style={{ minWidth: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
         <thead>
           <tr style={{ background: 'hsl(var(--muted))', borderBottom: `1px solid ${BORDER}` }}>
             {cols.map(col => (
                 <th key={col.targetField} style={{
                   padding: '7px 10px', textAlign: 'left', fontWeight: 600, fontSize: 11,
-                  textTransform: 'uppercase', letterSpacing: '0.04em', color: FG, whiteSpace: 'normal',
-                  width: lineItemColWidthPct(col.targetLabel),
-                  position: 'sticky', top: 0, zIndex: 1,
-                  background: 'hsl(var(--muted))',
+                  textTransform: 'uppercase', letterSpacing: '0.04em', color: FG, whiteSpace: 'nowrap',
                 }}>
                   {col.targetLabel}
                 </th>
@@ -610,22 +586,13 @@ function LineItemTable({ schema, section, rows, sourceDocs, manualValues, onManu
                   ? (computedRows[ri]?.[col.targetField] ?? row[col.targetField] ?? '')
                   : (row[col.targetField] ?? '');
                 const val = isEditable ? (manualValues[manualKey] ?? baseVal) : baseVal;
-                // Missing-value indication: only required, editable (manual/conditional)
-                // columns are flagged — TOTAL row and read-only/derived cells never are.
-                const isRequiredCol = isEditable && isRequiredManualMapping(schema, col);
-                const isEmpty = isRequiredCol && String(val ?? '').trim() === '';
-                const missingFieldStyle = {
-                  border: `1px solid ${isEmpty ? 'hsl(var(--destructive) / 0.6)' : 'transparent'}`,
-                  backgroundColor: isEmpty ? 'hsl(var(--destructive) / 0.06)' : 'transparent',
-                };
                 return (
                   <td key={col.targetField} style={{
                     padding: 0,
                     backgroundColor: 'hsl(var(--muted) / 0.42)',
                     verticalAlign: 'middle',
                     ...(col.mono ? MONO : {}), fontSize: 12,
-                    whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere',
-                    width: lineItemColWidthPct(col.targetLabel),
+                    whiteSpace: 'nowrap',
                     outline: `1px solid ${BORDER}`,
                     outlineOffset: -1,
                   }}>
@@ -644,12 +611,10 @@ function LineItemTable({ schema, section, rows, sourceDocs, manualValues, onManu
                           onManualChange(manualKey, next);
                           onPackageTypeChange?.(ri, next, customTypes);
                         }}
-                        aria-invalid={isEmpty ? 'true' : undefined}
                         style={{
-                          ...missingFieldStyle,
-                          outline: 'none',
+                          border: 'none', background: 'transparent', outline: 'none',
                           padding: '7px 10px', fontSize: 12, fontWeight: 600, color: FG,
-                          width: '100%', boxSizing: 'border-box', cursor: 'pointer',
+                          width: '100%', minWidth: 120, cursor: 'pointer',
                         }}
                       >
                         <option value="PKGS">PKGS</option>
@@ -662,17 +627,15 @@ function LineItemTable({ schema, section, rows, sourceDocs, manualValues, onManu
                         value={val}
                         onChange={e => onManualChange(manualKey, e.target.value)}
                         placeholder="Enter..."
-                        aria-invalid={isEmpty ? 'true' : undefined}
                         style={{
-                          ...missingFieldStyle,
-                          outline: 'none',
+                          border: 'none', background: 'transparent', outline: 'none',
                           padding: '7px 10px', fontSize: 12, fontWeight: 600, color: FG,
-                          width: '100%', boxSizing: 'border-box',
+                          width: '100%', minWidth: 90,
                           ...(col.mono ? MONO : {}),
                         }}
                       />
                     ) : (
-                      <span style={{ display: 'block', padding: '7px 10px', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                      <span style={{ display: 'block', padding: '7px 10px' }}>
                         {val || '—'}
                       </span>
                     )}
@@ -686,8 +649,6 @@ function LineItemTable({ schema, section, rows, sourceDocs, manualValues, onManu
               <td key={col.targetField} style={{
                 padding: '7px 10px', fontSize: 12,
                 color: MUTED,
-                width: lineItemColWidthPct(col.targetLabel),
-                whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere',
                 ...(col.mono ? MONO : {}),
               }}>
                 {ci === 0 ? 'TOTAL' : col.mappingType === 'derived' ? `SUM(${col.targetLabel})` : ''}
@@ -944,7 +905,7 @@ function CollapsibleSectionBlock({
           )}
           {section.renderAs === 'fields'
             ? <FieldGrid section={section} fields={fieldValues} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} computedFields={computedFields} />
-            : <LineItemTable schema={schema} section={section} rows={tableRows} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} packageTypes={packageTypes} onPackageTypeChange={onPackageTypeChange} computedRows={computedRows} />
+            : <LineItemTable section={section} rows={tableRows} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} packageTypes={packageTypes} onPackageTypeChange={onPackageTypeChange} computedRows={computedRows} />
           }
         </div>
       )}
@@ -1288,7 +1249,7 @@ function BrokerExtractionPanel({
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
                   {section.fields.map(field => (
-                    <BrokerExtractedFieldCard key={field.key} label={field.label} value={displayExtractionValue(extractionValue(rawData, field.key))} />
+                    <BrokerExtractedFieldCard key={field.key} label={field.label} value={displayExtractionValue(extractionValue(rawData, field.key))} optional={field.optional} />
                   ))}
                 </div>
               </div>
@@ -1315,14 +1276,15 @@ function BrokerExtractionPanel({
   );
 }
 
-function BrokerExtractedFieldCard({ label, value, multiline = false }: { label: string; value: string; multiline?: boolean }) {
+function BrokerExtractedFieldCard({ label, value, multiline = false, optional = false }: { label: string; value: string; multiline?: boolean; optional?: boolean }) {
   const empty = value === 'Field not in the file';
+  const optionalEmpty = empty && optional;
   return (
     <div style={{
-      border: `1px solid ${empty ? 'hsla(0,84%,60%,0.20)' : BORDER}`,
+      border: `1px solid ${empty && !optionalEmpty ? 'hsla(0,84%,60%,0.20)' : BORDER}`,
       borderRadius: 8,
       padding: '9px 11px',
-      backgroundColor: empty ? 'hsla(0,84%,60%,0.035)' : 'hsl(var(--card))',
+      backgroundColor: empty && !optionalEmpty ? 'hsla(0,84%,60%,0.035)' : 'hsl(var(--card))',
       minWidth: 0,
     }}>
       <div style={{ fontSize: 10, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: multiline ? 'normal' : 'nowrap' }}>
@@ -1331,7 +1293,7 @@ function BrokerExtractedFieldCard({ label, value, multiline = false }: { label: 
       <div
         style={{
           fontSize: 12.5,
-          color: empty ? RED : FG,
+          color: empty && !optionalEmpty ? RED : optionalEmpty ? MUTED : FG,
           fontStyle: empty ? 'italic' : 'normal',
           overflow: multiline ? 'visible' : 'hidden',
           textOverflow: multiline ? undefined : 'ellipsis',
@@ -1341,7 +1303,7 @@ function BrokerExtractedFieldCard({ label, value, multiline = false }: { label: 
         }}
         title={value}
       >
-        {value}
+        {optionalEmpty ? '—' : value}
       </div>
     </div>
   );
@@ -1800,7 +1762,7 @@ function OverflowMenu() {
         }}>
           {[
             { label: 'Save draft',  action: () => { toast.info('Draft saved'); setOpen(false); } },
-            // { label: 'Discard',     action: () => { toast.error('Draft discarded'); setOpen(false); } },
+            { label: 'Discard',     action: () => { toast.error('Draft discarded'); setOpen(false); } },
           ].map(item => (
             <button key={item.label} onClick={item.action} style={{
               width: '100%', textAlign: 'left', padding: '7px 10px',
@@ -1864,38 +1826,36 @@ function DocReviewModal({
 
   return (
     <>
-      {/* Backdrop — fixed, full-viewport, flex-centers the dialog on both axes */}
+      {/* Backdrop */}
       <div
         onClick={onClose}
         style={{
           position: 'fixed', inset: 0, zIndex: 8000,
           background: 'hsla(0,0%,0%,0.50)',
           backdropFilter: 'blur(3px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      />
+
+      {/* Dialog */}
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          position: 'fixed', zIndex: 8001,
+          top: 18, left: 18, right: 18, bottom: 18,
+          margin: 0, maxWidth: 'none', maxHeight: 'none',
+          background: 'hsl(var(--background))',
+          border: `1px solid ${BORDER}`,
+          borderRadius: 10,
+          boxShadow: '0 32px 100px hsla(0,0%,0%,0.28)',
+          display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
         }}
       >
-        {/* Dialog */}
-        <div
-          onClick={e => e.stopPropagation()}
-          style={{
-            width: '90vw', height: '85vh',
-            maxWidth: 1400, minWidth: 320,
-            maxHeight: '92vh', minHeight: 400,
-            boxSizing: 'border-box',
-            background: 'hsl(var(--background))',
-            border: `1px solid ${BORDER}`,
-            borderRadius: 16,
-            boxShadow: '0 32px 100px hsla(0,0%,0%,0.28)',
-            display: 'flex', flexDirection: 'column',
-            overflow: 'hidden',
-          }}
-        >
-        {/* ── Modal header (pinned) ── */}
+        {/* ── Modal header ── */}
         <div style={{
           padding: '12px 18px', borderBottom: `1px solid ${BORDER}`,
           display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
           background: 'hsl(var(--card))',
-          minWidth: 0,
         }}>
           {/* Title */}
           <div style={{ minWidth: 0, flexShrink: 1 }}>
@@ -1914,12 +1874,9 @@ function DocReviewModal({
             </p>
           </div>
 
-          {/* Sibling doc tabs — scrolls horizontally within its own strip, never widens the modal */}
-          {/* {siblings.length > 1 && (
-            <div style={{
-              display: 'flex', gap: 3, marginLeft: 14, flexWrap: 'nowrap',
-              flexShrink: 1, minWidth: 0, overflowX: 'auto', scrollbarWidth: 'thin',
-            }}>
+          {/* Sibling doc tabs */}
+          {siblings.length > 1 && (
+            <div style={{ display: 'flex', gap: 3, marginLeft: 14, flexWrap: 'wrap', flexShrink: 0 }}>
               {siblings.map(sib => {
                 const sibSch    = DOC_GEN_SCHEMAS[sib.docType];
                 const isActive  = sib.id === item.id;
@@ -1933,7 +1890,6 @@ function DocReviewModal({
                     background: isActive ? 'hsla(173,58%,39%,0.08)' : 'transparent',
                     color: isActive ? TEAL : sibDone ? GREEN : sibBlocked ? AMBER : MUTED,
                     transition: 'all 0.1s',
-                    whiteSpace: 'nowrap', flexShrink: 0,
                   }}>
                     {sibDone && <CheckCircle2 size={9} />}
                     {sibBlocked && !isActive && <Lock size={9} />}
@@ -1942,7 +1898,7 @@ function DocReviewModal({
                 );
               })}
             </div>
-          )} */}
+          )}
 
           <div style={{ flex: 1 }} />
 
@@ -2086,7 +2042,6 @@ function DocReviewModal({
               snapshot={brokerSourceExtractedData}
             />
           )}
-        </div>
         </div>
       </div>
 

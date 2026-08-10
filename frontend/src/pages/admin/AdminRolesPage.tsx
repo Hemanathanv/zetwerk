@@ -17,6 +17,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api';
+import { usePermissions } from '@/contexts/PermissionContext';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -51,6 +52,7 @@ interface EscalationConfig {
   warningPct: number;
   escalationPct: number;
   blockerPct: number;
+  taskEnabled?: boolean;
   channels?: Record<string, unknown> | null;
   targets?: Record<string, unknown> | null;
 }
@@ -63,6 +65,8 @@ interface RequiredSlaRow {
   scopeCode: string;
   scopeLabel: string;
   baseDoc: string;
+  subModule?: string;
+  taskEnabled?: boolean;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -124,6 +128,8 @@ const SLA_LEVEL_COLORS = {
   escalation: { dot: '#dc2626', cellBg: '#fef2f222' },
   blocker:    { dot: '#7f1d1d', cellBg: '#fee2e233' },
 };
+
+const ACTIVITY_SLA_GRID_COLUMNS = '230px 86px 145px 120px 145px repeat(4, 108px)';
 
 const SLA_ACTIVITY_CONFIG: Record<string, { activityType: string; activityName: string; description: string; baseDoc: string }> = {
   'documents.upload': {
@@ -357,9 +363,11 @@ const roleApiPath = (roleId: string) => `/api/admin/roles/${encodeURIComponent(r
 function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, onSaved }: EditorProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { refreshPermissions } = usePermissions();
   const isNew = roleId === 'new';
 
   const [roleName, setRoleName]               = useState('');
+  const [editorStep, setEditorStep]           = useState<'permissions' | 'sla'>('permissions');
   const [description, setDescription]         = useState('');
   const [category, setCategory]               = useState('INTERNAL_OPS');
   const [color, setColor]                     = useState('#0EA5A0');
@@ -386,8 +394,14 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
     escalationPct: string;
     blockerPct: string;
   }>>({});
+  const [slaTaskEnabledByKey, setSlaTaskEnabledByKey] = useState<Record<string, boolean>>({});
   const [editingSlaCell, setEditingSlaCell] = useState<{ rowKey: string; field: 'baseSlaHours' | 'reminderPct' | 'warningPct' | 'escalationPct' | 'blockerPct' } | null>(null);
   const [baseDocPickerRow, setBaseDocPickerRow] = useState<RequiredSlaRow | null>(null);
+
+  useEffect(() => {
+    if (editorStep !== 'sla') return;
+    window.dispatchEvent(new CustomEvent('ewms-settings-sidebar', { detail: { collapsed: true } }));
+  }, [editorStep]);
 
   const escalationQuery = useQuery({
     queryKey: ['admin', 'escalation'],
@@ -473,6 +487,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
             warningPct: Number(item.warningPct ?? 50),
             escalationPct: Number(item.escalationPct ?? 75),
             blockerPct: Number(item.blockerPct ?? 100),
+            taskEnabled: item.taskEnabled !== false,
             channels: null,
             targets: null,
           }));
@@ -579,6 +594,8 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
           scopeCode: scope.code,
           scopeLabel: scope.label,
           baseDoc: cfg.baseDoc || scope.label,
+          subModule: act.subModule,
+          taskEnabled: true,
         }));
       });
   }, [activities, strictSelectedActs, docTypeScopes, docTypes]);
@@ -588,7 +605,8 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
       const next = { ...prev };
       requiredSlaRows.forEach((row) => {
         if (next[row.key] !== undefined) return;
-        const existing = escalationConfigs.find((cfg) => escalationMatches(cfg, row));
+        const existing = escalationConfigs.find((cfg) => escalationMatches(cfg, row))
+          ?? escalationConfigs.find((cfg) => String(cfg.activityType || '').toLowerCase() === row.activityType.toLowerCase());
         next[row.key] = existing ? String(existing.baseSlaHours) : '';
       });
       Object.keys(next).forEach((key) => {
@@ -601,7 +619,8 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
       const next = { ...prev };
       requiredSlaRows.forEach((row) => {
         if (next[row.key] !== undefined) return;
-        const existing = escalationConfigs.find((cfg) => escalationMatches(cfg, row));
+        const existing = escalationConfigs.find((cfg) => escalationMatches(cfg, row))
+          ?? escalationConfigs.find((cfg) => String(cfg.activityType || '').toLowerCase() === row.activityType.toLowerCase());
         next[row.key] = existing?.baseDoc || row.baseDoc || row.scopeLabel;
       });
       Object.keys(next).forEach((key) => {
@@ -614,13 +633,28 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
       const next = { ...prev };
       requiredSlaRows.forEach((row) => {
         if (next[row.key] !== undefined) return;
-        const existing = escalationConfigs.find((cfg) => escalationMatches(cfg, row));
+        const existing = escalationConfigs.find((cfg) => escalationMatches(cfg, row))
+          ?? escalationConfigs.find((cfg) => String(cfg.activityType || '').toLowerCase() === row.activityType.toLowerCase());
         next[row.key] = {
           reminderPct: String(existing?.reminderPct ?? 0),
           warningPct: String(existing?.warningPct ?? 50),
           escalationPct: String(existing?.escalationPct ?? 75),
           blockerPct: String(existing?.blockerPct ?? 100),
         };
+      });
+      Object.keys(next).forEach((key) => {
+        if (!requiredSlaRows.some((row) => row.key === key)) delete next[key];
+      });
+      return next;
+    });
+
+    setSlaTaskEnabledByKey((prev) => {
+      const next = { ...prev };
+      requiredSlaRows.forEach((row) => {
+        if (next[row.key] !== undefined) return;
+        const existing = escalationConfigs.find((cfg) => escalationMatches(cfg, row))
+          ?? escalationConfigs.find((cfg) => String(cfg.activityType || '').toLowerCase() === row.activityType.toLowerCase());
+        next[row.key] = existing?.taskEnabled ?? row.taskEnabled ?? true;
       });
       Object.keys(next).forEach((key) => {
         if (!requiredSlaRows.some((row) => row.key === key)) delete next[key];
@@ -732,7 +766,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
     );
     const derivedDocumentScope = [...new Set(Object.values(strictDocTypeScopes).flat())].sort();
     const activitySla = requiredSlaRows.map((row) => {
-      const thresholds = slaThresholdsByKey[row.key] ?? { reminderPct: '0', warningPct: '50', escalationPct: '75', blockerPct: '100' };
+      const thresholds = slaThresholdsByKey[row.key] ?? { reminderPct: '50', warningPct: '75', escalationPct: '100', blockerPct: '150' };
       return {
         activityCode: row.activityCode,
         activityType: row.activityType,
@@ -741,6 +775,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
         scope: row.scopeLabel,
         baseDoc: slaBaseDocByKey[row.key] || row.baseDoc || row.scopeLabel,
         baseSlaHours: positiveHours(slaHoursByKey[row.key]),
+        taskEnabled: slaTaskEnabledByKey[row.key] ?? row.taskEnabled ?? true,
         reminderPct: Number(thresholds.reminderPct),
         warningPct: Number(thresholds.warningPct),
         escalationPct: Number(thresholds.escalationPct),
@@ -758,6 +793,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
       };
       const res = await saveRoleMutation.mutateAsync(payload);
       if (!res.ok) { toast({ title: res.error ?? 'Save failed', variant: 'destructive' }); return; }
+      await refreshPermissions();
       toast({ title: `Role ${isNew ? 'created' : 'saved'}` });
       onSaved();
     } catch { toast({ title: 'Network error', variant: 'destructive' }); }
@@ -793,10 +829,32 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
         <span style={{ fontFamily: 'var(--app-font-sans)', fontSize: 14, color: 'hsl(var(--muted-foreground))' }}>
           {selectedCount}/{activities.length} activities
         </span>
-        <Button variant="outline" size="sm" onClick={onBack}>Cancel</Button>
-        <Button size="sm" disabled={saving} onClick={handleSave} title={roleSaveBlockedReason ?? undefined} style={{ minWidth: 110 }}>
-          {saving ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite', marginRight: 6 }} />Saving…</> : 'Save changes'}
-        </Button>
+        {editorStep === 'permissions' ? (
+          <>
+            <Button variant="outline" size="sm" onClick={onBack}>Cancel</Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (roleSaveBlockedReason) {
+                  toast({ title: roleSaveBlockedReason, variant: 'destructive' });
+                  return;
+                }
+                setEditorStep('sla');
+              }}
+              title={roleSaveBlockedReason ?? undefined}
+              style={{ minWidth: 92 }}
+            >
+              Next
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button variant="outline" size="sm" onClick={() => setEditorStep('permissions')}>Back</Button>
+            <Button size="sm" disabled={saving} onClick={handleSave} title={roleSaveBlockedReason ?? undefined} style={{ minWidth: 110 }}>
+              {saving ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite', marginRight: 6 }} />Saving...</> : 'Save changes'}
+            </Button>
+          </>
+        )}
       </div>
 
       {isSystem && (
@@ -807,9 +865,10 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
       )}
 
       {/* Body */}
-      <div style={{ display: 'flex', gap: 'var(--ewms-content-grid-gap)', padding: 'var(--ewms-page-padding-y) var(--ewms-page-padding-x)', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: editorStep === 'sla' ? 0 : 'var(--ewms-content-grid-gap)', padding: 'var(--ewms-page-padding-y) var(--ewms-page-padding-x)', alignItems: 'flex-start' }}>
 
         {/* ── Left panel ─────────────────────────────────────────────────── */}
+        {editorStep === 'permissions' && (<>
         <div style={{ width: 296, flexShrink: 0, position: 'sticky', top: 36, alignSelf: 'flex-start' }}>
           <div style={{ background: 'hsl(var(--card))', borderRadius: 8, border: '1px solid hsl(var(--border))', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
 
@@ -899,7 +958,10 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
         </div>
 
         {/* ── Right panel ────────────────────────────────────────────────── */}
+        </>)}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {editorStep === 'permissions' ? (
+          <>
 
           {/* Tier 1: Module toggles */}
           <AdminFormSection title="Module Access" defaultOpen>
@@ -1193,6 +1255,8 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
             </div>
           </AdminFormSection>
 
+          </>
+          ) : (
           <AdminFormSection
             title="Activity SLA"
             description="Required SLA timers for the selected role activities and their scopes"
@@ -1214,8 +1278,8 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
               <div style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, overflowX: 'auto', overflowY: 'hidden' }}>
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: '230px 145px 120px 145px repeat(4, 104px)',
-                  minWidth: 1056,
+                  gridTemplateColumns: ACTIVITY_SLA_GRID_COLUMNS,
+                  minWidth: 1246,
                   background: 'hsl(var(--muted) / 0.45)',
                   color: 'hsl(var(--muted-foreground))',
                   fontSize: 14.5,
@@ -1224,7 +1288,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                   letterSpacing: '0.05em',
                   borderBottom: '1px solid hsl(var(--border))',
                 }}>
-                  {['Activity Type', 'Scope', 'Base SLA (Days)', 'Base Doc'].map((label) => (
+                  {['Activity Type', 'Task', 'Scope', 'Base SLA (Days)', 'Base Doc'].map((label) => (
                     <div key={label} style={{ padding: '10px 10px', display: 'flex', alignItems: 'center' }}>{label}</div>
                   ))}
                   {([
@@ -1245,10 +1309,10 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                   const baseH = positiveHours(value);
                   const baseDocValue = slaBaseDocByKey[row.key] || row.baseDoc || row.scopeLabel;
                   const thresholds = slaThresholdsByKey[row.key] ?? {
-                    reminderPct: '0',
-                    warningPct: '50',
-                    escalationPct: '75',
-                    blockerPct: '100',
+                    reminderPct: '50',
+                    warningPct: '75',
+                    escalationPct: '100',
+                    blockerPct: '150',
                   };
                   const setThreshold = (field: keyof typeof thresholds, nextValue: string) => {
                     setSlaThresholdsByKey((prev) => ({
@@ -1260,18 +1324,18 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                     }));
                   };
                   const thresholdCells = [
-                    { field: 'reminderPct' as const, fallback: '0', color: SLA_LEVEL_COLORS.reminder.dot, bg: SLA_LEVEL_COLORS.reminder.cellBg },
-                    { field: 'warningPct' as const, fallback: '50', color: SLA_LEVEL_COLORS.warning.dot, bg: SLA_LEVEL_COLORS.warning.cellBg },
-                    { field: 'escalationPct' as const, fallback: '75', color: SLA_LEVEL_COLORS.escalation.dot, bg: SLA_LEVEL_COLORS.escalation.cellBg },
-                    { field: 'blockerPct' as const, fallback: '100', color: SLA_LEVEL_COLORS.blocker.dot, bg: SLA_LEVEL_COLORS.blocker.cellBg },
+                    { field: 'reminderPct' as const, fallback: '50', color: SLA_LEVEL_COLORS.reminder.dot, bg: SLA_LEVEL_COLORS.reminder.cellBg },
+                    { field: 'warningPct' as const, fallback: '75', color: SLA_LEVEL_COLORS.warning.dot, bg: SLA_LEVEL_COLORS.warning.cellBg },
+                    { field: 'escalationPct' as const, fallback: '100', color: SLA_LEVEL_COLORS.escalation.dot, bg: SLA_LEVEL_COLORS.escalation.cellBg },
+                    { field: 'blockerPct' as const, fallback: '150', color: SLA_LEVEL_COLORS.blocker.dot, bg: SLA_LEVEL_COLORS.blocker.cellBg },
                   ];
                   return (
                     <div
                       key={row.key}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '230px 145px 120px 145px repeat(4, 104px)',
-                        minWidth: 1056,
+                        gridTemplateColumns: ACTIVITY_SLA_GRID_COLUMNS,
+                        minWidth: 1246,
                         alignItems: 'center',
                         borderBottom: '1px solid hsl(var(--border))',
                         background: invalid ? 'hsl(38 92% 50% / 0.05)' : 'hsl(var(--card))',
@@ -1279,7 +1343,21 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                     >
                       <div style={{ minWidth: 0, padding: '12px 10px' }}>
                         <div style={{ fontSize: 14.5, fontWeight: 600, color: 'hsl(var(--foreground))' }}>{row.activityName}</div>
+                        {row.subModule && (
+                          <div style={{ marginTop: 2, fontSize: 12.5, color: 'hsl(var(--muted-foreground))' }}>{row.subModule}</div>
+                        )}
                       </div>
+                      <label
+                        title="Create task for this role"
+                        style={{ padding: '12px 10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={slaTaskEnabledByKey[row.key] ?? row.taskEnabled ?? true}
+                          onChange={(e) => setSlaTaskEnabledByKey((prev) => ({ ...prev, [row.key]: e.target.checked }))}
+                          style={{ width: 16, height: 16, accentColor: 'hsl(173 58% 39%)', cursor: 'pointer' }}
+                        />
+                      </label>
                       <span style={{ padding: '12px 10px', fontSize: 14, color: 'hsl(var(--foreground))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
                         {row.scopeLabel}
                       </span>
@@ -1345,7 +1423,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                       {thresholdCells.map(({ field, fallback, color, bg }) => {
                         const thresholdValue = thresholds[field] ?? fallback;
                         const n = Number(thresholdValue);
-                        const thresholdInvalid = !Number.isFinite(n) || n < 0 || n > 100;
+                        const thresholdInvalid = !Number.isFinite(n) || n < 0 || n > 500;
                         const isEditing = editingSlaCell?.rowKey === row.key && editingSlaCell.field === field;
                         const computed = formatSlaHours((baseH * (Number.isFinite(n) ? n : 0)) / 100);
                         return (
@@ -1356,7 +1434,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                                   autoFocus
                                   type="number"
                                   min="0"
-                                  max="100"
+                                  max="500"
                                   step="1"
                                   value={thresholdValue}
                                   onChange={(e) => setThreshold(field, e.target.value)}
@@ -1398,6 +1476,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
               </div>
             )}
           </AdminFormSection>
+          )}
         </div>
       </div>
       {baseDocPickerRow && (
@@ -1585,37 +1664,43 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
 export function AdminRolesPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { loaded: permissionsLoaded } = usePermissions();
   const [editingRoleId, setEditingRoleId] = useState<string | null>(null);
   const [deletingRole, setDeletingRole] = useState<Role | null>(null);
 
   const rolesQuery = useQuery({
     queryKey: ['admin', 'roles'],
     queryFn: () => apiGet<any>('/api/admin/roles'),
+    enabled: permissionsLoaded,
     staleTime: 30_000,
   });
 
   const docTypesQuery = useQuery({
     queryKey: ['admin', 'registries', 'doc-types'],
     queryFn: () => apiGet<any>('/api/admin/registries/doc-types'),
+    enabled: permissionsLoaded,
     staleTime: 5 * 60_000,
   });
 
   const modulesQuery = useQuery({
     queryKey: ['admin', 'registries', 'modules'],
     queryFn: () => apiGet<any>('/api/admin/registries/modules'),
+    enabled: permissionsLoaded,
     staleTime: 5 * 60_000,
   });
 
   const activitiesQuery = useQuery({
     queryKey: ['admin', 'activities'],
     queryFn: () => apiGet<any>('/api/admin/activities'),
+    enabled: permissionsLoaded,
     staleTime: 5 * 60_000,
   });
   const roles = (rolesQuery.data?.data ?? []) as Role[];
   const docTypes = ((docTypesQuery.data?.data ?? []) as DocType[]).map(d => ({ ...d, geography: d.geography ?? '' }));
   const sysModules = (modulesQuery.data?.data ?? []) as SysModule[];
   const activities = (activitiesQuery.data?.data ?? []) as Activity[];
-  const pageLoading = rolesQuery.isLoading || docTypesQuery.isLoading || modulesQuery.isLoading || activitiesQuery.isLoading;
+  const pageLoading = !permissionsLoaded || rolesQuery.isLoading || docTypesQuery.isLoading || modulesQuery.isLoading || activitiesQuery.isLoading;
+  const pageError = rolesQuery.error || docTypesQuery.error || modulesQuery.error || activitiesQuery.error;
 
   const deleteRoleMutation = useMutation({
     mutationFn: (roleId: string) => apiDelete<any>(roleApiPath(roleId)),
@@ -1765,6 +1850,26 @@ export function AdminRolesPage() {
         <StatCard label="Activities"    value={activities.length} />
         <StatCard label="Total Users"   value={totalUsers} />
       </div>
+
+      {pageError && (
+        <div style={{ marginBottom: 12, padding: 12, border: '1px solid #fecaca', borderRadius: 8, background: '#fef2f2', color: '#991b1b', fontSize: 14 }}>
+          Settings permissions data could not be loaded. Check that this role has Roles/View or Admin access, then retry.
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            style={{ marginLeft: 12 }}
+            onClick={() => {
+              rolesQuery.refetch();
+              docTypesQuery.refetch();
+              modulesQuery.refetch();
+              activitiesQuery.refetch();
+            }}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
 
       <AdminTable
         columns={columns}

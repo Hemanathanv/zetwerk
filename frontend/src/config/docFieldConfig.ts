@@ -24,6 +24,7 @@ export interface FieldDef {
   mono?: boolean;
   critical?: boolean;
   manual?: boolean;
+  optional?: boolean;  // true if this field is optional in the document (not required for validation)
 }
 
 export interface SectionDef {

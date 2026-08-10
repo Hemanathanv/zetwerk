@@ -1093,7 +1093,7 @@ async def upload_document(
     await _ensure_database_doc_type_supported(prisma, normalized_doc_type)
 
     default_bucket_from_doc_type = _bucket_slug_from_doc_type(normalized_doc_type)
-    raw_bucket = bucket or default_bucket_from_doc_type or DEFAULT_BUCKET or settings.S3_DEFAULT_BUCKET
+    raw_bucket = bucket or DEFAULT_BUCKET or settings.S3_DEFAULT_BUCKET or default_bucket_from_doc_type
     target_bucket = normalize_bucket_name(raw_bucket)
     bucket_error = validate_bucket_name(target_bucket)
     if bucket_error:
@@ -2867,8 +2867,8 @@ async def _bol_approval_blockers(prisma, document_id: str, extraction: Any) -> l
         blockers.append("enter SafeCube Inputs: either MBL number or booking reference number")
     if not await _bol_dnd_inputs_activated(prisma, document_id):
         blockers.append("complete and save D&D Inputs")
-    if not _bol_container_mapping_approved(extraction):
-        blockers.append("approve the BOL container mapping")
+    # if not _bol_container_mapping_approved(extraction):
+    #     blockers.append("approve the BOL container mapping")
     return blockers
 
 

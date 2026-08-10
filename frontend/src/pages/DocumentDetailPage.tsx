@@ -14,6 +14,7 @@ import type { ContainerMappingResponse, ContainerMappingRow } from '@/types/back
 import { apiGet, apiPatch, apiUrl, getAuthToken, readJsonResponse } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { ShipmentDndInputsDialog } from '@/pages/ShipmentDetailPage';
+import { useDocTypePermissions, usePermissions } from '@/contexts/PermissionContext';
 
 const FG = 'hsl(var(--foreground))';
 const MUTED = 'hsl(var(--muted-foreground))';
@@ -25,6 +26,7 @@ const BLUE = 'hsl(221 83% 53%)';
 const UPLOAD_PROCESS_ROUTE = '/documents/upload';
 const PROCESSING_QUEUE_ROUTE = '/documents/upload/queue';
 const UPLOAD_PROCESS_RETURN_PATH_KEY = 'ewms-upload-process-return-path';
+const BOL_REFERENCE_ACTION_FIELDS = new Set(['mblNumber', 'bookingReferenceNumber']);
 
 type PipelineStageState = 'done' | 'current' | 'current-spin' | 'future';
 
@@ -66,7 +68,7 @@ function DocumentPipeline({ states }: { states: PipelineStageState[] }) {
       <div style={{ fontSize: 11, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>
         Pipeline
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${PIPELINE_LABELS.length}, minmax(0, 1fr))`, alignItems: 'start', width: '100%', gap: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${PIPELINE_LABELS.length}, minmax(112px, 1fr))`, alignItems: 'start', width: '100%', gap: 0 }}>
         {PIPELINE_LABELS.map((label, index) => {
           const state = states[index] ?? 'future';
           const nextState = states[index + 1] ?? 'future';
@@ -551,6 +553,7 @@ function FieldCard({ field, rawData, onSave }: {
 
   const displayValue = amendedValue ?? extractedValue;
   const isEmpty = displayValue === 'Field not in the file';
+  const isOptionalEmpty = isEmpty && field.optional;
   const isManualEmpty = field.manual && displayValue === 'Enter value';
   const isAmended = amendedValue !== null;
 
@@ -569,10 +572,10 @@ function FieldCard({ field, rawData, onSave }: {
   return (
     <div
       style={{
-        border: `1px solid ${isEmpty ? 'hsla(0,84%,60%,0.20)' : isManualEmpty ? `${GREEN}55` : BORDER}`,
+        border: `1px solid ${isEmpty && !isOptionalEmpty ? 'hsla(0,84%,60%,0.20)' : isManualEmpty ? `${GREEN}55` : BORDER}`,
         borderRadius: 8,
         padding: '9px 11px',
-        backgroundColor: isEmpty ? 'hsla(0,84%,60%,0.035)' : isManualEmpty ? `${GREEN}08` : 'hsl(var(--card))',
+        backgroundColor: isEmpty && !isOptionalEmpty ? 'hsla(0,84%,60%,0.035)' : isManualEmpty ? `${GREEN}08` : 'hsl(var(--card))',
         minWidth: 0,
       }}
     >
@@ -586,13 +589,15 @@ function FieldCard({ field, rawData, onSave }: {
           </span>
         )}
         {!isEditing && (
-          <button
-            onClick={startEdit}
-            title={`Edit ${field.label}`}
-            style={{ width: 22, height: 22, borderRadius: 5, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
-          >
-            <Pencil size={12} />
-          </button>
+          onSave ? (
+            <button
+              onClick={startEdit}
+              title={`Edit ${field.label}`}
+              style={{ width: 22, height: 22, borderRadius: 5, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+            >
+              <Pencil size={12} />
+            </button>
+          ) : null
         )}
       </div>
       {isEditing ? (
@@ -639,7 +644,7 @@ function FieldCard({ field, rawData, onSave }: {
           style={{
             marginTop: 4,
             fontSize: 12.5,
-            color: isEmpty ? RED : isManualEmpty ? GREEN : FG,
+            color: isEmpty && !isOptionalEmpty ? RED : isManualEmpty ? GREEN : isOptionalEmpty ? MUTED : FG,
             fontStyle: isEmpty || isManualEmpty ? 'italic' : 'normal',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -647,7 +652,7 @@ function FieldCard({ field, rawData, onSave }: {
           }}
           title={displayValue}
         >
-          {displayValue}
+          {isOptionalEmpty ? '—' : displayValue}
         </div>
       )}
       {isAmended && extractedValue !== displayValue && (
@@ -655,6 +660,73 @@ function FieldCard({ field, rawData, onSave }: {
           Original: {extractedValue}
         </div>
       )}
+    </div>
+  );
+}
+
+function BolSafeCubeInputsDialog({
+  fields,
+  rawData,
+  saving,
+  onClose,
+  onSave,
+}: {
+  fields: FieldDef[];
+  rawData: JsonValue | null | undefined;
+  saving: boolean;
+  onClose: () => void;
+  onSave: (values: Record<string, string | null>) => Promise<void>;
+}) {
+  const initialValues = useMemo(() => Object.fromEntries(fields.map((field) => {
+    const formattedValue = formatValue(findExtractionValue(rawData, field.key));
+    return [field.key, ['Field not in the file', 'Enter value'].includes(formattedValue) ? '' : formattedValue];
+  })), [fields, rawData]);
+  const [draftValues, setDraftValues] = useState<Record<string, string>>(initialValues);
+
+  useEffect(() => {
+    setDraftValues(initialValues);
+  }, [initialValues]);
+
+  async function saveEdit() {
+    await onSave(Object.fromEntries(Object.entries(draftValues).map(([key, value]) => [key, value.trim() || null])));
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'hsla(220,20%,10%,0.48)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div onClick={(event) => event.stopPropagation()} style={{ width: 'min(520px, 94vw)', background: 'hsl(var(--background))', border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden', boxShadow: '0 24px 70px hsla(220,20%,10%,0.3)' }}>
+        <div style={{ padding: '16px 18px', borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 750, color: FG }}>SafeCube Inputs</div>
+            <div style={{ marginTop: 4, fontSize: 12, color: MUTED }}>Enter either MBL No or Booking Ref No for tracking.</div>
+          </div>
+          <button type="button" onClick={onClose} style={{ border: 'none', background: 'transparent', color: MUTED, cursor: 'pointer' }}><X size={18} /></button>
+        </div>
+        <div style={{ padding: 18, display: 'grid', gap: 12 }}>
+          {fields.map((field, index) => (
+            <label key={field.key} style={{ display: 'grid', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 750, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{field.label}</span>
+              <input
+                autoFocus={index === 0}
+                value={draftValues[field.key] ?? ''}
+                onChange={(event) => setDraftValues((current) => ({ ...current, [field.key]: event.target.value }))}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void saveEdit();
+                  if (event.key === 'Escape') onClose();
+                }}
+                className={field.mono ? 'vs-mono' : undefined}
+                style={{ width: '100%', border: `1.5px solid ${BORDER}`, borderRadius: 8, background: 'hsl(var(--card))', color: FG, fontSize: 14, padding: '9px 11px', outline: 'none' }}
+              />
+            </label>
+          ))}
+        </div>
+        <div style={{ padding: 12, borderTop: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <Button type="button" variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button type="button" size="sm" disabled={saving} onClick={() => void saveEdit()}>
+            {saving ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite', marginRight: 6 }} /> : null}
+            Save Inputs
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -764,6 +836,7 @@ function BolContainerMappingModal({
   mapping,
   loading,
   saving,
+  approved,
   onClose,
   onSave,
   onPageChange,
@@ -773,6 +846,7 @@ function BolContainerMappingModal({
   mapping: ContainerMappingResponse | null;
   loading: boolean;
   saving: boolean;
+  approved: boolean;
   onClose: () => void;
   onSave: (rows: ContainerMappingRow[]) => Promise<void>;
   onPageChange: (page: number) => Promise<void>;
@@ -890,7 +964,13 @@ function BolContainerMappingModal({
         )}
         <div style={{ padding: 12, borderTop: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${BORDER}`, borderRadius: 6, background: 'transparent', cursor: 'pointer' }}>Cancel</button>
-          <button disabled={!mapping?.pagination.total || saving} onClick={() => void onSave(Object.entries(edits).map(([lineItemId, containerNo]) => ({ lineItemId, containerNo } as ContainerMappingRow)))} style={{ padding: '8px 16px', border: 'none', borderRadius: 6, background: TEAL, color: '#fff', fontWeight: 700, cursor: 'pointer', opacity: mapping?.pagination.total ? 1 : 0.5 }}>{saving ? 'Approving mapping…' : 'Save & approve mapping'}</button>
+          <button
+            disabled={approved || !mapping?.pagination.total || saving}
+            onClick={() => void onSave(Object.entries(edits).map(([lineItemId, containerNo]) => ({ lineItemId, containerNo } as ContainerMappingRow)))}
+            style={{ padding: '8px 16px', border: 'none', borderRadius: 6, background: TEAL, color: '#fff', fontWeight: 700, cursor: approved || saving ? 'default' : 'pointer', opacity: approved || mapping?.pagination.total ? 1 : 0.5 }}
+          >
+            {approved ? 'Already approved' : saving ? 'Approving mapping...' : 'Save & approve mapping'}
+          </button>
         </div>
       </div>
     </div>
@@ -982,9 +1062,10 @@ export function DocumentDetailPage() {
   const params = useParams<{ id: string }>();
   const [currentPath, navigate] = useLocation();
   const { toast } = useToast();
+  const { activities } = usePermissions();
+  const { canDo: canDoDocType } = useDocTypePermissions();
   const documentId = params.id ?? '';
   const [documentDetail, setDocumentDetail] = useState<DocumentDetailRecord | null>(null);
-  const [freshPreviewUrl, setFreshPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState<'approve' | 'retry' | null>(null);
@@ -1000,6 +1081,8 @@ export function DocumentDetailPage() {
   const [containerMapping, setContainerMapping] = useState<ContainerMappingResponse | null>(null);
   const [containerMappingUnmappedOnly, setContainerMappingUnmappedOnly] = useState(false);
   const [dndInputsOpen, setDndInputsOpen] = useState(false);
+  const [safeCubeInputsOpen, setSafeCubeInputsOpen] = useState(false);
+  const [safeCubeInputsSaving, setSafeCubeInputsSaving] = useState(false);
   const [warehouseMappingOpen, setWarehouseMappingOpen] = useState(false);
   const [warehouseMappingLoading, setWarehouseMappingLoading] = useState(false);
   const [warehouseMappingSaving, setWarehouseMappingSaving] = useState(false);
@@ -1010,23 +1093,17 @@ export function DocumentDetailPage() {
   const uploadProcessBackPath = sessionStorage.getItem(UPLOAD_PROCESS_RETURN_PATH_KEY) === PROCESSING_QUEUE_ROUTE
     ? PROCESSING_QUEUE_ROUTE
     : UPLOAD_PROCESS_ROUTE;
+  const canUseDndInputs = activities.includes('documents.dnd_inputs');
+  const canUseContainerMapping = activities.includes('documents.map_container_to_sku') && canDoDocType('BILL_OF_LADING', 'container_mapping');
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError('');
     setDocumentDetail(null);
-    setFreshPreviewUrl(null);
     documentApi.getById(documentId)
       .then(({ data }) => {
         if (!cancelled) setDocumentDetail(data);
-        documentApi.getPreviewUrl(documentId)
-          .then(({ data: previewData }) => {
-            if (!cancelled) setFreshPreviewUrl(previewData.previewUrl);
-          })
-          .catch(() => {
-            if (!cancelled) setFreshPreviewUrl(null);
-          });
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load document.');
@@ -1041,7 +1118,6 @@ export function DocumentDetailPage() {
   }, [documentId]);
 
   const extraction = documentDetail?.extraction ?? documentDetail?.salesInvoiceExtraction ?? null;
-  const documentPreviewUrl = freshPreviewUrl ?? documentDetail?.previewUrl ?? null;
   const config = documentDetail ? getDocConfig(documentDetail.docType) : undefined;
   const isDraftCbpBrokerDocument = false;
   const cbpGeneratedSchema = DOC_GEN_SCHEMAS['draft-boe'] as DocGenSchema | undefined;
@@ -1054,6 +1130,32 @@ export function DocumentDetailPage() {
     config?.sections.flatMap((section) => section.fields.map((field) => field.key)) ?? [],
   );
   const normalizedRawData = isJsonRecord(extraction?.rawData) ? extraction.rawData : {};
+  const isExtractionApproved = (
+    Boolean(extraction?.reviewedAt)
+    || ['REVIEWED', 'ARCHIVED'].includes(String(documentDetail?.status ?? '').toUpperCase())
+  );
+  const canReprocessCurrentDoc = (
+    activities.includes('documents.reprocess_ocr')
+    && Boolean(documentDetail?.docType)
+    && canDoDocType(String(documentDetail?.docType ?? ''), 'reprocess_ocr')
+  );
+  const canEditCurrentExtraction = Boolean(documentDetail?.docType) && (
+    isExtractionApproved
+      ? activities.includes('documents.override_approved_fields') && canDoDocType(String(documentDetail?.docType ?? ''), 'override_approved_fields')
+      : (
+          (activities.includes('documents.edit_extracted') && canDoDocType(String(documentDetail?.docType ?? ''), 'edit_extracted'))
+          || (activities.includes('documents.override_approved_fields') && canDoDocType(String(documentDetail?.docType ?? ''), 'override_approved_fields'))
+        )
+  );
+  const canApproveCurrentExtraction = (
+    activities.includes('documents.approve_draft')
+    && Boolean(documentDetail?.docType)
+    && canDoDocType(String(documentDetail?.docType ?? ''), 'approve_draft')
+  );
+  const bolReferenceFields = config?.sections
+    .flatMap((section) => section.fields)
+    .filter((field) => BOL_REFERENCE_ACTION_FIELDS.has(field.key)) ?? [];
+  const hasBolReferenceActionFields = bolReferenceFields.length > 0;
   const approvedContainerMappingRows = Array.isArray(normalizedRawData.containerMappingRows)
     ? normalizedRawData.containerMappingRows.filter(isJsonRecord)
     : [];
@@ -1254,6 +1356,23 @@ export function DocumentDetailPage() {
     }
   }
 
+  async function saveSafeCubeInputs(values: Record<string, string | null>) {
+    if (!documentDetail) return;
+    setSafeCubeInputsSaving(true);
+    try {
+      await documentApi.updateExtraction(documentDetail.id, { fields: values });
+      const { data } = await documentApi.getById(documentDetail.id);
+      setDocumentDetail(data);
+      setSafeCubeInputsOpen(false);
+      toast({ title: 'SafeCube inputs saved' });
+    } catch (err) {
+      toast({ title: 'Could not save SafeCube inputs', description: err instanceof Error ? err.message : 'Unable to save tracking references.', variant: 'destructive' });
+      throw err;
+    } finally {
+      setSafeCubeInputsSaving(false);
+    }
+  }
+
   async function saveGeneratedDraftFromDetail(
     nextFields = cbpDraftFieldValues,
     nextRows = cbpDraftRowValuesState,
@@ -1331,9 +1450,12 @@ export function DocumentDetailPage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
                 {section.fields
-                  .filter((field) => !(field.key === 'goodsDescription' && hasStructuredGoodsDescription))
+                  .filter((field) => (
+                    !(field.key === 'goodsDescription' && hasStructuredGoodsDescription)
+                    && !(hasBolReferenceActionFields && BOL_REFERENCE_ACTION_FIELDS.has(field.key))
+                  ))
                   .map((field) => (
-                    <FieldCard key={field.key} field={field} rawData={extraction.rawData} onSave={saveFieldValue} />
+                    <FieldCard key={field.key} field={field} rawData={extraction.rawData} onSave={canEditCurrentExtraction ? saveFieldValue : undefined} />
                   ))}
               </div>
             </div>
@@ -1350,7 +1472,7 @@ export function DocumentDetailPage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
                 {additionalPrismaFields.map((field) => (
-                  <FieldCard key={field.key} field={field} rawData={extraction.rawData} onSave={saveFieldValue} />
+                  <FieldCard key={field.key} field={field} rawData={extraction.rawData} onSave={canEditCurrentExtraction ? saveFieldValue : undefined} />
                 ))}
               </div>
             </div>
@@ -1363,8 +1485,8 @@ export function DocumentDetailPage() {
                       key={arrayName}
                       rows={rows}
                       title={arrayName}
-                      editable
-                      onSave={(updatedRows) => saveArrayRows(arrayName, updatedRows)}
+                      editable={canEditCurrentExtraction}
+                      onSave={canEditCurrentExtraction ? (updatedRows) => saveArrayRows(arrayName, updatedRows) : undefined}
                     />
                   )
                   : null
@@ -1373,8 +1495,8 @@ export function DocumentDetailPage() {
               ? (
                 <LineItemsTable
                   rows={extraction.lineItems}
-                  editable
-                  onSave={(updatedRows) => saveArrayRows('lineItems', updatedRows)}
+                  editable={canEditCurrentExtraction}
+                  onSave={canEditCurrentExtraction ? (updatedRows) => saveArrayRows('lineItems', updatedRows) : undefined}
                 />
               )
               : null}
@@ -1419,6 +1541,7 @@ export function DocumentDetailPage() {
           mapping={containerMapping}
           loading={containerMappingLoading}
           saving={containerMappingSaving}
+          approved={containerMappingApproved}
           onClose={() => setContainerMappingOpen(false)}
           onSave={saveContainerMapping}
           onPageChange={(page) => loadContainerMappingPage(page)}
@@ -1446,10 +1569,19 @@ export function DocumentDetailPage() {
         shipmentId={`bol-${documentDetail.id}`}
         onOpenChange={setDndInputsOpen}
       />
+      {safeCubeInputsOpen && (
+        <BolSafeCubeInputsDialog
+          fields={bolReferenceFields}
+          rawData={extraction?.rawData}
+          saving={safeCubeInputsSaving}
+          onClose={() => setSafeCubeInputsOpen(false)}
+          onSave={saveSafeCubeInputs}
+        />
+      )}
       {sourcePreviewOpen && isDraftCbpBrokerDocument && (
         <SourceDocumentModal
           title={documentDetail.fileName}
-          previewUrl={documentPreviewUrl}
+          previewUrl={documentDetail.previewUrl}
           isImage={isImagePreview}
           onClose={() => setSourcePreviewOpen(false)}
         />
@@ -1487,14 +1619,23 @@ export function DocumentDetailPage() {
             Reviewed {formatDateTime(extraction.reviewedAt)}
           </span>
         )}
-        {documentDetail.docType === 'BILL_OF_LADING' && extraction && (
+        {(hasBolReferenceActionFields || documentDetail.docType === 'BILL_OF_LADING') && extraction && (
           <div style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <Button type="button" variant="outline" size="sm" onClick={() => setDndInputsOpen(true)} className="h-9">
-              D&D Inputs
-            </Button>
-            <Button type="button" size="sm" onClick={() => void openContainerMapping()} className="h-9">
-              {containerMappingApproved ? 'Mapping approved' : 'Container Mapping'}
-            </Button>
+            {hasBolReferenceActionFields && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setSafeCubeInputsOpen(true)} className="h-9">
+                SafeCube Inputs
+              </Button>
+            )}
+            {canUseDndInputs && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setDndInputsOpen(true)} className="h-9">
+                D&D Inputs
+              </Button>
+            )}
+            {canUseContainerMapping && (
+              <Button type="button" size="sm" onClick={() => void openContainerMapping()} className="h-9">
+                {containerMappingApproved ? 'Mapping approved' : 'Container Mapping'}
+              </Button>
+            )}
           </div>
         )}
         {documentDetail.docType === 'US_CARGO_RELEASE_ORDER' && extraction && (
@@ -1507,32 +1648,32 @@ export function DocumentDetailPage() {
         )}
         {isApprovalRoute && (
           <>
-            <button
-              onClick={flagForReExtraction}
-              disabled={actionLoading !== null}
-              style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: FG, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: actionLoading ? 0.65 : 1 }}
-            >
-              {actionLoading === 'retry' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : null}
-              Flag for re-extraction
-            </button>
-            <button
-              onClick={approveAllFields}
-              disabled={!extraction || actionLoading !== null}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: !extraction || actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 800, opacity: !extraction || actionLoading ? 0.65 : 1 }}
-            >
-              {actionLoading === 'approve' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : <Check size={14} />}
-              Approve all fields
-            </button>
+            {canReprocessCurrentDoc && (
+              <button
+                onClick={flagForReExtraction}
+                disabled={actionLoading !== null}
+                style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: FG, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: actionLoading ? 0.65 : 1 }}
+              >
+                {actionLoading === 'retry' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : null}
+                Flag for re-extraction
+              </button>
+            )}
+            {canApproveCurrentExtraction && (
+              <button
+                onClick={approveAllFields}
+                disabled={!extraction || isExtractionApproved || actionLoading !== null}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: isExtractionApproved ? TEAL : GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: !extraction || isExtractionApproved || actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 800, opacity: !extraction || actionLoading ? 0.65 : 1 }}
+              >
+                {actionLoading === 'approve' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : <CheckCircle2 size={14} />}
+                {isExtractionApproved ? 'Approved' : 'Approve all fields'}
+              </button>
+            )}
           </>
         )}
       </div>
 
       {isDraftCbpBrokerDocument ? (
-        <>
-        <style>{`
-          @media (max-width: 1279px) { .doc-detail-grid { grid-template-columns: 1fr !important; } }
-        `}</style>
-        <div className="doc-detail-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(340px, 0.92fr) minmax(420px, 1.08fr)', gap: 18, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(420px, 0.92fr) minmax(520px, 1.08fr)', gap: 18, alignItems: 'start' }}>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
@@ -1581,20 +1722,19 @@ export function DocumentDetailPage() {
             </div>
           </section>
         </div>
-        </>
       ) : (
-        <div className="doc-detail-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.05fr) minmax(280px, 0.95fr)', gap: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.05fr) minmax(360px, 0.95fr)', gap: 18 }}>
           <section>
             <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
               Source PDF
             </div>
-            {documentPreviewUrl ? (
+            {documentDetail.previewUrl ? (
               isImagePreview ? (
                 <div style={{ height: 680, border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden', backgroundColor: 'hsl(220 14% 96%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <img src={documentPreviewUrl} alt={documentDetail.fileName} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                  <img src={documentDetail.previewUrl} alt={documentDetail.fileName} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
                 </div>
               ) : (
-                <iframe title={documentDetail.fileName} src={documentPreviewUrl} style={{ width: '100%', height: 680, border: `1px solid ${BORDER}`, borderRadius: 8, backgroundColor: 'hsl(var(--card))' }} />
+                <iframe title={documentDetail.fileName} src={documentDetail.previewUrl} style={{ width: '100%', height: 680, border: `1px solid ${BORDER}`, borderRadius: 8, backgroundColor: 'hsl(var(--card))' }} />
               )
             ) : (
               <div style={{ height: 360, border: `1px dashed ${BORDER}`, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 12 }}>
