@@ -75,24 +75,39 @@ export function PermissionProvider({
 
   const fetchPermissions = useCallback(async () => {
     if (!authToken) {
+      console.log('🔐 [Permissions] No auth token, clearing permissions');
       setPermissions(null);
       setLoaded(false);
       return;
     }
 
-    const [permissionsResponse, levelResponse] = await Promise.all([
-      api.get<{ ok: boolean; data: RbacPermissions }>('/auth/permissions'),
-      api.get<{ ok: boolean; data: { level?: string; activities: string[] } }>('/auth/level'),
-    ]);
-    const nextPermissions = permissionsResponse.data.data;
-    const activities = mergeActivities(nextPermissions.activities, levelResponse.data.data.activities);
-    setPermissions({
-      ...nextPermissions,
-      activities,
-      capabilities: capabilitiesFromActivities(activities),
-    });
-    setLoaded(true);
-  }, [authToken]);
+    try {
+      console.log('🔐 [Permissions] Fetching permissions...');
+      const [permissionsResponse, levelResponse] = await Promise.all([
+        api.get<{ ok: boolean; data: RbacPermissions }>('/auth/permissions'),
+        api.get<{ ok: boolean; data: { level?: string; activities: string[] } }>('/auth/level'),
+      ]);
+
+      const nextPermissions = permissionsResponse.data.data;
+      const activities = mergeActivities(nextPermissions.activities, levelResponse.data.data.activities);
+      const permissionsWithCapabilities = {
+        ...nextPermissions,
+        activities,
+        capabilities: capabilitiesFromActivities(activities),
+      };
+
+      console.log('🔐 [Permissions] Permissions loaded successfully');
+      setPermissions(permissionsWithCapabilities);
+      setLoaded(true);
+    } catch (error) {
+      console.error('🔐 [Permissions] Failed to fetch permissions:', error);
+      // Don't clear permissions on error to avoid infinite loops
+      // Only set loaded to true if we have cached permissions
+      if (permissions) {
+        setLoaded(true);
+      }
+    }
+  }, [authToken, permissions]);
 
   useEffect(() => {
     if (initialPermissions) {

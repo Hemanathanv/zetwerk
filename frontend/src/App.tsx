@@ -119,7 +119,10 @@ function RememberPathAndRedirectToLogin() {
   useEffect(() => {
     const path = window.location.pathname + window.location.search + window.location.hash;
     const isPublicAuthPath = path === '/' || path.startsWith('/login') || path.startsWith('/forgot-password') || path.startsWith('/reset-password');
-    if (!isPublicAuthPath) {
+
+    // Only store intended path if we're coming from an authenticated route
+    // This prevents overwriting the intended path during normal navigation
+    if (!isPublicAuthPath && !window.sessionStorage.getItem(INTENDED_PATH_KEY)) {
       window.sessionStorage.setItem(INTENDED_PATH_KEY, path);
     }
     navigate('/', { replace: true });

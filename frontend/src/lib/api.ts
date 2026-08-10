@@ -2,6 +2,7 @@ import { REFRESH_TOKEN_KEY, SESSION_TOKEN_KEY } from '@/auth/api';
 import { API_BASE_URL, resolveApiUrl } from '@/lib/apiBase';
 
 let authToken: string | null = null;
+const COOKIE_REFRESH_OK = '__cookie_refresh_ok__';
 let refreshPromise: Promise<string | null> | null = null;
 
 export { API_BASE_URL } from '@/lib/apiBase';
@@ -40,7 +41,11 @@ async function refreshAccessToken(): Promise<string | null> {
         if (!res.ok) return null;
         const data = await res.json().catch(() => null);
         const accessToken = typeof data?.access_token === 'string' ? data.access_token : null;
-        if (!accessToken) return null;
+        if (!accessToken) {
+          clearAuthToken();
+          window.localStorage.removeItem(SESSION_TOKEN_KEY);
+          return COOKIE_REFRESH_OK;
+        }
 
         authToken = accessToken;
         window.localStorage.setItem(SESSION_TOKEN_KEY, accessToken);

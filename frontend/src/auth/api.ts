@@ -25,11 +25,12 @@ const CLASSIFICATION_POLL_INTERVAL_MS = 1000;
 
 type TokenRefreshResponse = {
   status: string;
-  access_token: string;
+  access_token?: string;
   refresh_token?: string;
   expires_in?: number;
 };
 
+const COOKIE_REFRESH_OK = '__cookie_refresh_ok__';
 let refreshPromise: Promise<string | null> | null = null;
 
 // Create axios instance with default configuration
@@ -90,20 +91,38 @@ api.interceptors.response.use(
           pathname === '/forgot-password' ||
           pathname === '/reset-password';
 
+        console.log('🔐 [API] 401 Unauthorized on:', requestUrl);
+
+        // Prevent infinite refresh loops - only retry once
         if (!isTokenEndpoint && !originalRequest._retry) {
           originalRequest._retry = true;
+          console.log('🔐 [API] Attempting token refresh...');
           const nextAccessToken = await refreshAccessToken();
           if (nextAccessToken) {
+            console.log('🔐 [API] Token refresh successful, retrying request');
             originalRequest.headers = originalRequest.headers || {};
-            originalRequest.headers.Authorization = `Bearer ${nextAccessToken}`;
+            if (nextAccessToken === COOKIE_REFRESH_OK) {
+              delete originalRequest.headers.Authorization;
+            } else {
+              originalRequest.headers.Authorization = `Bearer ${nextAccessToken}`;
+            }
             return api(originalRequest);
+          } else {
+            console.log('🔐 [API] Token refresh failed');
           }
+        } else if (originalRequest._retry) {
+          console.log('🔐 [API] Already retried once, not retrying again');
         }
 
+        // Don't redirect to login for auth status requests or public pages
+        // This prevents redirect loops during normal navigation
         if (!isAuthStatusRequest && !isPublicAuthPage) {
+          console.log('🔐 [API] Redirecting to login due to auth failure');
           window.localStorage.removeItem(SESSION_TOKEN_KEY);
           window.localStorage.removeItem(REFRESH_TOKEN_KEY);
           window.location.replace('/login');
+        } else {
+          console.log('🔐 [API] Not redirecting - auth request or public page');
         }
       }
 
@@ -177,7 +196,10 @@ async function refreshAccessToken(): Promise<string | null> {
       )
       .then((response) => {
         const accessToken = response.data?.access_token;
-        if (!accessToken) return null;
+        if (!accessToken) {
+          window.localStorage.removeItem(SESSION_TOKEN_KEY);
+          return COOKIE_REFRESH_OK;
+        }
         // Keep legacy localStorage in sync for backward compatibility.
         window.localStorage.setItem(SESSION_TOKEN_KEY, accessToken);
         if (response.data.refresh_token) {
