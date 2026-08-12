@@ -2865,8 +2865,8 @@ async def _bol_approval_blockers(prisma, document_id: str, extraction: Any) -> l
     blockers: list[str] = []
     if not _bol_has_tracking_reference(extraction):
         blockers.append("enter SafeCube Inputs: either MBL number or booking reference number")
-    if not await _bol_dnd_inputs_activated(prisma, document_id):
-        blockers.append("complete and save D&D Inputs")
+    #if not await _bol_dnd_inputs_activated(prisma, document_id):
+     #   blockers.append("complete and save D&D Inputs")
     # if not _bol_container_mapping_approved(extraction):
     #     blockers.append("approve the BOL container mapping")
     return blockers

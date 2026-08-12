@@ -32,6 +32,20 @@ async def main() -> None:
         await ensure_doc_generation_views(prisma)
         print("[views-init] docgen views ready", flush=True)
 
+        try:
+            from doc_generation.draft_boe_backfill import ensure_entry_summary_drafts_for_all_eligible_bols
+
+            backfill = await ensure_entry_summary_drafts_for_all_eligible_bols(prisma)
+            print(
+                "[views-init] draft BOE backfill complete "
+                f"eligible={backfill.get('eligible', 0)} "
+                f"ready={backfill.get('ready', 0)} "
+                f"skipped={backfill.get('skipped', 0)}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(f"[views-init] warning: draft BOE backfill skipped: {exc}", flush=True)
+
         await ensure_operational_shipment_tables(prisma)
         print("[views-init] operational shipment tables ready", flush=True)
 

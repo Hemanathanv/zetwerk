@@ -7,31 +7,29 @@ x-backend-env: &backend-env
     REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     KEYCLOAK_URL: http://ewms-keycloak:8080/keycloak
 
-services:
-  views-init:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.backend-api
-      secrets:
-        - backend_env
-    image: zetwerk-views-init:local
-    <<: *backend-env
-    command: ["python", "scripts/ensure_views.py"]
-    restart: "no"
-    networks:
-      - ewms-net
+x-backend-image: &backend-image
+  build:
+    context: ./backend
+    dockerfile: Dockerfile.backend-api
+    secrets:
+      - backend_env
+  image: zetwerk-backend:local
 
+x-backend-depends-api: &backend-depends-api
+  depends_on:
+    backend-api:
+      condition: service_healthy
+
+services:
   backend-api:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.backend-api
-      secrets:
-        - backend_env
-    image: zetwerk-backend-api:local
-    <<: *backend-env
-    depends_on:
-      views-init:
-        condition: service_completed_successfully
+    <<: [*backend-image, *backend-env]
+    command: ["sh", "-c", "python scripts/ensure_views.py && exec uvicorn app:app --host 0.0.0.0 --port 8120"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8120/api/docs >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     ports:
       - "${BACKEND_PORT:-8120}:8120"
     restart: unless-stopped
@@ -39,28 +37,14 @@ services:
       - ewms-net
 
   upload-worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.upload_service
-      secrets:
-        - backend_env
-    image: zetwerk-upload-service:local
-    <<: *backend-env
-    depends_on:
-      views-init:
-        condition: service_completed_successfully
+    <<: [*backend-image, *backend-env, *backend-depends-api]
+    command: ["python", "-m", "documents_ocr.workers", "upload_worker"]
     restart: unless-stopped
     networks:
       - ewms-net
 
   drive-worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.driveworker
-      secrets:
-        - backend_env
-    image: zetwerk-drive-worker:local
-    <<: *backend-env
+    <<: [*backend-image, *backend-env]
     environment:
       RUN_OCR_WORKERS_IN_API: "false"
       DATABASE_URL: ${DATABASE_URL:-postgresql://ewms-postgres:ewms%40%232026%21@postgres:5432/ewms-db}
@@ -71,9 +55,10 @@ services:
       DRIVE_PROCESSED_FOLDER_ID: ${DRIVE_PROCESSED_FOLDER_ID:-}
       DRIVE_POLL_INTERVAL_SECONDS: ${DRIVE_POLL_INTERVAL_SECONDS:-3600}
       DRIVE_UPLOADED_BY: ${DRIVE_UPLOADED_BY:-drive-worker}
+    command: ["python", "-m", "drive_worker.drive_worker"]
     depends_on:
-      views-init:
-        condition: service_completed_successfully
+      backend-api:
+        condition: service_healthy
       upload-worker:
         condition: service_started
       ocr-worker:
@@ -83,46 +68,22 @@ services:
       - ewms-net
 
   detect-worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.detect_ocr
-      secrets:
-        - backend_env
-    image: zetwerk-detect-ocr:local
-    <<: *backend-env
-    depends_on:
-      views-init:
-        condition: service_completed_successfully
+    <<: [*backend-image, *backend-env, *backend-depends-api]
+    command: ["python", "-m", "documents_ocr.workers", "detect_worker"]
     restart: unless-stopped
     networks:
       - ewms-net
 
   ocr-worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.ocr_service
-      secrets:
-        - backend_env
-    image: zetwerk-ocr-service:local
-    <<: *backend-env
-    depends_on:
-      views-init:
-        condition: service_completed_successfully
+    <<: [*backend-image, *backend-env, *backend-depends-api]
+    command: ["python", "-m", "documents_ocr.workers", "ocr_worker"]
     restart: unless-stopped
     networks:
       - ewms-net
 
   sqs-zata-worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.sqszataworker
-      secrets:
-        - backend_env
-    image: zetwerk-sqs-zata-worker:local
-    <<: *backend-env
-    depends_on:
-      views-init:
-        condition: service_completed_successfully
+    <<: [*backend-image, *backend-env, *backend-depends-api]
+    command: ["python", "sqs_worker.py"]
     restart: unless-stopped
     networks:
       - ewms-net

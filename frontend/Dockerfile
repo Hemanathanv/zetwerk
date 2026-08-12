@@ -12,8 +12,8 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_KEYCLOAK_URL=$VITE_KEYCLOAK_URL \
     VITE_KEYCLOAK_REALM=$VITE_KEYCLOAK_REALM
 
-COPY package.json ./
-RUN npm i
+COPY package.json package-lock.json ./
+RUN npm ci
 
 COPY . .
 RUN npm run build

@@ -1236,7 +1236,8 @@ async def run_post_upload_ocr(
                     flush=True,
                 )
 
-        if str(getattr(document, "docType", "")).upper() == "SALES_INVOICE":
+        document_type = str(getattr(document, "docType", "")).upper()
+        if document_type == "SALES_INVOICE":
             try:
                 from api.v1.doc_generation.router import ensure_packing_list_draft_for_sales_invoice
 

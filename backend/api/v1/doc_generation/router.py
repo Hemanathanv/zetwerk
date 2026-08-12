@@ -21,6 +21,17 @@ GeneratedDocType = Literal["PACKING_LIST", "US_PACKING_LIST", "ENTRY_SUMMARY"]
 router = APIRouter(prefix=settings.API_SLUG + "/doc-generation", tags=["Document Generation"])
 
 SHARED_DOCGEN_SOURCE_ROLES = {"SUPER_ADMIN", "ADMIN", "OPS_MANAGER", "INDIA_LOGISTICS"}
+PACKING_LIST_USER_LINE_FIELDS = {
+    "kindOfPkg",
+    "noOfBundles",
+    "qtyPerBundle",
+    "containerNo",
+    "sealNo",
+    "netWeight",
+    "netWeightKgs",
+    "grossWeight",
+    "grossWeightKgs",
+}
 
 
 class CreateDraftRequest(BaseModel):
@@ -501,6 +512,59 @@ def _build_packing_list_line_item(index: int, item: dict[str, Any]) -> dict[str,
         "netWeight": _item_value(item, "netWeight", "net_weight", "netWeightKgs", "net_weight_kgs"),
         "netWeightKgs": _item_value(item, "netWeightKgs", "net_weight_kgs", "netWeight", "net_weight"),
     }
+
+
+def _has_user_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip() not in {"", "-", "—", "–"}
+    return True
+
+
+def _merge_packing_list_user_line_inputs(
+    rebuilt_payload: DraftPayload,
+    existing_payload: dict[str, Any] | None,
+) -> DraftPayload:
+    """Keep reviewed PL line values when a source refresh rebuilds the draft."""
+    if not isinstance(existing_payload, dict):
+        return rebuilt_payload
+    existing = existing_payload.get("lineItems")
+    if not isinstance(existing, list):
+        return rebuilt_payload
+
+    unused = set(range(len(existing)))
+    merged_rows: list[dict[str, Any]] = []
+    for row_index, new_row in enumerate(rebuilt_payload.lineItems):
+        match_index: int | None = None
+        for include_container in (True, False):
+            identity = _line_item_identity(new_row, include_container=include_container)
+            for index in unused:
+                old_row = existing[index]
+                if isinstance(old_row, dict) and _line_item_identity(
+                    old_row,
+                    include_container=include_container,
+                ) == identity:
+                    match_index = index
+                    break
+            if match_index is not None:
+                break
+
+        if match_index is None and row_index in unused and isinstance(existing[row_index], dict):
+            match_index = row_index
+
+        merged = dict(new_row)
+        if match_index is not None:
+            unused.remove(match_index)
+            old_row = existing[match_index]
+            if isinstance(old_row, dict):
+                for field in PACKING_LIST_USER_LINE_FIELDS:
+                    if field in old_row and _has_user_value(old_row[field]):
+                        merged[field] = old_row[field]
+        merged_rows.append(merged)
+
+    rebuilt_payload.lineItems = merged_rows
+    return rebuilt_payload
 
 
 def _build_stats(schema: dict[str, Any], sections: list[SectionValue]) -> dict[str, int]:
@@ -1017,7 +1081,7 @@ async def refresh_generated_drafts_for_source_document(
     drafts = await _query_raw(
         prisma,
         """
-        SELECT id, generated_doc_type, source_document_ids
+        SELECT id, generated_doc_type, source_document_ids, rendered_payload
         FROM docgen.drafts
         WHERE created_by::text = $1::text
         """,
@@ -1042,6 +1106,11 @@ async def refresh_generated_drafts_for_source_document(
                 user_id=user_id,
             )
             payload = _build_payload(generated_doc_type, draft_id, row)
+            if generated_doc_type == "PACKING_LIST":
+                payload = _merge_packing_list_user_line_inputs(
+                    payload,
+                    _coerce_json(draft.get("rendered_payload")),
+                )
             await _replace_draft_payload(prisma, payload)
             updated += 1
         except Exception as exc:
@@ -1181,18 +1250,6 @@ async def reorder_existing_packing_list_drafts(prisma) -> dict[str, int]:
     )
     updated = 0
     skipped = 0
-    mutable_fields = {
-        "kindOfPkg",
-        "noOfBundles",
-        "qtyPerBundle",
-        "containerNo",
-        "sealNo",
-        "netWeight",
-        "netWeightKgs",
-        "grossWeight",
-        "grossWeightKgs",
-    }
-
     for draft in drafts:
         source_ids = _coerce_json(draft.get("source_document_ids"))
         payload = _coerce_json(draft.get("rendered_payload"))
@@ -1219,7 +1276,7 @@ async def reorder_existing_packing_list_drafts(prisma) -> dict[str, int]:
         existing = existing if isinstance(existing, list) else []
         unused = set(range(len(existing)))
         merged_rows: list[dict[str, Any]] = []
-        for new_row in reordered:
+        for row_index, new_row in enumerate(reordered):
             match_index: int | None = None
             for include_container in (True, False):
                 identity = _line_item_identity(new_row, include_container=include_container)
@@ -1232,12 +1289,15 @@ async def reorder_existing_packing_list_drafts(prisma) -> dict[str, int]:
                         break
                 if match_index is not None:
                     break
+            if match_index is None and row_index in unused and isinstance(existing[row_index], dict):
+                match_index = row_index
+
             merged = dict(new_row)
             if match_index is not None:
                 unused.remove(match_index)
                 old_row = existing[match_index]
-                for field in mutable_fields:
-                    if field in old_row and old_row[field] not in (None, ""):
+                for field in PACKING_LIST_USER_LINE_FIELDS:
+                    if field in old_row and _has_user_value(old_row[field]):
                         merged[field] = old_row[field]
             merged_rows.append(merged)
 

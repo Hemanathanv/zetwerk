@@ -1,12 +1,11 @@
 # syntax=docker/dockerfile:1.7
-FROM python:3.12-slim-bookworm
+FROM python:3.12-slim-bookworm AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     UV_PROJECT_ENVIRONMENT=/opt/venv \
-    PATH="/opt/venv/bin:$PATH" \
-    RUN_OCR_WORKERS_IN_API=false
+    PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
 
@@ -17,19 +16,42 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         curl \
-        libglib2.0-0 \
-        libgl1 \
-        poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project --extra api
+RUN uv sync --frozen --no-dev --no-install-project
 
 COPY . .
 RUN --mount=type=secret,id=backend_env,required=true python -c "import subprocess; from dotenv import load_dotenv; load_dotenv('/run/secrets/backend_env'); subprocess.run(['python', '-m', 'prisma', 'generate', '--schema', 'prisma/schema.prisma'], check=True)"
+RUN engine_path=$(find /root/.cache/prisma-python -type f -name 'query-engine-*' | head -n 1) \
+    && cp "$engine_path" "/app/prisma-$(basename "$engine_path")"
 
-EXPOSE 8000
+FROM python:3.12-slim-bookworm AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    PATH="/opt/venv/bin:$PATH" \
+    RUN_OCR_WORKERS_IN_API=false \
+    DRIVE_SERVICE_ACCOUNT_FILE=/app/drive_worker/service_account.json
+
+WORKDIR /app
+
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /app /app
+
+EXPOSE 8120
 
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8120"]
