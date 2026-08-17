@@ -211,10 +211,10 @@ export default function VesselRouteMap({
 
   if (portCoords.length === 0 && seaRouteLine.length === 0 && liveLat == null) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 320, borderRadius: 8, background: '#071e32', border: '1px solid rgba(255,255,255,0.05)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 256, borderRadius: 6, background: '#071e32', border: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ textAlign: 'center' }}>
-          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', margin: 0 }}>Awaiting tracking data</p>
-          <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 4 }}>Vessel position will appear once SafeCube sync runs</p>
+          <p style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.4)', margin: 0 }}>Awaiting tracking data</p>
+          <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 3 }}>Vessel position will appear once SafeCube sync runs</p>
         </div>
       </div>
     )
@@ -347,7 +347,7 @@ export default function VesselRouteMap({
         }
       `}</style>
 
-      <div className="ewms-vessel-route-map" style={{ position: 'relative', height: 320, borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+      <div className="ewms-vessel-route-map" style={{ position: 'relative', height: 256, borderRadius: 6, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)', isolation: 'isolate' }}>
         <MapContainer
           center={liveLat != null && liveLng != null ? [liveLat, liveLng] : [25, 90]}
           zoom={liveLat != null && liveLng != null ? 5 : 2}
@@ -435,15 +435,15 @@ export default function VesselRouteMap({
 
         {aisStatus && (
           <div style={{
-            position: 'absolute', top: 10, left: 10, zIndex: 500,
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '4px 10px', borderRadius: 99,
+            position: 'absolute', top: 8, left: 8, zIndex: 500,
+            display: 'flex', alignItems: 'center', gap: 5,
+            padding: '3px 8px', borderRadius: 79,
             background: 'rgba(7,30,50,0.88)',
             border: '0.5px solid rgba(255,255,255,0.12)',
-            fontSize: 10, fontWeight: 500, color: WHITE_FULL,
+            fontSize: 9.5, fontWeight: 500, color: WHITE_FULL,
             backdropFilter: 'blur(4px)',
           }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#34d399', display: 'inline-block' }} />
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#34d399', display: 'inline-block' }} />
             {aisLabel(aisStatus)}
             {vesselFlag && <span style={{ marginLeft: 2, opacity: 0.55 }}>{vesselFlag}</span>}
           </div>
@@ -451,11 +451,11 @@ export default function VesselRouteMap({
 
         {currentLocationName && !aisStatus && (
           <div style={{
-            position: 'absolute', top: 10, left: 10, zIndex: 500,
-            padding: '4px 10px', borderRadius: 99,
+            position: 'absolute', top: 8, left: 8, zIndex: 500,
+            padding: '3px 8px', borderRadius: 79,
             background: 'rgba(7,30,50,0.88)',
             border: '0.5px solid rgba(255,255,255,0.12)',
-            fontSize: 10, color: WHITE_DIM,
+            fontSize: 9.5, color: WHITE_DIM,
             backdropFilter: 'blur(4px)',
           }}>
             {currentLocationName.length > 28 ? `${currentLocationName.slice(0, 28)}...` : currentLocationName}
@@ -464,12 +464,12 @@ export default function VesselRouteMap({
 
         {etaDisplay && (
           <div style={{
-            position: 'absolute', top: 10, right: 10, zIndex: 500,
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '4px 10px', borderRadius: 99,
+            position: 'absolute', top: 8, right: 8, zIndex: 500,
+            display: 'flex', alignItems: 'center', gap: 5,
+            padding: '3px 8px', borderRadius: 79,
             background: 'rgba(7,30,50,0.88)',
             border: '0.5px solid rgba(255,255,255,0.12)',
-            fontSize: 10, fontWeight: 500,
+            fontSize: 9.5, fontWeight: 500,
             backdropFilter: 'blur(4px)',
           }}>
             <span style={{ color: WHITE_DIM }}>ETA</span>
@@ -482,19 +482,19 @@ export default function VesselRouteMap({
 
         {vesselName && (
           <div style={{
-            position: 'absolute', bottom: 10, left: 10, zIndex: 500,
-            fontSize: 10, color: WHITE_DIM,
+            position: 'absolute', bottom: 8, left: 8, zIndex: 500,
+            fontSize: 9.5, color: WHITE_DIM,
             textShadow: '0 1px 4px rgba(0,0,0,0.8)',
           }}>
             <span style={{ fontWeight: 600, color: WHITE_FULL }}>{vesselName}</span>
-            {vesselImo && <span style={{ marginLeft: 6, opacity: 0.45 }}>IMO {vesselImo}</span>}
+            {vesselImo && <span style={{ marginLeft: 5, opacity: 0.45 }}>IMO {vesselImo}</span>}
           </div>
         )}
 
         {livePositionUpdatedAt && (
           <div style={{
-            position: 'absolute', bottom: 10, right: 10, zIndex: 500,
-            fontSize: 10, color: 'rgba(255,255,255,0.28)',
+            position: 'absolute', bottom: 8, right: 8, zIndex: 500,
+            fontSize: 9.5, color: 'rgba(255,255,255,0.28)',
             textShadow: '0 1px 4px rgba(0,0,0,0.8)',
           }}>
             AIS {new Date(livePositionUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
