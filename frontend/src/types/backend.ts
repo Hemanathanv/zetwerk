@@ -17,6 +17,7 @@ export type DocType =
   | "US_CUSTOMS_RELEASE_ORDER"
   | "US_DELIVERY_ORDER"
   | "US_PACKING_LIST"
+  | "PROOF_OF_DELIVERY"
   | "ISF"
   | "SHIPPING_BILL"
   | "CHA_BILL";
@@ -38,6 +39,7 @@ export const DOC_TYPE_OPTIONS: Array<{ value: DocType; label: string }> = [
   { value: "US_CUSTOMS_RELEASE_ORDER", label: "US Customs Release Order" },
   { value: "US_DELIVERY_ORDER", label: "US Delivery Order" },
   { value: "US_PACKING_LIST", label: "US Packing List" },
+  { value: "PROOF_OF_DELIVERY", label: "Proof of Delivery" },
   { value: "ISF", label: "Importer Security Filing (ISF)" },
   { value: "SHIPPING_BILL", label: "Shipping Bill" },
   { value: "CHA_BILL", label: "CHA Bill" },

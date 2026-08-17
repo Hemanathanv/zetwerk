@@ -45,6 +45,7 @@ const fallbackOcrTypes: OcrTypeOption[] = [
   { id: 'US_CUSTOMS_RELEASE_ORDER', label: 'US Customs Release Order' },
   { id: 'US_DELIVERY_ORDER', label: 'US Delivery Order' },
   { id: 'US_PACKING_LIST', label: 'US Packing List' },
+  { id: 'PROOF_OF_DELIVERY', label: 'Proof of Delivery' },
 ];
 
 function moduleSlugForDocType(value: DocType) {
@@ -60,7 +61,7 @@ function formatBytes(bytes: number) {
 }
 
 export function UploadSheet() {
-  const { open, closeUpload } = useUpload();
+  const { open, defaults, closeUpload } = useUpload();
   const [, navigate] = useLocation();
 
   const [step, setStep] = useState<Step>('select');
@@ -79,10 +80,13 @@ export function UploadSheet() {
     if (!open) return;
 
     setOcrTypes(fallbackOcrTypes);
-    setSelectedOcrType((prev) =>
-      fallbackOcrTypes.some((s) => s.id === prev) ? prev : fallbackOcrTypes[0]!.id
-    );
-  }, [open]);
+    setSelectedOcrType((prev) => {
+      const defaultDocType = defaults?.docType?.toUpperCase();
+      if (defaultDocType && fallbackOcrTypes.some((s) => s.id === defaultDocType)) return defaultDocType as DocType;
+      return fallbackOcrTypes.some((s) => s.id === prev) ? prev : fallbackOcrTypes[0]!.id;
+    });
+    setSelectedShipment(defaults?.shipmentId ?? '');
+  }, [open, defaults]);
 
   function reset() {
     setStep('select');
@@ -124,6 +128,7 @@ export function UploadSheet() {
     form.append('file', file);
     form.append('docType', selectedOcrType);
     form.append('module', moduleSlugForDocType(selectedOcrType));
+    if (selectedShipment) form.append('shipmentId', selectedShipment);
     try {
       const { data: payload } = await documentApi.upload(form);
       const uploadedDoc = payload.documents?.[0];

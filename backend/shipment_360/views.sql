@@ -17,6 +17,7 @@ SELECT
   s.port_of_discharge,
   s.exporter_name,
   s.buyer_name,
+  s.bol_number,
   s.bol_number AS hbl_number,
   s.mbl_number,
   s.booking_number,

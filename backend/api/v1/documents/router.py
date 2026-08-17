@@ -768,6 +768,10 @@ async def _public_shipment_row(prisma, shipment_ref: str) -> dict[str, Any] | No
     return rows[0] if rows else None
 
 
+def _shipment_bol_ref(row: dict[str, Any]) -> Any:
+    return row.get("bol_number") or row.get("hbl_number")
+
+
 def _public_shipment_payload(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
@@ -783,9 +787,9 @@ def _public_shipment_payload(row: dict[str, Any]) -> dict[str, Any]:
         "portOfDischarge": row.get("port_of_discharge"),
         "exporterName": row.get("exporter_name"),
         "buyerName": row.get("buyer_name"),
-        "blNumber": row.get("mbl_number") or row.get("booking_number"),
-        "bolNumber": row.get("mbl_number") or row.get("booking_number"),
-        "hblNumber": row.get("bol_number"),
+        "blNumber": _shipment_bol_ref(row),
+        "bolNumber": _shipment_bol_ref(row),
+        "hblNumber": row.get("hbl_number"),
         "mblNumber": row.get("mbl_number"),
         "bookingNumber": row.get("booking_number"),
         "loadMode": row.get("load_type"),
@@ -865,8 +869,8 @@ def _view_shipment_payload(row: dict[str, Any], *, include_containers: bool = Fa
         "portOfDischarge": row.get("port_of_discharge"),
         "exporterName": row.get("exporter_name"),
         "buyerName": row.get("buyer_name"),
-        "blNumber": row.get("mbl_number") or row.get("booking_number"),
-        "bolNumber": row.get("mbl_number") or row.get("booking_number"),
+        "blNumber": _shipment_bol_ref(row),
+        "bolNumber": _shipment_bol_ref(row),
         "hblNumber": row.get("hbl_number"),
         "mblNumber": row.get("mbl_number"),
         "bookingNumber": row.get("booking_number"),

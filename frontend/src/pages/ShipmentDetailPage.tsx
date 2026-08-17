@@ -49,7 +49,8 @@ interface ApiShipment {
   blockedReason?: string | null;
   vesselName?: string | null; portOfLoading?: string | null; portOfDischarge?: string | null;
   exporterName?: string | null; buyerName?: string | null;
-  blNumber?: string | null; loadMode?: string | null; incoterm?: string | null; incotermPort?: string | null;
+  blNumber?: string | null; bolNumber?: string | null; hblNumber?: string | null; mblNumber?: string | null;
+  loadMode?: string | null; incoterm?: string | null; incotermPort?: string | null;
   template?: { id: string; name: string } | null;
   documents: { id: string; documentType: string; ocrStatus: string; approvedAt?: string | null; documentNumber?: string | null; isGenerated?: boolean }[];
   containers: { id: string; containerNumber: string; containerSize?: string | null; containerType?: string | null; grossWeightKg?: number | null }[];
@@ -1512,7 +1513,7 @@ function VoyageProgressDocumentTracker({
         </span>
         <span style={{ fontSize: 11, color: BDR }}>·</span>
         <span className="vs-mono" style={{ fontSize: 11, fontWeight: 700, color: TEAL }}>
-          {shipment?.blNumber ?? 'Shipment'}
+          {shipment?.bolNumber ?? shipment?.blNumber ?? shipment?.hblNumber ?? 'Shipment'}
         </span>
         {(shipment?.vesselName || route) && (
           <span style={{ fontSize: 11, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1677,8 +1678,9 @@ function OutwardPlCta({ shipment, documents, milestones, gates, onRefresh }: {
 
   // CTA is visible only to ops_manager and us_logistics; org_admin is included as fallback.
   const allowedSystemCodes = ['ops_manager', 'us_logistics'];
-  const sc = user?.role?.systemCode ?? '';
-  const cat = user?.role?.category ?? '';
+  const role = user?.role as ({ category?: string; systemCode?: string } | undefined);
+  const sc = role?.systemCode ?? '';
+  const cat = role?.category ?? '';
   const isAllowed = cat === 'org_admin' || allowedSystemCodes.includes(sc);
   if (!isAllowed) return null;
 
@@ -1719,7 +1721,7 @@ function OutwardPlCta({ shipment, documents, milestones, gates, onRefresh }: {
           <div>
             <div style={{ fontSize: 11, color: MUTED, marginBottom: 8 }}>Customs cleared. Upload the Proof of Delivery to close out this shipment.</div>
             <ActionBtn
-              onClick={() => openUploadWith({ shipmentId: shipment.id, docType: 'proof_of_delivery' })}
+              onClick={() => openUploadWith({ shipmentId: shipment.id, docType: 'PROOF_OF_DELIVERY' })}
               icon={<MapPin size={10} />}
               label="Upload Proof of Delivery"
               variant="primary"
@@ -2049,6 +2051,7 @@ type DndInputsDraft = {
   excludeWeekends: boolean;
   excludeHolidays: boolean;
   carrierState: 'matched' | 'unrecognized' | 'no-tariff';
+  chargeTypes: string[];
 };
 
 type DndMatchedOptions = {
@@ -2100,6 +2103,7 @@ function blankDndInputsDraft(): DndInputsDraft {
     excludeWeekends: true,
     excludeHolidays: true,
     carrierState: 'matched',
+    chargeTypes: [],
   };
 }
 
@@ -2588,13 +2592,13 @@ export function ShipmentDetailPage() {
           <span style={{ opacity: 0.5 }}>›</span>
           <button onClick={() => navigate(PROJECT_DETAIL_ROUTE(projectCtx.projectId))} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'hsl(var(--primary))', fontWeight: 500, fontSize: 11.5 }}>{projectCtx.projectRef}</button>
           <span style={{ opacity: 0.5 }}>›</span>
-          <span className="vs-mono">{shipment?.blNumber ?? shipmentId}</span>
+          <span className="vs-mono">{shipment?.bolNumber ?? shipment?.blNumber ?? shipment?.hblNumber ?? shipmentId}</span>
         </div>
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 10, fontSize: 11.5, color: MUTED }}>
           <button onClick={() => navigate('/dashboard')} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'hsl(var(--primary))', fontWeight: 500, fontSize: 11.5 }}>← Shipments</button>
           <span>/</span>
-          <span className="vs-mono">{shipment?.blNumber ?? shipmentId}</span>
+          <span className="vs-mono">{shipment?.bolNumber ?? shipment?.blNumber ?? shipment?.hblNumber ?? shipmentId}</span>
         </div>
       )}
 
@@ -2709,7 +2713,7 @@ export function ShipmentDetailPage() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
               <h2 style={{ fontSize: 30, fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: FG, margin: 0, lineHeight: 1.15 }}>
-                {loading ? 'Loading…' : (shipment?.shipmentNumber ?? shipmentId)}
+                {loading ? 'Loading…' : (shipment?.bolNumber ?? shipment?.blNumber ?? shipment?.hblNumber ?? shipmentId)}
               </h2>
               {isOnHold    && <StatusPill status="On Hold" variant="warning" />}
               {isCancelled && <StatusPill status="Cancelled" variant="danger" />}
@@ -2717,9 +2721,10 @@ export function ShipmentDetailPage() {
             {shipment && (
               <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '3px 11px', fontSize: 11.5, color: MUTED }}>
                 {shipment.loadMode && <span style={{ fontWeight: 500, color: FG }}>Load: {shipment.loadMode}</span>}
-                {shipment.blNumber && <span>MBL: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.blNumber}</span></span>}
+                {/* {(shipment.bolNumber ?? shipment.blNumber ?? shipment.hblNumber) && <span>BOL: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.bolNumber ?? shipment.blNumber ?? shipment.hblNumber}</span></span>} */}
+                {shipment.mblNumber && <span>MBL: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.mblNumber}</span></span>}
                 {shipment.vesselName && <span>Vessel: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.vesselName}</span></span>}
-                {(shipment.portOfLoading || shipment.portOfDischarge) && <span>Route: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.portOfLoading ?? '—'} → {shipment.portOfDischarge ?? '—'}</span></span>}
+                {/* {(shipment.portOfLoading || shipment.portOfDischarge) && <span>Route: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.portOfLoading ?? '—'} → {shipment.portOfDischarge ?? '—'}</span></span>} */}
                 {revTicket && <span>Value: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{fmtAmount(revTicket.amount, revTicket.currency)}</span></span>}
                 {(shipment as any).project && <a href={`/projects/${(shipment as any).project.id}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: TEAL, textDecoration: 'none', fontSize: 11 }}><FolderOpen size={10} />{(shipment as any).project.projectCode}</a>}
               </div>
@@ -2740,7 +2745,7 @@ export function ShipmentDetailPage() {
             <RequireActivity code="SHP-005">
               {!isCancelled && <ActionBtn onClick={() => handleShipmentAction('cancel')} icon={<XCircle size={11} />} label="Cancel" variant="danger" disabled={acting} />}
             </RequireActivity>
-            <ActionBtn onClick={() => navigate(`/shipments/${shipmentId}/documents`)} icon={<FileText size={11} />} label="Document matrix" variant="outline" />
+            {/* <ActionBtn onClick={() => navigate(`/shipments/${shipmentId}/documents`)} icon={<FileText size={11} />} label="Document matrix" variant="outline" /> */}
           </div>
         </div>
       </div>
