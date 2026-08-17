@@ -29,6 +29,7 @@ export const DOCUMENT_GATE_DEFS: DocumentGateDef[] = [
     label: 'India Port Exit',
     docs: [
       { docType: 'BILL_OF_LADING', code: 'BL', label: 'Bill of Lading', role: 'PRIMARY' },
+      { docType: 'DRAFT_CBP_FORM_7501_BROKER', code: 'CB', label: 'Draft CBP FORM 7501 Broker', role: 'PRIMARY' },
       { docType: 'FREIGHT_FORWARDER_BILL', code: 'FF', label: 'Freight Forwarder Bill', role: 'PARALLEL' },
     ],
   },

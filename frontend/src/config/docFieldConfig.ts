@@ -1218,6 +1218,118 @@ const US_PACKING_LIST: DocTypeConfig = {
 };
 
 // ---------------------------------------------------------------
+// ISF
+// ---------------------------------------------------------------
+
+const ISF: DocTypeConfig = {
+  docType: 'ISF',
+  displayName: 'ISF Filing',
+  shortCode: 'IS',
+  geography: 'US',
+  crossValidationRules: [],
+  sections: [
+    {
+      sectionLabel: 'Filing Details',
+      fields: [
+        { key: 'transactionId', label: 'Transaction ID', mono: true, critical: true },
+        { key: 'blType', label: 'BL Type' },
+        { key: 'masterBlNumber', label: 'Master BL Number', mono: true, critical: true },
+        { key: 'houseBlNumber', label: 'House BL Number', mono: true, critical: true },
+        { key: 'bondType', label: 'Bond Type' },
+        { key: 'bondTerm', label: 'Bond Term' },
+        { key: 'haveABondWithCbp', label: 'Bond With CBP' },
+        { key: 'filerDocumentNumber', label: 'Filer Document Number', mono: true },
+        { key: 'filerDocumentType', label: 'Filer Document Type' },
+        { key: 'agentFilerCode', label: 'Agent Filer Code', mono: true },
+      ],
+    },
+    {
+      sectionLabel: 'Transport',
+      fields: [
+        { key: 'scacCode', label: 'SCAC Code', mono: true },
+        { key: 'masterBlType', label: 'Master BL Type' },
+        { key: 'containerNumber', label: 'Container Number', mono: true, critical: true },
+        { key: 'vesselNameAndVoyage', label: 'Vessel / Voyage' },
+        { key: 'sailingDate', label: 'Sailing Date', mono: true },
+        { key: 'destinationPort', label: 'Destination Port' },
+        { key: 'estimatedDateArrivalPort', label: 'ETA Port', mono: true },
+      ],
+    },
+    {
+      sectionLabel: 'Importer / Submitter',
+      fields: [
+        { key: 'importerName', label: 'Importer Name' },
+        { key: 'formSubmittedByName', label: 'Submitted By' },
+        { key: 'formSubmittedByCompany', label: 'Submitted Company' },
+        { key: 'telephone', label: 'Telephone', mono: true },
+        { key: 'fax', label: 'Fax', mono: true },
+        { key: 'email', label: 'Email' },
+      ],
+    },
+    {
+      sectionLabel: 'Consignee',
+      fields: [
+        { key: 'consigneeName', label: 'Consignee Name', critical: true },
+        { key: 'consigneeStreetAddress1', label: 'Address 1' },
+        { key: 'consigneeStreetAddress2', label: 'Address 2' },
+        { key: 'consigneeCity', label: 'City' },
+        { key: 'consigneeState', label: 'State' },
+        { key: 'consigneePostalCode', label: 'Postal Code', mono: true },
+        { key: 'consigneeCountry', label: 'Country' },
+        { key: 'consigneeContact', label: 'Contact' },
+        { key: 'consigneeTelephone', label: 'Telephone', mono: true },
+        { key: 'consigneeIrsTaxId', label: 'IRS Tax ID', mono: true },
+      ],
+    },
+    {
+      sectionLabel: 'Buyer / Ship To',
+      fields: [
+        { key: 'buyerName', label: 'Buyer Name' },
+        { key: 'buyerStreetAddress1', label: 'Buyer Address 1' },
+        { key: 'buyerCity', label: 'Buyer City' },
+        { key: 'buyerState', label: 'Buyer State' },
+        { key: 'buyerPostalCode', label: 'Buyer Postal Code', mono: true },
+        { key: 'buyerCountry', label: 'Buyer Country' },
+        { key: 'shipToName', label: 'Ship To Name' },
+        { key: 'shipToStreetAddress1', label: 'Ship To Address 1' },
+        { key: 'shipToCity', label: 'Ship To City' },
+        { key: 'shipToState', label: 'Ship To State' },
+        { key: 'shipToPostalCode', label: 'Ship To Postal Code', mono: true },
+        { key: 'shipToCountry', label: 'Ship To Country' },
+      ],
+    },
+    {
+      sectionLabel: 'Seller / Consolidator',
+      fields: [
+        { key: 'sellerName', label: 'Seller Name' },
+        { key: 'sellerStreetAddress1', label: 'Seller Address 1' },
+        { key: 'sellerCity', label: 'Seller City' },
+        { key: 'sellerProvince', label: 'Seller Province' },
+        { key: 'sellerPostalCode', label: 'Seller Postal Code', mono: true },
+        { key: 'sellerCountry', label: 'Seller Country' },
+        { key: 'consolidatorName', label: 'Consolidator Name' },
+        { key: 'consolidatorStreetAddress1', label: 'Consolidator Address 1' },
+        { key: 'consolidatorCity', label: 'Consolidator City' },
+        { key: 'consolidatorProvince', label: 'Consolidator Province' },
+        { key: 'consolidatorPostalCode', label: 'Consolidator Postal Code', mono: true },
+        { key: 'consolidatorCountry', label: 'Consolidator Country' },
+      ],
+    },
+    {
+      sectionLabel: 'Stuffing Location',
+      fields: [
+        { key: 'stuffingLocationName', label: 'Name' },
+        { key: 'stuffingLocationStreetAddress1', label: 'Address 1' },
+        { key: 'stuffingLocationCity', label: 'City' },
+        { key: 'stuffingLocationProvince', label: 'Province' },
+        { key: 'stuffingLocationPostalCode', label: 'Postal Code', mono: true },
+        { key: 'stuffingLocationCountry', label: 'Country' },
+      ],
+    },
+  ],
+};
+
+// ---------------------------------------------------------------
 // MASTER CONFIG MAP
 // ---------------------------------------------------------------
 
@@ -1240,6 +1352,7 @@ export const DOC_FIELD_CONFIG: Record<string, DocTypeConfig> = {
   US_CUSTOMS_RELEASE_ORDER: US_CUSTOMS_RELEASE,
   US_DELIVERY_ORDER,
   US_PACKING_LIST,
+  ISF,
 };
 
 // Convenience: get config by DocType enum string

@@ -695,6 +695,11 @@ const documentApi = {
     },
   ) => api.patch(`/uploads/documents/${documentId}/extraction`, payload),
   approve: (documentId: string) => api.post<ApproveDocumentResponse>(`/uploads/documents/${documentId}/approve`),
+  assignShipment: (documentId: string, shipmentId: string) =>
+    api.post<{ ok: boolean; data: { documentId: string; shipmentId: string; shipmentNumber?: string | null } }>(
+      `/uploads/documents/${documentId}/assign-shipment`,
+      { shipmentId },
+    ),
   classify: async (formData: FormData) => {
     const config = {
       headers: {

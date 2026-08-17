@@ -8,7 +8,7 @@ import re
 from typing import Any, Final
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 
@@ -48,12 +48,18 @@ from helpers.rbac_data_access import (
     user_id,
 )
 from helpers.rbac import require_activity, require_any_activity
-from helpers.shipment_operational import create_or_update_shipment_from_bol_document, ensure_operational_shipment_tables
+from helpers.shipment_operational import (
+    create_or_update_shipment_from_bol_document,
+    ensure_operational_shipment_tables,
+    link_documents_to_shipment_by_keys,
+    sync_reviewed_bols_as_shipments,
+)
 from objectstore import (
     DEFAULT_BUCKET,
     S3_ENDPOINT,
     build_object_key,
     delete_document_object,
+    download_bytes,
     get_download_url,
     normalize_bucket_name,
     upload_bytes,
@@ -220,6 +226,7 @@ class DocumentDetailItem(BaseModel):
     id: str
     docType: str
     status: str
+    shipmentId: str | None = None
     issuerName: str | None = None
     sourceName: str | None = None
     validationStatus: str | None = None
@@ -241,6 +248,17 @@ class DocumentDetailItem(BaseModel):
     pages: list[DocumentPageItem]
     extraction: DocumentExtractionItem | None
     salesInvoiceExtraction: DocumentExtractionItem | None
+
+
+class DocumentPreviewUrlItem(BaseModel):
+    previewUrl: str
+    bucket: str
+    objectKey: str
+    expiresIn: int
+
+
+class AssignDocumentShipmentRequest(BaseModel):
+    shipmentId: str
 
 
 class RetryOcrResponse(BaseModel):
@@ -276,6 +294,7 @@ class ContainerAssignment(BaseModel):
 
 class SaveContainerMappingRequest(BaseModel):
     assignments: list[ContainerAssignment]
+    rows: list[dict[str, Any]] | None = None
 
 
 class SaveWarehouseMappingRequest(BaseModel):
@@ -287,6 +306,104 @@ class ApproveDocumentResponse(BaseModel):
     message: str
     documentId: str
     validation: dict[str, Any] | None = None
+
+
+CBP_BROKER_COMPARISON_FIELDS: Final[tuple[tuple[str, str], ...]] = (
+    ("filerCodeEntryNumber", "filer_code_entry_number"),
+    ("entryType", "entry_type"),
+    ("summaryDate", "summary_date"),
+    ("suretyNumber", "surety_number"),
+    ("bondType", "bond_type"),
+    ("portCode", "port_code"),
+    ("entryDate", "entry_date"),
+    ("teamNumber", "team_number"),
+    ("summaryStatus", "summary_status"),
+    ("formVersion", "form_version"),
+    ("formNumber", "form_number"),
+    ("importingCarrier", "importing_carrier"),
+    ("modeOfTransport", "mode_of_transport"),
+    ("importDate", "import_date"),
+    ("blOrAwbNumber", "bl_or_awb_number"),
+    ("additionalBLs", "additional_bls"),
+    ("houseBill", "house_bill"),
+    ("subhouseBill", "subhouse_bill"),
+    ("billQty", "bill_qty"),
+    ("billQtyUnit", "bill_qty_unit"),
+    ("manufacturerId", "manufacturer_id"),
+    ("exportingCountry", "exporting_country"),
+    ("exportDate", "export_date"),
+    ("itNumber", "it_number"),
+    ("itDate", "it_date"),
+    ("missingDocs", "missing_docs"),
+    ("foreignPortOfLading", "foreign_port_of_lading"),
+    ("usPortOfUnlading", "us_port_of_unlading"),
+    ("countryOfOrigin", "country_of_origin"),
+    ("locationOfGoods", "location_of_goods"),
+    ("consigneeNumber", "consignee_number"),
+    ("importerNumber", "importer_number"),
+    ("referenceNumber", "reference_number"),
+    ("ultimateConsigneeName", "ultimate_consignee_name"),
+    ("ultimateConsigneeAddress", "ultimate_consignee_address"),
+    ("importerOfRecordName", "importer_of_record_name"),
+    ("importerOfRecordAddress", "importer_of_record_address"),
+    ("countryOfMeltAndPour", "country_of_melt_and_pour"),
+    ("primaryCountryOfSmelt", "primary_country_of_smelt"),
+    ("secondaryCountryOfSmelt", "secondary_country_of_smelt"),
+    ("countryOfCast", "country_of_cast"),
+    ("mpfTotal", "mpf_total"),
+    ("hmfTotal", "hmf_total"),
+    ("totalOtherFees", "total_other_fees"),
+    ("totalEnteredValue", "total_entered_value"),
+    ("totalDuty", "total_duty"),
+    ("totalTax", "total_tax"),
+    ("totalOther", "total_other"),
+    ("grandTotal", "grand_total"),
+    ("declarantName", "declarant_name"),
+    ("declarantCompany", "declarant_company"),
+    ("declarantTitle", "declarant_title"),
+    ("declarantDate", "declarant_date"),
+    ("isOwner", "is_owner"),
+    ("isPurchase", "is_purchase"),
+    ("brokerName", "broker_name"),
+    ("brokerAddress", "broker_address"),
+    ("brokerPhone", "broker_phone"),
+    ("brokerImporterFileNumber", "broker_importer_file_number"),
+)
+
+CBP_BROKER_LINE_ITEM_FIELDS: Final[tuple[tuple[str, str], ...]] = (
+    ("lineNo", "line_no"),
+    ("invoiceNumber", "invoice_number"),
+    ("units", "units"),
+    ("merchandiseDescription", "merchandise_description"),
+    ("htsusNumber", "htsus_number"),
+    ("grossWeightKg", "gross_weight_kg"),
+    ("netQuantity", "net_quantity"),
+    ("netQuantityUnit", "net_quantity_unit"),
+    ("enteredValue", "entered_value"),
+    ("charges", "charges"),
+    ("relationship", "relationship"),
+    ("htsusRate", "htsus_rate"),
+    ("htsusDuty", "htsus_duty"),
+    ("invoiceValueUsd", "invoice_value_usd"),
+    ("deductionCharge", "deduction_charge"),
+    ("totalEnteredValueInvoice", "total_entered_value_invoice"),
+    ("mpfRate", "mpf_rate"),
+    ("mpfAmount", "mpf_amount"),
+    ("hmfRate", "hmf_rate"),
+    ("hmfAmount", "hmf_amount"),
+)
+
+CBP_BROKER_TARIFF_LINE_FIELDS: Final[tuple[tuple[str, str], ...]] = (
+    ("lineNo", "line_no"),
+    ("htsusNumber", "htsus_number"),
+    ("description", "description"),
+    ("grossWeight", "gross_weight"),
+    ("netQuantity", "net_quantity"),
+    ("netQuantityUnit", "net_quantity_unit"),
+    ("enteredValue", "entered_value"),
+    ("rate", "rate"),
+    ("dutyAmount", "duty_amount"),
+)
 
 
 def _storage_path(bucket: str, object_key: str) -> str:
@@ -309,6 +426,92 @@ def _safe_download_url(bucket: str, object_key: str) -> str | None:
         return get_download_url(bucket, object_key)
     except Exception:
         return None
+
+
+def _normalize_cbp_compare_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        try:
+            value = json.dumps(value, sort_keys=True)
+        except Exception:
+            value = str(value)
+    return re.sub(r"\s+", " ", str(value).strip()).casefold()
+
+
+def _normalize_cbp_link(value: Any) -> str:
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def _cbp_compare_status(cbp_value: Any, broker_value: Any) -> str:
+    left = _normalize_cbp_compare_value(cbp_value)
+    right = _normalize_cbp_compare_value(broker_value)
+    if not left and not right:
+        return "blank"
+    if left == right:
+        return "match"
+    return "mismatch"
+
+
+def _compare_cbp_table_rows(
+    cbp_rows: list[dict[str, Any]],
+    broker_rows: list[dict[str, Any]],
+    fields: tuple[tuple[str, str], ...],
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    broker_by_line = {
+        _normalize_cbp_compare_value(row.get("line_no")): row
+        for row in broker_rows
+        if _normalize_cbp_compare_value(row.get("line_no"))
+    }
+    used_broker_indexes: set[int] = set()
+    compared = 0
+    matches = 0
+    mismatches = 0
+    rows: list[dict[str, Any]] = []
+
+    max_len = max(len(cbp_rows), len(broker_rows))
+    for index in range(max_len):
+        cbp_row = cbp_rows[index] if index < len(cbp_rows) else {}
+        line_key = _normalize_cbp_compare_value(cbp_row.get("line_no"))
+        broker_row = broker_by_line.get(line_key) if line_key else None
+        if broker_row is None and index < len(broker_rows):
+            broker_row = broker_rows[index]
+        if broker_row is None:
+            broker_row = {}
+        else:
+            try:
+                used_broker_indexes.add(broker_rows.index(broker_row))
+            except ValueError:
+                pass
+
+        row_fields: dict[str, dict[str, Any]] = {}
+        row_has_value = False
+        row_has_mismatch = False
+        for frontend_key, db_key in fields:
+            cbp_value = cbp_row.get(db_key)
+            broker_value = broker_row.get(db_key)
+            status = _cbp_compare_status(cbp_value, broker_value)
+            if status != "blank":
+                compared += 1
+                row_has_value = True
+            if status == "match":
+                matches += 1
+            elif status == "mismatch":
+                mismatches += 1
+                row_has_mismatch = True
+            row_fields[frontend_key] = {
+                "status": status,
+                "cbpValue": cbp_value,
+                "brokerValue": broker_value,
+            }
+        rows.append({
+            "rowIndex": index,
+            "lineNo": cbp_row.get("line_no") or broker_row.get("line_no") or str(index + 1),
+            "status": "mismatch" if row_has_mismatch else "match" if row_has_value else "blank",
+            "fields": row_fields,
+        })
+
+    return rows, {"total": compared, "matches": matches, "mismatches": mismatches}
 
 
 def _require_doc_type_action(user: Any, action: str, doc_type: str) -> None:
@@ -1681,6 +1884,7 @@ async def list_approved_documents_for_shipments(
 ):
     """Read the automatically updated document-module SQL view."""
     prisma = await get_prisma()
+    await ensure_operational_shipment_tables(prisma)
     await ensure_document_module_views(prisma)
     access_where, access_params, _ = document_module_sql_where("d", user)
     shipment_param = f"${len(access_params) + 1}"
@@ -1780,10 +1984,10 @@ async def list_approved_documents_for_shipments(
             "extractedData": extracted_data,
             "shipmentId": None,
             "gateNumber": 1 if generated_type == "PACKING_LIST" else (
-                3 if generated_type == "ENTRY_SUMMARY" else 5
+                2 if generated_type == "ENTRY_SUMMARY" else 5
             ),
             "gateCode": "PL" if generated_type == "PACKING_LIST" else (
-                "BE" if generated_type == "ENTRY_SUMMARY" else "UP"
+                "BOE-D" if generated_type == "ENTRY_SUMMARY" else "UP"
             ),
             "isParallel": False,
             "isGenerated": True,
@@ -1873,12 +2077,23 @@ async def get_document(document_id: str, user=Depends(get_current_user)):
 
     sales_invoice_extraction = extraction if doc_type == "SALES_INVOICE" else None
     try:
+        shipment_rows = await _query_raw(
+            prisma,
+            """
+            SELECT "shipment_id"::text AS shipment_id
+            FROM "public"."documents"
+            WHERE "id"::text = $1::text
+            LIMIT 1
+            """,
+            str(row.id),
+        )
         status = await _status_from_db_with_stale_recovery(prisma=prisma, row=row)
         validation_snapshot = (await _document_validation_snapshots(prisma, [str(row.id)])).get(str(row.id), {})
         return DocumentDetailItem(
             id=str(row.id),
             docType=str(row.docType),
             status=status,
+            shipmentId=shipment_rows[0].get("shipment_id") if shipment_rows else None,
             issuerName=_extract_display_issuer(extraction_obj),
             sourceName=_extract_display_issuer(extraction_obj),
             validationStatus=validation_snapshot.get("status"),
@@ -1903,6 +2118,262 @@ async def get_document(document_id: str, user=Depends(get_current_user)):
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to serialize document detail: {exc}")
+
+
+@router.get("/documents/{document_id}/preview-url", response_model=DocumentPreviewUrlItem)
+async def get_document_preview_url(document_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
+    row = await prisma.document.find_first(where=where)
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return DocumentPreviewUrlItem(
+        previewUrl=f"{settings.API_SLUG}/uploads/documents/{document_id}/preview-file",
+        bucket=str(row.bucket),
+        objectKey=str(row.objectKey),
+        expiresIn=0,
+    )
+
+
+@router.get("/documents/{document_id}/cbp-comparison")
+async def get_cbp_broker_comparison(document_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
+    document = await prisma.document.find_first(where=where)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    doc_type = str(document.docType)
+    if doc_type not in {"ENTRY_SUMMARY", "DRAFT_CBP_FORM_7501_BROKER"}:
+        raise HTTPException(status_code=400, detail="CBP comparison is only available for CBP Form 7501 documents")
+
+    row_type = "broker" if doc_type == "DRAFT_CBP_FORM_7501_BROKER" else "cbp"
+    current_rows = await _query_raw(
+        prisma,
+        """
+        SELECT e.*
+        FROM aiextraction.entry_summary_extractions e
+        WHERE e.document_id::text = $1::text
+        LIMIT 1
+        """,
+        document_id,
+    )
+    if not current_rows:
+        return {
+            "ok": True,
+            "documentId": document_id,
+            "linkedDocumentId": None,
+            "linkedDocType": None,
+            "fields": {},
+            "summary": {"total": 0, "mismatches": 0, "matches": 0},
+        }
+
+    current = current_rows[0]
+    link_candidates = [
+        current.get("bl_or_awb_number"),
+        current.get("house_bill"),
+        current.get("additional_bls"),
+        current.get("broker_importer_file_number"),
+    ]
+    links = sorted({link for link in (_normalize_cbp_link(value) for value in link_candidates) if link})
+    opposite_doc_type = "ENTRY_SUMMARY" if doc_type == "DRAFT_CBP_FORM_7501_BROKER" else "DRAFT_CBP_FORM_7501_BROKER"
+    linked_rows: list[dict[str, Any]] = []
+    if links:
+        linked_rows = await _query_raw(
+            prisma,
+            """
+            SELECT d.id::text AS document_id, d.doc_type::text AS doc_type, e.*
+            FROM public.documents d
+            JOIN aiextraction.entry_summary_extractions e ON e.document_id::text = d.id::text
+            WHERE d.doc_type::text = $2::text
+              AND d.is_deleted = false
+              AND (
+                regexp_replace(upper(coalesce(e.bl_or_awb_number, '')), '[^A-Z0-9]', '', 'g') = ANY($1::text[])
+                OR regexp_replace(upper(coalesce(e.house_bill, '')), '[^A-Z0-9]', '', 'g') = ANY($1::text[])
+                OR regexp_replace(upper(coalesce(e.additional_bls, '')), '[^A-Z0-9]', '', 'g') = ANY($1::text[])
+                OR regexp_replace(upper(coalesce(e.broker_importer_file_number, '')), '[^A-Z0-9]', '', 'g') LIKE ANY(ARRAY(
+                  SELECT '%' || link || '%' FROM unnest($1::text[]) AS link
+                ))
+              )
+            ORDER BY d.updated_at DESC
+            LIMIT 1
+            """,
+            links,
+            opposite_doc_type,
+        )
+
+    if not linked_rows:
+        return {
+            "ok": True,
+            "documentId": document_id,
+            "linkedDocumentId": None,
+            "linkedDocType": opposite_doc_type,
+            "fields": {},
+            "summary": {"total": 0, "mismatches": 0, "matches": 0},
+        }
+
+    linked = linked_rows[0]
+    cbp_row = linked if row_type == "broker" else current
+    broker_row = current if row_type == "broker" else linked
+    cbp_extraction_id = str(cbp_row.get("id") or "")
+    broker_extraction_id = str(broker_row.get("id") or "")
+    fields: dict[str, dict[str, Any]] = {}
+    matches = 0
+    mismatches = 0
+    compared = 0
+    for frontend_key, db_key in CBP_BROKER_COMPARISON_FIELDS:
+        cbp_value = cbp_row.get(db_key)
+        broker_value = broker_row.get(db_key)
+        status = _cbp_compare_status(cbp_value, broker_value)
+        if status == "match":
+            matches += 1
+        elif status == "mismatch":
+            mismatches += 1
+        if status != "blank":
+            compared += 1
+        fields[frontend_key] = {
+            "status": status,
+            "cbpValue": cbp_value,
+            "brokerValue": broker_value,
+        }
+
+    async def table_rows(table_name: str, extraction_id: str) -> list[dict[str, Any]]:
+        if not extraction_id:
+            return []
+        return await _query_raw(
+            prisma,
+            f"""
+            SELECT *
+            FROM aiextraction.{table_name}
+            WHERE entry_summary_id::text = $1::text
+            ORDER BY COALESCE(NULLIF(regexp_replace(line_no, '[^0-9]', '', 'g'), '')::int, 2147483647), id
+            """,
+            extraction_id,
+        )
+
+    cbp_line_rows = await table_rows("entry_summary_line_items", cbp_extraction_id)
+    broker_line_rows = await table_rows("entry_summary_line_items", broker_extraction_id)
+    line_items, line_summary = _compare_cbp_table_rows(cbp_line_rows, broker_line_rows, CBP_BROKER_LINE_ITEM_FIELDS)
+
+    cbp_tariff_rows = await table_rows("entry_summary_tariff_line_items", cbp_extraction_id)
+    broker_tariff_rows = await table_rows("entry_summary_tariff_line_items", broker_extraction_id)
+    tariff_lines, tariff_summary = _compare_cbp_table_rows(cbp_tariff_rows, broker_tariff_rows, CBP_BROKER_TARIFF_LINE_FIELDS)
+
+    compared += line_summary["total"] + tariff_summary["total"]
+    matches += line_summary["matches"] + tariff_summary["matches"]
+    mismatches += line_summary["mismatches"] + tariff_summary["mismatches"]
+
+    return {
+        "ok": True,
+        "documentId": document_id,
+        "linkedDocumentId": linked.get("document_id"),
+        "linkedDocType": linked.get("doc_type"),
+        "fields": fields,
+        "tables": {
+            "lineItems": {
+                "rows": line_items,
+                "summary": line_summary,
+            },
+            "tariffLines": {
+                "rows": tariff_lines,
+                "summary": tariff_summary,
+            },
+        },
+        "summary": {
+            "total": compared,
+            "configuredFields": len(fields),
+            "mismatches": mismatches,
+            "matches": matches,
+        },
+    }
+
+
+@router.get("/documents/{document_id}/preview-file")
+async def preview_document_file(document_id: str, user=Depends(get_current_user)):
+    prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
+    row = await prisma.document.find_first(where=where)
+    if not row:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    try:
+        body = await asyncio.to_thread(download_bytes, str(row.bucket), str(row.objectKey))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to load source document preview: {exc}")
+
+    content_type = str(row.contentType or "application/octet-stream")
+    safe_name = Path(str(row.fileName or "document")).name.replace('"', "")
+    return Response(
+        content=body,
+        media_type=content_type,
+        headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+    )
+
+
+@router.post("/documents/{document_id}/assign-shipment")
+async def assign_document_shipment(
+    document_id: str,
+    request: AssignDocumentShipmentRequest,
+    user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.approve_draft")),
+):
+    prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
+    document = await prisma.document.find_first(where=where)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    await ensure_operational_shipment_tables(prisma)
+    shipment_rows = await _query_raw(
+        prisma,
+        """
+        SELECT "id"::text AS id, "shipment_number"
+        FROM "public"."shipments"
+        WHERE "id"::text = $1::text OR "shipment_number" = $1::text
+        LIMIT 1
+        """,
+        request.shipmentId,
+    )
+    if not shipment_rows:
+        raise HTTPException(status_code=404, detail="Shipment not found")
+    shipment_id = str(shipment_rows[0]["id"])
+
+    await _execute_raw(
+        prisma,
+        """
+        UPDATE "public"."documents"
+        SET
+          "shipment_id" = $2::uuid,
+          "document_type" = COALESCE("document_type", "doc_type"::text),
+          "ocr_status" = CASE
+            WHEN "status"::text IN ('REVIEWED', 'ARCHIVED') OR "approved_at" IS NOT NULL THEN 'completed'
+            ELSE COALESCE("ocr_status", 'completed')
+          END,
+          "validation_status" = COALESCE("validation_status", 'WAITING'),
+          "updated_at" = NOW()
+        WHERE "id"::text = $1::text
+        """,
+        document_id,
+        shipment_id,
+    )
+    try:
+        await link_documents_to_shipment_by_keys(prisma, shipment_id)
+    except Exception as exc:
+        print(f"[shipments] warning: could not refresh links after manual assignment {document_id}: {exc}", flush=True)
+
+    return {
+        "ok": True,
+        "data": {
+            "documentId": document_id,
+            "shipmentId": shipment_id,
+            "shipmentNumber": shipment_rows[0].get("shipment_number"),
+        },
+    }
 
 
 @router.patch("/documents/{document_id}/extraction")
@@ -2017,6 +2488,7 @@ async def update_bol_container_mapping(
             bol_document_id=document_id,
             uploaded_by=str(user.id),
             assignments=[assignment.model_dump() for assignment in payload.assignments],
+            rows=payload.rows,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -2669,6 +3141,7 @@ async def _ensure_cross_validation_tables(prisma) -> None:
         CREATE TABLE IF NOT EXISTS "document_module"."document_validation_status" (
           "document_id" TEXT PRIMARY KEY,
           "shipment_id" TEXT NOT NULL,
+          "doc_type" TEXT,
           "status" TEXT NOT NULL,
           "summary" JSONB NOT NULL DEFAULT '{}'::jsonb,
           "total_rules" INTEGER NOT NULL DEFAULT 0,
@@ -2679,6 +3152,11 @@ async def _ensure_cross_validation_tables(prisma) -> None:
         )
         """,
     )
+    await _execute_raw(prisma, 'ALTER TABLE "document_module"."document_validation_status" ADD COLUMN IF NOT EXISTS "doc_type" TEXT')
+    await _execute_raw(prisma, 'ALTER TABLE "document_module"."document_validation_status" ADD COLUMN IF NOT EXISTS "total_rules" INTEGER NOT NULL DEFAULT 0')
+    await _execute_raw(prisma, 'ALTER TABLE "document_module"."document_validation_status" ADD COLUMN IF NOT EXISTS "blocking_failures" INTEGER NOT NULL DEFAULT 0')
+    await _execute_raw(prisma, 'ALTER TABLE "document_module"."document_validation_status" ADD COLUMN IF NOT EXISTS "warnings" INTEGER NOT NULL DEFAULT 0')
+    await _execute_raw(prisma, 'ALTER TABLE "document_module"."document_validation_status" ADD COLUMN IF NOT EXISTS "waiting" INTEGER NOT NULL DEFAULT 0')
     await _execute_raw(
         prisma,
         """
@@ -3089,6 +3567,7 @@ async def _persist_document_validation_status(
     *,
     document_id: str,
     shipment_id: str,
+    doc_type: str,
     status: str,
     summary: dict[str, Any],
 ) -> None:
@@ -3096,12 +3575,13 @@ async def _persist_document_validation_status(
         prisma,
         """
         INSERT INTO "document_module"."document_validation_status" (
-          "document_id", "shipment_id", "status", "summary", "total_rules",
+          "document_id", "shipment_id", "doc_type", "status", "summary", "total_rules",
           "blocking_failures", "warnings", "waiting", "updated_at"
         )
-        VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, NOW())
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, NOW())
         ON CONFLICT ("document_id") DO UPDATE SET
           "shipment_id" = EXCLUDED."shipment_id",
+          "doc_type" = EXCLUDED."doc_type",
           "status" = EXCLUDED."status",
           "summary" = EXCLUDED."summary",
           "total_rules" = EXCLUDED."total_rules",
@@ -3112,6 +3592,7 @@ async def _persist_document_validation_status(
         """,
         document_id,
         shipment_id,
+        doc_type,
         status,
         _json_dumps(summary),
         int(summary.get("total") or 0),
@@ -3162,14 +3643,22 @@ async def _recheck_waiting_validations_for_arrived_doc(
         rules = get_rules_for_doc_type(waiting_doc_type, template_id="breakbulk-template")
         if not any(str(getattr(rule, "target_doc_type", "") or "").upper() == arrived for rule in rules):
             continue
-        await _run_and_persist_document_validation(
-            prisma,
-            document_id=str(row["document_id"]),
-            doc_type=waiting_doc_type,
-            uploaded_by=uploaded_by,
-            user_id=user_id,
-            recheck_waiting_sources=False,
-        )
+        waiting_document_id = str(row["document_id"])
+        try:
+            await _run_and_persist_document_validation(
+                prisma,
+                document_id=waiting_document_id,
+                doc_type=waiting_doc_type,
+                uploaded_by=uploaded_by,
+                user_id=user_id,
+                recheck_waiting_sources=False,
+            )
+        except Exception as exc:
+            print(
+                f"[cross-validation] warning: waiting validation recheck skipped "
+                f"documentId={waiting_document_id} docType={waiting_doc_type}: {exc}",
+                flush=True,
+            )
 
 
 def _validation_display_status_and_order(*, status: str, blocking_behavior: str) -> tuple[str, int]:
@@ -3462,6 +3951,7 @@ async def _run_and_persist_document_validation(
             prisma,
             document_id=document_id,
             shipment_id=shipment_id,
+            doc_type=doc_type,
             status="WAITING",
             summary=summary_dict,
         )
@@ -3524,6 +4014,7 @@ async def _run_and_persist_document_validation(
         prisma,
         document_id=document_id,
         shipment_id=shipment_id,
+        doc_type=doc_type,
         status=overall_status,
         summary=summary_dict,
     )
@@ -3542,6 +4033,46 @@ async def _run_and_persist_document_validation(
         "status": overall_status,
         **summary_dict,
     }
+
+
+async def _mark_public_document_approved(prisma, *, document_id: str, reviewed_at: datetime) -> None:
+    try:
+        await _execute_raw(
+            prisma,
+            """
+            UPDATE "public"."documents"
+            SET
+              "document_type" = COALESCE("document_type", "doc_type"::text),
+              "ocr_status" = 'completed',
+              "validation_status" = COALESCE("validation_status", 'WAITING'),
+              "approved_at" = COALESCE("approved_at", ($2)::timestamptz),
+              "updated_at" = NOW()
+            WHERE "id"::text = $1::text
+            """,
+            document_id,
+            reviewed_at,
+        )
+    except Exception as exc:
+        print(f"[documents] warning: could not stamp public approval for {document_id}: {exc}", flush=True)
+        try:
+            await _execute_raw(
+                prisma,
+                """
+                UPDATE "public"."documents"
+                SET
+                  "document_type" = COALESCE("document_type", "doc_type"::text),
+                  "ocr_status" = 'completed',
+                  "validation_status" = COALESCE("validation_status", 'WAITING'),
+                  "updated_at" = NOW()
+                WHERE "id"::text = $1::text
+                """,
+                document_id,
+            )
+        except Exception as fallback_exc:
+            print(
+                f"[documents] warning: could not update public document mirror for {document_id}: {fallback_exc}",
+                flush=True,
+            )
 
 
 async def auto_review_and_validate_document(
@@ -3581,6 +4112,16 @@ async def auto_review_and_validate_document(
         where={"id": document_id},
         data={"status": "REVIEWED"},
     )
+    await _mark_public_document_approved(prisma, document_id=document_id, reviewed_at=reviewed_at)
+    if doc_type == "BILL_OF_LADING":
+        try:
+            await create_or_update_shipment_from_bol_document(prisma, document_id)
+        except Exception as exc:
+            print(f"[shipments] warning: could not create shipment from auto-approved BOL {document_id}: {exc}", flush=True)
+    try:
+        await _apply_shipment_links_for_approved_document(prisma, document_id)
+    except Exception as exc:
+        print(f"[shipments] warning: could not apply shipment links after auto approval {document_id}: {exc}", flush=True)
     child_arrays = await _fetch_extraction_child_arrays(
         prisma=prisma,
         doc_type=doc_type,
@@ -3589,14 +4130,77 @@ async def auto_review_and_validate_document(
     current_payload = _validation_payload_from_serialized(
         _serialize_extraction(extraction, doc_type=doc_type, child_arrays=child_arrays)
     )
-    return await _run_and_persist_document_validation(
+    try:
+        validation = await _run_and_persist_document_validation(
+            prisma,
+            document_id=document_id,
+            doc_type=doc_type,
+            uploaded_by=str(document.uploadedBy),
+            user_id=user_id,
+            current_payload=current_payload,
+        )
+    except Exception as exc:
+        print(
+            f"[cross-validation] warning: validation skipped after auto approval "
+            f"documentId={document_id} docType={doc_type}: {exc}",
+            flush=True,
+        )
+        validation = {
+            "shipmentId": None,
+            "status": "SKIPPED",
+            "message": f"Cross-validation skipped after approval: {exc}",
+        }
+    try:
+        await _apply_shipment_links_for_approved_document(prisma, document_id)
+    except Exception as exc:
+        print(f"[shipments] warning: could not apply shipment links after validation {document_id}: {exc}", flush=True)
+    return validation
+
+
+async def _apply_shipment_links_for_approved_document(prisma, document_id: str) -> None:
+    await ensure_operational_shipment_tables(prisma)
+    await _ensure_cross_validation_tables(prisma)
+    shipment_rows = await _query_raw(
         prisma,
-        document_id=document_id,
-        doc_type=doc_type,
-        uploaded_by=str(document.uploadedBy),
-        user_id=user_id,
-        current_payload=current_payload,
+        """
+        WITH candidate_shipments AS (
+          SELECT DISTINCT s."id"::text AS id, 0 AS priority, s."updated_at"
+          FROM "public"."shipments" s
+          JOIN "public"."documents" d ON d."shipment_id" = s."id"
+          WHERE d."id"::text = $1::text
+          UNION
+          SELECT DISTINCT s."id"::text AS id, 1 AS priority, s."updated_at"
+          FROM "document_ocr"."cross_validation_details" cvd
+          JOIN "public"."documents" related_doc
+            ON related_doc."id"::text IN (cvd."document_id"::text, cvd."target_document_id"::text)
+          JOIN "public"."shipments" s ON s."id" = related_doc."shipment_id"
+          WHERE $1::text IN (cvd."document_id"::text, cvd."target_document_id"::text)
+          UNION
+          SELECT DISTINCT s."id"::text AS id, 2 AS priority, s."updated_at"
+          FROM "document_module"."document_validation_status" dvs
+          JOIN "public"."shipments" s
+            ON s."id"::text = dvs."shipment_id"::text
+            OR s."shipment_number" = dvs."shipment_id"::text
+          WHERE dvs."document_id"::text = $1::text
+          UNION
+          SELECT DISTINCT s."id"::text AS id, 3 AS priority, s."updated_at"
+          FROM "public"."shipments" s
+          JOIN "document_ocr"."cross_validation_details" cvd
+            ON cvd."shipment_id"::text = s."id"::text
+            OR cvd."shipment_id"::text = s."shipment_number"
+          WHERE $1::text IN (cvd."document_id"::text, cvd."target_document_id"::text)
+        )
+        SELECT id
+        FROM candidate_shipments
+        ORDER BY priority ASC, updated_at DESC
+        LIMIT 500
+        """,
+        document_id,
     )
+    for row in shipment_rows:
+        shipment_id = row.get("id")
+        if shipment_id:
+            await link_documents_to_shipment_by_keys(prisma, str(shipment_id))
 
 
 @router.post("/documents/{document_id}/approve", response_model=ApproveDocumentResponse)
@@ -3649,6 +4253,7 @@ async def approve_document_extraction(
     can_override_missing_fields = (
         str(authz.get("role") or "").upper().replace("-", "_") in {"ADMIN", "SUPER_ADMIN"}
         or "documents.override_validation" in set(authz.get("activities") or [])
+        or "documents.override_approved_fields" in set(authz.get("activities") or [])
     )
     if not mandatory_result.ok and not can_override_missing_fields:
         missing = ", ".join(mandatory_result.missing_fields)
@@ -3666,22 +4271,49 @@ async def approve_document_extraction(
         where={"id": document_id},
         data={"status": "REVIEWED"},
     )
+    await _mark_public_document_approved(prisma, document_id=document_id, reviewed_at=reviewed_at)
     current_payload = _validation_payload_from_serialized(
         _serialize_extraction(extraction, doc_type=doc_type, child_arrays=child_arrays)
-    )
-    validation = await _run_and_persist_document_validation(
-        prisma,
-        document_id=document_id,
-        doc_type=doc_type,
-        uploaded_by=str(document.uploadedBy),
-        user_id=str(user.id),
-        current_payload=current_payload,
     )
     if doc_type == "BILL_OF_LADING":
         try:
             await create_or_update_shipment_from_bol_document(prisma, document_id)
         except Exception as exc:
             print(f"[shipments] warning: could not create shipment from approved BOL {document_id}: {exc}", flush=True)
+    try:
+        await _apply_shipment_links_for_approved_document(prisma, document_id)
+    except Exception as exc:
+        print(f"[shipments] warning: could not apply shipment links after approval {document_id}: {exc}", flush=True)
+    validation: dict[str, Any] | None = None
+    try:
+        validation = await _run_and_persist_document_validation(
+            prisma,
+            document_id=document_id,
+            doc_type=doc_type,
+            uploaded_by=str(document.uploadedBy),
+            user_id=str(user.id),
+            current_payload=current_payload,
+        )
+    except Exception as exc:
+        validation = {
+            "shipmentId": None,
+            "status": "SKIPPED",
+            "message": f"Cross-validation skipped after approval: {exc}",
+        }
+        print(
+            f"[cross-validation] warning: validation skipped after approval "
+            f"documentId={document_id} docType={doc_type}: {exc}",
+            flush=True,
+        )
+    try:
+        await _apply_shipment_links_for_approved_document(prisma, document_id)
+    except Exception as exc:
+        print(f"[shipments] warning: could not apply shipment links after validation {document_id}: {exc}", flush=True)
+    if doc_type != "BILL_OF_LADING":
+        try:
+            await sync_reviewed_bols_as_shipments(prisma, limit=100)
+        except Exception as exc:
+            print(f"[shipments] warning: could not sync document link keys after approval {document_id}: {exc}", flush=True)
 
     return ApproveDocumentResponse(
         status="success",

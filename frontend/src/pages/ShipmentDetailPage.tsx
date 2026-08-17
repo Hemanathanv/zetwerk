@@ -1004,6 +1004,12 @@ function isCrossValidationPassed(doc: any | null | undefined): boolean {
   return String(doc?.validationStatus ?? '').toUpperCase() === 'PASSED';
 }
 
+function isDocumentAvailable(doc: any | null | undefined): boolean {
+  if (!doc) return false;
+  const status = String(doc.status ?? doc.ocrStatus ?? '').toUpperCase();
+  return Boolean(doc.approvedAt) || ['REVIEWED', 'ARCHIVED', 'EXTRACTED', 'COMPLETED', 'DONE'].includes(status);
+}
+
 function docStatusPill(doc: any): { label: string; color: string; bg: string } {
   const validationStatus = String(doc.validationStatus ?? '').toUpperCase();
   if (validationStatus === 'PASSED') return { label: 'Cross validated', color: 'hsl(142 71% 30%)', bg: 'hsla(142,71%,45%,0.10)' };
@@ -1026,7 +1032,7 @@ function docGroupStatusPill(docs: any[]): { label: string; color: string; bg: st
   if (docs.some(doc => ['WAITING', 'WARNING'].includes(String(doc.validationStatus ?? '').toUpperCase()))) {
     return { label: 'Cross validation pending', color: 'hsl(38 92% 38%)', bg: 'hsla(38,92%,50%,0.12)' };
   }
-  if (docs.some(doc => doc.approvedAt)) {
+  if (docs.some(isDocumentAvailable)) {
     return { label: 'Reviewed', color: MUTED, bg: 'hsl(var(--muted)/0.45)' };
   }
   return docs[0] ? docStatusPill(docs[0]) : { label: 'Pending', color: MUTED, bg: 'hsl(var(--muted)/0.5)' };
@@ -1103,7 +1109,7 @@ function buildShipmentGateProgressRows(gates: ApiGate[], documents: any[]): Ship
     const usedDocIds = new Set<string>();
     const completed = requiredDocs.filter(dt => {
       const doc = findDocForSlot(documents, dt.docType, usedDocIds, gateNumber);
-      return isCrossValidationPassed(doc);
+      return isDocumentAvailable(doc);
     }).length;
     return {
       gate,
@@ -1309,13 +1315,13 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
   const ungatedDocs = documents.filter(d => !assignedDocIds.has(d.id));
   const expectedCount = gateGroups.reduce((sum, group) => sum + group.entries.length, 0) + ungatedDocs.length;
   const validatedCount = gateGroups.reduce(
-    (sum, group) => sum + group.entries.filter(entry => entry.docs.length > 0 && entry.docs.every(isCrossValidationPassed)).length,
+    (sum, group) => sum + group.entries.filter(entry => entry.docs.length > 0 && entry.docs.every(isDocumentAvailable)).length,
     0,
-  ) + ungatedDocs.filter(isCrossValidationPassed).length;
+  ) + ungatedDocs.filter(isDocumentAvailable).length;
 
   return (
     <Card style={{ padding: '18px 20px', marginBottom: 16 }}>
-      <SectionLabel right={<span style={{ fontSize: 14.5, fontWeight: 700, color: expectedCount > 0 && validatedCount === expectedCount ? GREEN : MUTED }}>{validatedCount} OF {expectedCount} VALIDATED</span>}>
+      <SectionLabel right={<span style={{ fontSize: 14.5, fontWeight: 700, color: expectedCount > 0 && validatedCount === expectedCount ? GREEN : MUTED }}>{validatedCount} OF {expectedCount} AVAILABLE</span>}>
         <FileText size={12} style={{ display: 'inline', marginRight: 5 }} />Documents
       </SectionLabel>
 

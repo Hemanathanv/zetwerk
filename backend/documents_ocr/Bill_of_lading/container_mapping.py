@@ -38,6 +38,61 @@ def _number(value: Any) -> float:
         return 0
 
 
+def _source_line_key(row: dict[str, Any], index: int) -> str:
+    explicit = str(row.get("_sourceLineKey") or "").strip()
+    if explicit:
+        return explicit
+    base_id = str(row.get("lineItemId") or index)
+    if ":split:" in base_id:
+        base_id = base_id.split(":split:", 1)[0]
+    parts = [
+        row.get("packingListDocumentId"),
+        row.get("invoiceNumber"),
+        row.get("productCode"),
+        row.get("containerNo"),
+        base_id,
+    ]
+    return "|".join(re.sub(r"[^A-Z0-9.:-]+", "", str(value or "").upper()) for value in parts)
+
+
+def _with_source_totals(row: dict[str, Any], index: int) -> dict[str, Any]:
+    enriched = dict(row)
+    enriched["_sourceLineKey"] = _source_line_key(enriched, index)
+    enriched["_sourceTotalQtyInPcs"] = enriched.get("_sourceTotalQtyInPcs") or enriched.get("totalQtyInPcs")
+    enriched["_sourceTotalBundles"] = enriched.get("_sourceTotalBundles") or enriched.get("totalBundles")
+    enriched["_sourceNetWeightKgs"] = enriched.get("_sourceNetWeightKgs") or enriched.get("netWeightKgs")
+    enriched["_sourceGrossWeightKgs"] = enriched.get("_sourceGrossWeightKgs") or enriched.get("grossWeightKgs")
+    return enriched
+
+
+def _validate_container_split_rows(rows: list[dict[str, Any]]) -> None:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for index, row in enumerate(rows):
+        key = _source_line_key(row, index)
+        grouped.setdefault(key, []).append(row)
+
+    checks = (
+        ("totalQtyInPcs", "_sourceTotalQtyInPcs", "quantity"),
+        ("totalBundles", "_sourceTotalBundles", "bundles"),
+        ("netWeightKgs", "_sourceNetWeightKgs", "net weight"),
+        ("grossWeightKgs", "_sourceGrossWeightKgs", "gross weight"),
+    )
+    for group in grouped.values():
+        if len(group) <= 1:
+            continue
+        source = next((row for row in group if str(row.get("_splitRow") or "").lower() != "true"), group[0])
+        label = source.get("productCode") or source.get("description") or "line item"
+        for value_key, source_key, label_key in checks:
+            source_total = _number(source.get(source_key) or source.get(value_key))
+            if source_total == 0:
+                continue
+            split_total = sum(_number(row.get(value_key)) for row in group)
+            if abs(split_total - source_total) > 0.01:
+                raise ValueError(
+                    f"{label}: {label_key} split total {split_total:g} must equal Packing List {source_total:g}"
+                )
+
+
 def _approved_snapshot_response(
     *,
     bol_document_id: str,
@@ -63,10 +118,18 @@ def _approved_snapshot_response(
             "totalBundles": row.get("totalBundles"),
             "netWeightKgs": row.get("netWeightKgs"),
             "grossWeightKgs": row.get("grossWeightKgs"),
+            "_sourceLineKey": row.get("_sourceLineKey"),
+            "_sourceTotalQtyInPcs": row.get("_sourceTotalQtyInPcs"),
+            "_sourceTotalBundles": row.get("_sourceTotalBundles"),
+            "_sourceNetWeightKgs": row.get("_sourceNetWeightKgs"),
+            "_sourceGrossWeightKgs": row.get("_sourceGrossWeightKgs"),
+            "_splitRow": row.get("_splitRow"),
         }
         for index, row in enumerate(rows)
         if isinstance(row, dict)
     ]
+    rows = [_with_source_totals(row, index) for index, row in enumerate(rows)]
+
     allowed_containers = set(containers)
     unmapped_count = sum(
         1 for row in normalized_rows
@@ -301,6 +364,7 @@ async def save_container_mapping(
     bol_document_id: str,
     uploaded_by: str,
     assignments: list[dict[str, str | None]],
+    rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Persist reviewed container selections on matched Packing List rows."""
     bol_rows = await prisma.query_raw(
@@ -329,9 +393,22 @@ async def save_container_mapping(
     )
     allowed_ids = {row["lineItemId"] for row in mapping["rows"]}
     allowed_containers = set(mapping["containers"])
+    reviewed_rows = [_with_source_totals(row, index) for index, row in enumerate(rows or []) if isinstance(row, dict)]
+    if reviewed_rows:
+        _validate_container_split_rows(reviewed_rows)
+        for row in reviewed_rows:
+            container_no = str(row.get("containerNo") or "").strip() or None
+            if container_no is not None and container_no not in allowed_containers:
+                raise ValueError(f"Container {container_no} is not present on this BOL")
+            line_item_id = str(row.get("lineItemId") or "")
+            base_line_item_id = line_item_id.split(":split:", 1)[0]
+            if base_line_item_id not in allowed_ids:
+                raise ValueError(f"Packing List line item {line_item_id} is not part of this BOL")
     for assignment in assignments:
         line_item_id = str(assignment.get("lineItemId") or "")
         container_no = str(assignment.get("containerNo") or "").strip() or None
+        if ":split:" in line_item_id:
+            continue
         if line_item_id not in allowed_ids:
             raise ValueError(f"Packing List line item {line_item_id} is not part of this BOL")
         if container_no is not None and container_no not in allowed_containers:
@@ -396,9 +473,42 @@ async def save_container_mapping(
         "totalBundles",
         "netWeightKgs",
         "grossWeightKgs",
+        "_sourceLineKey",
+        "_sourceTotalQtyInPcs",
+        "_sourceTotalBundles",
+        "_sourceNetWeightKgs",
+        "_sourceGrossWeightKgs",
+        "_splitRow",
     )
+    source_by_id = {str(row.get("lineItemId")): row for row in approved_mapping["rows"]}
+    if reviewed_rows:
+        reviewed_groups: dict[str, list[dict[str, Any]]] = {}
+        for row in reviewed_rows:
+            base_id = str(row.get("lineItemId") or "").split(":split:", 1)[0]
+            reviewed_groups.setdefault(base_id, []).append(row)
+        merged_rows: list[dict[str, Any]] = []
+        used_groups: set[str] = set()
+        for row in approved_mapping["rows"]:
+            line_item_id = str(row.get("lineItemId") or "")
+            group = reviewed_groups.get(line_item_id)
+            if group:
+                merged_rows.extend(group)
+                used_groups.add(line_item_id)
+            else:
+                merged_rows.append(row)
+        for base_id, group in reviewed_groups.items():
+            if base_id not in used_groups:
+                merged_rows.extend(group)
+        approved_mapping["rows"] = merged_rows
     snapshot = [
-        {field: row.get(field) for field in snapshot_fields}
+        {
+            field: (
+                row.get(field)
+                if row.get(field) is not None
+                else (source_by_id.get(str(row.get("lineItemId") or "").split(":split:", 1)[0], {}) or {}).get(field)
+            )
+            for field in snapshot_fields
+        }
         for row in approved_mapping["rows"]
     ]
     await prisma.execute_raw(

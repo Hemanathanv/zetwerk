@@ -32,7 +32,7 @@ function authHeaders(): Record<string, string> {
 // ─── Gate view — types ───────────────────────────────────────────────────────
 
 type GateStatus = 'passed' | 'active' | 'future' | 'blocked';
-type DocStatus  = 'closed' | 'processing' | 'gen-closed' | 'gen-review'
+type DocStatus  = 'closed' | 'processing' | 'review' | 'gen-closed' | 'gen-review'
                 | 'failed-block' | 'failed-warn' | 'expected' | 'na';
 
 interface DocEntry {
@@ -44,6 +44,7 @@ interface DocEntry {
   ruleCode?: string;
   docId?: string;
   genType?: string;
+  isGenerated?: boolean;
   isParallel?: boolean;
 }
 
@@ -111,6 +112,7 @@ const GATE_DEFS = DOCUMENT_GATE_DEFS.map(gate => ({
 
 interface ApiDoc {
   id: string; documentType: string; documentNumber?: string;
+  status?: string | null;
   ocrStatus: string; validationStatus: string;
   approvedAt: string | null; isGenerated: boolean;
   gateNumber?: number | null;
@@ -150,167 +152,6 @@ interface ApiShipment {
   safecubePostpodLocode?: string | null;
 }
 
-interface ApprovedOcrDocument {
-  id: string;
-  documentType: string;
-  shipmentId?: string | null;
-  documentNumber?: string | null;
-  fileName: string;
-  approvedAt?: string | null;
-  extractedAt?: string | null;
-  validationStatus?: string | null;
-  extractedData?: Record<string, unknown>;
-  gateNumber?: number | null;
-  gateCode?: string | null;
-  isParallel?: boolean;
-  isGenerated?: boolean;
-}
-
-function walkExtractedValues(
-  value: unknown,
-  visit: (key: string, value: string) => void,
-  parentKey = '',
-): void {
-  if (Array.isArray(value)) {
-    value.forEach(item => walkExtractedValues(item, visit, parentKey));
-    return;
-  }
-  if (value && typeof value === 'object') {
-    Object.entries(value as Record<string, unknown>).forEach(([key, child]) => {
-      walkExtractedValues(child, visit, key);
-    });
-    return;
-  }
-  if ((typeof value === 'string' || typeof value === 'number') && parentKey) {
-    visit(parentKey, String(value));
-  }
-}
-
-function normalizedReference(value: string): string | null {
-  const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  return normalized.length >= 4 && normalized.length <= 50 ? normalized : null;
-}
-
-function documentReferences(document: ApprovedOcrDocument): Set<string> {
-  const references = new Set<string>();
-  const referenceKey = /(shipment|invoice|booking|container|entry.*number|bill.*lading|master.*bill|house.*bill|shipping.*bill|(^|_)(mbl|hbl|bol|bl|sbno)(_|$))/i;
-  walkExtractedValues(document.extractedData ?? {}, (key, value) => {
-    if (!referenceKey.test(key) || /date|amount|value|count|address/i.test(key)) return;
-    const normalized = normalizedReference(value);
-    if (normalized) references.add(normalized);
-  });
-  return references;
-}
-
-function referencesMatch(left: Set<string>, right: Set<string>): boolean {
-  for (const leftValue of left) {
-    for (const rightValue of right) {
-      if (leftValue === rightValue) return true;
-      // Shipping Bill invoice references often combine invoice number + date,
-      // while the Sales Invoice stores the number alone.
-      if (
-        Math.min(leftValue.length, rightValue.length) >= 6
-        && (leftValue.includes(rightValue) || rightValue.includes(leftValue))
-      ) return true;
-    }
-  }
-  return false;
-}
-
-function extractedValue(document: ApprovedOcrDocument, keys: RegExp): string | undefined {
-  let result: string | undefined;
-  walkExtractedValues(document.extractedData ?? {}, (key, value) => {
-    if (!result && keys.test(key) && value.trim()) result = value.trim();
-  });
-  return result;
-}
-
-function approvedDocumentsToShipments(documents: ApprovedOcrDocument[]): ApiShipment[] {
-  const groups: Array<{ documents: ApprovedOcrDocument[]; references: Set<string> }> = [];
-
-  for (const document of documents) {
-    const references = documentReferences(document);
-    const matchingIndexes = groups
-      .map((group, index) => (
-        referencesMatch(references, group.references) ? index : -1
-      ))
-      .filter(index => index >= 0);
-
-    if (matchingIndexes.length === 0) {
-      groups.push({ documents: [document], references });
-      continue;
-    }
-
-    const target = groups[matchingIndexes[0]];
-    target.documents.push(document);
-    references.forEach(reference => target.references.add(reference));
-    for (let i = matchingIndexes.length - 1; i > 0; i--) {
-      const merged = groups.splice(matchingIndexes[i], 1)[0];
-      target.documents.push(...merged.documents);
-      merged.references.forEach(reference => target.references.add(reference));
-    }
-  }
-
-  // A Bill of Lading is the shipment identity document. Approved documents
-  // may exist before it, but they must remain outside the Documents shipment
-  // view until their related BOL has been approved.
-  const bolBackedGroups = groups.filter(group =>
-    group.documents.some(document => {
-      const type = document.documentType.toUpperCase();
-      return type === 'BOL' || type === 'BL' || type.includes('BILL_OF_LADING');
-    }),
-  );
-
-  return bolBackedGroups.map((group, index) => {
-    const identityDoc = group.documents.find(document =>
-      /BILL_OF_LADING|BOL|SHIPPING_BILL/i.test(document.documentType),
-    ) ?? group.documents[0];
-    const shipmentNumber =
-      identityDoc.shipmentId
-      ?? extractedValue(identityDoc, /(shipmentNumber|shipment_number|master.*bill|mbl|hbl|bolNumber|billOfLadingNumber)/i)
-      ?? extractedValue(identityDoc, /(invoiceNumber|invoice_no|bookingNumber|entryNumber)/i)
-      ?? [...group.references][0]
-      ?? identityDoc.fileName.replace(/\.[^.]+$/, '')
-      ?? `APPROVED-${index + 1}`;
-    const vesselName = extractedValue(identityDoc, /(vesselName|vessel_name|flightName)/i);
-    const portOfLoading = extractedValue(identityDoc, /(portOfLoading|port_of_loading|loadingPort)/i);
-    const portOfDischarge = extractedValue(identityDoc, /(portOfDischarge|port_of_discharge|dischargePort)/i);
-
-    const apiDocuments: ApiDoc[] = group.documents.map(document => ({
-      id: document.id,
-      documentType: document.documentType,
-      // Gate cards must identify the actual uploaded file. Extracted invoice,
-      // BOL and entry references are used for grouping only because they may
-      // legitimately refer to another document in the same shipment.
-      documentNumber: document.fileName,
-      ocrStatus: 'COMPLETED',
-      validationStatus: document.validationStatus ?? 'WAITING',
-      approvedAt: document.approvedAt ?? document.extractedAt ?? new Date(0).toISOString(),
-      isGenerated: Boolean(document.isGenerated),
-      gateNumber: document.gateNumber ?? null,
-      gateCode: document.gateCode ?? null,
-      isParallel: Boolean(document.isParallel),
-    }));
-
-    const highestGate = Math.max(
-      1,
-      ...apiDocuments.map(document => document.gateNumber ?? docTypeToGate(document.documentType)?.gate ?? 1),
-    );
-    return {
-      id: `approved-${identityDoc.id}`,
-      shipmentNumber,
-      status: 'active',
-      currentStage: highestGate,
-      vesselName,
-      portOfLoading,
-      portOfDischarge,
-      documents: apiDocuments,
-      shipmentGates: [],
-      _count: { documents: apiDocuments.length },
-    };
-  });
-}
-
 function validationDone(status?: string | null): boolean {
   const normalized = String(status ?? '').toUpperCase();
   return normalized === 'PASSED';
@@ -328,11 +169,12 @@ function validationPending(status?: string | null): boolean {
 
 function apiDocStatus(d: ApiDoc): DocStatus {
   const ocrStatus = String(d.ocrStatus ?? '').toLowerCase();
+  const recordStatus = String((d as ApiDoc & { status?: string | null }).status ?? '').toLowerCase();
+  const isReviewed = ['reviewed', 'archived', 'approved', 'completed', 'done'].includes(recordStatus);
+  const isCompleteOcr = ['reviewed', 'archived', 'approved', 'completed', 'complete', 'done', 'generated', 'confirmed'].includes(ocrStatus);
+  if (d.approvedAt || isReviewed || isCompleteOcr || validationDone(d.validationStatus)) return d.isGenerated ? 'gen-closed' : 'closed';
   if (ocrStatus === 'failed' || validationFailed(d.validationStatus)) return 'failed-block';
-  if (d.approvedAt && validationDone(d.validationStatus)) return d.isGenerated ? 'gen-closed' : 'closed';
-  if (d.approvedAt && validationPending(d.validationStatus)) return 'failed-warn';
-  if (d.approvedAt) return 'failed-warn';
-  if (ocrStatus === 'extracted') return 'gen-review';
+  if (ocrStatus === 'extracted') return d.isGenerated ? 'gen-review' : 'review';
   return 'processing';
 }
 
@@ -340,6 +182,7 @@ const DOC_STATUS_PRIORITY: Record<DocStatus, number> = {
   'failed-block': 7,
   'failed-warn': 6,
   processing: 5,
+  review: 4,
   'gen-review': 4,
   'gen-closed': 3,
   closed: 3,
@@ -357,9 +200,18 @@ function strongestDocStatus(entries: DocEntry[]): DocStatus {
   );
 }
 
+function strongestDocEntry(entries: DocEntry[]): DocEntry {
+  return entries.reduce((strongest, entry) => (
+    DOC_STATUS_PRIORITY[entry.status] > DOC_STATUS_PRIORITY[strongest.status]
+      ? entry
+      : strongest
+  ), entries[0]);
+}
+
 function collapseDuplicateDocs(entries: DocEntry[]): DocEntry[] {
   const grouped = new Map<string, DocEntry[]>();
   const order: string[] = [];
+  const normalized = (value?: string) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 
   for (const entry of entries) {
     const key = `${entry.code}|${entry.isParallel ? 'parallel' : 'main'}|${entry.genType ?? ''}`;
@@ -371,7 +223,25 @@ function collapseDuplicateDocs(entries: DocEntry[]): DocEntry[] {
   }
 
   return order.map(key => {
-    const group = grouped.get(key)!;
+    const rawGroup = grouped.get(key)!;
+    const duplicateGroups = new Map<string, DocEntry[]>();
+    const duplicateOrder: string[] = [];
+    for (const entry of rawGroup) {
+      const ref = normalized(entry.docNumber);
+      const duplicateKey = ref ? `ref:${entry.code}:${ref}` : entry.docId ? `id:${entry.docId}` : `row:${duplicateOrder.length}`;
+      if (!duplicateGroups.has(duplicateKey)) {
+        duplicateGroups.set(duplicateKey, []);
+        duplicateOrder.push(duplicateKey);
+      }
+      duplicateGroups.get(duplicateKey)!.push(entry);
+    }
+    const group = duplicateOrder.map(duplicateKey => {
+      const duplicates = duplicateGroups.get(duplicateKey)!;
+      return strongestDocEntry(duplicates);
+    });
+    if (group.length === 0) {
+      return strongestDocEntry(rawGroup);
+    }
     if (group.length === 1) return group[0];
 
     const first = group[0];
@@ -455,7 +325,9 @@ function docTypeToGate(dt: string): { gate: number; code: string; label: string;
   if ((t === 'PL' || t.includes('PACKING_LIST') || t === 'PACKING-LIST') && !t.includes('OUTWARD')) return { gate: 1, code: 'PL', label: 'Packing List' };
   if (t === 'SB' || t.includes('SHIPPING_BILL')) return { gate: 1, code: 'SB', label: 'Shipping Bill' };
   if (t === 'BOL' || t === 'BL' || t.includes('BILL_OF_LADING')) return { gate: 2, code: 'BL', label: 'Bill of Lading' };
-  if (t.includes('DRAFT') || t === 'DRAFT-BOE' || (t.includes('BOE') && t.includes('DRAFT'))) return { gate: 2, code: 'CBP', label: 'CBP FORM 7501' };
+  if (t === 'DRAFT_CBP_FORM_7501_BROKER' || t.includes('DRAFT_CBP') || t === 'DRAFT-BOE' || (t.includes('BOE') && t.includes('DRAFT'))) {
+    return { gate: 2, code: 'CB', label: 'Draft CBP FORM 7501 Broker' };
+  }
   if (t === 'CHA_BILL' || t === 'CHA') return { gate: 1, code: 'CH', label: 'CHA Bill', isParallel: true };
   if (t === 'FREIGHT_FORWARDER_BILL' || t.includes('FREIGHT_FORWARDER')) return { gate: 2, code: 'FF', label: 'Freight Forwarder Bill', isParallel: true };
   if (t === 'ISF' || t.includes('IMPORTER_SECURITY')) return { gate: 3, code: 'IS', label: 'ISF Filing' };
@@ -513,6 +385,7 @@ function shipmentToLane(
       docNumber: d.documentNumber ?? undefined,
       docId: d.id,
       genType: d.isGenerated ? d.documentType : undefined,
+      isGenerated: d.isGenerated,
       isParallel: !!d.isParallel || !!g.isParallel,
     };
     if (entry.status === 'failed-block') {
@@ -674,16 +547,12 @@ function DocStatusIcon({ status, isParallel }: { status: DocStatus; isParallel?:
   const warnColor = isParallel ? AMBER : RED;
   switch (status) {
     case 'closed':
+    case 'gen-closed':
       return <CheckCircle2 size={12} style={{ color: GREEN, flexShrink: 0 }} />;
+    case 'review':
+      return <Circle size={11} style={{ color: MUTED, flexShrink: 0, opacity: 0.4 }} />;
     case 'processing':
       return <Loader2 size={12} style={{ color: INFO, flexShrink: 0, animation: 'spin 0.9s linear infinite' }} />;
-    case 'gen-closed':
-      return (
-        <span style={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
-          <Sparkles size={11} style={{ color: GOLD }} />
-          <Check size={9} style={{ color: GREEN, strokeWidth: 3 }} />
-        </span>
-      );
     case 'gen-review':
       return (
         <span style={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
@@ -705,8 +574,9 @@ function DocStatusIcon({ status, isParallel }: { status: DocStatus; isParallel?:
 function docSubText(doc: DocEntry, isParallel?: boolean): { text: string; color: string; italic?: boolean; mono?: boolean } {
   switch (doc.status) {
     case 'closed':      return { text: doc.docNumber ?? '', color: MUTED, mono: true };
-    case 'gen-closed':  return { text: doc.docNumber ?? 'Draft approved', color: GOLD };
+    case 'gen-closed':  return { text: doc.docNumber ?? 'Approved', color: MUTED, mono: true };
     case 'gen-review':  return { text: doc.docNumber ?? 'Draft — review', color: GOLD };
+    case 'review':      return { text: doc.docNumber ?? 'Expected', color: MUTED, italic: !doc.docNumber };
     case 'processing':  return { text: doc.docNumber ?? 'Processing...', color: INFO };
     case 'failed-block': return { text: doc.ruleCode ?? 'Cross validation blocked', color: RED };
     case 'failed-warn': return { text: doc.ruleCode ?? doc.docNumber ?? 'Warning', color: isParallel ? AMBER : RED, mono: !!doc.ruleCode };
@@ -726,7 +596,7 @@ function DocItem({ doc, isParallel, onNavigate }: {
     ? `/documents/${doc.docId}`
     : (doc.status === 'gen-closed' || doc.status === 'gen-review') && doc.genType
       ? (doc.genType === 'outward-pl' || doc.genType === 'us-packing-list' ? '/documents/generate/outward-grn' : `/documents/generate/${doc.genType}`)
-      : doc.status === 'expected' || doc.status === 'failed-warn' || doc.status === 'failed-block' || doc.status === 'processing'
+      : doc.status === 'expected' || doc.status === 'review' || doc.status === 'failed-warn' || doc.status === 'failed-block' || doc.status === 'processing'
         ? '/documents/upload'
         : undefined;
 
@@ -1196,6 +1066,7 @@ export function DocumentsPage() {
   const [focusedLaneId, setFocusedLaneId] = useState<string | undefined>();
   const [gateFilter,    setGateFilter]    = useState(0);
   const [gateSearch,    setGateSearch]    = useState('');
+  const [showOverview,  setShowOverview]  = useState(true);
   const [loading,       setLoading]       = useState(true);
   const [loadError,     setLoadError]     = useState<string | null>(null);
 
@@ -1209,14 +1080,14 @@ export function DocumentsPage() {
     const controller = new AbortController();
     setLoading(true);
     setLoadError(null);
-    fetch(`${API_BASE}/api/v1/uploads/documents-approved`, {
+    fetch(`${API_BASE}/api/v1/shipments?limit=100`, {
       headers: authHeaders(),
       signal: controller.signal,
       cache: 'no-store',
     })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(json => {
-        const raw = approvedDocumentsToShipments(json.data ?? []);
+        const raw = json.data ?? [];
         setRawShipments(raw);
         if (raw.length > 0) {
           setOpenLanes(new Set([raw[0].id]));
@@ -1313,7 +1184,7 @@ export function DocumentsPage() {
             paddingBottom: 4,
           }}>
           {/* Focused lane gate strip — updates when a shipment is expanded */}
-          {(() => {
+          {showOverview && (() => {
             const focused = focusedLaneId ? lanes.find(l => l.id === focusedLaneId) : lanes[0];
             return focused ? (
               <div style={{
@@ -1338,6 +1209,23 @@ export function DocumentsPage() {
           })()}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setShowOverview(value => !value)}
+              style={{
+                border: `1px solid ${BORDER}`,
+                borderRadius: 999,
+                backgroundColor: CARD_BG,
+                color: MUTED,
+                fontSize: 12,
+                fontWeight: 750,
+                padding: '7px 12px',
+                cursor: 'pointer',
+                boxShadow: 'var(--vs-shadow-card)',
+              }}
+            >
+              {showOverview ? 'Hide overview' : 'Show overview'}
+            </button>
             <FilterChips
               chips={[
                 { label: 'All shipments',  count: lanes.length },

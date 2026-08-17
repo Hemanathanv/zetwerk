@@ -8,7 +8,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  schemas  = ["auth","public","dashboard","aiextraction","docgen"]
+  schemas  = ["auth","public","dashboard","aiextraction","docgen","project"]
   url      = env("DATABASE_URL")
 }
 
@@ -251,6 +251,61 @@ model Document {
   @@index([uploadedBy])
   @@schema("public")
   @@map("documents")
+}
+
+
+model Project {
+  id            String                @id @default(uuid()) @db.Uuid
+  projectName   String                @map("project_name")
+  projectKey    String                @unique @map("project_key")
+  customerName  String?               @map("customer_name")
+  buyerOrgName  String?               @map("buyer_org_name")
+  status        String                @default("ACTIVE")
+  notes         String?
+  shipmentCount Int                   @default(0) @map("shipment_count")
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+
+  shipments     OperationalShipment[]
+
+  @@index([projectKey], map: "idx_projects_project_key")
+  @@schema("project")
+  @@map("projects")
+}
+
+
+model OperationalShipment {
+  id               String    @id @default(uuid()) @db.Uuid
+  shipmentNumber   String    @unique @map("shipment_number")
+  status           String    @default("ACTIVE")
+  blockedReason    String?   @map("blocked_reason")
+  currentStage     Int       @default(1) @map("current_stage")
+  currentStageName String?   @map("current_stage_name")
+  workflowTemplateId String? @map("workflow_template_id") @db.Uuid
+  vesselName       String?   @map("vessel_name")
+  portOfLoading    String?   @map("port_of_loading")
+  portOfDischarge  String?   @map("port_of_discharge")
+  exporterName     String?   @map("exporter_name")
+  buyerName        String?   @map("buyer_name")
+  bolNumber        String?   @map("bol_number")
+  mblNumber        String?   @map("mbl_number")
+  bookingNumber    String?   @map("booking_number")
+  loadType         String?   @map("load_type")
+  incoterms        String?
+  projectName      String?   @map("project_name")
+  projectId        String?   @map("project_id") @db.Uuid
+  etaPort          DateTime? @map("eta_port")
+  etaDelivery      DateTime? @map("eta_delivery")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  project          Project?  @relation(fields: [projectId], references: [id])
+
+  @@index([shipmentNumber], map: "idx_shipments_number")
+  @@index([projectId], map: "idx_shipments_project_id")
+  @@index([projectName], map: "idx_shipments_project_name")
+  @@schema("public")
+  @@map("shipments")
 }
 
 

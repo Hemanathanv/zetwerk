@@ -4,7 +4,7 @@ from typing import Any
 
 DOCUMENT_MODULE_SQL_PATH = Path(__file__).resolve().parent / "views.sql"
 DOCUMENT_MODULE_VIEWS = ("v_shipment_gate_documents",)
-DOCUMENT_MODULE_MAPPING_VERSION = 3
+DOCUMENT_MODULE_MAPPING_VERSION = 5
 
 
 def _split_sql_statements(sql: str) -> list[str]:

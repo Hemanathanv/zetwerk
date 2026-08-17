@@ -31,6 +31,12 @@ PACKING_LIST_USER_LINE_FIELDS = {
     "netWeightKgs",
     "grossWeight",
     "grossWeightKgs",
+    "_sourceLineKey",
+    "_sourceTotalQtyInPcs",
+    "_sourceNoOfBundles",
+    "_sourceNetWeightKgs",
+    "_sourceGrossWeightKgs",
+    "_splitRow",
 }
 
 
@@ -554,6 +560,7 @@ def _merge_packing_list_user_line_inputs(
             match_index = row_index
 
         merged = dict(new_row)
+        extra_split_rows: list[dict[str, Any]] = []
         if match_index is not None:
             unused.remove(match_index)
             old_row = existing[match_index]
@@ -561,7 +568,19 @@ def _merge_packing_list_user_line_inputs(
                 for field in PACKING_LIST_USER_LINE_FIELDS:
                     if field in old_row and _has_user_value(old_row[field]):
                         merged[field] = old_row[field]
+                source_key = str(old_row.get("_sourceLineKey") or "")
+                if source_key:
+                    for extra_index in list(unused):
+                        extra_row = existing[extra_index]
+                        if (
+                            isinstance(extra_row, dict)
+                            and str(extra_row.get("_sourceLineKey") or "") == source_key
+                            and str(extra_row.get("_splitRow") or "").lower() == "true"
+                        ):
+                            unused.remove(extra_index)
+                            extra_split_rows.append(dict(extra_row))
         merged_rows.append(merged)
+        merged_rows.extend(extra_split_rows)
 
     rebuilt_payload.lineItems = merged_rows
     return rebuilt_payload
@@ -1293,13 +1312,26 @@ async def reorder_existing_packing_list_drafts(prisma) -> dict[str, int]:
                 match_index = row_index
 
             merged = dict(new_row)
+            extra_split_rows: list[dict[str, Any]] = []
             if match_index is not None:
                 unused.remove(match_index)
                 old_row = existing[match_index]
                 for field in PACKING_LIST_USER_LINE_FIELDS:
                     if field in old_row and _has_user_value(old_row[field]):
                         merged[field] = old_row[field]
+                source_key = str(old_row.get("_sourceLineKey") or "")
+                if source_key:
+                    for extra_index in list(unused):
+                        extra_row = existing[extra_index]
+                        if (
+                            isinstance(extra_row, dict)
+                            and str(extra_row.get("_sourceLineKey") or "") == source_key
+                            and str(extra_row.get("_splitRow") or "").lower() == "true"
+                        ):
+                            unused.remove(extra_index)
+                            extra_split_rows.append(dict(extra_row))
             merged_rows.append(merged)
+            merged_rows.extend(extra_split_rows)
 
         if merged_rows == existing:
             continue
@@ -1692,7 +1724,7 @@ async def update_doc_generation_draft(
         payload["lineItems"] = request.lineItems
     payload["status"] = request.status
 
-    await _execute_raw(
+    updated_count = await _execute_raw(
         prisma,
         """
         UPDATE docgen.drafts
@@ -1708,15 +1740,22 @@ async def update_doc_generation_draft(
         request.status,
         shared_sources,
     )
+    if int(updated_count or 0) <= 0:
+        raise HTTPException(status_code=404, detail="Document-generation draft not found")
     if request.lineItems is not None:
+        await _execute_raw(
+            prisma,
+            "DELETE FROM docgen.draft_line_items WHERE draft_id::text = $1::text",
+            draft_id,
+        )
         for line_no, item in enumerate(request.lineItems, start=1):
             await _execute_raw(
                 prisma,
                 """
-                UPDATE docgen.draft_line_items
-                SET payload = $3::jsonb, updated_at = NOW()
-                WHERE draft_id::text = $1::text AND line_no = $2
+                INSERT INTO docgen.draft_line_items (id, draft_id, line_no, payload, created_at, updated_at)
+                VALUES ($1::uuid, $2::uuid, $3, $4::jsonb, NOW(), NOW())
                 """,
+                str(uuid4()),
                 draft_id,
                 line_no,
                 json.dumps(item),

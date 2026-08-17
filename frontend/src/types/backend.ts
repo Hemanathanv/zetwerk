@@ -236,6 +236,7 @@ export type DocumentDetailRecord = {
   id: string;
   docType: DocType;
   status: DocumentStatus;
+  shipmentId?: string | null;
   validationStatus?: "PASSED" | "WARNING" | "BLOCKED" | "WAITING" | string | null;
   validationSummary?: DocumentRecord["validationSummary"];
   validationResults?: DocumentRecord["validationResults"];
@@ -290,6 +291,12 @@ export type ContainerMappingRow = {
   totalBundles: string | null;
   netWeightKgs: string | null;
   grossWeightKgs: string | null;
+  _sourceLineKey?: string | null;
+  _sourceTotalQtyInPcs?: string | null;
+  _sourceTotalBundles?: string | null;
+  _sourceNetWeightKgs?: string | null;
+  _sourceGrossWeightKgs?: string | null;
+  _splitRow?: string | boolean | null;
 };
 
 export type ContainerMappingResponse = {

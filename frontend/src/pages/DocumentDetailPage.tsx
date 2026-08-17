@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
-import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronUp, Circle, Clock3, Eye, FileText, Info, Loader2, Pencil, Ship, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronUp, Circle, Clock3, Eye, FileText, Info, Loader2, Pencil, Plus, Ship, X } from 'lucide-react';
 import { documentApi } from '@/auth/api';
 import type { DocumentDetailRecord, JsonValue } from '@/types/backend';
 import { getDocConfig } from '@/config/docFieldConfig';
@@ -45,6 +45,48 @@ type CbpDraftPayload = {
   lineItems?: Array<Record<string, unknown>> | null;
   updatedAt?: string | null;
   createdAt?: string | null;
+};
+
+type ShipmentOption = {
+  id: string;
+  shipmentNumber?: string | null;
+  bolNumber?: string | null;
+  hblNumber?: string | null;
+  mblNumber?: string | null;
+  bookingNumber?: string | null;
+  projectName?: string | null;
+};
+
+type CbpComparisonField = {
+  status: 'match' | 'mismatch' | 'blank' | string;
+  cbpValue?: JsonValue | null;
+  brokerValue?: JsonValue | null;
+};
+
+type CbpComparisonResponse = {
+  ok: boolean;
+  documentId: string;
+  linkedDocumentId: string | null;
+  linkedDocType: string | null;
+  fields: Record<string, CbpComparisonField>;
+  tables?: Record<string, {
+    rows: Array<{
+      rowIndex: number;
+      lineNo?: string | null;
+      status: 'match' | 'mismatch' | 'blank' | string;
+      fields: Record<string, CbpComparisonField>;
+    }>;
+    summary: {
+      total: number;
+      mismatches: number;
+      matches: number;
+    };
+  }>;
+  summary: {
+    total: number;
+    mismatches: number;
+    matches: number;
+  };
 };
 
 const PIPELINE_LABELS = ['Upload', 'OCR extract', 'Field approval', 'Cross-validation', 'Complete'];
@@ -165,8 +207,10 @@ function formatValue(value: JsonValue | undefined): string {
   return String(value);
 }
 
-function isFieldIssue(field: FieldDef, rawData: JsonValue | null | undefined): boolean {
-  return !field.optional && formatValue(findExtractionValue(rawData, field.key)) === 'Field not in the file';
+function fieldHasIssue(field: FieldDef, rawData: JsonValue | null | undefined, comparison?: CbpComparisonField): boolean {
+  if (comparison?.status === 'mismatch') return true;
+  if (field.optional) return false;
+  return formatValue(findExtractionValue(rawData, field.key)) === 'Field not in the file';
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -182,14 +226,11 @@ function draftTimestamp(draft: CbpDraftPayload): number {
   return Number.isNaN(time) ? 0 : time;
 }
 
-function chooseCbpDraft(drafts: CbpDraftPayload[], documentId: string): CbpDraftPayload | null {
-  const sorted = [...drafts].sort((a, b) => draftTimestamp(b) - draftTimestamp(a));
-  return sorted.find((draft) => (
-    Object.values(draft.sourceDocumentIds ?? {}).some((id) => String(id ?? '') === documentId)
-  )) ?? sorted[0] ?? null;
+function normalizedLink(value: unknown): string {
+  return String(value ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
-function draftManualValues(draft: CbpDraftPayload | null): Record<string, string> {
+function draftFieldValues(draft: CbpDraftPayload | null): Record<string, string> {
   const values: Record<string, string> = {};
   for (const section of draft?.sections ?? []) {
     for (const field of section.fields ?? []) {
@@ -200,6 +241,48 @@ function draftManualValues(draft: CbpDraftPayload | null): Record<string, string
   return values;
 }
 
+function chooseCbpDraft(drafts: CbpDraftPayload[], documentId: string, rawData?: Record<string, JsonValue>): CbpDraftPayload | null {
+  const sorted = [...drafts].sort((a, b) => draftTimestamp(b) - draftTimestamp(a));
+  const linkedById = sorted.find((draft) => (
+    Object.values(draft.sourceDocumentIds ?? {}).some((id) => String(id ?? '') === documentId)
+  ));
+  if (linkedById) return linkedById;
+
+  const uploadedLinks = [
+    rawData?.blOrAwbNumber,
+    rawData?.bl_or_awb_number,
+    rawData?.houseBill,
+    rawData?.house_bill,
+    rawData?.additionalBLs,
+    rawData?.additional_bls,
+    rawData?.brokerImporterFileNumber,
+    rawData?.broker_importer_file_number,
+  ].map(normalizedLink).filter(Boolean);
+  if (uploadedLinks.length) {
+    const linkedByBl = sorted.find((draft) => {
+      const fields = draftFieldValues(draft);
+      const draftLinks = [
+        fields.blOrAwbNumber,
+        fields.houseBill,
+        fields.masterBol,
+        fields.houseBol,
+        fields.additionalBLs,
+        ...(Object.values(draft.sourceDocumentIds ?? {}) as string[]),
+      ].map(normalizedLink).filter(Boolean);
+      return draftLinks.some((draftLink) => uploadedLinks.some((uploadedLink) => (
+        draftLink === uploadedLink || draftLink.includes(uploadedLink) || uploadedLink.includes(draftLink)
+      )));
+    });
+    if (linkedByBl) return linkedByBl;
+  }
+
+  return sorted[0] ?? null;
+}
+
+function draftManualValues(draft: CbpDraftPayload | null): Record<string, string> {
+  return draftFieldValues(draft);
+}
+
 function draftRowMap(draft: CbpDraftPayload | null): Record<string, Record<string, string>[]> {
   const rows = (draft?.lineItems ?? []).map((row) => (
     Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value === null || value === undefined ? '' : String(value)]))
@@ -207,28 +290,105 @@ function draftRowMap(draft: CbpDraftPayload | null): Record<string, Record<strin
   return rows.length ? { 'Tariff Lines': rows } : {};
 }
 
+function cbpTableComparisonRows(
+  comparison: CbpComparisonResponse | null,
+  tableName: string,
+): CbpComparisonResponse['tables'][string]['rows'] | undefined {
+  const key = tableName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (key.includes('tariff')) return comparison?.tables?.tariffLines?.rows;
+  if (key.includes('lineitem') || key === 'lineitems') return comparison?.tables?.lineItems?.rows;
+  return undefined;
+}
+
 function SourceDocumentModal({
   title,
   previewUrl,
   isImage,
+  comparisonTitle,
+  comparison,
   onClose,
 }: {
   title: string;
   previewUrl: string | null;
   isImage: boolean;
+  comparisonTitle?: string;
+  comparison?: React.ReactNode;
   onClose: () => void;
 }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let nextBlobUrl: string | null = null;
+    setBlobUrl(null);
+    setPreviewError(null);
+
+    if (!previewUrl || !isImage) return () => undefined;
+
+    const headers: Record<string, string> = {};
+    const token = getAuthToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+
+    fetch(previewUrl, { headers, credentials: 'include', signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) {
+          const detail = await response.text().catch(() => '');
+          throw new Error(detail || `Preview failed (${response.status})`);
+        }
+        return response.blob();
+      })
+      .then((blob) => {
+        nextBlobUrl = URL.createObjectURL(blob);
+        if (!cancelled) setBlobUrl(nextBlobUrl);
+      })
+      .catch((error) => {
+        if (!cancelled) setPreviewError(error instanceof Error && error.name === 'AbortError' ? 'Source preview timed out.' : error instanceof Error ? error.message : 'Preview failed');
+      });
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+      if (nextBlobUrl) URL.revokeObjectURL(nextBlobUrl);
+    };
+  }, [previewUrl, isImage]);
+
+  const previewContent = previewError ? (
+    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: RED, fontSize: 13, padding: 18, textAlign: 'center', whiteSpace: 'pre-wrap' }}>
+      {previewError.includes('Not authenticated') ? 'Source preview session expired. Please sign in again.' : previewError}
+    </div>
+  ) : blobUrl ? (
+    isImage ? (
+      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+        <img src={blobUrl} alt={title} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+      </div>
+    ) : (
+      <iframe title={title} src={blobUrl} style={{ width: '100%', height: '100%', border: 'none', backgroundColor: 'hsl(var(--card))' }} />
+    )
+  ) : previewUrl ? (
+    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 13 }}>
+      Loading source preview...
+    </div>
+  ) : (
+    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 13 }}>
+      No preview URL returned for this document.
+    </div>
+  );
+
   return (
     <div
       onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}
       style={{ position: 'fixed', inset: 0, zIndex: 9000, background: 'rgba(15,23,42,0.58)', padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
     >
-      <div style={{ width: 'min(1120px, 96vw)', height: 'min(860px, 92vh)', background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, boxShadow: '0 22px 52px rgba(15,23,42,0.26)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ width: comparison ? 'min(1540px, 96vw)' : 'min(1120px, 96vw)', height: 'min(860px, 92vh)', background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, boxShadow: '0 22px 52px rgba(15,23,42,0.26)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ height: 56, display: 'flex', alignItems: 'center', gap: 10, padding: '0 16px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
           <FileText size={17} style={{ color: TEAL }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 800, color: FG, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
-            <div style={{ fontSize: 11, color: MUTED }}>Uploaded broker source</div>
+            <div style={{ fontSize: 11, color: MUTED }}>Uploaded source document</div>
           </div>
           <button
             onClick={onClose}
@@ -238,23 +398,117 @@ function SourceDocumentModal({
             <X size={16} />
           </button>
         </div>
-        <div style={{ flex: 1, minHeight: 0, background: 'hsl(var(--muted) / 0.35)' }}>
-          {previewUrl ? (
-            isImage ? (
-              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-                <img src={previewUrl} alt={title} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+        <div style={{ flex: 1, minHeight: 0, background: 'hsl(var(--muted) / 0.35)', padding: comparison ? 14 : 0 }}>
+          {comparison ? (
+            <div style={{ height: '100%', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14 }}>
+              <div style={{ minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                  Source Document
+                </div>
+                <div style={{ flex: 1, minHeight: 0, border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden', background: 'hsl(var(--card))' }}>
+                  {previewContent}
+                </div>
               </div>
-            ) : (
-              <iframe title={title} src={previewUrl} style={{ width: '100%', height: '100%', border: 'none', backgroundColor: 'hsl(var(--card))' }} />
-            )
-          ) : (
-            <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 13 }}>
-              No preview URL returned for this document.
+              <div style={{ minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                  {comparisonTitle ?? 'Extracted Fields'}
+                </div>
+                <div style={{ flex: 1, minHeight: 0, overflow: 'auto', background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: 14 }}>
+                  {comparison}
+                </div>
+              </div>
             </div>
+          ) : (
+            previewContent
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+function AuthenticatedPreviewPane({
+  title,
+  previewUrl,
+  isImage,
+  height,
+}: {
+  title: string;
+  previewUrl: string | null;
+  isImage: boolean;
+  height: number;
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let nextBlobUrl: string | null = null;
+    setBlobUrl(null);
+    setPreviewError(null);
+
+    if (!previewUrl) return () => undefined;
+
+    const headers: Record<string, string> = {};
+    const token = getAuthToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+
+    fetch(previewUrl, { headers, credentials: 'include', signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) {
+          const detail = await response.text().catch(() => '');
+          throw new Error(detail || `Preview failed (${response.status})`);
+        }
+        return response.blob();
+      })
+      .then((blob) => {
+        nextBlobUrl = URL.createObjectURL(blob);
+        if (!cancelled) setBlobUrl(nextBlobUrl);
+      })
+      .catch((error) => {
+        if (!cancelled) setPreviewError(error instanceof Error && error.name === 'AbortError' ? 'Source preview timed out.' : error instanceof Error ? error.message : 'Preview failed');
+      });
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      controller.abort();
+      if (nextBlobUrl) URL.revokeObjectURL(nextBlobUrl);
+    };
+  }, [previewUrl]);
+
+  if (previewError) {
+    return (
+      <div style={{ height, border: `1px dashed ${BORDER}`, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: RED, fontSize: 12, padding: 18, textAlign: 'center', whiteSpace: 'pre-wrap' }}>
+        {previewError.includes('Not authenticated') ? 'Source preview session expired. Please sign in again.' : previewError}
+      </div>
+    );
+  }
+
+  if (!previewUrl) {
+    return (
+      <div style={{ height, border: `1px dashed ${BORDER}`, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 12 }}>
+        No preview URL returned for this document.
+      </div>
+    );
+  }
+
+  if (!blobUrl) {
+    return (
+      <div style={{ height, border: `1px dashed ${BORDER}`, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 12 }}>
+        Loading source preview...
+      </div>
+    );
+  }
+
+  return isImage ? (
+    <div style={{ height, border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden', backgroundColor: 'hsl(220 14% 96%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <img src={blobUrl} alt={title} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+    </div>
+  ) : (
+    <iframe title={title} src={blobUrl} style={{ width: '100%', height, border: `1px solid ${BORDER}`, borderRadius: 8, backgroundColor: 'hsl(var(--card))' }} />
   );
 }
 
@@ -539,11 +793,13 @@ function labelFromKey(key: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function FieldCard({ field, rawData, isEdited = false, onSave }: {
+function FieldCard({ field, rawData, comparison, isEdited = false, onSave, onDraftChange }: {
   field: FieldDef;
   rawData: JsonValue | null | undefined;
+  comparison?: CbpComparisonField;
   isEdited?: boolean;
   onSave?: (key: string, value: string | null) => Promise<void>;
+  onDraftChange?: (key: string, value: string | null) => void;
 }) {
   const formattedValue = formatValue(findExtractionValue(rawData, field.key));
   const extractedValue = field.manual && formattedValue === 'Field not in the file' ? 'Enter value' : formattedValue;
@@ -562,6 +818,9 @@ function FieldCard({ field, rawData, isEdited = false, onSave }: {
   const isOptionalEmpty = isEmpty && field.optional;
   const isManualEmpty = field.manual && displayValue === 'Enter value';
   const isAmended = amendedValue !== null || isEdited;
+  const isMismatch = comparison?.status === 'mismatch';
+  const isCompared = Boolean(comparison);
+  const isMatched = comparison?.status === 'match';
 
   function startEdit() {
     setDraftValue(['Field not in the file', 'Enter value'].includes(displayValue) ? '' : displayValue);
@@ -578,10 +837,10 @@ function FieldCard({ field, rawData, isEdited = false, onSave }: {
   return (
     <div
       style={{
-        border: `1px solid ${isEmpty && !isOptionalEmpty ? 'hsla(0,84%,60%,0.20)' : isManualEmpty ? `${GREEN}55` : BORDER}`,
+        border: `1px solid ${isMismatch ? 'hsla(0,84%,60%,0.42)' : isEmpty && !isOptionalEmpty ? 'hsla(0,84%,60%,0.20)' : isManualEmpty ? `${GREEN}55` : BORDER}`,
         borderRadius: 8,
         padding: '9px 11px',
-        backgroundColor: isEmpty && !isOptionalEmpty ? 'hsla(0,84%,60%,0.035)' : isManualEmpty ? `${GREEN}08` : 'hsl(var(--card))',
+        backgroundColor: isMismatch ? 'hsla(0,84%,60%,0.07)' : isEmpty && !isOptionalEmpty ? 'hsla(0,84%,60%,0.035)' : isManualEmpty ? `${GREEN}08` : 'hsl(var(--card))',
         minWidth: 0,
       }}
     >
@@ -592,6 +851,11 @@ function FieldCard({ field, rawData, isEdited = false, onSave }: {
         {isAmended && (
           <span style={{ fontSize: 9, fontWeight: 700, color: BLUE, backgroundColor: `${BLUE}14`, borderRadius: 999, padding: '1px 6px', flexShrink: 0 }}>
             edited
+          </span>
+        )}
+        {isCompared && (
+          <span style={{ fontSize: 9, fontWeight: 800, color: isMismatch ? RED : isMatched ? GREEN : MUTED, backgroundColor: isMismatch ? 'hsla(0,84%,60%,0.10)' : isMatched ? `${GREEN}12` : 'hsl(var(--muted) / 0.45)', borderRadius: 999, padding: '1px 6px', flexShrink: 0 }}>
+            {isMismatch ? 'mismatch' : isMatched ? 'match' : 'blank'}
           </span>
         )}
         {!isEditing && (
@@ -611,7 +875,11 @@ function FieldCard({ field, rawData, isEdited = false, onSave }: {
           <input
             autoFocus
             value={draftValue}
-            onChange={(event) => setDraftValue(event.target.value)}
+            onChange={(event) => {
+              const value = event.target.value;
+              setDraftValue(value);
+              onDraftChange?.(field.key, value.trim() || null);
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter') void saveEdit();
               if (event.key === 'Escape') setIsEditing(false);
@@ -650,7 +918,7 @@ function FieldCard({ field, rawData, isEdited = false, onSave }: {
           style={{
             marginTop: 4,
             fontSize: 12.5,
-            color: isEmpty && !isOptionalEmpty ? RED : isManualEmpty ? GREEN : isOptionalEmpty ? MUTED : FG,
+            color: isMismatch || (isEmpty && !isOptionalEmpty) ? RED : isManualEmpty ? GREEN : isOptionalEmpty ? MUTED : FG,
             fontStyle: isEmpty || isManualEmpty ? 'italic' : 'normal',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -664,6 +932,11 @@ function FieldCard({ field, rawData, isEdited = false, onSave }: {
       {isAmended && extractedValue !== displayValue && (
         <div style={{ marginTop: 5, fontSize: 10.5, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={extractedValue}>
           Original: {extractedValue}
+        </div>
+      )}
+      {isMismatch && (
+        <div style={{ marginTop: 5, fontSize: 10.5, color: RED, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={formatValue(comparison?.brokerValue)}>
+          Broker value: {formatValue(comparison?.brokerValue)}
         </div>
       )}
     </div>
@@ -740,13 +1013,17 @@ function BolSafeCubeInputsDialog({
 function LineItemsTable({
   rows,
   title = 'Line Items',
+  comparisonRows,
   editable = true,
   onSave,
+  onDraftChange,
 }: {
   rows: Array<Record<string, JsonValue>>;
   title?: string;
+  comparisonRows?: CbpComparisonResponse['tables'][string]['rows'];
   editable?: boolean;
   onSave?: (rows: Array<Record<string, JsonValue>>) => Promise<void>;
+  onDraftChange?: (rows: Array<Record<string, JsonValue>>) => void;
 }) {
   const [draftRows, setDraftRows] = useState(rows);
   const [saving, setSaving] = useState(false);
@@ -800,22 +1077,28 @@ function LineItemsTable({
                 {columns.map((column) => {
                   const displayValue = formatValue(row[column]);
                   const isEmpty = displayValue === 'Field not in the file';
+                  const comparison = comparisonRows?.[index]?.fields?.[column];
+                  const isMismatch = comparison?.status === 'mismatch';
                   return (
-                    <td key={column} style={{ minWidth: 180, padding: '7px 8px', borderTop: index === 0 ? 'none' : `1px solid ${BORDER}`, borderLeft: `1px solid ${BORDER}`, fontSize: 12, color: isEmpty ? RED : FG, fontStyle: isEmpty ? 'italic' : 'normal', verticalAlign: 'top' }}>
+                    <td key={column} style={{ minWidth: 180, padding: '7px 8px', borderTop: index === 0 ? 'none' : `1px solid ${BORDER}`, borderLeft: `1px solid ${BORDER}`, fontSize: 12, color: isMismatch || isEmpty ? RED : FG, fontStyle: isEmpty ? 'italic' : 'normal', verticalAlign: 'top', background: isMismatch ? 'hsla(0,84%,60%,0.07)' : undefined }}>
                       {editable ? (
                         <textarea
                           value={isEmpty ? '' : displayValue}
                           placeholder="Field not in the file"
                           onChange={(event) => {
                             const value = event.target.value;
-                            setDraftRows(current => current.map((currentRow, rowIndex) => (
-                              rowIndex === index ? { ...currentRow, [column]: value } : currentRow
-                            )));
+                            setDraftRows((current) => {
+                              const nextRows = current.map((currentRow, rowIndex) => (
+                                rowIndex === index ? { ...currentRow, [column]: value } : currentRow
+                              ));
+                              onDraftChange?.(nextRows);
+                              return nextRows;
+                            });
                           }}
                           onBlur={() => void saveRows()}
                           style={{
                             width: '100%', minWidth: 160, minHeight: 46, resize: 'vertical',
-                            border: `1px solid ${isEmpty ? `${RED}45` : BORDER}`,
+                            border: `1px solid ${isMismatch ? 'hsla(0,84%,60%,0.50)' : isEmpty ? `${RED}45` : BORDER}`,
                             borderRadius: 5, padding: '6px 7px', boxSizing: 'border-box',
                             backgroundColor: 'hsl(var(--background))', color: FG,
                             fontSize: 12, lineHeight: 1.35, whiteSpace: 'pre-wrap',
@@ -824,6 +1107,11 @@ function LineItemsTable({
                       ) : (
                         <div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.4 }}>
                           {displayValue}
+                        </div>
+                      )}
+                      {isMismatch && (
+                        <div style={{ marginTop: 5, color: RED, fontSize: 10.5, fontWeight: 700, overflowWrap: 'anywhere' }}>
+                          Broker value: {formatValue(comparison?.brokerValue)}
                         </div>
                       )}
                     </td>
@@ -868,11 +1156,95 @@ function BolContainerMappingModal({
       containerNo: edits[row.lineItemId] ?? (row.containerNo && containers.has(row.containerNo) ? row.containerNo : null),
     })));
   }, [mapping, edits]);
-  const numericValue = (value: string | null) => {
+  const numericValue = (value: string | null | undefined) => {
     const parsed = Number(String(value ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, ''));
     return Number.isFinite(parsed) ? parsed : 0;
   };
-  const totals = mapping?.totals;
+  const formatInputValue = (value: string | null | undefined) => String(value ?? '');
+  const formatMaybeNumber = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+  const rowSourceKey = (row: ContainerMappingRow, index: number) => (
+    String(row._sourceLineKey || [
+      row.packingListDocumentId,
+      row.invoiceNumber,
+      row.productCode,
+      row.containerNo,
+      row.lineItemId.includes(':split:') ? row.lineItemId.split(':split:')[0] : row.lineItemId || index,
+    ].map(value => String(value ?? '').trim().toUpperCase()).join('|'))
+  );
+  const withSourceTotals = (row: ContainerMappingRow, index: number): ContainerMappingRow => ({
+    ...row,
+    _sourceLineKey: rowSourceKey(row, index),
+    _sourceTotalQtyInPcs: row._sourceTotalQtyInPcs ?? row.totalQtyInPcs,
+    _sourceTotalBundles: row._sourceTotalBundles ?? row.totalBundles,
+    _sourceNetWeightKgs: row._sourceNetWeightKgs ?? row.netWeightKgs,
+    _sourceGrossWeightKgs: row._sourceGrossWeightKgs ?? row.grossWeightKgs,
+  });
+  const splitFields = [
+    { key: 'totalQtyInPcs', sourceKey: '_sourceTotalQtyInPcs', label: 'quantity' },
+    { key: 'totalBundles', sourceKey: '_sourceTotalBundles', label: 'bundles' },
+    { key: 'netWeightKgs', sourceKey: '_sourceNetWeightKgs', label: 'net weight' },
+    { key: 'grossWeightKgs', sourceKey: '_sourceGrossWeightKgs', label: 'gross weight' },
+  ] as const;
+  const updateRowValue = (rowIndex: number, key: keyof ContainerMappingRow, value: string | null) => {
+    setRows(current => current.map((row, index) => {
+      if (index !== rowIndex) return row;
+      const next = { ...row, [key]: value };
+      if (key === 'totalQtyInPcs' || key === 'totalBundles') {
+        const qty = numericValue(key === 'totalQtyInPcs' ? value : next.totalQtyInPcs);
+        const bundles = numericValue(key === 'totalBundles' ? value : next.totalBundles);
+        next.qtyPerBundle = qty > 0 && bundles > 0 ? formatMaybeNumber(qty / bundles) : null;
+      }
+      return next;
+    }));
+  };
+  const addSplitRow = (rowIndex: number) => {
+    setRows(current => {
+      const source = current[rowIndex];
+      if (!source) return current;
+      const base = withSourceTotals(source, rowIndex);
+      const splitRow: ContainerMappingRow = {
+        ...base,
+        lineItemId: `${base.lineItemId}:split:${Date.now()}`,
+        totalQtyInPcs: null,
+        totalBundles: null,
+        qtyPerBundle: null,
+        netWeightKgs: null,
+        grossWeightKgs: null,
+        _splitRow: true,
+      };
+      const next = current.map((row, index) => index === rowIndex ? base : row);
+      next.splice(rowIndex + 1, 0, splitRow);
+      return next;
+    });
+  };
+  const splitIssues = (() => {
+    const grouped = new Map<string, Array<ContainerMappingRow>>();
+    rows.forEach((row, index) => {
+      const key = rowSourceKey(row, index);
+      grouped.set(key, [...(grouped.get(key) ?? []), row]);
+    });
+    const issues: string[] = [];
+    grouped.forEach((group) => {
+      if (group.length <= 1) return;
+      const source = group.find(row => String(row._splitRow ?? '').toLowerCase() !== 'true') ?? group[0];
+      const label = source.productCode || source.description || 'line item';
+      for (const field of splitFields) {
+        const sourceTotal = numericValue((source as Record<string, unknown>)[field.sourceKey] as string | null | undefined ?? (source as Record<string, unknown>)[field.key] as string | null | undefined);
+        if (!sourceTotal) continue;
+        const splitTotal = group.reduce((sum, row) => sum + numericValue((row as Record<string, unknown>)[field.key] as string | null | undefined), 0);
+        if (Math.abs(splitTotal - sourceTotal) > 0.01) {
+          issues.push(`${label}: ${field.label} split total ${formatMaybeNumber(splitTotal)} must equal Packing List ${formatMaybeNumber(sourceTotal)}`);
+        }
+      }
+    });
+    return issues;
+  })();
+  const totals = {
+    totalQtyInPcs: rows.reduce((sum, row) => sum + numericValue(row.totalQtyInPcs), 0),
+    totalBundles: rows.reduce((sum, row) => sum + numericValue(row.totalBundles), 0),
+    netWeightKgs: rows.reduce((sum, row) => sum + numericValue(row.netWeightKgs), 0),
+    grossWeightKgs: rows.reduce((sum, row) => sum + numericValue(row.grossWeightKgs), 0),
+  };
   const formatTotal = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 3 });
   const pagination = mapping?.pagination;
 
@@ -928,10 +1300,21 @@ function BolContainerMappingModal({
           )
             : !mapping?.rows.length ? <div style={{ padding: 40, textAlign: 'center', color: MUTED }}>{unmappedOnly ? 'All container rows are mapped.' : 'No Packing Lists matched this BOL’s invoice numbers.'}</div>
             : (
-              <table style={{ width: '100%', minWidth: 1180, borderCollapse: 'collapse' }}>
-                <thead><tr>{['Container no', 'Product code', 'Description', 'Specification', 'TOTAL QTY IN PCS', 'Qty per bundle', 'Total bundle', 'Net weight (kg)', 'Gross weight (kg)'].map(label => <th key={label} style={{ padding: 10, border: `1px solid ${BORDER}`, textAlign: 'left', fontSize: 11, color: MUTED, whiteSpace: 'nowrap' }}>{label}</th>)}</tr></thead>
+              <table style={{ width: '100%', minWidth: 1280, borderCollapse: 'collapse' }}>
+                <thead><tr>{['', 'Container no', 'Product code', 'Description', 'Specification', 'TOTAL QTY IN PCS', 'Qty per bundle', 'Total bundle', 'Net weight (kg)', 'Gross weight (kg)'].map(label => <th key={label || 'split'} style={{ padding: 10, border: `1px solid ${BORDER}`, textAlign: 'left', fontSize: 11, color: MUTED, whiteSpace: 'nowrap' }}>{label}</th>)}</tr></thead>
                 <tbody>{rows.map((row, index) => (
                   <tr key={row.lineItemId}>
+                    <td style={{ padding: 6, border: `1px solid ${BORDER}`, width: 44 }}>
+                      <button
+                        type="button"
+                        disabled={approved}
+                        onClick={() => addSplitRow(index)}
+                        title="Add split row from Packing List line"
+                        style={{ width: 32, height: 32, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: TEAL, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: approved ? 'default' : 'pointer', opacity: approved ? 0.45 : 1 }}
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </td>
                     <td style={{ padding: 8, border: `1px solid ${BORDER}` }}>
                       <select value={row.containerNo ?? ''} onChange={event => {
                         const containerNo = event.target.value || null;
@@ -942,18 +1325,55 @@ function BolContainerMappingModal({
                         {mapping.containers.map(container => <option key={container} value={container}>{container}</option>)}
                       </select>
                     </td>
-                    {[row.productCode, row.description, row.specification, row.totalQtyInPcs, row.qtyPerBundle, row.totalBundles, row.netWeightKgs, row.grossWeightKgs].map((value, cellIndex) => <td key={cellIndex} style={{ padding: 9, border: `1px solid ${BORDER}`, fontSize: 12, color: FG }}>{value || '—'}</td>)}
+                    {[row.productCode, row.description, row.specification].map((value, cellIndex) => <td key={cellIndex} style={{ padding: 9, border: `1px solid ${BORDER}`, fontSize: 12, color: FG }}>{value || '—'}</td>)}
+                    {([
+                      ['totalQtyInPcs', row.totalQtyInPcs],
+                      ['qtyPerBundle', row.qtyPerBundle],
+                      ['totalBundles', row.totalBundles],
+                      ['netWeightKgs', row.netWeightKgs],
+                      ['grossWeightKgs', row.grossWeightKgs],
+                    ] as Array<[keyof ContainerMappingRow, string | null]>).map(([key, value]) => (
+                      <td key={key} style={{ padding: 0, border: `1px solid ${BORDER}`, fontSize: 12, color: FG }}>
+                        {key === 'qtyPerBundle' ? (
+                          <div style={{ position: 'relative', padding: '7px 42px 3px 10px', minHeight: 34, fontWeight: 700 }}>
+                            {value || 'Auto'}
+                            {value && <span style={{ position: 'absolute', right: 8, top: 7, fontSize: 9, fontWeight: 800, color: TEAL, background: `${TEAL}18`, borderRadius: 999, padding: '1px 6px' }}>auto</span>}
+                            {row.totalQtyInPcs && row.totalBundles && (
+                              <div style={{ marginTop: 2, fontSize: 10.5, color: MUTED, fontWeight: 650, whiteSpace: 'nowrap' }}>
+                                {row.totalQtyInPcs} / {row.totalBundles} = {value || 'Auto'}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <input
+                            value={formatInputValue(value)}
+                            disabled={approved}
+                            onChange={event => updateRowValue(index, key, event.target.value || null)}
+                            placeholder="Enter..."
+                            style={{ width: '100%', minWidth: 95, border: 'none', outline: 'none', background: 'transparent', color: FG, padding: '9px 10px', fontSize: 12, fontWeight: 700 }}
+                          />
+                        )}
+                      </td>
+                    ))}
                   </tr>
                 ))}</tbody>
                 <tfoot>
                   <tr style={{ background: 'hsl(var(--muted) / 0.45)', fontWeight: 750 }}>
-                    <td colSpan={4} style={{ padding: 10, border: `1px solid ${BORDER}`, color: FG }}>TOTAL</td>
+                    <td colSpan={5} style={{ padding: 10, border: `1px solid ${BORDER}`, color: FG }}>TOTAL</td>
                     <td style={{ padding: 10, border: `1px solid ${BORDER}` }}>{formatTotal(totals?.totalQtyInPcs ?? 0)}</td>
                     <td style={{ padding: 10, border: `1px solid ${BORDER}` }}>—</td>
                     <td style={{ padding: 10, border: `1px solid ${BORDER}` }}>{formatTotal(totals?.totalBundles ?? 0)}</td>
                     <td style={{ padding: 10, border: `1px solid ${BORDER}` }}>{formatTotal(totals?.netWeightKgs ?? 0)}</td>
                     <td style={{ padding: 10, border: `1px solid ${BORDER}` }}>{formatTotal(totals?.grossWeightKgs ?? 0)}</td>
                   </tr>
+                  {splitIssues.length > 0 && (
+                    <tr>
+                      <td colSpan={10} style={{ padding: 10, border: `1px solid ${BORDER}`, background: 'hsla(0,84%,60%,0.06)', color: RED, fontSize: 12, fontWeight: 700 }}>
+                        {splitIssues.slice(0, 3).map(issue => <div key={issue}>{issue}</div>)}
+                        {splitIssues.length > 3 && <div>{splitIssues.length - 3} more split issue{splitIssues.length - 3 === 1 ? '' : 's'}.</div>}
+                      </td>
+                    </tr>
+                  )}
                 </tfoot>
               </table>
             )}
@@ -971,9 +1391,9 @@ function BolContainerMappingModal({
         <div style={{ padding: 12, borderTop: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${BORDER}`, borderRadius: 6, background: 'transparent', cursor: 'pointer' }}>Cancel</button>
           <button
-            disabled={approved || !mapping?.pagination.total || saving}
-            onClick={() => void onSave(Object.entries(edits).map(([lineItemId, containerNo]) => ({ lineItemId, containerNo } as ContainerMappingRow)))}
-            style={{ padding: '8px 16px', border: 'none', borderRadius: 6, background: TEAL, color: '#fff', fontWeight: 700, cursor: approved || saving ? 'default' : 'pointer', opacity: approved || mapping?.pagination.total ? 1 : 0.5 }}
+            disabled={approved || !mapping?.pagination.total || saving || splitIssues.length > 0}
+            onClick={() => void onSave(rows)}
+            style={{ padding: '8px 16px', border: 'none', borderRadius: 6, background: TEAL, color: '#fff', fontWeight: 700, cursor: approved || saving || splitIssues.length > 0 ? 'default' : 'pointer', opacity: approved || mapping?.pagination.total ? (splitIssues.length > 0 ? 0.55 : 1) : 0.5 }}
           >
             {approved ? 'Already approved' : saving ? 'Approving mapping...' : 'Save & approve mapping'}
           </button>
@@ -1076,6 +1496,9 @@ export function DocumentDetailPage() {
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState<'approve' | 'retry' | null>(null);
   const [sourcePreviewOpen, setSourcePreviewOpen] = useState(false);
+  const [sourcePreviewUrl, setSourcePreviewUrl] = useState<string | null>(null);
+  const [documentPreviewUrl, setDocumentPreviewUrl] = useState<string | null>(null);
+  const [cbpComparison, setCbpComparison] = useState<CbpComparisonResponse | null>(null);
   const [cbpDrafts, setCbpDrafts] = useState<CbpDraftPayload[]>([]);
   const [cbpDraftLoading, setCbpDraftLoading] = useState(false);
   const [cbpDraftSaving, setCbpDraftSaving] = useState(false);
@@ -1089,15 +1512,22 @@ export function DocumentDetailPage() {
   const [dndInputsOpen, setDndInputsOpen] = useState(false);
   const [safeCubeInputsOpen, setSafeCubeInputsOpen] = useState(false);
   const [safeCubeInputsSaving, setSafeCubeInputsSaving] = useState(false);
-  const [extractionFieldFilter, setExtractionFieldFilter] = useState<ExtractionFieldFilter>('all');
-  const [editedExtractionFields, setEditedExtractionFields] = useState<Set<string>>(() => new Set());
   const [warehouseMappingOpen, setWarehouseMappingOpen] = useState(false);
   const [warehouseMappingLoading, setWarehouseMappingLoading] = useState(false);
   const [warehouseMappingSaving, setWarehouseMappingSaving] = useState(false);
   const [warehouseOptions, setWarehouseOptions] = useState<WarehouseOption[]>([]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
   const [warehouseMappingShipmentId, setWarehouseMappingShipmentId] = useState<string | null>(null);
+  const [shipmentAssignOpen, setShipmentAssignOpen] = useState(false);
+  const [shipmentAssignLoading, setShipmentAssignLoading] = useState(false);
+  const [shipmentAssignSaving, setShipmentAssignSaving] = useState(false);
+  const [shipmentOptions, setShipmentOptions] = useState<ShipmentOption[]>([]);
+  const [selectedShipmentId, setSelectedShipmentId] = useState('');
   const [documentOverviewCollapsed, setDocumentOverviewCollapsed] = useState(false);
+  const [extractionFieldFilter, setExtractionFieldFilter] = useState<ExtractionFieldFilter>('all');
+  const [editedExtractionFields, setEditedExtractionFields] = useState<Set<string>>(() => new Set());
+  const [pendingFieldEdits, setPendingFieldEdits] = useState<Record<string, string | null>>({});
+  const [pendingArrayEdits, setPendingArrayEdits] = useState<Record<string, Array<Record<string, JsonValue>>>>({});
   const isApprovalRoute = currentPath.endsWith('/approve');
   const uploadProcessBackPath = sessionStorage.getItem(UPLOAD_PROCESS_RETURN_PATH_KEY) === PROCESSING_QUEUE_ROUTE
     ? PROCESSING_QUEUE_ROUTE
@@ -1110,6 +1540,8 @@ export function DocumentDetailPage() {
     setLoading(true);
     setError('');
     setDocumentDetail(null);
+    setPendingFieldEdits({});
+    setPendingArrayEdits({});
     documentApi.getById(documentId)
       .then(({ data }) => {
         if (!cancelled) setDocumentDetail(data);
@@ -1127,23 +1559,38 @@ export function DocumentDetailPage() {
   }, [documentId]);
 
   useEffect(() => {
-    setExtractionFieldFilter('all');
-    setEditedExtractionFields(new Set());
-  }, [documentId]);
+    let cancelled = false;
+    setDocumentPreviewUrl(null);
+    if (!documentDetail) return () => undefined;
+
+    documentApi.getPreviewUrl(documentDetail.id)
+      .then(({ data }) => {
+        if (!cancelled) setDocumentPreviewUrl(data.previewUrl ? apiUrl(data.previewUrl) : documentDetail.previewUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setDocumentPreviewUrl(documentDetail.previewUrl);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [documentDetail?.id, documentDetail?.previewUrl]);
 
   const extraction = documentDetail?.extraction ?? documentDetail?.salesInvoiceExtraction ?? null;
   const config = documentDetail ? getDocConfig(documentDetail.docType) : undefined;
-  const isDraftCbpBrokerDocument = false;
+  const isDraftCbpBrokerDocument = documentDetail?.docType === 'DRAFT_CBP_FORM_7501_BROKER';
+  const isUploadedCbpDocument = documentDetail?.docType === 'ENTRY_SUMMARY';
+  const isCbpComparisonDocument = isDraftCbpBrokerDocument || isUploadedCbpDocument;
   const cbpGeneratedSchema = DOC_GEN_SCHEMAS['draft-boe'] as DocGenSchema | undefined;
-  const selectedCbpDraft = isDraftCbpBrokerDocument && documentDetail
-    ? chooseCbpDraft(cbpDrafts, documentDetail.id)
+  const normalizedRawData = isJsonRecord(extraction?.rawData) ? extraction.rawData : {};
+  const selectedCbpDraft = isCbpComparisonDocument && documentDetail
+    ? chooseCbpDraft(cbpDrafts, documentDetail.id, normalizedRawData)
     : null;
   const cbpDraftManualValues = useMemo(() => draftManualValues(selectedCbpDraft), [selectedCbpDraft]);
   const cbpDraftRowValues = useMemo(() => draftRowMap(selectedCbpDraft), [selectedCbpDraft]);
   const configuredFieldKeys = new Set(
     config?.sections.flatMap((section) => section.fields.map((field) => field.key)) ?? [],
   );
-  const normalizedRawData = isJsonRecord(extraction?.rawData) ? extraction.rawData : {};
   const isExtractionApproved = (
     Boolean(extraction?.reviewedAt)
     || ['REVIEWED', 'ARCHIVED'].includes(String(documentDetail?.status ?? '').toUpperCase())
@@ -1187,51 +1634,33 @@ export function DocumentDetailPage() {
       && (value === null || typeof value !== 'object')
     ))
     .map(([key]) => ({ key, label: labelFromKey(key) }));
-  const displayableSections = config?.sections.map((section) => ({
-    ...section,
-    fields: section.fields.filter((field) => (
-      !(field.key === 'goodsDescription' && hasStructuredGoodsDescription)
-      && !(hasBolReferenceActionFields && BOL_REFERENCE_ACTION_FIELDS.has(field.key))
-    )),
-  })) ?? [];
-  const allDisplayableFields = [
-    ...displayableSections.flatMap((section) => section.fields),
-    ...additionalPrismaFields,
-  ];
-  const issueFieldCount = allDisplayableFields.filter((field) => isFieldIssue(field, extraction?.rawData)).length;
-  const editedFieldCount = allDisplayableFields.filter((field) => editedExtractionFields.has(field.key)).length;
-  const filterExtractionFields = (fields: FieldDef[]) => fields.filter((field) => {
-    if (extractionFieldFilter === 'issues') return isFieldIssue(field, extraction?.rawData);
-    if (extractionFieldFilter === 'edited') return editedExtractionFields.has(field.key);
-    return true;
-  });
-  const selectedConfiguredSection = extractionFieldFilter.startsWith('section:')
-    ? extractionFieldFilter.slice('section:'.length)
-    : null;
-  const selectedArraySection = extractionFieldFilter.startsWith('array:')
-    ? extractionFieldFilter.slice('array:'.length)
-    : null;
-  const filteredSections = displayableSections
-    .filter((section) => {
-      if (selectedArraySection || extractionFieldFilter === 'additional') return false;
-      return !selectedConfiguredSection || section.sectionLabel === selectedConfiguredSection;
-    })
-    .map((section) => ({ ...section, fields: selectedConfiguredSection ? section.fields : filterExtractionFields(section.fields) }))
-    .filter((section) => section.fields.length > 0);
-  const filteredAdditionalPrismaFields = extractionFieldFilter === 'additional' || !selectedConfiguredSection && !selectedArraySection
-    ? filterExtractionFields(additionalPrismaFields)
-    : [];
-  const arrayFilterOptions = extraction?.arrays && Object.keys(extraction.arrays).length > 0
-    ? Object.entries(extraction.arrays)
-        .filter(([, rows]) => rows.length > 0)
-        .map(([arrayName, rows]) => ({ key: `array:${arrayName}` as const, label: labelFromKey(arrayName), count: rows.length }))
-    : extraction?.lineItems?.length
-      ? [{ key: 'array:lineItems' as const, label: 'Line Items', count: extraction.lineItems.length }]
-      : [];
   const isImagePreview = Boolean(documentDetail?.contentType?.startsWith('image/'));
 
+  const fetchCbpComparison = useCallback(async () => {
+    if (!documentDetail || !isCbpComparisonDocument) {
+      setCbpComparison(null);
+      return;
+    }
+    try {
+      const comparison = await apiGet<CbpComparisonResponse>(`/uploads/documents/${documentDetail.id}/cbp-comparison`);
+      setCbpComparison(comparison);
+    } catch {
+      setCbpComparison(null);
+    }
+  }, [documentDetail?.id, isCbpComparisonDocument]);
+
   useEffect(() => {
-    if (!isDraftCbpBrokerDocument) {
+    void fetchCbpComparison();
+  }, [fetchCbpComparison]);
+
+  useEffect(() => {
+    setExtractionFieldFilter('all');
+    setEditedExtractionFields(new Set());
+    setDocumentOverviewCollapsed(false);
+  }, [documentDetail?.id]);
+
+  useEffect(() => {
+    if (!isCbpComparisonDocument) {
       setCbpDrafts([]);
       return;
     }
@@ -1250,17 +1679,84 @@ export function DocumentDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [isDraftCbpBrokerDocument, documentDetail?.id]);
+  }, [isCbpComparisonDocument, documentDetail?.id]);
 
   useEffect(() => {
     setCbpDraftFieldValues(cbpDraftManualValues);
     setCbpDraftRowValuesState(cbpDraftRowValues);
   }, [selectedCbpDraft?.draftId, cbpDraftManualValues, cbpDraftRowValues]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setSourcePreviewUrl(null);
+    if (!sourcePreviewOpen || !documentDetail) return () => undefined;
+
+    documentApi.getPreviewUrl(documentDetail.id)
+      .then(({ data }) => {
+        if (!cancelled) setSourcePreviewUrl(data.previewUrl ? apiUrl(data.previewUrl) : documentDetail.previewUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setSourcePreviewUrl(documentDetail.previewUrl);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sourcePreviewOpen, documentDetail?.id, documentDetail?.previewUrl]);
+
+  async function loadShipmentOptions() {
+    setShipmentAssignLoading(true);
+    try {
+      const response = await apiGet<{ ok: boolean; data: ShipmentOption[] }>('/shipments?limit=500');
+      setShipmentOptions(Array.isArray(response.data) ? response.data : []);
+    } catch (err) {
+      setShipmentOptions([]);
+      toast({
+        title: 'Could not load shipments',
+        description: getApiErrorMessage(err, 'Unable to load shipment options.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setShipmentAssignLoading(false);
+    }
+  }
+
+  async function openShipmentAssignment() {
+    setSelectedShipmentId(documentDetail?.shipmentId ?? '');
+    setShipmentAssignOpen(true);
+    await loadShipmentOptions();
+  }
+
+  async function saveShipmentAssignment() {
+    if (!documentDetail || !selectedShipmentId || shipmentAssignSaving) return;
+    setShipmentAssignSaving(true);
+    try {
+      const response = await documentApi.assignShipment(documentDetail.id, selectedShipmentId);
+      const { data } = await documentApi.getById(documentDetail.id);
+      setDocumentDetail(data);
+      setShipmentAssignOpen(false);
+      toast({
+        title: 'Shipment assigned',
+        description: response.data.data.shipmentNumber
+          ? `${documentDetail.fileName} linked to ${response.data.data.shipmentNumber}.`
+          : 'The approved document is now linked to the selected shipment.',
+      });
+    } catch (err) {
+      toast({
+        title: 'Could not assign shipment',
+        description: getApiErrorMessage(err, 'Unable to link this document to the selected shipment.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setShipmentAssignSaving(false);
+    }
+  }
+
   async function approveAllFields() {
     if (!documentDetail || actionLoading) return;
     setActionLoading('approve');
     try {
+      await flushPendingExtractionEdits();
       const approval = await documentApi.approve(documentDetail.id);
       const validation = approval.data?.validation;
       const blockers = Number(validation?.blockingFailures ?? 0);
@@ -1277,8 +1773,31 @@ export function DocumentDetailPage() {
           : 'All mandatory fields and active validations passed.',
         variant: blockers > 0 ? 'destructive' : undefined,
       });
-      const { data } = await documentApi.getById(documentDetail.id);
-      setDocumentDetail(data);
+      try {
+        const { data } = await documentApi.getById(documentDetail.id);
+        setDocumentDetail(data);
+        await fetchCbpComparison();
+        if (!data.shipmentId) {
+          setShipmentAssignOpen(true);
+          setSelectedShipmentId('');
+          void loadShipmentOptions();
+          toast({
+            title: 'Select shipment',
+            description: 'This approved document could not be mapped automatically. Choose the shipment to attach it to.',
+          });
+        }
+      } catch (refreshErr) {
+        setDocumentDetail((current) => current
+          ? { ...current, status: 'REVIEWED' }
+          : current);
+        setShipmentAssignOpen(true);
+        setSelectedShipmentId('');
+        void loadShipmentOptions();
+        toast({
+          title: 'Approved, refresh skipped',
+          description: getApiErrorMessage(refreshErr, 'The document was approved. Select a shipment if it did not map automatically.'),
+        });
+      }
       navigate(`/documents/upload/${documentDetail.id}/approve`);
     } catch (err) {
       toast({ title: 'Approval failed', description: getApiErrorMessage(err, 'Unable to approve this document.'), variant: 'destructive' });
@@ -1323,7 +1842,11 @@ export function DocumentDetailPage() {
   async function saveContainerMapping(rows: ContainerMappingRow[]) {
     setContainerMappingSaving(true);
     try {
-      await documentApi.saveContainerMapping(documentId, rows.map(row => ({ lineItemId: row.lineItemId, containerNo: row.containerNo })));
+      await documentApi.saveContainerMapping(
+        documentId,
+        rows.map(row => ({ lineItemId: row.lineItemId, containerNo: row.containerNo })),
+        rows as unknown as Array<Record<string, unknown>>,
+      );
       const { data } = await documentApi.getById(documentId);
       setDocumentDetail(data);
       toast({ title: 'Container mapping approved', description: `${rows.length} Packing List rows mapped. The BOL approval status was not changed.` });
@@ -1390,6 +1913,14 @@ export function DocumentDetailPage() {
       await documentApi.updateExtraction(documentDetail.id, {
         arrays: { [arrayName]: rows },
       });
+      setPendingArrayEdits((current) => {
+        const next = { ...current };
+        delete next[arrayName];
+        return next;
+      });
+      const { data } = await documentApi.getById(documentDetail.id);
+      setDocumentDetail(data);
+      await fetchCbpComparison();
     } catch (err) {
       toast({
         title: `Could not save ${labelFromKey(arrayName)}`,
@@ -1403,6 +1934,11 @@ export function DocumentDetailPage() {
     if (!documentDetail) return;
     try {
       await documentApi.updateExtraction(documentDetail.id, { fields: { [key]: value } });
+      setPendingFieldEdits((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
       setEditedExtractionFields((current) => {
         const next = new Set(current);
         next.add(key);
@@ -1410,10 +1946,45 @@ export function DocumentDetailPage() {
       });
       const { data } = await documentApi.getById(documentDetail.id);
       setDocumentDetail(data);
+      await fetchCbpComparison();
     } catch (err) {
       toast({ title: `Could not save ${labelFromKey(key)}`, description: err instanceof Error ? err.message : 'Unable to save field.', variant: 'destructive' });
       throw err;
     }
+  }
+
+  function rememberFieldDraft(key: string, value: string | null) {
+    setPendingFieldEdits((current) => ({ ...current, [key]: value }));
+  }
+
+  function rememberArrayDraft(arrayName: string, rows: Array<Record<string, JsonValue>>) {
+    setPendingArrayEdits((current) => ({ ...current, [arrayName]: rows }));
+  }
+
+  async function flushPendingExtractionEdits() {
+    if (!documentDetail) return;
+    const fields = Object.fromEntries(
+      Object.entries(pendingFieldEdits).map(([key, value]) => [key, typeof value === 'string' ? value.trim() || null : value]),
+    );
+    const arrays = { ...pendingArrayEdits };
+    if (!Object.keys(fields).length && !Object.keys(arrays).length) return;
+
+    await documentApi.updateExtraction(documentDetail.id, {
+      ...(Object.keys(fields).length ? { fields } : {}),
+      ...(Object.keys(arrays).length ? { arrays } : {}),
+    });
+    setPendingFieldEdits({});
+    setPendingArrayEdits({});
+    if (Object.keys(fields).length) {
+      setEditedExtractionFields((current) => {
+        const next = new Set(current);
+        Object.keys(fields).forEach((key) => next.add(key));
+        return next;
+      });
+    }
+    const { data } = await documentApi.getById(documentDetail.id);
+    setDocumentDetail(data);
+    await fetchCbpComparison();
   }
 
   async function saveSafeCubeInputs(values: Record<string, string | null>) {
@@ -1423,6 +1994,7 @@ export function DocumentDetailPage() {
       await documentApi.updateExtraction(documentDetail.id, { fields: values });
       const { data } = await documentApi.getById(documentDetail.id);
       setDocumentDetail(data);
+      await fetchCbpComparison();
       setSafeCubeInputsOpen(false);
       toast({ title: 'SafeCube inputs saved' });
     } catch (err) {
@@ -1487,11 +2059,125 @@ export function DocumentDetailPage() {
     });
   }
 
+  const cbpBrokerRawData = useMemo<Record<string, JsonValue>>(() => {
+    if (!cbpComparison?.linkedDocumentId) return {};
+    return Object.fromEntries(
+      Object.entries(cbpComparison.fields ?? {}).map(([key, field]) => [key, field.brokerValue ?? null]),
+    );
+  }, [cbpComparison]);
+
+  const cbpBrokerTableRows = useMemo<Record<string, Array<Record<string, JsonValue>>>>(() => {
+    if (!cbpComparison?.linkedDocumentId) return {};
+    return Object.fromEntries(
+      Object.entries(cbpComparison.tables ?? {}).map(([tableName, table]) => [
+        tableName,
+        table.rows.map((row) => Object.fromEntries(
+          Object.entries(row.fields ?? {}).map(([key, field]) => [key, field.brokerValue ?? null]),
+        )),
+      ]),
+    );
+  }, [cbpComparison]);
+
+  const displayableSections = config?.sections.map((section) => ({
+    ...section,
+    fields: section.fields.filter((field) => (
+      !(field.key === 'goodsDescription' && hasStructuredGoodsDescription)
+      && !(hasBolReferenceActionFields && BOL_REFERENCE_ACTION_FIELDS.has(field.key))
+    )),
+  })) ?? [];
+  const allDisplayableFields = [
+    ...displayableSections.flatMap((section) => section.fields),
+    ...additionalPrismaFields,
+  ];
+  const issueFieldCount = allDisplayableFields.filter((field) => fieldHasIssue(field, extraction?.rawData, cbpComparison?.fields?.[field.key])).length;
+  const editedFieldCount = allDisplayableFields.filter((field) => editedExtractionFields.has(field.key)).length;
+  const filterExtractionFields = (fields: FieldDef[]) => fields.filter((field) => {
+    if (extractionFieldFilter === 'issues') return fieldHasIssue(field, extraction?.rawData, cbpComparison?.fields?.[field.key]);
+    if (extractionFieldFilter === 'edited') return editedExtractionFields.has(field.key);
+    return true;
+  });
+  const selectedConfiguredSection = extractionFieldFilter.startsWith('section:')
+    ? extractionFieldFilter.slice('section:'.length)
+    : null;
+  const selectedArraySection = extractionFieldFilter.startsWith('array:')
+    ? extractionFieldFilter.slice('array:'.length)
+    : null;
+  const filteredSections = displayableSections
+    .filter((section) => {
+      if (selectedArraySection || extractionFieldFilter === 'additional') return false;
+      return !selectedConfiguredSection || section.sectionLabel === selectedConfiguredSection;
+    })
+    .map((section) => ({ ...section, fields: selectedConfiguredSection ? section.fields : filterExtractionFields(section.fields) }))
+    .filter((section) => section.fields.length > 0);
+  const filteredAdditionalPrismaFields = extractionFieldFilter === 'additional' || (!selectedConfiguredSection && !selectedArraySection)
+    ? filterExtractionFields(additionalPrismaFields)
+    : [];
+  const arrayFilterOptions = extraction?.arrays && Object.keys(extraction.arrays).length > 0
+    ? Object.entries(extraction.arrays)
+        .filter(([, rows]) => rows.length > 0)
+        .map(([arrayName, rows]) => ({ key: `array:${arrayName}` as const, label: labelFromKey(arrayName), count: rows.length }))
+    : extraction?.lineItems?.length
+      ? [{ key: 'array:lineItems' as const, label: 'Line Items', count: extraction.lineItems.length }]
+      : [];
+
+  const brokerCbpFieldsPanel = (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+        Draft CBP Broker Extracted Values
+      </div>
+      {!cbpComparison ? (
+        <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, padding: 16, color: MUTED, fontSize: 13 }}>
+          Checking linked Draft CBP Broker document...
+        </div>
+      ) : !cbpComparison.linkedDocumentId ? (
+        <div style={{ border: `1px dashed ${BORDER}`, borderRadius: 8, padding: 16, color: MUTED, fontSize: 13, fontWeight: 700 }}>
+          No linked Draft CBP Broker document found by BL/AWB, house bill, or broker importer file number.
+        </div>
+      ) : !config ? (
+        <div style={{ border: `1px dashed ${BORDER}`, borderRadius: 8, padding: 16, color: MUTED, fontSize: 13 }}>
+          No extraction field schema is configured for Draft CBP Broker.
+        </div>
+      ) : (
+        <>
+          {config.sections.map((section) => (
+            <div key={section.sectionLabel}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+                {section.sectionLabel}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                {section.fields.map((field) => (
+                  <FieldCard key={field.key} field={field} rawData={cbpBrokerRawData} />
+                ))}
+              </div>
+            </div>
+          ))}
+          {Object.entries(cbpBrokerTableRows).map(([tableName, rows]) => (
+            rows.length ? (
+              <LineItemsTable key={tableName} rows={rows} title={tableName} editable={false} />
+            ) : null
+          ))}
+        </>
+      )}
+    </section>
+  );
+
   const extractionFieldsPanel = (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
         {isDraftCbpBrokerDocument ? 'Broker Extracted Values' : 'AI Extraction Fields'}
       </div>
+      {isCbpComparisonDocument && cbpComparison?.linkedDocumentId && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${cbpComparison.summary.mismatches ? 'hsla(0,84%,60%,0.28)' : `${GREEN}45`}`, background: cbpComparison.summary.mismatches ? 'hsla(0,84%,60%,0.06)' : `${GREEN}08`, color: cbpComparison.summary.mismatches ? RED : GREEN, borderRadius: 8, padding: '8px 10px', fontSize: 12, fontWeight: 750 }}>
+          {cbpComparison.summary.mismatches
+            ? `${cbpComparison.summary.mismatches} mismatch${cbpComparison.summary.mismatches === 1 ? '' : 'es'} from ${cbpComparison.summary.total} compared CBP broker fields`
+            : `${cbpComparison.summary.total} CBP broker fields compared and matched`}
+        </div>
+      )}
+      {isCbpComparisonDocument && cbpComparison && !cbpComparison.linkedDocumentId && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: MUTED, borderRadius: 8, padding: '8px 10px', fontSize: 12, fontWeight: 700 }}>
+          No linked {isDraftCbpBrokerDocument ? 'CBP Form 7501' : 'Draft CBP Broker'} document found by BL/AWB, house bill, or broker importer file number.
+        </div>
+      )}
 
       {!extraction ? (
         <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, padding: 16, color: MUTED, fontSize: 13 }}>
@@ -1545,88 +2231,82 @@ export function DocumentDetailPage() {
             })}
           </div>
 
-          <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, backgroundColor: 'hsl(var(--card))', maxHeight: 'min(62vh, 560px)', overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {filteredSections.map((section) => (
-              <div key={section.sectionLabel}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
-                  {section.sectionLabel}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-                  {section.fields.map((field) => (
-                    <FieldCard
-                      key={field.key}
-                      field={field}
-                      rawData={extraction.rawData}
-                      isEdited={editedExtractionFields.has(field.key)}
-                      onSave={canEditCurrentExtraction ? saveFieldValue : undefined}
+          {filteredSections.map((section) => (
+            <div key={section.sectionLabel}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+                {section.sectionLabel}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                {section.fields.map((field) => (
+                  <FieldCard key={field.key} field={field} rawData={extraction.rawData} comparison={cbpComparison?.fields?.[field.key]} isEdited={editedExtractionFields.has(field.key)} onSave={canEditCurrentExtraction ? saveFieldValue : undefined} onDraftChange={canEditCurrentExtraction ? rememberFieldDraft : undefined} />
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {filteredSections.length === 0 && filteredAdditionalPrismaFields.length === 0 && !selectedArraySection && (
+            <div style={{ border: `1px dashed ${BORDER}`, borderRadius: 8, padding: 16, color: MUTED, fontSize: 13 }}>
+              {extractionFieldFilter === 'issues'
+                ? 'No issue fields found.'
+                : extractionFieldFilter === 'edited'
+                  ? 'No edited fields yet.'
+                  : 'No fields match this filter.'}
+            </div>
+          )}
+
+          {extractionFieldFilter === 'all' && documentDetail?.docType === 'BILL_OF_LADING' && !hasStructuredGoodsDescription && (
+            <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, padding: '10px 12px', color: MUTED, fontSize: 11.5, lineHeight: 1.45 }}>
+              Goods Description Line Items are not present in this older extraction. Re-extract this BOL to split the cargo text into Sales Invoice-style rows.
+            </div>
+          )}
+
+          {filteredAdditionalPrismaFields.length > 0 && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+                Additional Fields
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                {filteredAdditionalPrismaFields.map((field) => (
+                  <FieldCard key={field.key} field={field} rawData={extraction.rawData} comparison={cbpComparison?.fields?.[field.key]} isEdited={editedExtractionFields.has(field.key)} onSave={canEditCurrentExtraction ? saveFieldValue : undefined} onDraftChange={canEditCurrentExtraction ? rememberFieldDraft : undefined} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(extractionFieldFilter === 'all' || selectedArraySection) && extraction.arrays && Object.keys(extraction.arrays).length > 0
+            ? Object.entries(extraction.arrays).map(([arrayName, rows]) => (
+                rows.length && (!selectedArraySection || selectedArraySection === arrayName)
+                  ? (
+                    <LineItemsTable
+                      key={arrayName}
+                      rows={rows}
+                      title={arrayName}
+                      comparisonRows={cbpTableComparisonRows(cbpComparison, arrayName)}
+                      editable={canEditCurrentExtraction}
+                      onSave={canEditCurrentExtraction ? (updatedRows) => saveArrayRows(arrayName, updatedRows) : undefined}
+                      onDraftChange={canEditCurrentExtraction ? (updatedRows) => rememberArrayDraft(arrayName, updatedRows) : undefined}
                     />
-                  ))}
-                </div>
-              </div>
-            ))}
-            {filteredSections.length === 0 && filteredAdditionalPrismaFields.length === 0 && !selectedArraySection && (
-              <div style={{ color: MUTED, fontSize: 13 }}>
-                {extractionFieldFilter === 'issues'
-                  ? 'No fields currently have issues.'
-                  : extractionFieldFilter === 'edited'
-                    ? 'No fields have been edited after extraction in this view.'
-                    : 'No extracted fields available.'}
-              </div>
-            )}
-            {extractionFieldFilter === 'all' && documentDetail?.docType === 'BILL_OF_LADING' && !hasStructuredGoodsDescription && (
-              <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, padding: '10px 12px', color: MUTED, fontSize: 11.5, lineHeight: 1.45 }}>
-                Goods Description Line Items are not present in this older extraction. Re-extract this BOL to split the cargo text into Sales Invoice-style rows.
-              </div>
-            )}
-            {filteredAdditionalPrismaFields.length > 0 && (
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
-                  Additional Fields
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-                  {filteredAdditionalPrismaFields.map((field) => (
-                    <FieldCard
-                      key={field.key}
-                      field={field}
-                      rawData={extraction.rawData}
-                      isEdited={editedExtractionFields.has(field.key)}
-                      onSave={canEditCurrentExtraction ? saveFieldValue : undefined}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-            {(extractionFieldFilter === 'all' || selectedArraySection) && extraction.arrays && Object.keys(extraction.arrays).length > 0
-              ? Object.entries(extraction.arrays).map(([arrayName, rows]) => (
-                  rows.length && (!selectedArraySection || selectedArraySection === arrayName)
-                    ? (
-                      <LineItemsTable
-                        key={arrayName}
-                        rows={rows}
-                        title={arrayName}
-                        editable={canEditCurrentExtraction}
-                        onSave={canEditCurrentExtraction ? (updatedRows) => saveArrayRows(arrayName, updatedRows) : undefined}
-                      />
-                    )
-                    : null
-                ))
-              : (extractionFieldFilter === 'all' || selectedArraySection === 'lineItems') && extraction.lineItems?.length
-                ? (
-                  <LineItemsTable
-                    rows={extraction.lineItems}
-                    editable={canEditCurrentExtraction}
-                    onSave={canEditCurrentExtraction ? (updatedRows) => saveArrayRows('lineItems', updatedRows) : undefined}
-                  />
-                )
-                : null}
-            {extractionFieldFilter === 'all' && approvedContainerMappingRows.length > 0 && (
-              <LineItemsTable
-                rows={approvedContainerMappingRows}
-                title="Approved Container Mapping"
-                editable={false}
-              />
-            )}
-          </div>
+                  )
+                  : null
+              ))
+            : (extractionFieldFilter === 'all' || selectedArraySection === 'lineItems') && extraction.lineItems?.length
+              ? (
+                <LineItemsTable
+                  rows={extraction.lineItems}
+                  comparisonRows={cbpComparison?.tables?.lineItems?.rows}
+                  editable={canEditCurrentExtraction}
+                  onSave={canEditCurrentExtraction ? (updatedRows) => saveArrayRows('lineItems', updatedRows) : undefined}
+                  onDraftChange={canEditCurrentExtraction ? (updatedRows) => rememberArrayDraft('lineItems', updatedRows) : undefined}
+                />
+              )
+              : null}
+          {extractionFieldFilter === 'all' && approvedContainerMappingRows.length > 0 && (
+            <LineItemsTable
+              rows={approvedContainerMappingRows}
+              title="Approved Container Mapping"
+              editable={false}
+            />
+          )}
         </>
       )}
     </section>
@@ -1655,7 +2335,7 @@ export function DocumentDetailPage() {
   }
 
   return (
-    <div style={{ padding: documentOverviewCollapsed ? '8px 24px 24px' : 24, backgroundColor: 'hsl(var(--background))', minHeight: 'calc(100vh - 64px)' }}>
+    <div style={{ padding: 24, backgroundColor: 'hsl(var(--background))', minHeight: 'calc(100vh - 64px)' }}>
       {containerMappingOpen && (
         <BolContainerMappingModal
           mapping={containerMapping}
@@ -1684,6 +2364,55 @@ export function DocumentDetailPage() {
           onSave={saveWarehouseMapping}
         />
       )}
+      {shipmentAssignOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.42)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ width: 'min(520px, 100%)', background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, boxShadow: '0 24px 70px rgba(15,23,42,0.28)', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 18px', borderBottom: `1px solid ${BORDER}` }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: FG }}>Select shipment</div>
+              <div style={{ marginTop: 4, fontSize: 12.5, color: MUTED, lineHeight: 1.45 }}>
+                This approved document could not be mapped automatically. Choose the shipment it belongs to.
+              </div>
+            </div>
+            <div style={{ padding: 18, display: 'grid', gap: 10 }}>
+              <label style={{ fontSize: 11, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                Shipment
+              </label>
+              <select
+                value={selectedShipmentId}
+                disabled={shipmentAssignLoading || shipmentAssignSaving}
+                onChange={(event) => setSelectedShipmentId(event.target.value)}
+                style={{ width: '100%', height: 40, border: `1px solid ${BORDER}`, borderRadius: 7, background: 'hsl(var(--background))', color: FG, padding: '0 10px', fontSize: 14 }}
+              >
+                <option value="">{shipmentAssignLoading ? 'Loading shipments...' : 'Select shipment...'}</option>
+                {shipmentOptions.map((shipment) => {
+                  const refs = [
+                    shipment.mblNumber && `MBL ${shipment.mblNumber}`,
+                    shipment.hblNumber && `HBL ${shipment.hblNumber}`,
+                    shipment.bookingNumber && `Booking ${shipment.bookingNumber}`,
+                    shipment.projectName,
+                  ].filter(Boolean).join(' · ');
+                  return (
+                    <option key={shipment.id} value={shipment.id}>
+                      {(shipment.shipmentNumber || shipment.bolNumber || shipment.id)}{refs ? ` - ${refs}` : ''}
+                    </option>
+                  );
+                })}
+              </select>
+              {shipmentOptions.length === 0 && !shipmentAssignLoading && (
+                <div style={{ fontSize: 12, color: MUTED }}>
+                  No shipments are available yet. Approve a BOL first to create shipments.
+                </div>
+              )}
+            </div>
+            <div style={{ padding: 12, borderTop: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <Button type="button" variant="outline" size="sm" disabled={shipmentAssignSaving} onClick={() => setShipmentAssignOpen(false)}>Cancel</Button>
+              <Button type="button" size="sm" disabled={!selectedShipmentId || shipmentAssignLoading || shipmentAssignSaving} onClick={() => void saveShipmentAssignment()}>
+                {shipmentAssignSaving ? 'Assigning...' : 'Assign Shipment'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       <ShipmentDndInputsDialog
         open={dndInputsOpen}
         shipmentId={`bol-${documentDetail.id}`}
@@ -1698,44 +2427,44 @@ export function DocumentDetailPage() {
           onSave={saveSafeCubeInputs}
         />
       )}
-      {sourcePreviewOpen && isDraftCbpBrokerDocument && (
+      {sourcePreviewOpen && isCbpComparisonDocument && (
         <SourceDocumentModal
           title={documentDetail.fileName}
-          previewUrl={documentDetail.previewUrl}
+          previewUrl={sourcePreviewUrl}
           isImage={isImagePreview}
+          comparisonTitle={isDraftCbpBrokerDocument ? 'Broker Extracted Fields' : 'AI Extraction Fields'}
+          comparison={extractionFieldsPanel}
           onClose={() => setSourcePreviewOpen(false)}
         />
       )}
       {!documentOverviewCollapsed && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
-          <button onClick={() => navigate(uploadProcessBackPath)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: TEAL, background: 'transparent', border: `1px solid ${TEAL}50`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-            <ArrowLeft size={14} /> Upload & Process
-          </button>
-          <button
-            onClick={() => navigate(uploadProcessBackPath)}
-            title="Close document"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: MUTED, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
-          >
-            <X size={14} /> Close
-          </button>
-        </div>
-      )}
-
-      {!documentOverviewCollapsed && (
         <>
-          <PageHeader
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+        <button onClick={() => navigate(uploadProcessBackPath)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: TEAL, background: 'transparent', border: `1px solid ${TEAL}50`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+          <ArrowLeft size={14} /> Upload & Process
+        </button>
+        <button
+          onClick={() => navigate(uploadProcessBackPath)}
+          title="Close document"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: MUTED, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+        >
+          <X size={14} /> Close
+        </button>
+      </div>
+
+      <PageHeader
         title={isApprovalRoute ? `Approve ${config?.displayName ?? documentDetail.docType}` : (config?.displayName ?? documentDetail.docType)}
         subtitle={`${documentDetail.fileName} · ${documentDetail.status}`}
       />
 
-          <DocumentPipeline states={documentPipelineStates(documentDetail.status, documentDetail.validationStatus)} />
+      <DocumentPipeline states={documentPipelineStates(documentDetail.status, documentDetail.validationStatus)} />
         </>
       )}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: documentOverviewCollapsed ? 6 : 8 }}>
         <button
           type="button"
-          onClick={() => setDocumentOverviewCollapsed((value) => !value)}
+          onClick={() => setDocumentOverviewCollapsed(value => !value)}
           title={documentOverviewCollapsed ? 'Show document overview' : 'Hide document overview'}
           aria-expanded={!documentOverviewCollapsed}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: MUTED, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
@@ -1746,122 +2475,128 @@ export function DocumentDetailPage() {
       </div>
 
       {!documentOverviewCollapsed && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
-          <DocBadge code={docCode(documentDetail.docType)} size="md" />
-          <span style={{ fontSize: 12, color: MUTED, fontWeight: 650, overflowWrap: 'anywhere' }}>{documentDetail.fileName}</span>
-          {extraction?.extractedAt && (
-            <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${GREEN}18`, color: GREEN }}>
-              Extracted {formatDateTime(extraction.extractedAt)}
-            </span>
-          )}
-          {extraction?.reviewedAt && (
-            <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${BLUE}14`, color: BLUE }}>
-              Reviewed {formatDateTime(extraction.reviewedAt)}
-            </span>
-          )}
-          {(hasBolReferenceActionFields || documentDetail.docType === 'BILL_OF_LADING') && extraction && (
-            <div style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              {hasBolReferenceActionFields && (
-                <Button type="button" variant="outline" size="sm" onClick={() => setSafeCubeInputsOpen(true)} className="h-9">
-                  SafeCube Inputs
-                </Button>
-              )}
-              {canUseDndInputs && (
-                <Button type="button" variant="outline" size="sm" onClick={() => setDndInputsOpen(true)} className="h-9">
-                  D&D Inputs
-                </Button>
-              )}
-              {canUseContainerMapping && (
-                <Button type="button" size="sm" onClick={() => void openContainerMapping()} className="h-9">
-                  {containerMappingApproved ? 'Mapping approved' : 'Container Mapping'}
-                </Button>
-              )}
-            </div>
-          )}
-          {documentDetail.docType === 'US_CARGO_RELEASE_ORDER' && extraction && (
-            <button
-              onClick={() => void openWarehouseMapping()}
-              style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: TEAL, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
-            >
-              Warehouse Mapping
-            </button>
-          )}
-          {isApprovalRoute && (
-            <>
-              {canReprocessCurrentDoc && (
-                <button
-                  onClick={flagForReExtraction}
-                  disabled={actionLoading !== null}
-                  style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: FG, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: actionLoading ? 0.65 : 1 }}
-                >
-                  {actionLoading === 'retry' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : null}
-                  Flag for re-extraction
-                </button>
-              )}
-              {canApproveCurrentExtraction && (
-                <button
-                  onClick={approveAllFields}
-                  disabled={!extraction || isExtractionApproved || actionLoading !== null}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: isExtractionApproved ? TEAL : GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: !extraction || isExtractionApproved || actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 800, opacity: !extraction || actionLoading ? 0.65 : 1 }}
-                >
-                  {actionLoading === 'approve' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : <CheckCircle2 size={14} />}
-                  {isExtractionApproved ? 'Approved' : 'Approve all fields'}
-                </button>
-              )}
-            </>
-          )}
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+        <DocBadge code={docCode(documentDetail.docType)} size="md" />
+        <span style={{ fontSize: 12, color: MUTED, fontWeight: 650, overflowWrap: 'anywhere' }}>{documentDetail.fileName}</span>
+        {extraction?.extractedAt && (
+          <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${GREEN}18`, color: GREEN }}>
+            Extracted {formatDateTime(extraction.extractedAt)}
+          </span>
+        )}
+        {extraction?.reviewedAt && (
+          <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${BLUE}14`, color: BLUE }}>
+            Reviewed {formatDateTime(extraction.reviewedAt)}
+          </span>
+        )}
+        {(hasBolReferenceActionFields || documentDetail.docType === 'BILL_OF_LADING') && extraction && (
+          <div style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {hasBolReferenceActionFields && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setSafeCubeInputsOpen(true)} className="h-9">
+                SafeCube Inputs
+              </Button>
+            )}
+            {canUseDndInputs && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setDndInputsOpen(true)} className="h-9">
+                D&D Inputs
+              </Button>
+            )}
+            {canUseContainerMapping && (
+              <Button type="button" size="sm" onClick={() => void openContainerMapping()} className="h-9">
+                {containerMappingApproved ? 'Mapping approved' : 'Container Mapping'}
+              </Button>
+            )}
+          </div>
+        )}
+        {documentDetail.docType === 'US_CARGO_RELEASE_ORDER' && extraction && (
+          <button
+            onClick={() => void openWarehouseMapping()}
+            style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: TEAL, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+          >
+            Warehouse Mapping
+          </button>
+        )}
+        {isApprovalRoute && (
+          <>
+            {canReprocessCurrentDoc && (
+              <button
+                onClick={flagForReExtraction}
+                disabled={actionLoading !== null}
+                style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: FG, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: actionLoading ? 0.65 : 1 }}
+              >
+                {actionLoading === 'retry' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : null}
+                Flag for re-extraction
+              </button>
+            )}
+            {canApproveCurrentExtraction && (
+              <button
+                onClick={approveAllFields}
+                disabled={!extraction || isExtractionApproved || actionLoading !== null}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: isExtractionApproved ? TEAL : GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: !extraction || isExtractionApproved || actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 800, opacity: !extraction || actionLoading ? 0.65 : 1 }}
+              >
+                {actionLoading === 'approve' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : <CheckCircle2 size={14} />}
+                {isExtractionApproved ? 'Approved' : 'Approve all fields'}
+              </button>
+            )}
+          </>
+        )}
+      </div>
       )}
 
-      {isDraftCbpBrokerDocument ? (
+      {isCbpComparisonDocument ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(420px, 0.92fr) minmax(520px, 1.08fr)', gap: 18, alignItems: 'start' }}>
+          {isUploadedCbpDocument ? (
+            <section style={{ minWidth: 0 }}>
+              {brokerCbpFieldsPanel}
+            </section>
+          ) : (
+            <section style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                    Draft CBP FORM 7501
+                  </div>
+                  <div style={{ marginTop: 3, fontSize: 11.5, color: MUTED }}>
+                    {cbpDraftLoading ? 'Loading generated draft...' : selectedCbpDraft ? `Generated draft ${selectedCbpDraft.status}` : 'Latest generated draft preview'}
+                  </div>
+                </div>
+              </div>
+              <div>
+                {cbpGeneratedSchema ? (
+                  <GeneratedDraftFieldStage
+                    schema={cbpGeneratedSchema}
+                    draft={selectedCbpDraft}
+                    manualValues={cbpDraftFieldValues}
+                    rowMap={cbpDraftRowValuesState}
+                    document={documentDetail}
+                    loading={cbpDraftLoading}
+                    saving={cbpDraftSaving}
+                    onFieldChange={updateGeneratedDraftField}
+                    onFieldSave={() => void saveGeneratedDraftFromDetail()}
+                    onRowChange={updateGeneratedDraftRow}
+                    onRowSave={() => void saveGeneratedDraftFromDetail()}
+                  />
+                ) : (
+                  <div style={{ border: `1px dashed ${BORDER}`, borderRadius: 8, padding: 18, color: MUTED, fontSize: 13 }}>
+                    Draft CBP FORM 7501 preview schema is not configured.
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
           <div style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                Broker Extracted Values
+                {isDraftCbpBrokerDocument ? 'Broker Extracted Values' : 'AI Extraction Fields'}
               </div>
               <button
                 onClick={() => setSourcePreviewOpen(true)}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 11px', borderRadius: 8, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: FG, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
               >
-                <Eye size={14} /> Uploaded broker PDF
+                <Eye size={14} /> Source document
               </button>
             </div>
             {extractionFieldsPanel}
           </div>
-          <section style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                  Draft CBP FORM 7501
-                </div>
-                <div style={{ marginTop: 3, fontSize: 11.5, color: MUTED }}>
-                  {cbpDraftLoading ? 'Loading generated draft...' : selectedCbpDraft ? `Generated draft ${selectedCbpDraft.status}` : 'Latest generated draft preview'}
-                </div>
-              </div>
-            </div>
-            <div>
-              {cbpGeneratedSchema ? (
-                <GeneratedDraftFieldStage
-                  schema={cbpGeneratedSchema}
-                  draft={selectedCbpDraft}
-                  manualValues={cbpDraftFieldValues}
-                  rowMap={cbpDraftRowValuesState}
-                  document={documentDetail}
-                  loading={cbpDraftLoading}
-                  saving={cbpDraftSaving}
-                  onFieldChange={updateGeneratedDraftField}
-                  onFieldSave={() => void saveGeneratedDraftFromDetail()}
-                  onRowChange={updateGeneratedDraftRow}
-                  onRowSave={() => void saveGeneratedDraftFromDetail()}
-                />
-              ) : (
-                <div style={{ border: `1px dashed ${BORDER}`, borderRadius: 8, padding: 18, color: MUTED, fontSize: 13 }}>
-                  Draft CBP FORM 7501 preview schema is not configured.
-                </div>
-              )}
-            </div>
-          </section>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.05fr) minmax(360px, 0.95fr)', gap: 18 }}>
@@ -1869,19 +2604,12 @@ export function DocumentDetailPage() {
             <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
               Source PDF
             </div>
-            {documentDetail.previewUrl ? (
-              isImagePreview ? (
-                <div style={{ height: 680, border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden', backgroundColor: 'hsl(220 14% 96%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <img src={documentDetail.previewUrl} alt={documentDetail.fileName} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
-                </div>
-              ) : (
-                <iframe title={documentDetail.fileName} src={documentDetail.previewUrl} style={{ width: '100%', height: 680, border: `1px solid ${BORDER}`, borderRadius: 8, backgroundColor: 'hsl(var(--card))' }} />
-              )
-            ) : (
-              <div style={{ height: 360, border: `1px dashed ${BORDER}`, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 12 }}>
-                No preview URL returned for this document.
-              </div>
-            )}
+            <AuthenticatedPreviewPane
+              title={documentDetail.fileName}
+              previewUrl={documentPreviewUrl}
+              isImage={isImagePreview}
+              height={680}
+            />
           </section>
 
           {extractionFieldsPanel}

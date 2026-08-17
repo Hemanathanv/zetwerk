@@ -1627,6 +1627,8 @@ function apiDocToQueueCard(d: any): QueueCard {
   else if (dt === 'BILL_OF_LADING' || dt === 'BOL' || dt === 'BL') { docCode = 'BL'; docTypeLabel = 'Bill of Lading'; color = BLUE; }
   else if (dt === 'SHIPPING_BILL' || dt === 'SB') { docCode = 'SB'; docTypeLabel = 'Shipping Bill'; color = BLUE; }
   else if (dt === 'ISF' || dt.includes('IMPORTER_SECURITY')) { docCode = 'IS'; docTypeLabel = 'ISF'; color = INFO; }
+  else if (dt === 'DRAFT_CBP_FORM_7501_BROKER') { docCode = 'CBP'; docTypeLabel = 'Draft CBP FORM 7501 Broker'; color = INFO; }
+  else if (dt === 'ENTRY_SUMMARY') { docCode = 'CBP'; docTypeLabel = 'CBP FORM 7501'; color = INFO; }
   else if ((dt === 'BOE' || dt.includes('BILL_OF_ENTRY')) && !dt.includes('DRAFT')) { docCode = 'CBP'; docTypeLabel = 'CBP FORM 7501'; color = INFO; }
   else if (dt === 'FREIGHT_FORWARDER_BILL' || dt.includes('FREIGHT_FORWARDER')) {
     docCode = 'FF'; docTypeLabel = 'Freight Forwarder Bill'; color = BLUE;
@@ -2093,6 +2095,7 @@ export function UploadProcessPage() {
   const [shipmentVal,   setShipmentVal]   = useState('');
   const [activeChip,    setActiveChip]    = useState(0);
   const [queueSearch,   setQueueSearch]   = useState('');
+  const [queueDocTypeFilter, setQueueDocTypeFilter] = useState('all');
   const [queuePage,         setQueuePage]         = useState(1);
   const [detailCard,        setDetailCard]        = useState<QueueCard | null>(null);
   const [waitingDocs,       setWaitingDocs]       = useState<WaitingDoc[]>([]);
@@ -2186,7 +2189,7 @@ export function UploadProcessPage() {
 
   useEffect(() => {
     setQueuePage(1);
-  }, [activeChip, queueSearch]);
+  }, [activeChip, queueSearch, queueDocTypeFilter]);
 
   const generatedDocsQuery = useQuery({
     queryKey: ['upload-process', 'generated-drafts'],
@@ -2695,6 +2698,39 @@ export function UploadProcessPage() {
   const reviewActionCount = statsCount.needsApproval + statsCount.needsReapproval;
 
   const CHIP_CATEGORIES: (StatusCategory | null)[] = [null, 'needs-approval', 'needs-reapproval', 'processing', 'cross-validating', 'draft-review', 'done'];
+  const queueDocTypeKey = (card: QueueCard) => (
+    card.documentTypeCode || card.docType || card.docCode
+  ).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  const queueDocTypeFilterLabel = (card: QueueCard) => {
+    const raw = String(card.documentTypeCode || '').toUpperCase();
+    if (raw === 'DRAFT_CBP_FORM_7501_BROKER') return 'Draft CBP FORM 7501 Broker';
+    if (raw === 'ENTRY_SUMMARY') return card.statusCategory === 'draft-review' ? 'Generated Draft CBP FORM 7501' : 'CBP FORM 7501';
+    return card.docType;
+  };
+  const queueDocTypeOptions = useMemo(() => {
+    const options = new Map<string, { label: string; count: number }>();
+    for (const card of visibleCards) {
+      const key = queueDocTypeKey(card);
+      if (!key) continue;
+      const existing = options.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        options.set(key, { label: queueDocTypeFilterLabel(card), count: 1 });
+      }
+    }
+    return Array.from(options.entries())
+      .map(([value, option]) => ({ value, ...option }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [visibleCards]);
+
+  useEffect(() => {
+    if (queueDocTypeFilter === 'all') return;
+    if (!queueDocTypeOptions.some((option) => option.value === queueDocTypeFilter)) {
+      setQueueDocTypeFilter('all');
+    }
+  }, [queueDocTypeFilter, queueDocTypeOptions]);
+
   const searchedCards = queueSearch.trim()
     ? visibleCards.filter((c) => {
         const q = queueSearch.toLowerCase();
@@ -2705,11 +2741,15 @@ export function UploadProcessPage() {
       })
     : visibleCards;
 
-  const filteredCards = activeChip === 0
+  const docTypeFilteredCards = queueDocTypeFilter === 'all'
     ? searchedCards
+    : searchedCards.filter((c) => queueDocTypeKey(c) === queueDocTypeFilter);
+
+  const filteredCards = activeChip === 0
+    ? docTypeFilteredCards
     : activeChip === WAITING_FOR_BOL_CHIP_INDEX
       ? []
-      : searchedCards.filter((c) => c.statusCategory === CHIP_CATEGORIES[activeChip]);
+      : docTypeFilteredCards.filter((c) => c.statusCategory === CHIP_CATEGORIES[activeChip]);
 
   const queueSearchOptions = queueSearch.trim() ? filteredCards.slice(0, 8) : [];
 
@@ -3236,6 +3276,30 @@ export function UploadProcessPage() {
               size="compact"
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <select
+                value={queueDocTypeFilter}
+                onChange={(event) => setQueueDocTypeFilter(event.target.value)}
+                aria-label="Filter queue by document type"
+                style={{
+                  height: 38,
+                  minWidth: 190,
+                  padding: '0 34px 0 12px',
+                  border: `1px solid ${BORDER}`,
+                  borderRadius: 7,
+                  backgroundColor: 'hsl(var(--card))',
+                  color: queueDocTypeFilter === 'all' ? MUTED : FG,
+                  fontSize: 14,
+                  outline: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <option value="all">All document types</option>
+                {queueDocTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label} ({option.count})
+                  </option>
+                ))}
+              </select>
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 7, padding: '5px 10px',
                 border: `1px solid ${BORDER}`, borderRadius: 7, backgroundColor: 'hsl(var(--card))',

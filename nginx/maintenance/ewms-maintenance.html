@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>EWMS Maintenance</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: #07080d;
+      color: rgba(255,255,255,0.9);
+    }
+    .el-root {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: #07080d;
+    }
+    .el-blob {
+      position: absolute;
+      filter: blur(40px);
+      pointer-events: none;
+      will-change: transform;
+    }
+    .el-blob-teal {
+      width: 65%;
+      height: 65%;
+      left: -10%;
+      top: 0%;
+      background: radial-gradient(ellipse, rgba(93,202,165,0.22) 0%, rgba(93,202,165,0.07) 40%, transparent 70%);
+      animation: aurora-a 16s ease-in-out infinite;
+    }
+    .el-blob-purple {
+      width: 55%;
+      height: 60%;
+      right: -8%;
+      top: 25%;
+      background: radial-gradient(ellipse, rgba(110,95,210,0.20) 0%, rgba(110,95,210,0.06) 40%, transparent 70%);
+      animation: aurora-b 20s ease-in-out infinite;
+    }
+    .el-blob-amber {
+      width: 50%;
+      height: 50%;
+      left: 20%;
+      bottom: -8%;
+      background: radial-gradient(ellipse, rgba(229,155,45,0.16) 0%, rgba(229,155,45,0.05) 40%, transparent 70%);
+      animation: aurora-c 14s ease-in-out infinite;
+    }
+    .el-blob-pink {
+      width: 40%;
+      height: 40%;
+      right: 8%;
+      top: -8%;
+      background: radial-gradient(ellipse, rgba(210,120,160,0.12) 0%, rgba(210,120,160,0.04) 40%, transparent 70%);
+      animation: aurora-d 18s ease-in-out infinite;
+    }
+    .el-ship {
+      position: absolute;
+      pointer-events: none;
+    }
+    .ship-one { top: 6%; opacity: 0.15; animation: move-right 30s linear infinite; }
+    .ship-two { top: 26%; opacity: 0.10; animation: move-left 38s 4s linear infinite; }
+    .ship-three { top: 50%; opacity: 0.08; animation: move-right 34s 8s linear infinite; }
+    .ship-four { top: 70%; opacity: 0.12; animation: move-left 40s 2s linear infinite; }
+    .ship-five { top: 86%; opacity: 0.07; animation: move-right 36s 6s linear infinite; }
+    .el-ship svg {
+      display: block;
+      animation: bob 3.5s ease-in-out infinite;
+    }
+    .ship-two svg { width: 136px; height: auto; }
+    .ship-three svg, .ship-five svg { width: 112px; height: auto; }
+    .ship-four svg { width: 144px; height: auto; }
+    .el-particle, .el-code, .el-vignette {
+      position: absolute;
+      pointer-events: none;
+    }
+    .el-particle {
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: rgba(93,202,165,0.35);
+      animation: twinkle 4s ease-in-out infinite;
+    }
+    .particle-a { left: 13%; top: 7%; }
+    .particle-b { left: 50%; top: 60%; animation-delay: -0.8s; background: rgba(229,155,45,0.35); }
+    .particle-c { left: 86%; top: 22%; animation-delay: -1.6s; background: rgba(110,95,210,0.35); }
+    .particle-d { left: 25%; top: 78%; animation-delay: -2.1s; }
+    .particle-e { left: 72%; top: 84%; animation-delay: -2.7s; background: rgba(229,155,45,0.35); }
+    .particle-f { left: 40%; top: 18%; animation-delay: -3.2s; background: rgba(110,95,210,0.35); }
+    .el-code {
+      font-family: "SF Mono", "Fira Code", ui-monospace, monospace;
+      font-size: 11px;
+      color: rgba(93,202,165,0.5);
+      animation: ghost-float 6s ease-in-out infinite;
+    }
+    .code-a { left: 10%; top: 20%; }
+    .code-b { left: 34%; top: 20%; animation-delay: -0.8s; }
+    .code-c { left: 58%; top: 20%; animation-delay: -1.6s; }
+    .code-d { left: 82%; top: 20%; animation-delay: -2.4s; }
+    .code-e { left: 10%; top: 75%; animation-delay: -3.2s; }
+    .code-f { left: 34%; top: 75%; animation-delay: -4s; }
+    .code-g { left: 58%; top: 75%; animation-delay: -4.8s; }
+    .code-h { left: 82%; top: 75%; animation-delay: -5.6s; }
+    .el-vignette {
+      inset: 0;
+      background: radial-gradient(ellipse at center, transparent 25%, rgba(7,8,13,0.4) 80%);
+    }
+    .el-content {
+      position: relative;
+      z-index: 10;
+      display: grid;
+      grid-template-columns: 1fr 420px;
+      width: 100%;
+      height: 100%;
+      max-height: 100vh;
+      overflow: hidden;
+    }
+    .el-left {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 28px;
+      overflow: hidden;
+      padding: 56px 52px 56px 7%;
+    }
+    .el-right {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow-y: auto;
+      padding: 40px 5% 40px 0;
+    }
+    .el-eyebrow {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 2.5px;
+      color: rgba(93,202,165,0.45);
+      animation: card-up 0.7s cubic-bezier(.16,1,.3,1) 0.1s both;
+    }
+    .el-headline {
+      max-width: 760px;
+      margin: 0;
+      font-size: clamp(28px, 3.2vw, 46px);
+      font-weight: 700;
+      line-height: 1.18;
+      color: rgba(255,255,255,0.95);
+      animation: card-up 0.7s cubic-bezier(.16,1,.3,1) 0.2s both;
+    }
+    .el-headline-teal {
+      display: block;
+      color: rgb(93,202,165);
+    }
+    .el-subhead {
+      max-width: 520px;
+      margin: 0;
+      font-size: 16px;
+      line-height: 1.65;
+      color: rgba(255,255,255,0.32);
+      animation: card-up 0.7s cubic-bezier(.16,1,.3,1) 0.3s both;
+    }
+    .el-pillars {
+      display: flex;
+      width: 100%;
+      max-width: 900px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.04);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.02);
+      animation: card-up 0.7s cubic-bezier(.16,1,.3,1) 0.4s both;
+    }
+    .el-pillar {
+      flex: 1;
+      padding: 16px 18px;
+      border-right: 1px solid rgba(255,255,255,0.03);
+    }
+    .el-pillar:last-child { border-right: 0; }
+    .el-pillar-icon {
+      margin-bottom: 8px;
+      color: rgb(93,202,165);
+      font-size: 18px;
+    }
+    .el-pillar-label {
+      margin-bottom: 5px;
+      color: rgba(255,255,255,0.7);
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .el-pillar-desc {
+      color: rgba(255,255,255,0.28);
+      font-size: 12.5px;
+      line-height: 1.5;
+    }
+    .el-flow {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      animation: card-up 0.7s cubic-bezier(.16,1,.3,1) 0.5s both;
+    }
+    .el-flow-node {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .el-flow-label {
+      color: rgba(255,255,255,0.75);
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .el-flow-sub { font-size: 12.5px; }
+    .el-flow-arrow {
+      padding-top: 3px;
+      color: rgba(93,202,165,0.2);
+      font-size: 16px;
+    }
+    .el-closing {
+      color: rgba(255,255,255,0.14);
+      font-size: 13px;
+      letter-spacing: 1px;
+      animation: fade-in 0.8s ease 1s both;
+    }
+    .el-card {
+      width: 100%;
+      padding: 34px;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 24px;
+      background: rgba(10,12,18,0.6);
+      box-shadow: 0 0 70px rgba(93,202,165,0.08);
+      backdrop-filter: blur(80px) saturate(150%);
+      animation: card-up 0.9s cubic-bezier(.16,1,.3,1) 0.55s both, breathe 6s ease 1.5s infinite;
+    }
+    .el-logo-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+    .el-logo-mark {
+      display: flex;
+      flex-shrink: 0;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgb(93,202,165) 0%, rgb(29,158,117) 100%);
+    }
+    .el-logo-name {
+      flex: 1;
+      color: rgba(255,255,255,0.95);
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 5px;
+    }
+    .el-preview-badge {
+      padding: 2px 7px;
+      border: 1px solid rgba(229,155,45,0.28);
+      border-radius: 20px;
+      color: rgba(229,155,45,0.85);
+      font-size: 9px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .el-mode-title {
+      margin: 4px 0 8px;
+      color: rgba(255,255,255,0.92);
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+    .el-mode-desc {
+      margin: 0 0 20px;
+      color: rgba(255,255,255,0.42);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .el-maintenance-box {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin: 20px 0;
+      padding: 14px 16px;
+      border: 1px solid rgba(229,155,45,0.22);
+      border-radius: 10px;
+      background: rgba(229,155,45,0.08);
+    }
+    .el-maintenance-icon {
+      display: flex;
+      flex-shrink: 0;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(229,155,45,0.18);
+      color: rgb(229,155,45);
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .el-maintenance-title {
+      margin-bottom: 4px;
+      color: rgba(255,255,255,0.88);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .el-maintenance-sub {
+      color: rgba(255,255,255,0.42);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .el-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+    .el-label {
+      color: rgba(255,255,255,0.35);
+      font-size: 10.5px;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+    .el-input {
+      width: 100%;
+      height: 48px;
+      padding: 0 14px;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      outline: none;
+      background: rgba(255,255,255,0.025);
+      color: rgba(255,255,255,0.22);
+      font-size: 14px;
+    }
+    .el-input::placeholder { color: rgba(255,255,255,0.18); }
+    .el-btn {
+      position: relative;
+      width: 100%;
+      height: 50px;
+      overflow: hidden;
+      border: 0;
+      border-radius: 12px;
+      background: rgb(29,158,117);
+      color: white;
+      cursor: default;
+      font-size: 15px;
+      font-weight: 600;
+      opacity: 0.85;
+    }
+    .el-btn-shimmer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.1) 50%, transparent 60%);
+      background-size: 200% 100%;
+      animation: shimmer 3s ease-in-out infinite;
+    }
+    .el-card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid rgba(255,255,255,0.04);
+      color: rgba(255,255,255,0.13);
+      font-size: 10.5px;
+    }
+    @keyframes aurora-a {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      33% { transform: translate(50px, -35px) scale(1.08); }
+      66% { transform: translate(-25px, 25px) scale(0.95); }
+    }
+    @keyframes aurora-b {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      33% { transform: translate(-50px, 30px) scale(1.05); }
+      66% { transform: translate(20px, -20px) scale(0.97); }
+    }
+    @keyframes aurora-c {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(30px, -20px) scale(1.06); }
+    }
+    @keyframes aurora-d {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      40% { transform: translate(-20px, 20px) scale(1.04); }
+      80% { transform: translate(15px, -10px) scale(0.96); }
+    }
+    @keyframes move-right { from { left: -25%; } to { left: 110%; } }
+    @keyframes move-left { from { left: 110%; } to { left: -25%; } }
+    @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+    @keyframes twinkle { 0%, 100% { opacity: 0.06; } 50% { opacity: 0.35; } }
+    @keyframes ghost-float {
+      0%, 100% { opacity: 0.04; transform: translateY(0); }
+      50% { opacity: 0.18; transform: translateY(-4px); }
+    }
+    @keyframes card-up {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes breathe {
+      0%, 100% { box-shadow: 0 0 40px rgba(93,202,165,0.03); }
+      50% { box-shadow: 0 0 70px rgba(93,202,165,0.08); }
+    }
+    @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+    @media (max-width: 900px) {
+      .el-root {
+        position: relative;
+        min-height: 100vh;
+      }
+      .el-content {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+        height: auto;
+        max-height: none;
+        overflow: visible;
+      }
+      .el-left {
+        padding: 40px 24px 20px;
+        gap: 20px;
+      }
+      .el-right { padding: 18px 24px 40px; }
+      .el-pillars { flex-direction: column; }
+      .el-pillar {
+        border-right: 0;
+        border-bottom: 1px solid rgba(255,255,255,0.03);
+      }
+      .el-pillar:last-child { border-bottom: 0; }
+      .el-flow { flex-wrap: wrap; }
+      .el-card {
+        max-width: 420px;
+        padding: 28px;
+      }
+    }
+    @media (max-width: 520px) {
+      .el-headline { font-size: 30px; }
+      .el-card { padding: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="el-root">
+    <div class="el-blob el-blob-teal"></div>
+    <div class="el-blob el-blob-purple"></div>
+    <div class="el-blob el-blob-amber"></div>
+    <div class="el-blob el-blob-pink"></div>
+
+    <div class="el-ship ship-one"><svg width="160" height="55" viewBox="0 0 160 55" fill="none" aria-hidden="true"><path d="M4 30 Q8 46 30 48 L125 48 Q148 44 156 26 L142 19 L22 19 Z" fill="rgba(93,202,165,1)"/><rect x="24" y="4" width="19" height="15" rx="2" fill="rgba(93,202,165,1)"/><rect x="29" y="-3" width="7" height="8" rx="1" fill="rgba(93,202,165,0.8)"/><rect x="50" y="8" width="12" height="11" rx="1" fill="rgba(229,155,45,0.9)"/><rect x="64" y="6" width="12" height="13" rx="1" fill="rgba(93,202,165,0.7)"/><rect x="78" y="9" width="12" height="10" rx="1" fill="rgba(110,95,210,0.8)"/><rect x="92" y="7" width="12" height="12" rx="1" fill="rgba(229,155,45,0.7)"/><rect x="106" y="10" width="12" height="9" rx="1" fill="rgba(93,202,165,0.6)"/></svg></div>
+    <div class="el-ship ship-two"><svg width="160" height="55" viewBox="0 0 160 55" fill="none" aria-hidden="true"><path d="M4 30 Q8 46 30 48 L125 48 Q148 44 156 26 L142 19 L22 19 Z" fill="rgba(93,202,165,1)"/><rect x="24" y="4" width="19" height="15" rx="2" fill="rgba(93,202,165,1)"/><rect x="50" y="8" width="12" height="11" rx="1" fill="rgba(229,155,45,0.9)"/><rect x="64" y="6" width="12" height="13" rx="1" fill="rgba(93,202,165,0.7)"/><rect x="78" y="9" width="12" height="10" rx="1" fill="rgba(110,95,210,0.8)"/></svg></div>
+    <div class="el-ship ship-three"><svg width="160" height="55" viewBox="0 0 160 55" fill="none" aria-hidden="true"><path d="M4 30 Q8 46 30 48 L125 48 Q148 44 156 26 L142 19 L22 19 Z" fill="rgba(93,202,165,1)"/><rect x="24" y="4" width="19" height="15" rx="2" fill="rgba(93,202,165,1)"/><rect x="64" y="6" width="12" height="13" rx="1" fill="rgba(93,202,165,0.7)"/><rect x="92" y="7" width="12" height="12" rx="1" fill="rgba(229,155,45,0.7)"/></svg></div>
+    <div class="el-ship ship-four"><svg width="160" height="55" viewBox="0 0 160 55" fill="none" aria-hidden="true"><path d="M4 30 Q8 46 30 48 L125 48 Q148 44 156 26 L142 19 L22 19 Z" fill="rgba(93,202,165,1)"/><rect x="24" y="4" width="19" height="15" rx="2" fill="rgba(93,202,165,1)"/><rect x="78" y="9" width="12" height="10" rx="1" fill="rgba(110,95,210,0.8)"/><rect x="106" y="10" width="12" height="9" rx="1" fill="rgba(93,202,165,0.6)"/></svg></div>
+    <div class="el-ship ship-five"><svg width="160" height="55" viewBox="0 0 160 55" fill="none" aria-hidden="true"><path d="M4 30 Q8 46 30 48 L125 48 Q148 44 156 26 L142 19 L22 19 Z" fill="rgba(93,202,165,1)"/><rect x="24" y="4" width="19" height="15" rx="2" fill="rgba(93,202,165,1)"/><rect x="50" y="8" width="12" height="11" rx="1" fill="rgba(229,155,45,0.9)"/></svg></div>
+
+    <div class="el-particle particle-a"></div>
+    <div class="el-particle particle-b"></div>
+    <div class="el-particle particle-c"></div>
+    <div class="el-particle particle-d"></div>
+    <div class="el-particle particle-e"></div>
+    <div class="el-particle particle-f"></div>
+    <div class="el-code code-a">SI</div>
+    <div class="el-code code-b">BOL</div>
+    <div class="el-code code-c">PL</div>
+    <div class="el-code code-d">GRN</div>
+    <div class="el-code code-e">CHA</div>
+    <div class="el-code code-f">POD</div>
+    <div class="el-code code-g">FF</div>
+    <div class="el-code code-h">CBP FORM 7501</div>
+    <div class="el-vignette"></div>
+
+    <div class="el-content">
+      <section class="el-left" aria-label="EWMS overview">
+        <div class="el-eyebrow">MANUFACTURING SUPPLY · PORT TO LEDGER</div>
+        <h1 class="el-headline">Ship, prove, and close the loop on<span class="el-headline-teal">industrial export programmes</span></h1>
+        <p class="el-subhead">Manufacturers and exporters run dense ocean programmes with customs evidence, CHA or broker spend, and finance close behind every move.</p>
+        <div class="el-pillars">
+          <div class="el-pillar"><div class="el-pillar-icon">◈</div><div class="el-pillar-label">Shipment 360°</div><div class="el-pillar-desc">Loads, cut-offs, and port milestones in one lane</div></div>
+          <div class="el-pillar"><div class="el-pillar-icon">◇</div><div class="el-pillar-label">Document control</div><div class="el-pillar-desc">Commercial invoices, packing lists, and CBP FORM 7501-ready packs checked to policy</div></div>
+          <div class="el-pillar"><div class="el-pillar-icon">◎</div><div class="el-pillar-label">Finance handoff</div><div class="el-pillar-desc">Pre-built journal lines staged for ERP posting</div></div>
+        </div>
+        <div class="el-flow">
+          <div class="el-flow-node"><div class="el-flow-label">Yard &amp; load</div><div class="el-flow-sub" style="color: rgb(93,202,165)">FCL plan, gate, ocean milestones</div></div>
+          <div class="el-flow-arrow">→</div>
+          <div class="el-flow-node"><div class="el-flow-label">Documents</div><div class="el-flow-sub" style="color: rgb(229,155,45)">CI, packing list, customs pack</div></div>
+          <div class="el-flow-arrow">→</div>
+          <div class="el-flow-node"><div class="el-flow-label">Books</div><div class="el-flow-sub" style="color: rgb(110,95,210)">Dr / Cr lines ready for ERP</div></div>
+        </div>
+        <div class="el-closing">Physical move → document evidence → balanced ledger</div>
+      </section>
+
+      <section class="el-right" aria-label="EWMS maintenance message">
+        <div class="el-card">
+          <div class="el-logo-row">
+            <div class="el-logo-mark" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="3" y="3" width="7" height="7" rx="1.5" fill="white" opacity="0.9"/><rect x="12" y="3" width="7" height="7" rx="1.5" fill="white" opacity="0.6"/><rect x="3" y="12" width="7" height="7" rx="1.5" fill="white" opacity="0.6"/><rect x="12" y="12" width="7" height="7" rx="1.5" fill="white" opacity="0.35"/></svg>
+            </div>
+            <div class="el-logo-name">EWMS</div>
+            <div class="el-preview-badge">maintenance</div>
+          </div>
+          <div class="el-mode-title">EWMS App is under maintanence!!</div>
+          <p class="el-mode-desc">Try after sometime. We are restoring the application service and your workspaces will be available once the app is back online.</p>
+          <div class="el-maintenance-box" role="status" aria-live="polite">
+            <div class="el-maintenance-icon">!</div>
+            <div>
+              <div class="el-maintenance-title">Service temporarily unavailable</div>
+              <div class="el-maintenance-sub">The EWMS  service is unavailable right now. Please refresh after a short while.</div>
+            </div>
+          </div>
+          <div class="el-field"><label class="el-label" for="ewms-email">USERNAME / EMAIL</label><input id="ewms-email" class="el-input" type="text" placeholder="admin or you@company.com" disabled></div>
+          <div class="el-field"><label class="el-label" for="ewms-password">PASSWORD</label><input id="ewms-password" class="el-input" type="password" placeholder="••••••••" disabled></div>
+          <button class="el-btn" type="button" disabled><span class="el-btn-shimmer"></span><span style="position: relative">Sign in unavailable</span></button>
+          <div class="el-card-footer">
+            <svg width="11" height="13" viewBox="0 0 11 13" fill="none" aria-hidden="true"><rect x="1" y="5" width="9" height="7" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M3 5V3.5a2.5 2.5 0 0 1 5 0V5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+            Secured by SPR Consultech
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

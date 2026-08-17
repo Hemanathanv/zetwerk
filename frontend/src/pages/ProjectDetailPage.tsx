@@ -1,8 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams } from 'wouter';
 import { getAuthToken } from '@/lib/api';
-import { useShipments } from '@/hooks/useOperationalData';
-import { RequireActivity } from '@/components/PermissionGate';
 import { useProjectDetail } from '@/hooks/useProjectDetail';
 import { ProjectHeader } from '@/components/project/ProjectHeader';
 import { ProjectSummaryCards } from '@/components/project/ProjectSummaryCards';
@@ -145,7 +143,7 @@ function LinkShipmentButton({
   projectId: string;
   existingShipmentIds: string[];
 }) {
-  const { shipments } = useShipments();
+  const shipments: any[] = [];
   const unlinked = (shipments as any[]).filter(
     (s: any) => !s.projectId && !existingShipmentIds.includes(s.id)
   );
@@ -231,12 +229,6 @@ export function ProjectDetailPage() {
             Shipments
             <span className="text-foreground font-normal normal-case text-[13px]">({data.shipments.length})</span>
           </h3>
-          <RequireActivity code="SHP-003">
-            <LinkShipmentButton
-              projectId={project.id}
-              existingShipmentIds={data.shipments.map(s => s.id)}
-            />
-          </RequireActivity>
         </div>
         <ProjectShipmentTable
           shipments={data.shipments}

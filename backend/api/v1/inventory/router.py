@@ -1908,7 +1908,7 @@ async def confirm_outward_dispatch(
     _authz=Depends(require_activity("inventory.approve_dispatch")),
 ):
     prisma = await get_prisma()
-    await _execute_raw(
+    updated_count = await _execute_raw(
         prisma,
         """
         UPDATE docgen.drafts
@@ -1920,6 +1920,8 @@ async def confirm_outward_dispatch(
         dispatch_id,
         str(user.id),
     )
+    if int(updated_count or 0) <= 0:
+        raise HTTPException(status_code=404, detail="Outward dispatch draft not found")
     return {"ok": True, "data": {"id": dispatch_id, "status": "CONFIRMED", "documentId": None}}
 
 

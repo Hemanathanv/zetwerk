@@ -12,13 +12,15 @@ from pydantic import BaseModel, Field
 from db import get_prisma
 from helpers.config import settings
 from helpers.dependencies import get_current_user
-from helpers.shipment_operational import ensure_operational_shipment_tables, sync_reviewed_bols_as_shipments
+from helpers.shipment_operational import ensure_operational_shipment_tables, link_documents_to_shipment_by_keys, sync_reviewed_bols_as_shipments
 from shipment_360.safecube import infer_shipment_type, track_container
 
 
 router = APIRouter(tags=["Documents"])
 SHIPMENT_VIEWS_SQL = Path(__file__).resolve().parents[3] / "shipment_360" / "views.sql"
+DOCUMENT_MODULE_VIEWS_SQL = Path(__file__).resolve().parents[3] / "document_module" / "views.sql"
 _SHIPMENT_VIEWS_READY = False
+_DOCUMENT_MODULE_VIEWS_READY = False
 
 
 PARALLEL_DOC_GATE_NUMBER: dict[str, int] = {
@@ -96,6 +98,11 @@ def _dict_get(data: dict[str, Any], *keys: str) -> Any:
         if key in data and data[key] not in (None, ""):
             return data[key]
     return None
+
+
+def _link_ref(value: Any) -> str | None:
+    normalized = "".join(ch.lower() for ch in str(value or "") if ch.isalnum())
+    return normalized if len(normalized) >= 4 else None
 
 
 def _doc_payload(row: dict[str, Any]) -> dict[str, Any]:
@@ -188,6 +195,17 @@ async def _ensure_shipment_360_views(prisma) -> None:
     for statement in statements:
         await _execute_raw(prisma, statement)
     _SHIPMENT_VIEWS_READY = True
+
+
+async def _ensure_document_module_views(prisma) -> None:
+    global _DOCUMENT_MODULE_VIEWS_READY
+    if _DOCUMENT_MODULE_VIEWS_READY:
+        return
+    sql = DOCUMENT_MODULE_VIEWS_SQL.read_text(encoding="utf-8")
+    statements = [statement.strip() for statement in sql.split(";") if statement.strip()]
+    for statement in statements:
+        await _execute_raw(prisma, statement)
+    _DOCUMENT_MODULE_VIEWS_READY = True
 
 
 async def _ensure_gate_validation_tables(prisma) -> None:
@@ -777,11 +795,50 @@ def _public_shipment_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _document_done_score(document: dict[str, Any]) -> int:
+    status = str(document.get("status") or "").upper()
+    validation_status = str(document.get("validationStatus") or document.get("validation_status") or "").upper()
+    ocr_status = str(document.get("ocrStatus") or document.get("ocr_status") or "").upper()
+    score = 0
+    if document.get("approvedAt") or document.get("approved_at"):
+        score += 100
+    if status in {"REVIEWED", "ARCHIVED", "APPROVED", "COMPLETED", "DONE"}:
+        score += 80
+    if validation_status == "PASSED":
+        score += 20
+    if ocr_status in {"COMPLETED", "COMPLETE", "REVIEWED", "APPROVED"}:
+        score += 10
+    return score
+
+
+def _dedupe_shipment_documents(documents: list[Any]) -> list[dict[str, Any]]:
+    deduped: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for document in documents:
+        if not isinstance(document, dict):
+            continue
+        doc_type = str(document.get("documentType") or document.get("document_type") or "")
+        ref = _link_ref(
+            document.get("documentNumber")
+            or document.get("document_number")
+            or document.get("fileName")
+            or document.get("file_name")
+        )
+        key = f"{doc_type}|{ref}" if doc_type and ref else f"id|{document.get('id')}"
+        if key not in deduped:
+            deduped[key] = document
+            order.append(key)
+            continue
+        if _document_done_score(document) > _document_done_score(deduped[key]):
+            deduped[key] = document
+    return [deduped[key] for key in order]
+
+
 def _view_shipment_payload(row: dict[str, Any], *, include_containers: bool = False) -> dict[str, Any]:
-    documents = _as_list(row.get("documents"))
+    documents = _dedupe_shipment_documents(_as_list(row.get("documents")))
     gates = _as_list(row.get("shipment_gates"))
-    approved_count = row.get("documents_approved")
-    total_count = row.get("documents_total")
+    approved_count = sum(1 for doc in documents if _document_done_score(doc) >= 80)
+    total_count = len(documents)
     payload = {
         "id": str(row["id"]),
         "shipmentNumber": row.get("shipment_number"),
@@ -828,6 +885,159 @@ def _view_shipment_payload(row: dict[str, Any], *, include_containers: bool = Fa
         },
     }
     return payload
+
+
+async def _merge_document_module_gate_docs(prisma, shipments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not shipments:
+        return shipments
+    shipment_ref_pairs: list[tuple[str, str]] = []
+    seen_ref_pairs: set[tuple[str, str]] = set()
+    for shipment in shipments:
+        for value in (
+            shipment.get("id"),
+            shipment.get("shipmentNumber"),
+            shipment.get("bolNumber"),
+            shipment.get("blNumber"),
+            shipment.get("hblNumber"),
+            shipment.get("mblNumber"),
+            shipment.get("bookingNumber"),
+            shipment.get("projectName"),
+        ):
+            if not value:
+                continue
+            raw = str(value)
+            normalized = _link_ref(raw)
+            if not normalized:
+                continue
+            pair = (raw, normalized)
+            if pair in seen_ref_pairs:
+                continue
+            seen_ref_pairs.add(pair)
+            shipment_ref_pairs.append(pair)
+    if not shipment_ref_pairs:
+        return shipments
+    shipment_refs = [raw for raw, _normalized in shipment_ref_pairs]
+    normalized_shipment_refs = [normalized for _raw, normalized in shipment_ref_pairs]
+    try:
+        await _execute_raw(prisma, 'CREATE SCHEMA IF NOT EXISTS "document_module"')
+        await _ensure_document_module_views(prisma)
+        rows = await _query_raw(
+            prisma,
+            """
+            SELECT
+              COALESCE(
+                v."shipment_id"::text,
+                (
+                  SELECT refs.raw_ref
+                  FROM unnest($1::text[], $2::text[]) AS refs(raw_ref, normalized_ref)
+                  WHERE length(refs.normalized_ref) >= 5
+                    AND position(
+                      refs.normalized_ref in LOWER(REGEXP_REPLACE(COALESCE(v."extracted_data"::text, ''), '[^A-Za-z0-9]+', '', 'g'))
+                    ) > 0
+                  LIMIT 1
+                )
+              ) AS mapped_shipment_ref,
+              v."document_id"::text AS id,
+              v."doc_type" AS document_type,
+              v."file_name" AS document_number,
+              'REVIEWED' AS status,
+              'completed' AS ocr_status,
+              COALESCE(d."validation_status", 'WAITING') AS validation_status,
+              v."approved_at" AS approved_at,
+              false AS is_generated,
+              v."gate_number" AS gate_number,
+              v."gate_code" AS gate_code,
+              v."is_parallel" AS is_parallel
+            FROM "document_module"."v_shipment_gate_documents" v
+            JOIN "public"."documents" d ON d."id"::text = v."document_id"::text
+            WHERE v."shipment_id"::text = ANY($1::text[])
+               OR EXISTS (
+                 SELECT 1
+                 FROM unnest($2::text[]) AS refs(normalized_ref)
+                 WHERE length(refs.normalized_ref) >= 5
+                   AND position(
+                     refs.normalized_ref in LOWER(REGEXP_REPLACE(COALESCE(v."extracted_data"::text, ''), '[^A-Za-z0-9]+', '', 'g'))
+                   ) > 0
+               )
+            """,
+            shipment_refs,
+            normalized_shipment_refs,
+        )
+    except Exception as exc:
+        print(f"[shipments] warning: could not merge document-module gate docs: {exc}", flush=True)
+        return shipments
+
+    by_ref: dict[str, dict[str, Any]] = {}
+    by_normalized_ref: dict[str, dict[str, Any]] = {}
+    for shipment in shipments:
+        for value in (
+            shipment.get("id"),
+            shipment.get("shipmentNumber"),
+            shipment.get("bolNumber"),
+            shipment.get("blNumber"),
+            shipment.get("hblNumber"),
+            shipment.get("mblNumber"),
+            shipment.get("bookingNumber"),
+            shipment.get("projectName"),
+        ):
+            if value:
+                by_ref[str(value)] = shipment
+                normalized = _link_ref(value)
+                if normalized:
+                    by_normalized_ref[normalized] = shipment
+
+    for row in rows:
+        mapped_ref = str(row.get("mapped_shipment_ref") or "")
+        shipment = by_ref.get(mapped_ref) or by_normalized_ref.get(_link_ref(mapped_ref) or "")
+        if not shipment:
+            continue
+        documents = shipment.setdefault("documents", [])
+        row_id = str(row.get("id") or "")
+        row_type = str(row.get("document_type") or "")
+        row_number = _link_ref(row.get("document_number")) or ""
+        incoming_doc = {
+            "id": str(row.get("id")),
+            "documentType": row.get("document_type"),
+            "documentNumber": row.get("document_number"),
+            "status": row.get("status"),
+            "ocrStatus": row.get("ocr_status"),
+            "validationStatus": row.get("validation_status"),
+            "approvedAt": _iso(row.get("approved_at")),
+            "isGenerated": bool(row.get("is_generated")),
+            "gateNumber": row.get("gate_number"),
+            "gateCode": row.get("gate_code"),
+            "isParallel": bool(row.get("is_parallel")),
+        }
+        duplicate_index = next(
+            (
+                index
+                for index, doc in enumerate(documents)
+                if isinstance(doc, dict)
+                and (
+                    (
+                        row_id
+                        and str(doc.get("id") or "") == row_id
+                    )
+                    or (
+                        row_type
+                        and row_number
+                        and str(doc.get("documentType") or doc.get("document_type") or "") == row_type
+                        and (_link_ref(doc.get("documentNumber") or doc.get("document_number") or doc.get("fileName") or doc.get("file_name")) or "") == row_number
+                    )
+                )
+            ),
+            None,
+        )
+        if duplicate_index is None:
+            documents.append(incoming_doc)
+        elif _document_done_score(incoming_doc) > _document_done_score(documents[duplicate_index]):
+            documents[duplicate_index] = incoming_doc
+        count = shipment.setdefault("_count", {})
+        deduped_documents = _dedupe_shipment_documents(documents)
+        shipment["documents"] = deduped_documents
+        count["documents"] = len(deduped_documents)
+        count["documentsApproved"] = sum(1 for doc in deduped_documents if _document_done_score(doc) >= 80)
+    return shipments
 
 
 async def _public_shipment_detail_payload(prisma, row: dict[str, Any]) -> dict[str, Any]:
@@ -1168,9 +1378,46 @@ async def list_shipments(
 ):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
-    await _ensure_shipment_360_views(prisma)
     resolved_offset = offset if offset is not None else (page - 1) * limit
     query_text = str(search or "").strip()
+    try:
+        await sync_reviewed_bols_as_shipments(prisma, limit=500)
+    except Exception as exc:
+        print(f"[shipments] warning: could not sync reviewed BOLs before listing shipments: {exc}", flush=True)
+    try:
+        shipment_link_rows = await _query_raw(
+            prisma,
+            """
+            SELECT "id"::text AS id
+            FROM "public"."shipments"
+            WHERE $1::text = ''
+               OR concat_ws(
+                    ' ',
+                    "shipment_number",
+                    "mbl_number",
+                    "booking_number",
+                    "bol_number",
+                    "vessel_name",
+                    "port_of_loading",
+                    "port_of_discharge",
+                    "exporter_name",
+                    "buyer_name",
+                    "project_name"
+                  ) ILIKE ('%' || $1::text || '%')
+            ORDER BY "created_at" DESC
+            LIMIT $2 OFFSET $3
+            """,
+            query_text,
+            limit,
+            resolved_offset,
+        )
+        for shipment_row in shipment_link_rows:
+            shipment_id = shipment_row.get("id")
+            if shipment_id:
+                await link_documents_to_shipment_by_keys(prisma, str(shipment_id))
+    except Exception as exc:
+        print(f"[shipments] warning: could not refresh linked documents before listing shipments: {exc}", flush=True)
+    await _ensure_shipment_360_views(prisma)
     try:
         total_rows = await _query_raw(
             prisma,
@@ -1198,6 +1445,7 @@ async def list_shipments(
         )
         total = int((total_rows[0] or {}).get("total") or 0) if total_rows else 0
         data = [_view_shipment_payload(row) for row in shipment_rows]
+        data = await _merge_document_module_gate_docs(prisma, data)
         return {
             "ok": True,
             "data": data,
@@ -1227,6 +1475,12 @@ async def list_shipments(
 async def get_shipment(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
+    try:
+        shipment = await _public_shipment_row(prisma, shipment_id)
+        if shipment:
+            await link_documents_to_shipment_by_keys(prisma, str(shipment["id"]))
+    except Exception as exc:
+        print(f"[shipments] warning: could not refresh linked documents for shipment {shipment_id}: {exc}", flush=True)
     await _ensure_shipment_360_views(prisma)
     try:
         rows = await _query_raw(
@@ -1271,6 +1525,12 @@ async def get_shipment(shipment_id: str, user=Depends(get_current_user)):
 async def list_shipment_documents(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
+    shipment = await _public_shipment_row(prisma, shipment_id)
+    if shipment:
+        try:
+            await link_documents_to_shipment_by_keys(prisma, str(shipment["id"]))
+        except Exception as exc:
+            print(f"[shipments] warning: could not refresh shipment document links {shipment_id}: {exc}", flush=True)
     await _ensure_shipment_360_views(prisma)
     rows = await _query_raw(
         prisma,
@@ -1284,7 +1544,7 @@ async def list_shipment_documents(shipment_id: str, user=Depends(get_current_use
     )
     if rows:
         return {"ok": True, "data": _as_list(rows[0].get("documents"))}
-    shipment = await _public_shipment_row(prisma, shipment_id)
+    shipment = shipment or await _public_shipment_row(prisma, shipment_id)
     if not shipment:
         raise HTTPException(status_code=404, detail="Shipment not found")
     return {"ok": True, "data": await _shipment_documents(prisma, str(shipment["id"]))}
@@ -1421,6 +1681,13 @@ async def track_shipment(payload: TrackShipmentRequest, user=Depends(get_current
 async def list_shipment_gates(shipment_id: str, user=Depends(get_current_user)):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
+    try:
+        shipment = await _public_shipment_row(prisma, shipment_id)
+        if shipment:
+            await link_documents_to_shipment_by_keys(prisma, str(shipment["id"]))
+            shipment_id = str(shipment["id"])
+    except Exception as exc:
+        print(f"[shipments] warning: could not refresh gate document links {shipment_id}: {exc}", flush=True)
     try:
         rows = await _shipment_gate_rows(prisma, shipment_id)
     except Exception as exc:

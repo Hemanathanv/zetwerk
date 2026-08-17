@@ -123,9 +123,8 @@ export function ProjectListPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 mb-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-6">
         <MetricCard label="Active projects" value={stats.active} />
-        <MetricCard label="Completed" value={stats.completed} />
         <MetricCard label="Total shipments" value={stats.totalShipments} />
       </div>
 

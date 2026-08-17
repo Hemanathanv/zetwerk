@@ -10,6 +10,7 @@ const ICONS = {
 const GATE_STATUS_COLOUR: Record<string, string> = {
   PASSED:  'bg-teal-500 ring-0',
   ACTIVE:  'bg-teal-500/20 ring-1 ring-teal-500 text-teal-700 dark:text-teal-400',
+  OPEN:    'bg-teal-500/20 ring-1 ring-teal-500 text-teal-700 dark:text-teal-400',
   BLOCKED: 'bg-red-500 ring-0',
   SKIPPED: 'bg-muted/60 ring-0 opacity-60',
   FUTURE:  'bg-muted/30 ring-0',
@@ -45,6 +46,8 @@ const SHIPMENT_STATUS_COLOUR: Record<string, string> = {
   cancelled: 'text-muted-foreground', CANCELLED: 'text-muted-foreground',
 };
 
+const TABLE_COLUMNS = 'grid-cols-[320px_140px_78px_120px_150px_minmax(80px,1fr)_24px]';
+
 function formatCurrency(value: number): string {
   return value.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 }
@@ -55,12 +58,13 @@ function fmtDate(iso: string): string {
 
 function GateDots({ gates }: { gates: ShipmentRow['gateProgress'] }) {
   if (gates.length === 0) return <span className="text-[12px] text-muted-foreground">—</span>;
+  const orderedGates = [...gates].sort((a, b) => a.gateNumber - b.gateNumber);
   return (
     <div className="flex items-center gap-0.5">
-      {gates.map((g, i) => (
+      {orderedGates.map((g, i) => (
         <div key={g.gateNumber} className="flex items-center">
           {i > 0 && (
-            <div className={`w-3 h-px mx-0.5 ${g.status === 'PASSED' && gates[i - 1]?.status === 'PASSED' ? 'bg-teal-400' : 'bg-muted/50'}`} />
+            <div className={`w-3 h-px mx-0.5 ${g.status === 'PASSED' && orderedGates[i - 1]?.status === 'PASSED' ? 'bg-teal-400' : 'bg-muted/50'}`} />
           )}
           <div
             className={`w-3.5 h-3.5 rounded-full text-[7px] flex items-center justify-center font-bold ${GATE_STATUS_COLOUR[g.status] ?? 'bg-muted/30'}`}
@@ -105,9 +109,9 @@ export function ProjectShipmentTable({ shipments, project }: Props) {
   }
 
   return (
-    <div className="bg-card rounded-lg overflow-hidden border border-border/50">
+    <div className="bg-card rounded-lg overflow-x-auto border border-border/50">
       {/* Header */}
-      <div className="grid grid-cols-[1.8fr_auto_auto_auto_1fr_auto_24px] gap-3 items-center px-4 py-2 border-b border-border/50 bg-muted/20">
+      <div className={`grid ${TABLE_COLUMNS} min-w-[940px] gap-3 items-center px-5 py-2 border-b border-border/50 bg-muted/20`}>
         {['Shipment', 'Gates', 'Docs', 'Inventory', 'ETA / Status', 'D&D', ''].map((h, i) => (
           <div key={i} className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
             {h}
@@ -127,19 +131,19 @@ export function ProjectShipmentTable({ shipments, project }: Props) {
           <button
             key={shipment.id}
             onClick={() => handleRowClick(shipment, idx)}
-            className="w-full grid grid-cols-[1.8fr_auto_auto_auto_1fr_auto_24px] gap-3 items-center px-4 py-3 border-b border-border/30 last:border-0 hover:bg-muted/20 transition-colors text-left"
+            className={`w-full grid ${TABLE_COLUMNS} min-w-[940px] gap-3 items-center px-5 py-3 border-b border-border/30 last:border-0 hover:bg-muted/20 transition-colors text-left`}
           >
             {/* Shipment */}
             <div className="min-w-0">
               <div className="text-[13px] font-mono font-semibold text-foreground truncate">
                 {shipment.shipmentNumber || <span className="font-sans font-normal italic text-muted-foreground">Pending</span>}
               </div>
-              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                <span className={`text-[11px] font-medium ${SHIPMENT_STATUS_COLOUR[shipment.status] ?? 'text-muted-foreground'}`}>
+              <div className="mt-0.5 flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
+                <span className={`shrink-0 text-[11px] font-semibold uppercase ${SHIPMENT_STATUS_COLOUR[shipment.status] ?? 'text-muted-foreground'}`}>
                   {shipment.status?.replace(/_/g, ' ')}
                 </span>
                 {shipment.vesselName && (
-                  <span className="text-[11px] text-muted-foreground truncate max-w-[120px]">
+                  <span className="min-w-0 truncate text-[11px] text-muted-foreground">
                     {shipment.vesselName}
                   </span>
                 )}
@@ -147,12 +151,12 @@ export function ProjectShipmentTable({ shipments, project }: Props) {
             </div>
 
             {/* Gates */}
-            <div>
+            <div className="flex items-center">
               <GateDots gates={shipment.gateProgress} />
             </div>
 
             {/* Docs */}
-            <div>
+            <div className="flex items-center">
               <span className={`text-[12px] font-medium px-1.5 py-0.5 rounded ${DOC_STATUS_CHIP[docStatus]}`}>
                 {shipment.docTotal > 0 ? `${shipment.docApproved}/${shipment.docTotal}` : '—'}
               </span>
@@ -178,7 +182,7 @@ export function ProjectShipmentTable({ shipments, project }: Props) {
             </div>
 
             {/* D&D */}
-            <div className="text-right">
+            <div className="text-right pr-1">
               {shipment.dndAccruedUsd === null
                 ? <span className="text-[12px] text-muted-foreground">—</span>
                 : shipment.dndAccruedUsd === 0

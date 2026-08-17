@@ -48,6 +48,7 @@ SELECT
     WHEN 'SHIPPING_BILL' THEN 1
     WHEN 'CHA_BILL' THEN 1
     WHEN 'BILL_OF_LADING' THEN 2
+    WHEN 'DRAFT_CBP_FORM_7501_BROKER' THEN 2
     WHEN 'FREIGHT_FORWARDER_BILL' THEN 2
     WHEN 'ISF' THEN 3
     WHEN 'ENTRY_SUMMARY' THEN 3
@@ -69,8 +70,9 @@ SELECT
     WHEN 'SHIPPING_BILL' THEN 'SB'
     WHEN 'BILL_OF_LADING' THEN 'BL'
     WHEN 'ISF' THEN 'IS'
-    WHEN 'ENTRY_SUMMARY' THEN 'BE'
-    WHEN 'US_CARGO_RELEASE_ORDER' THEN 'CR'
+    WHEN 'ENTRY_SUMMARY' THEN 'BOE'
+    WHEN 'DRAFT_CBP_FORM_7501_BROKER' THEN 'BOE-D'
+    WHEN 'US_CARGO_RELEASE_ORDER' THEN 'CRO'
     WHEN 'US_CUSTOMS_RELEASE_ORDER' THEN 'CU'
     WHEN 'US_DELIVERY_ORDER' THEN 'DO'
     WHEN 'GRN_INBOUND' THEN 'GR'
@@ -88,11 +90,19 @@ SELECT
     'CHA_BILL', 'OCEAN_FREIGHT', 'FREIGHT_FORWARDER_BILL',
     'CUSTOMER_BROKER_BILL', 'PORT_TO_WH', 'WH_TO_CUSTOMER'
   ) AS is_parallel,
-  extraction.reviewed_at AS approved_at,
-  extraction.extracted_at,
+  (
+    COALESCE(
+    extraction.reviewed_at,
+    d.approved_at::timestamp,
+    CASE WHEN d.status::text IN ('REVIEWED', 'ARCHIVED') THEN d.updated_at::timestamp ELSE NULL END
+    )
+  )::timestamp(3) AS approved_at,
+  extraction.extracted_at::timestamp(3) AS extracted_at,
   extraction.extracted_data,
-  CASE
-    WHEN d.doc_type::text = 'BILL_OF_LADING' THEN
+  COALESCE(
+    d.shipment_id::text,
+    CASE
+      WHEN d.doc_type::text = 'BILL_OF_LADING' THEN
       document_module.generate_shipment_id(
         COALESCE(
           extraction.extracted_data->'raw_data'->>'mblNumber',
@@ -127,9 +137,10 @@ SELECT
           extraction.extracted_data->>'shippedOnBoardDate'
         )
       )
-    ELSE NULL
-  END AS shipment_id,
-  3::integer AS mapping_version
+      ELSE NULL
+    END
+  ) AS shipment_id,
+  5::integer AS mapping_version
 FROM public.documents d
 JOIN LATERAL (
   SELECT reviewed_at, extracted_at, to_jsonb(e) AS extracted_data
@@ -161,4 +172,10 @@ JOIN LATERAL (
 ) extraction ON TRUE
 WHERE d.is_deleted = FALSE
   AND d.status::text = 'REVIEWED'
-  AND extraction.reviewed_at IS NOT NULL;
+  AND (
+    COALESCE(
+    extraction.reviewed_at,
+    d.approved_at::timestamp,
+    CASE WHEN d.status::text IN ('REVIEWED', 'ARCHIVED') THEN d.updated_at::timestamp ELSE NULL END
+    )
+  )::timestamp(3) IS NOT NULL;

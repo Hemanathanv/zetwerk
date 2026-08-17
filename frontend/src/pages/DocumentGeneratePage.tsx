@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Info, Sparkles, FileText, Search, CheckCircle2, Clock, AlertCircle, Lock,
-  ChevronDown, ChevronUp, MoreHorizontal, Eye, X, Loader2, AlertTriangle, Ban,
+  ChevronDown, ChevronUp, MoreHorizontal, Eye, X, Loader2, AlertTriangle, Ban, Plus,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { DOC_GEN_SCHEMAS, DocGenSchema, FieldMapping, GenSection } from '@/config/docGenConfig';
 import { getDocConfig } from '@/config/docFieldConfig';
-import { apiGet, apiPatch, apiPost } from '@/lib/api';
+import { apiGet, apiPatch, apiPost, apiUrl, getAuthToken } from '@/lib/api';
 import type { MappingType } from '@/config/docGenConfig';
-import type { DocumentDetailRecord, JsonValue } from '@/types/backend';
+import type { DocumentDetailRecord, DocumentPreviewUrlResponse, JsonValue } from '@/types/backend';
 import { DocumentPreviewModal } from '@/components/DocumentPreviewModal';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -539,7 +539,7 @@ function FieldGrid({ section, fields, sourceDocs, manualValues, onManualChange, 
 
 // ─── LineItemTable ────────────────────────────────────────────────────────────
 
-function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange, computedRows, packageTypes = [], onPackageTypeChange }: {
+function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange, computedRows, packageTypes = [], onPackageTypeChange, onAddRow, splitIssues = [] }: {
   section:        GenSection;
   rows:           Record<string, string>[];
   sourceDocs:     { docType: string; label: string }[];
@@ -548,6 +548,8 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
   computedRows:   Record<string, string>[];
   packageTypes?: string[];
   onPackageTypeChange?: (rowIndex: number, value: string, customTypes: string[]) => void;
+  onAddRow?: (rowIndex: number) => void;
+  splitIssues?: string[];
 }) {
   void sourceDocs;
   const cols = section.mappings.filter(m => m.isLineItem !== false);
@@ -565,6 +567,9 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
       <table style={{ minWidth: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
         <thead>
           <tr style={{ background: 'hsl(var(--muted))', borderBottom: `1px solid ${BORDER}` }}>
+            {onAddRow && (
+              <th style={{ width: 44, padding: '7px 8px', borderRight: `1px solid ${BORDER}` }} />
+            )}
             {cols.map(col => (
                 <th key={col.targetField} style={{
                   padding: '7px 10px', textAlign: 'left', fontWeight: 600, fontSize: 11,
@@ -578,14 +583,32 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
         <tbody>
           {rows.map((row, ri) => (
             <tr key={ri} style={{ borderBottom: `1px solid ${BORDER}` }}>
+              {onAddRow && (
+                <td style={{ padding: 0, backgroundColor: 'hsl(var(--muted) / 0.42)', verticalAlign: 'middle', outline: `1px solid ${BORDER}`, outlineOffset: -1 }}>
+                  <button
+                    type="button"
+                    onClick={() => onAddRow(ri)}
+                    title="Add split row"
+                    aria-label="Add split row"
+                    style={{ width: 32, height: 32, margin: 4, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: TEAL, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <Plus size={14} />
+                  </button>
+                </td>
+              )}
               {cols.map(col => {
                 const isDerived = col.mappingType === 'derived';
                 const isEditable = !isTotalsSection;
                 const manualKey = `${section.sectionLabel}.${ri}.${col.targetField}`;
+                const forceCalculated = col.targetField === 'qtyPerBundle';
                 const baseVal = isDerived
                   ? (computedRows[ri]?.[col.targetField] ?? row[col.targetField] ?? '')
                   : (row[col.targetField] ?? '');
-                const val = isEditable ? (manualValues[manualKey] ?? baseVal) : baseVal;
+                const val = isEditable ? (forceCalculated ? baseVal : (manualValues[manualKey] ?? baseVal)) : baseVal;
+                const isAutoDerived = isEditable && isDerived && (forceCalculated || manualValues[manualKey] === undefined) && String(computedRows[ri]?.[col.targetField] ?? '').trim() !== '';
+                const qtyBundleHint = forceCalculated && String(computedRows[ri]?.[col.targetField] ?? '').trim()
+                  ? `${rowVisibleValue(section.sectionLabel, ri, 'totalQtyInPcs', row, manualValues, { [section.sectionLabel]: computedRows }) || 'Qty'} / ${rowVisibleValue(section.sectionLabel, ri, 'noOfBundles', row, manualValues, { [section.sectionLabel]: computedRows }) || 'Bundles'} = ${computedRows[ri]?.[col.targetField]}`
+                  : '';
                 return (
                   <td key={col.targetField} style={{
                     padding: 0,
@@ -623,17 +646,34 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
                         <option value="__ADD_TYPE__">+ Add type</option>
                       </select>
                     ) : isEditable ? (
-                      <input
-                        value={val}
-                        onChange={e => onManualChange(manualKey, e.target.value)}
-                        placeholder="Enter..."
-                        style={{
-                          border: 'none', background: 'transparent', outline: 'none',
-                          padding: '7px 10px', fontSize: 12, fontWeight: 600, color: FG,
-                          width: '100%', minWidth: 90,
-                          ...(col.mono ? MONO : {}),
-                        }}
-                      />
+                      <div style={{ position: 'relative' }}>
+                        <input
+                          value={val}
+                          readOnly={forceCalculated}
+                          onChange={e => {
+                            if (!forceCalculated) onManualChange(manualKey, e.target.value);
+                          }}
+                          placeholder={isDerived ? 'Auto' : 'Enter...'}
+                          title={isDerived ? `${col.targetLabel} is calculated from ${col.sourceField}` : undefined}
+                          style={{
+                            border: 'none', background: 'transparent', outline: 'none',
+                            padding: isAutoDerived ? '7px 42px 3px 10px' : '7px 10px', fontSize: 12, fontWeight: 600, color: FG,
+                            width: '100%', minWidth: 90,
+                            cursor: forceCalculated ? 'default' : undefined,
+                            ...(col.mono ? MONO : {}),
+                          }}
+                        />
+                        {isAutoDerived && (
+                          <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 9, fontWeight: 800, color: TEAL, background: 'hsla(173,58%,39%,0.10)', borderRadius: 999, padding: '1px 6px', pointerEvents: 'none' }}>
+                            auto
+                          </span>
+                        )}
+                        {qtyBundleHint && (
+                          <div style={{ padding: '0 10px 6px', fontSize: 10.5, color: MUTED, fontWeight: 650, whiteSpace: 'nowrap' }}>
+                            {qtyBundleHint}
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <span style={{ display: 'block', padding: '7px 10px' }}>
                         {val || '—'}
@@ -645,6 +685,7 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
             </tr>
           ))}
           <tr style={{ background: 'hsl(var(--muted) / 0.65)', borderTop: `2px solid ${BORDER}`, fontWeight: 700 }}>
+            {onAddRow && <td style={{ padding: '7px 8px' }} />}
             {cols.map((col, ci) => (
               <td key={col.targetField} style={{
                 padding: '7px 10px', fontSize: 12,
@@ -657,6 +698,12 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
           </tr>
         </tbody>
       </table>
+      {splitIssues.length > 0 && (
+        <div style={{ padding: '9px 10px', borderTop: `1px solid ${BORDER}`, background: 'hsla(0,84%,60%,0.06)', color: RED, fontSize: 11.5, lineHeight: 1.45 }}>
+          {splitIssues.slice(0, 3).map(issue => <div key={issue}>{issue}</div>)}
+          {splitIssues.length > 3 && <div>{splitIssues.length - 3} more split issue{splitIssues.length - 3 === 1 ? '' : 's'}.</div>}
+        </div>
+      )}
     </div>
   );
 }
@@ -829,7 +876,7 @@ function ActionRequiredCard({ schema, manualValues, onManualChange }: {
 // ─── CollapsibleSectionBlock ──────────────────────────────────────────────────
 
 function CollapsibleSectionBlock({
-  section, schema, manualValues, onManualChange, packageTypes, onPackageTypeChange, computedFields, computedRowMap, defaultExpanded,
+  section, schema, manualValues, onManualChange, packageTypes, onPackageTypeChange, onAddLineItemRow, allowLineItemSplit = true, computedFields, computedRowMap, defaultExpanded,
 }: {
   section:         GenSection;
   schema:          DocGenSchema;
@@ -837,6 +884,8 @@ function CollapsibleSectionBlock({
   onManualChange:  (key: string, v: string) => void;
   packageTypes?: string[];
   onPackageTypeChange?: (rowIndex: number, value: string, customTypes: string[]) => void;
+  onAddLineItemRow?: (sectionLabel: string, rowIndex: number) => void;
+  allowLineItemSplit?: boolean;
   computedFields:  Record<string, string>;
   computedRowMap:  Record<string, Record<string, string>[]>;
   defaultExpanded: boolean;
@@ -845,6 +894,8 @@ function CollapsibleSectionBlock({
   const fieldValues  = schema.mockData.fields;
   const tableRows    = schema.mockData.tables[section.sectionLabel] ?? [];
   const computedRows = computedRowMap[section.sectionLabel] ?? [];
+  const splitIssues = packingListSplitIssues(schema, manualValues, computedRowMap);
+  const canAddSplitRows = allowLineItemSplit && schema.docType === 'packing-list' && section.sectionLabel === 'Line Items';
 
   const sectionMappings = section.mappings.filter(m => m.isLineItem !== false);
   const manualCount = section.renderAs === 'fields'
@@ -905,7 +956,7 @@ function CollapsibleSectionBlock({
           )}
           {section.renderAs === 'fields'
             ? <FieldGrid section={section} fields={fieldValues} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} computedFields={computedFields} />
-            : <LineItemTable section={section} rows={tableRows} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} packageTypes={packageTypes} onPackageTypeChange={onPackageTypeChange} computedRows={computedRows} />
+            : <LineItemTable section={section} rows={tableRows} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} packageTypes={packageTypes} onPackageTypeChange={onPackageTypeChange} onAddRow={canAddSplitRows ? (rowIndex) => onAddLineItemRow?.(section.sectionLabel, rowIndex) : undefined} splitIssues={canAddSplitRows ? splitIssues : []} computedRows={computedRows} />
           }
         </div>
       )}
@@ -1460,6 +1511,45 @@ function SourceDocumentPopup({
 
 function SourceDocumentPreviewPane({ document, loading, title }: { document: DocumentDetailRecord | null; loading: boolean; title: string }) {
   const isImage = document?.contentType?.startsWith('image/');
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let nextBlobUrl: string | null = null;
+    setBlobUrl(null);
+    setPreviewError(null);
+
+    if (!document?.previewUrl) {
+      return () => undefined;
+    }
+
+    const headers: Record<string, string> = {};
+    const token = getAuthToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    fetch(document.previewUrl, { headers, credentials: 'include' })
+      .then(async (response) => {
+        if (!response.ok) {
+          const detail = await response.text().catch(() => '');
+          throw new Error(detail || `Preview failed (${response.status})`);
+        }
+        return response.blob();
+      })
+      .then((blob) => {
+        nextBlobUrl = URL.createObjectURL(blob);
+        if (!cancelled) setBlobUrl(nextBlobUrl);
+      })
+      .catch((error) => {
+        if (!cancelled) setPreviewError(error instanceof Error ? error.message : 'Preview failed');
+      });
+
+    return () => {
+      cancelled = true;
+      if (nextBlobUrl) URL.revokeObjectURL(nextBlobUrl);
+    };
+  }, [document?.previewUrl]);
+
   if (loading) {
     return (
       <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 13, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8 }}>
@@ -1481,17 +1571,42 @@ function SourceDocumentPreviewPane({ document, loading, title }: { document: Doc
       </div>
     );
   }
+  if (previewError) {
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: RED, fontSize: 13, background: 'hsl(var(--card))', border: `1px dashed ${BORDER}`, borderRadius: 8, padding: 18, textAlign: 'center', whiteSpace: 'pre-wrap' }}>
+        {previewError.includes('Not authenticated') ? 'Source preview session expired. Please sign in again.' : previewError}
+      </div>
+    );
+  }
+  if (!blobUrl) {
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: MUTED, fontSize: 13, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8 }}>
+        Loading source preview...
+      </div>
+    );
+  }
   return isImage ? (
     <div style={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8 }}>
-      <img src={document.previewUrl} alt={document.fileName} style={{ maxWidth: '100%', height: 'auto', background: '#fff' }} />
+      <img src={blobUrl} alt={document.fileName} style={{ maxWidth: '100%', height: 'auto', background: '#fff' }} />
     </div>
   ) : (
     <iframe
       title={title}
-      src={document.previewUrl}
+      src={blobUrl}
       style={{ flex: 1, minHeight: 0, width: '100%', border: `1px solid ${BORDER}`, borderRadius: 8, background: '#fff' }}
     />
   );
+}
+
+async function loadDocumentWithPreview(documentId: string): Promise<DocumentDetailRecord> {
+  const [document, preview] = await Promise.all([
+    apiGet<DocumentDetailRecord>(`/uploads/documents/${documentId}`),
+    apiGet<DocumentPreviewUrlResponse>(`/uploads/documents/${documentId}/preview-url`),
+  ]);
+  return {
+    ...document,
+    previewUrl: preview.previewUrl ? apiUrl(preview.previewUrl) : document.previewUrl,
+  };
 }
 
 function GeneratedDraftComparisonPanel({
@@ -1551,11 +1666,12 @@ function GeneratedDraftComparisonPanel({
   );
 }
 
-function StickyReviewFooter({ schema, manualValues, computedFields, computedRowMap, isApproved, isBlocked, onApprove, onPreview, approving }: {
+function StickyReviewFooter({ schema, manualValues, computedFields, computedRowMap, splitIssues = [], isApproved, isBlocked, onApprove, onPreview, approving }: {
   schema:       DocGenSchema;
   manualValues: Record<string, string>;
   computedFields: Record<string, string>;
   computedRowMap: Record<string, Record<string, string>[]>;
+  splitIssues?: string[];
   isApproved:   boolean;
   isBlocked:    boolean;
   onApprove:    () => void;
@@ -1635,7 +1751,7 @@ function StickyReviewFooter({ schema, manualValues, computedFields, computedRowM
   const passing = validations.length - scalarCritFailing;
 
   // Approve requires ALL manual fields filled (scalar + table) AND 0 critical validation failures
-  const canApprove = !isBlocked && !isApproved && filledManual >= totalManualReqd && critFailing === 0;
+  const canApprove = !isBlocked && !isApproved && filledManual >= totalManualReqd && critFailing === 0 && splitIssues.length === 0;
   const fillPct    = totalCount > 0 ? Math.round((filledTotal / totalCount) * 100) : 100;
 
   return (
@@ -1672,6 +1788,9 @@ function StickyReviewFooter({ schema, manualValues, computedFields, computedRowM
         </span>
         {critFailing > 0 && (
           <span style={{ fontSize: 10.5, color: RED }}>({critFailing} critical)</span>
+        )}
+        {splitIssues.length > 0 && (
+          <span style={{ fontSize: 10.5, color: RED }}>({splitIssues.length} split mismatch{splitIssues.length === 1 ? '' : 'es'})</span>
         )}
       </div>
 
@@ -1785,10 +1904,10 @@ function OverflowMenu() {
 
 function DocReviewModal({
   item, schema, siblings, isBlocked, isApproved, manualValues,
-  computedDerivations, packageTypes, sourcePanelOpen, approving, showPreview,
+  computedDerivations, splitIssues, packageTypes, sourcePanelOpen, approving, showPreview,
   bolDocument, bolDocumentLoading, brokerDocument, brokerDocumentLoading,
   brokerSourceExtractedData,
-  onClose, onManualChange, onPackageTypeChange, onApprove, onPreview, onSelectSibling,
+  onClose, onManualChange, onPackageTypeChange, onAddLineItemRow, onApprove, onPreview, onSelectSibling,
   onToggleSourcePanel, onSetShowPreview,
 }: {
   item:                GenQueueItem;
@@ -1798,6 +1917,7 @@ function DocReviewModal({
   isApproved:          boolean;
   manualValues:        Record<string, string>;
   computedDerivations: { fields: Record<string, string>; rowMap: Record<string, Record<string, string>[]> };
+  splitIssues:         string[];
   packageTypes:        string[];
   sourcePanelOpen:     boolean;
   approving:           boolean;
@@ -1810,6 +1930,7 @@ function DocReviewModal({
   onClose:             () => void;
   onManualChange:      (key: string, v: string) => void;
   onPackageTypeChange: (rowIndex: number, value: string, customTypes: string[]) => void;
+  onAddLineItemRow:    (sectionLabel: string, rowIndex: number) => void;
   onApprove:           () => void;
   onPreview:           () => void;
   onSelectSibling:     (item: GenQueueItem) => void;
@@ -2009,6 +2130,8 @@ function DocReviewModal({
                         onManualChange={onManualChange}
                         packageTypes={packageTypes}
                         onPackageTypeChange={onPackageTypeChange}
+                        onAddLineItemRow={onAddLineItemRow}
+                        allowLineItemSplit={!isApproved}
                         computedFields={computedDerivations.fields}
                         computedRowMap={computedDerivations.rowMap}
                         defaultExpanded={hasManual}
@@ -2025,6 +2148,7 @@ function DocReviewModal({
                 manualValues={manualValues}
                 computedFields={computedDerivations.fields}
                 computedRowMap={computedDerivations.rowMap}
+                splitIssues={splitIssues}
                 isApproved={isApproved}
                 isBlocked={isBlocked}
                 onApprove={onApprove}
@@ -2119,6 +2243,95 @@ function stringifyDraftValue(value: unknown): string {
 function isDraftBlank(value: string | undefined): boolean {
   const normalized = (value ?? '').trim();
   return !normalized || normalized === '-' || normalized === '—' || normalized === '–' || normalized === 'â€”';
+}
+
+const PACKING_LIST_SPLIT_FIELDS = [
+  { key: 'totalQtyInPcs', sourceKey: '_sourceTotalQtyInPcs', label: 'quantity' },
+  { key: 'noOfBundles', sourceKey: '_sourceNoOfBundles', label: 'bundles' },
+  { key: 'netWeightKgs', sourceKey: '_sourceNetWeightKgs', label: 'net weight' },
+  { key: 'grossWeightKgs', sourceKey: '_sourceGrossWeightKgs', label: 'gross weight' },
+] as const;
+
+const PACKING_LIST_SPLIT_META_KEYS = [
+  '_sourceLineKey',
+  '_sourceTotalQtyInPcs',
+  '_sourceNoOfBundles',
+  '_sourceNetWeightKgs',
+  '_sourceGrossWeightKgs',
+  '_splitRow',
+] as const;
+
+function numericDraftValue(value: unknown): number | null {
+  const raw = String(value ?? '').replace(/,/g, '').trim();
+  if (!raw || isDraftBlank(raw)) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function lineSourceKey(row: Record<string, unknown>, rowIndex: number): string {
+  const existing = String(row._sourceLineKey ?? '').trim();
+  if (existing) return existing;
+  return [
+    row.productCode,
+    row.itemCode,
+    row.hsnCode,
+    row.containerNo,
+    row.sealNo,
+    rowIndex,
+  ].map(value => String(value ?? '').trim().toUpperCase()).join('|');
+}
+
+function rowVisibleValue(
+  sectionLabel: string,
+  rowIndex: number,
+  field: string,
+  row: Record<string, string>,
+  manualValues: Record<string, string>,
+  computedRowMap: Record<string, Record<string, string>[]>,
+): string {
+  return String(
+    manualValues[`${sectionLabel}.${rowIndex}.${field}`]
+    ?? computedRowMap[sectionLabel]?.[rowIndex]?.[field]
+    ?? row[field]
+    ?? '',
+  );
+}
+
+function splitSourceValue(row: Record<string, string>, field: typeof PACKING_LIST_SPLIT_FIELDS[number]): number | null {
+  return numericDraftValue(row[field.sourceKey] ?? row[field.key]);
+}
+
+function packingListSplitIssues(
+  schema: DocGenSchema | undefined,
+  manualValues: Record<string, string>,
+  computedRowMap: Record<string, Record<string, string>[]>,
+): string[] {
+  if (!schema || schema.docType !== 'packing-list') return [];
+  const sectionLabel = 'Line Items';
+  const rows = schema.mockData.tables[sectionLabel] ?? [];
+  const grouped = new Map<string, Array<{ row: Record<string, string>; index: number }>>();
+  rows.forEach((row, index) => {
+    const key = lineSourceKey(row, index);
+    grouped.set(key, [...(grouped.get(key) ?? []), { row, index }]);
+  });
+
+  const issues: string[] = [];
+  grouped.forEach((items) => {
+    if (items.length <= 1) return;
+    const sourceRow = items.find(item => item.row._splitRow !== 'true')?.row ?? items[0].row;
+    const product = String(sourceRow.productCode || sourceRow.itemCode || sourceRow.productDesc || 'line item');
+    for (const field of PACKING_LIST_SPLIT_FIELDS) {
+      const sourceTotal = splitSourceValue(sourceRow, field);
+      if (sourceTotal === null) continue;
+      const splitTotal = items.reduce((sum, item) => (
+        sum + (numericDraftValue(rowVisibleValue(sectionLabel, item.index, field.key, item.row, manualValues, computedRowMap)) ?? 0)
+      ), 0);
+      if (Math.abs(splitTotal - sourceTotal) > 0.01) {
+        issues.push(`${product}: ${field.label} split total ${splitTotal.toLocaleString('en-US')} must equal source ${sourceTotal.toLocaleString('en-US')}`);
+      }
+    }
+  });
+  return issues;
 }
 
 function draftValueOr(...values: Array<string | undefined>): string {
@@ -2291,7 +2504,9 @@ function draftToSchema(baseSchema: DocGenSchema, draft: DraftPayload): DocGenSch
   const lineItemSection = baseSchema.sections.find((section) => section.renderAs === 'table' && section.sectionLabel === 'Line Items');
   if (lineItemSection) {
     tables[lineItemSection.sectionLabel] = draft.lineItems.map((row) => {
-      const normalized: Record<string, string> = {};
+      const normalized: Record<string, string> = Object.fromEntries(
+        PACKING_LIST_SPLIT_META_KEYS.map(key => [key, stringifyDraftValue(row[key])]).filter(([, value]) => value),
+      );
       for (const mapping of lineItemSection.mappings) {
         normalized[mapping.targetField] = stringifyDraftValue(row[mapping.targetField]);
       }
@@ -2404,6 +2619,73 @@ export function DocumentGeneratePage() {
 
   function handleManualChange(key: string, v: string) {
     setManualValues(prev => ({ ...prev, [key]: v }));
+  }
+
+  function shiftManualRowsForInsert(sectionLabel: string, afterRowIndex: number) {
+    setManualValues((current) => {
+      const next: Record<string, string> = {};
+      const prefix = `${sectionLabel}.`;
+      for (const [key, value] of Object.entries(current)) {
+        if (!key.startsWith(prefix)) {
+          next[key] = value;
+          continue;
+        }
+        const rest = key.slice(prefix.length);
+        const dotIndex = rest.indexOf('.');
+        const rowIndex = Number(rest.slice(0, dotIndex));
+        if (!Number.isFinite(rowIndex) || dotIndex < 0) {
+          next[key] = value;
+          continue;
+        }
+        const field = rest.slice(dotIndex + 1);
+        const nextRowIndex = rowIndex > afterRowIndex ? rowIndex + 1 : rowIndex;
+        next[`${sectionLabel}.${nextRowIndex}.${field}`] = value;
+      }
+      return next;
+    });
+  }
+
+  function handleAddLineItemRow(sectionLabel: string, rowIndex: number) {
+    if (!liveReviewingItem || !schema || schema.docType !== 'packing-list') return;
+    const rows = schema.mockData.tables[sectionLabel] ?? [];
+    const sourceRow = rows[rowIndex];
+    if (!sourceRow) return;
+    const sourceLineKey = lineSourceKey(sourceRow, rowIndex);
+    const sourceTotals = Object.fromEntries(PACKING_LIST_SPLIT_FIELDS.map(field => [
+      field.sourceKey,
+      String(sourceRow[field.sourceKey] ?? sourceRow[field.key] ?? ''),
+    ]));
+    const rowWithSource = {
+      ...sourceRow,
+      _sourceLineKey: sourceLineKey,
+      ...sourceTotals,
+    };
+    const splitRow: Record<string, string> = {
+      ...rowWithSource,
+      lineNo: '',
+      totalQtyInPcs: '',
+      noOfBundles: '',
+      qtyPerBundle: '',
+      netWeightKgs: '',
+      grossWeightKgs: '',
+      _splitRow: 'true',
+    };
+    const nextRows = rows.map((row, index) => index === rowIndex ? rowWithSource : row);
+    nextRows.splice(rowIndex + 1, 0, splitRow);
+    shiftManualRowsForInsert(sectionLabel, rowIndex);
+    setDraftSchemas((current) => ({
+      ...current,
+      [liveReviewingItem.id]: {
+        ...schema,
+        mockData: {
+          ...schema.mockData,
+          tables: {
+            ...schema.mockData.tables,
+            [sectionLabel]: nextRows,
+          },
+        },
+      },
+    }));
   }
 
   async function handlePackageTypeChange(rowIndex: number, value: string, customTypes: string[]) {
@@ -2596,7 +2878,7 @@ export function DocumentGeneratePage() {
       return;
     }
     setBolDocumentLoading(true);
-    apiGet<DocumentDetailRecord>(`/uploads/documents/${bolSourceDocumentId}`)
+    loadDocumentWithPreview(bolSourceDocumentId)
       .then((document) => {
         if (!cancelled) setBolDocument(document);
       })
@@ -2619,7 +2901,7 @@ export function DocumentGeneratePage() {
       return;
     }
     setBrokerDocumentLoading(true);
-    apiGet<DocumentDetailRecord>(`/uploads/documents/${brokerSourceDocumentId}`)
+    loadDocumentWithPreview(brokerSourceDocumentId)
       .then((document) => {
         if (!cancelled) setBrokerDocument(document);
       })
@@ -2665,6 +2947,8 @@ export function DocumentGeneratePage() {
         for (let ri = 0; ri < mockRows.length; ri++) {
           const manualTarget = manualValues[`${sLabel}.${ri}.${col.targetField}`];
           if (manualTarget !== undefined && manualTarget.trim() !== '') continue;
+          const savedTarget = mockRows[ri]?.[col.targetField];
+          if (savedTarget !== undefined && savedTarget !== null && !isDraftBlank(String(savedTarget))) continue;
 
           if (col.targetField === 'dutyAmount') {
             const enteredValue = getNum(ri, 'enteredValue');
@@ -2752,6 +3036,10 @@ export function DocumentGeneratePage() {
 
   const isBlocked  = !!liveReviewingItem && liveReviewingItem.status === 'waiting' && liveReviewingItem.prerequisites.some(p => !p.met);
   const isApproved = !!liveReviewingItem && liveReviewingItem.status === 'generated';
+  const splitIssues = useMemo(
+    () => packingListSplitIssues(schema, manualValues, computedDerivations.rowMap),
+    [schema, manualValues, computedDerivations.rowMap],
+  );
 
   const siblings = useMemo(() =>
     liveReviewingItem ? queue.filter(i => i.shipmentRef === liveReviewingItem.shipmentRef) : [],
@@ -2766,6 +3054,10 @@ export function DocumentGeneratePage() {
 
   async function handleApprove() {
     if (!liveReviewingItem || !schema || isBlocked || approving) return;
+    if (splitIssues.length > 0) {
+      toast.error('Split totals must match the source line before approval');
+      return;
+    }
     setApproving(true);
     try {
       const fields: Record<string, string | null> = {};
@@ -2790,26 +3082,47 @@ export function DocumentGeneratePage() {
             .filter(mapping => mapping.isLineItem !== false)
             .map(mapping => [
               mapping.targetField,
-              manualValues[`${tableSection.sectionLabel}.${rowIndex}.${mapping.targetField}`]
+              mapping.targetField === 'qtyPerBundle'
+                ? (
+                  computedDerivations.rowMap[tableSection.sectionLabel]?.[rowIndex]?.[mapping.targetField]
+                  ?? row[mapping.targetField]
+                  ?? null
+                )
+                : manualValues[`${tableSection.sectionLabel}.${rowIndex}.${mapping.targetField}`]
                 ?? computedDerivations.rowMap[tableSection.sectionLabel]?.[rowIndex]?.[mapping.targetField]
                 ?? row[mapping.targetField]
                 ?? null,
             ]),
         );
-        if (!isWarehouseOutwardDraft) return visibleValues;
+        const preservedRow = {
+          ...row,
+          ...visibleValues,
+        };
+        if (!isWarehouseOutwardDraft) return preservedRow;
         const originalLine = originalDraft?.lineItems?.[rowIndex] ?? {};
         return {
           ...originalLine,
-          ...visibleValues,
+          ...preservedRow,
           warehouseStockId: originalLine.warehouseStockId,
-          quantityDispatched: originalLine.quantityDispatched ?? visibleValues.totalQtyInPcs,
+          quantityDispatched: originalLine.quantityDispatched ?? preservedRow.totalQtyInPcs,
         };
       }) : undefined;
-      await apiPatch<DraftPayload>(`/doc-generation/drafts/${liveReviewingItem.id}`, {
+      const updatedDraft = await apiPatch<DraftPayload>(`/doc-generation/drafts/${liveReviewingItem.id}`, {
         fields,
         lineItems,
         status: 'GENERATED',
       });
+      const baseSchema = DOC_GEN_SCHEMAS[generatedDocTypeToSchemaKey(updatedDraft.generatedDocType)] as DocGenSchema | undefined;
+      const updatedSchema = baseSchema ? draftToSchema(baseSchema, updatedDraft) : schema;
+      setDraftPayloads((payloads) => ({
+        ...payloads,
+        [liveReviewingItem.id]: updatedDraft,
+      }));
+      setDraftSchemas((schemas) => ({
+        ...schemas,
+        [liveReviewingItem.id]: updatedSchema,
+      }));
+      setManualValues({});
       setRawQueue((items) => items.map((item) => (
         item.id === liveReviewingItem.id ? { ...item, status: 'generated' } : item
       )));
@@ -2918,6 +3231,7 @@ export function DocumentGeneratePage() {
           isApproved={isApproved}
           manualValues={manualValues}
           computedDerivations={computedDerivations}
+          splitIssues={splitIssues}
           packageTypes={draftPackageTypes[liveReviewingItem.id] ?? []}
           sourcePanelOpen={sourcePanelOpen}
           approving={approving}
@@ -2930,6 +3244,7 @@ export function DocumentGeneratePage() {
           onClose={() => setReviewingItem(null)}
           onManualChange={handleManualChange}
           onPackageTypeChange={handlePackageTypeChange}
+          onAddLineItemRow={handleAddLineItemRow}
           onApprove={handleApprove}
           onPreview={() => setShowPreview(true)}
           onSelectSibling={item => { setReviewingItem(item); setManualValues({}); setShowPreview(false); }}

@@ -73,21 +73,86 @@ LEFT JOIN LATERAL (
   SELECT
     jsonb_agg(
       jsonb_build_object(
-        'id', d.id::text,
-        'documentType', COALESCE(d.document_type, d.doc_type::text),
-        'documentNumber', d.document_number,
-        'ocrStatus', COALESCE(d.ocr_status, CASE WHEN d.approved_at IS NOT NULL THEN 'completed' ELSE lower(d.status::text) END),
-        'validationStatus', d.validation_status,
-        'approvedAt', d.approved_at,
-        'isGenerated', COALESCE(d.is_generated, false)
+        'id', doc.id,
+        'documentType', doc.document_type,
+        'documentNumber', doc.document_number,
+        'status', doc.status_text,
+        'ocrStatus', doc.ocr_status,
+        'validationStatus', doc.validation_status,
+        'approvedAt', doc.approved_at,
+        'isGenerated', doc.is_generated
       )
-      ORDER BY d.created_at ASC
+      ORDER BY doc.created_at ASC
     ) AS documents,
     count(*) AS documents_total,
-    count(*) FILTER (WHERE d.approved_at IS NOT NULL OR d.status::text = 'REVIEWED') AS documents_approved
-  FROM public.documents d
-  WHERE d.shipment_id = s.id
-    AND COALESCE(d.is_deleted, false) = false
+    count(*) FILTER (WHERE doc.approved_at IS NOT NULL OR doc.status_text = 'REVIEWED') AS documents_approved
+  FROM (
+    SELECT
+      d.id::text AS id,
+      COALESCE(d.document_type, d.doc_type::text) AS document_type,
+      COALESCE(d.document_number, d.file_name) AS document_number,
+      COALESCE(d.ocr_status, CASE WHEN d.approved_at IS NOT NULL THEN 'completed' ELSE lower(d.status::text) END) AS ocr_status,
+      d.validation_status,
+      d.approved_at,
+      COALESCE(d.is_generated, false) AS is_generated,
+      d.created_at,
+      d.status::text AS status_text
+    FROM public.documents d
+    WHERE d.shipment_id = s.id
+      AND COALESCE(d.is_deleted, false) = false
+    UNION ALL
+    SELECT DISTINCT ON (dr.id)
+      dr.id::text AS id,
+      dr.generated_doc_type AS document_type,
+      COALESCE(
+        dr.rendered_payload->>'displayName',
+        dr.rendered_payload->>'documentNumber',
+        dr.generated_doc_type
+      ) AS document_number,
+      lower(dr.status::text) AS ocr_status,
+      'PASSED'::text AS validation_status,
+      dr.updated_at AS approved_at,
+      true AS is_generated,
+      dr.created_at,
+      dr.status::text AS status_text
+    FROM docgen.drafts dr
+    JOIN LATERAL jsonb_each_text(COALESCE(dr.source_document_ids, '{}'::jsonb)) source_doc(key, value) ON true
+    JOIN public.documents source_d ON source_d.id::text = source_doc.value
+    WHERE source_d.shipment_id = s.id
+      AND COALESCE(source_d.is_deleted, false) = false
+      AND dr.status IN ('CONFIRMED'::docgen."DocGenerationStatus", 'GENERATED'::docgen."DocGenerationStatus")
+    UNION
+    SELECT DISTINCT ON (dr.id)
+      dr.id::text AS id,
+      dr.generated_doc_type AS document_type,
+      COALESCE(
+        dr.rendered_payload->>'displayName',
+        dr.rendered_payload->>'documentNumber',
+        dr.generated_doc_type
+      ) AS document_number,
+      lower(dr.status::text) AS ocr_status,
+      'PASSED'::text AS validation_status,
+      dr.updated_at AS approved_at,
+      true AS is_generated,
+      dr.created_at,
+      dr.status::text AS status_text
+    FROM docgen.drafts dr
+    WHERE dr.status IN ('CONFIRMED'::docgen."DocGenerationStatus", 'GENERATED'::docgen."DocGenerationStatus")
+      AND (
+        dr.rendered_payload->>'originShipmentId' = s.id::text
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(
+            CASE
+              WHEN jsonb_typeof(COALESCE(dr.rendered_payload, '{}'::jsonb)->'lineItems') = 'array'
+                THEN COALESCE(dr.rendered_payload, '{}'::jsonb)->'lineItems'
+              ELSE '[]'::jsonb
+            END
+          ) AS line(item)
+          WHERE line.item->>'originShipmentId' = s.id::text
+        )
+      )
+  ) doc
 ) docs ON true
 LEFT JOIN LATERAL (
   WITH required_types AS (
@@ -111,6 +176,34 @@ LEFT JOIN LATERAL (
       AND COALESCE(d.is_deleted, false) = false
       AND (d.approved_at IS NOT NULL OR d.status::text = 'REVIEWED')
       AND trim(COALESCE(d.document_type, d.doc_type::text, '')) <> ''
+    UNION
+    SELECT DISTINCT upper(trim(dr.generated_doc_type)) AS doc_type
+    FROM docgen.drafts dr
+    JOIN LATERAL jsonb_each_text(COALESCE(dr.source_document_ids, '{}'::jsonb)) source_doc(key, value) ON true
+    JOIN public.documents source_d ON source_d.id::text = source_doc.value
+    WHERE source_d.shipment_id = s.id
+      AND COALESCE(source_d.is_deleted, false) = false
+      AND dr.status IN ('CONFIRMED'::docgen."DocGenerationStatus", 'GENERATED'::docgen."DocGenerationStatus")
+      AND trim(COALESCE(dr.generated_doc_type, '')) <> ''
+    UNION
+    SELECT DISTINCT upper(trim(dr.generated_doc_type)) AS doc_type
+    FROM docgen.drafts dr
+    WHERE dr.status IN ('CONFIRMED'::docgen."DocGenerationStatus", 'GENERATED'::docgen."DocGenerationStatus")
+      AND trim(COALESCE(dr.generated_doc_type, '')) <> ''
+      AND (
+        dr.rendered_payload->>'originShipmentId' = s.id::text
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements(
+            CASE
+              WHEN jsonb_typeof(COALESCE(dr.rendered_payload, '{}'::jsonb)->'lineItems') = 'array'
+                THEN COALESCE(dr.rendered_payload, '{}'::jsonb)->'lineItems'
+              ELSE '[]'::jsonb
+            END
+          ) AS line(item)
+          WHERE line.item->>'originShipmentId' = s.id::text
+        )
+      )
   )
   SELECT
     count(*)::int AS required_documents_total,
