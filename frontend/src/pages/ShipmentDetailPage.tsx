@@ -15,9 +15,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   AlertCircle, Check, ChevronDown, ChevronRight,
   SkipForward, RotateCcw, PauseCircle, XCircle, PlayCircle,
-  Package, Users, CreditCard, FileText, Navigation, Truck,
+  Package, Users, CreditCard, FileText, Truck,
   FolderOpen, AlertTriangle, Lock, MapPin, CheckCircle2,
-  Anchor, Clock, Box, Calculator,
+  Anchor, Box, Calculator,
 } from 'lucide-react';
 import { useSafeCubeTracking } from '@/hooks/useSafeCubeTracking';
 import type { SafeCubeData, SafeCubeEvent } from '@/hooks/useSafeCubeTracking';
@@ -319,18 +319,18 @@ function deriveVoyageSteps(scData: SafeCubeData | null, gates: ApiGate[], shipme
 
 // ─── Shared small components ──────────────────────────────────────────────────
 function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return <div style={{ backgroundColor: CARD, borderRadius: 8, padding: '20px 24px', boxShadow: 'var(--vs-shadow-card)', border: '1px solid hsl(var(--card-border))', ...style }}>{children}</div>;
+  return <div style={{ backgroundColor: CARD, borderRadius: 6, padding: '16px 19px', boxShadow: 'var(--vs-shadow-card)', border: '1px solid hsl(var(--card-border))', ...style }}>{children}</div>;
 }
 function SectionLabel({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-      <div style={{ fontSize: 18, fontWeight: 700, color: FG, letterSpacing: 0, display: 'flex', alignItems: 'center', gap: 7 }}>{children}</div>
-      {right && <div style={{ fontSize: 14.5, fontWeight: 600, color: MUTED }}>{right}</div>}
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 13 }}>
+      <div style={{ fontSize: 14.5, fontWeight: 700, color: FG, letterSpacing: 0, display: 'flex', alignItems: 'center', gap: 6 }}>{children}</div>
+      {right && <div style={{ fontSize: 11.5, fontWeight: 600, color: MUTED }}>{right}</div>}
     </div>
   );
 }
-function SkeletonRow({ width = 200 }: { width?: number }) {
-  return <div style={{ height: 12, width, borderRadius: 4, backgroundColor: 'hsl(var(--muted)/0.4)', animation: 'pulse 1.5s ease-in-out infinite' }} />;
+function SkeletonRow({ width = 160 }: { width?: number }) {
+  return <div style={{ height: 10, width, borderRadius: 3, backgroundColor: 'hsl(var(--muted)/0.4)', animation: 'pulse 1.5s ease-in-out infinite' }} />;
 }
 function ActionBtn({ onClick, icon, label, variant = 'outline', disabled = false }: { onClick: () => void; icon?: React.ReactNode; label: string; variant?: 'outline' | 'danger' | 'success' | 'primary'; disabled?: boolean }) {
   const s: Record<string, React.CSSProperties> = {
@@ -339,7 +339,7 @@ function ActionBtn({ onClick, icon, label, variant = 'outline', disabled = false
     success: { background: 'hsla(142,71%,45%,0.1)', border: '1px solid hsla(142,71%,45%,0.3)', color: 'hsl(142 71% 32%)' },
     primary: { background: 'hsl(var(--primary))', border: '1px solid hsl(var(--primary))', color: 'hsl(var(--primary-foreground))' },
   };
-  return <button onClick={onClick} disabled={disabled} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 8, fontSize: 14.5, fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, whiteSpace: 'nowrap', transition: 'opacity 0.12s', ...s[variant] }}>{icon}{label}</button>;
+  return <button onClick={onClick} disabled={disabled} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 6, fontSize: 11.5, fontWeight: 500, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, whiteSpace: 'nowrap', transition: 'opacity 0.12s', ...s[variant] }}>{icon}{label}</button>;
 }
 
 // ─── VoyageStepper helpers ────────────────────────────────────────────────────
@@ -371,11 +371,11 @@ function VoyageStepper({ steps, eta, scheduleStatus }: {
                       : (scheduleStatus ?? '');
 
   return (
-    <Card style={{ padding: '18px 28px 14px', marginBottom: 12 }}>
+    <Card style={{ padding: '14px 22px 11px', marginBottom: 10 }}>
       {/* ETA chip — only when data is available */}
       {etaValue && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 999, background: 'hsl(var(--muted)/0.45)', border: `1px solid ${BDR}`, fontSize: 14.5 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 799, background: 'hsl(var(--muted)/0.45)', border: `1px solid ${BDR}`, fontSize: 11.5 }}>
             <span style={{ color: MUTED, fontWeight: 500 }}>ETA</span>
             <span style={{ color: FG, fontWeight: 700 }}>{fmtDate(etaValue)}</span>
             {scheduleStatus && (
@@ -391,7 +391,7 @@ function VoyageStepper({ steps, eta, scheduleStatus }: {
           const variant  = getConnectorVariant(step, steps[i + 1]);
           const leftPct  = ((i + 0.5) / N) * 100;
           const widthPct = (1 / N) * 100;
-          const base: React.CSSProperties = { position: 'absolute', top: 14, left: `${leftPct}%`, width: `${widthPct}%`, height: 2, zIndex: 0, borderRadius: 1 };
+          const base: React.CSSProperties = { position: 'absolute', top: 11, left: `${leftPct}%`, width: `${widthPct}%`, height: 2, zIndex: 0, borderRadius: 1 };
           if (variant === 'sailed')         return <div key={i} style={{ ...base, background: GREEN }} />;
           if (variant === 'active-to-next') return <div key={i} style={{ ...base, background: `linear-gradient(90deg, ${GREEN}, ${TEAL})` }} />;
           return <div key={i} style={{ ...base, backgroundImage: `repeating-linear-gradient(90deg, ${BDR} 0px, ${BDR} 4px, transparent 4px, transparent 8px)` }} />;
@@ -419,16 +419,16 @@ function VoyageStepper({ steps, eta, scheduleStatus }: {
             <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', zIndex: 2 }}>
               {/* Pulse wrapper — active node only */}
               <div className={isActive ? 'milestone-active-pulse' : undefined} style={{ position: 'relative' }}>
-                <div style={{ width: 30, height: 30, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14.5, fontWeight: 700, transition: 'all 0.3s', ...circleStyle }}>
-                  {isDone ? <Check size={13} /> : isActive ? i + 1 : null}
+                <div style={{ width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11.5, fontWeight: 700, transition: 'all 0.3s', ...circleStyle }}>
+                  {isDone ? <Check size={10} /> : isActive ? i + 1 : null}
                 </div>
               </div>
               {/* Label — truncated with native tooltip showing full name */}
-              <div title={step.label} style={{ marginTop: 7, fontSize: 14.5, fontWeight: isActive ? 700 : 500, color: step.state === STEP.UPCOMING ? MUTED : FG, textAlign: 'center', lineHeight: 1.3, maxWidth: 90, width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div title={step.label} style={{ marginTop: 6, fontSize: 11.5, fontWeight: isActive ? 700 : 500, color: step.state === STEP.UPCOMING ? MUTED : FG, textAlign: 'center', lineHeight: 1.3, maxWidth: 72, width: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {shortLabel}
               </div>
               {/* Sub-label — date or status */}
-              <div style={{ fontSize: 14, color: isActive ? TEAL : MUTED, marginTop: 2, textAlign: 'center', fontWeight: isActive ? 600 : 400 }}>
+              <div style={{ fontSize: 11, color: isActive ? TEAL : MUTED, marginTop: 2, textAlign: 'center', fontWeight: isActive ? 600 : 400 }}>
                 {subLabel}
               </div>
             </div>
@@ -436,52 +436,6 @@ function VoyageStepper({ steps, eta, scheduleStatus }: {
         })}
       </div>
     </Card>
-  );
-}
-
-// ─── Context strip ────────────────────────────────────────────────────────────
-function ContextStrip({ shipment, gates, scData, documents }: {
-  shipment: ApiShipment | null; gates: ApiGate[];
-  scData: SafeCubeData | null; documents: any[];
-}) {
-  if (!shipment) return null;
-  const nextGate  = gates.find(g => g.status === 'OPEN');
-  const atSeaDays = scData?.polAt && !scData?.podAt
-    ? Math.floor((Date.now() - new Date(scData.polAt).getTime()) / 86400000) : null;
-  const docsTotal    = documents.length || shipment.documents.length;
-  const docsValidated = (documents.length ? documents : shipment.documents).filter(isCrossValidationPassed).length;
-  const eta          = scData?.podPredictiveEta ?? scData?.podAt;
-  const hasDelay     = scData && scData.delayDays != null && scData.delayDays > 0;
-  const isOnTime     = scData && !hasDelay && (scData.delayDays === 0 || (scData.scheduleStatus ?? '').toLowerCase().includes('on time'));
-
-  const chips = [
-    shipment.loadMode && { icon: <Box size={11} />, text: `${shipment.loadMode}${shipment.containers[0]?.containerSize ? ` · ${shipment.containers[0].containerSize}` : ''}` },
-    nextGate && { icon: <ChevronRight size={11} />, text: `Next: ${nextGate.gateConfig.gateLabel ?? nextGate.gateConfig.gateName}${eta ? ` · ${fmtDate(eta)}` : ''}` },
-    atSeaDays !== null && { icon: <Anchor size={11} />, text: `~${atSeaDays}d at sea` },
-    hasDelay && { icon: <Clock size={11} />, text: `${scData!.delayDays}d delay`, variant: 'delay' as const },
-    isOnTime  && { icon: <Check size={11} />,  text: 'On Time',              variant: 'ontime' as const },
-    docsTotal > 0 && { icon: <FileText size={11} />, text: `${docsValidated}/${docsTotal} docs validated` },
-    (shipment.portOfLoading || shipment.portOfDischarge) && { icon: <Navigation size={11} />, text: `${shipment.portOfLoading ?? '—'} → ${shipment.portOfDischarge ?? '—'}${shipment.incoterm ? ` · ${shipment.incoterm}` : ''}` },
-  ].filter(Boolean) as { icon: React.ReactNode; text: string; variant?: 'delay' | 'ontime' }[];
-
-  return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
-      {chips.map((chip, i) => {
-        const isDelay  = chip.variant === 'delay';
-        const isOnTime = chip.variant === 'ontime';
-        return (
-          <span key={i} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 14, fontWeight: 500, padding: '4px 10px', borderRadius: 999,
-            backgroundColor: isDelay ? 'hsla(38,92%,50%,0.12)' : isOnTime ? 'hsla(142,71%,45%,0.1)' : 'hsl(var(--muted)/0.5)',
-            color:           isDelay ? AMBER : isOnTime ? GREEN : FG,
-            border:          `1px solid ${isDelay ? 'hsl(38 92% 50% / 0.3)' : isOnTime ? 'hsla(142,71%,45%,0.3)' : BDR}`,
-          }}>
-            <span style={{ color: isDelay ? AMBER : isOnTime ? GREEN : MUTED }}>{chip.icon}</span>
-            {chip.text}
-          </span>
-        );
-      })}
-    </div>
   );
 }
 
@@ -509,32 +463,32 @@ function AlertsBanner({ scData }: { scData: SafeCubeData | null }) {
     cat === 'WEATHER' ? '🌩' : cat === 'PORT' ? '⚓' : cat === 'CUSTOMS' ? '🛂' : cat === 'VESSEL' ? '🚢' : cat === 'DELAY' ? '⏱' : '⚠';
 
   return (
-    <div style={{ backgroundColor: mainBg, border: `1px solid ${mainBdr}`, borderRadius: 8, padding: '10px 16px', marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-        <AlertTriangle size={14} color={mainColor} style={{ flexShrink: 0, marginTop: 2 }} />
+    <div style={{ backgroundColor: mainBg, border: `1px solid ${mainBdr}`, borderRadius: 6, padding: '8px 13px', marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <AlertTriangle size={11} color={mainColor} style={{ flexShrink: 0, marginTop: 2 }} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: mainColor }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: mainColor }}>
               {catEmoji(top.category)} {top.title ?? top.category ?? 'Tracking Alert'}
             </span>
             {rest.length > 0 && (
-              <button onClick={() => setShowAll(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14.5, color: MUTED, padding: 0, whiteSpace: 'nowrap' }}>
+              <button onClick={() => setShowAll(v => !v)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11.5, color: MUTED, padding: 0, whiteSpace: 'nowrap' }}>
                 {showAll ? 'collapse' : `+${rest.length} more`}
               </button>
             )}
           </div>
           {top.description && (
-            <div style={{ fontSize: 14.5, color: MUTED, marginTop: 3, lineHeight: 1.4 }}>{top.description}</div>
+            <div style={{ fontSize: 11.5, color: MUTED, marginTop: 2, lineHeight: 1.4 }}>{top.description}</div>
           )}
           {top.locationName && (
-            <div style={{ fontSize: 14.5, color: MUTED, marginTop: 2 }}>📍 {top.locationName}</div>
+            <div style={{ fontSize: 11.5, color: MUTED, marginTop: 2 }}>📍 {top.locationName}</div>
           )}
           {showAll && rest.map(a => (
-            <div key={a.id} style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${BDR}` }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: sevColor(a.severity) }}>
+            <div key={a.id} style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${BDR}` }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: sevColor(a.severity) }}>
                 {catEmoji(a.category)} {a.title ?? a.category}
               </div>
-              {a.description && <div style={{ fontSize: 14.5, color: MUTED, marginTop: 1 }}>{a.description}</div>}
+              {a.description && <div style={{ fontSize: 11.5, color: MUTED, marginTop: 1 }}>{a.description}</div>}
             </div>
           ))}
         </div>
@@ -544,12 +498,188 @@ function AlertsBanner({ scData }: { scData: SafeCubeData | null }) {
 }
 
 // ─── Inventory Journey Panel ──────────────────────────────────────────────────
+
+// SafeCube event-code → shipment journey phase, per the ops team's event taxonomy.
+const JOURNEY_PHASE_ORDER = [
+  'Booking & Documentation',
+  'Origin Haulage & Export Gate-In',
+  'Origin Port Ops & Export Customs',
+  'Main Carriage / Ocean Transit',
+  'Vessel Arrived',
+  'Destination Port Ops & Import Customs',
+  'Destination Haulage & Delivery',
+  'Completion',
+  'Exception',
+] as const;
+
+const JOURNEY_EVENT_CODE_PHASE: Record<string, typeof JOURNEY_PHASE_ORDER[number]> = {
+  // Booking & Documentation
+  RECE: 'Booking & Documentation', DRFT: 'Booking & Documentation', REQS: 'Booking & Documentation',
+  SUBM: 'Booking & Documentation', PENA: 'Booking & Documentation', PENU: 'Booking & Documentation',
+  PENC: 'Booking & Documentation', CONF: 'Booking & Documentation', APPR: 'Booking & Documentation',
+  REJE: 'Booking & Documentation', ISSU: 'Booking & Documentation', VOID: 'Booking & Documentation',
+  // Origin Haulage & Export Gate-In
+  CEP: 'Origin Haulage & Export Gate-In', CPS: 'Origin Haulage & Export Gate-In', GTIN: 'Origin Haulage & Export Gate-In',
+  STUF: 'Origin Haulage & Export Gate-In', AVPU: 'Origin Haulage & Export Gate-In', PICK: 'Origin Haulage & Export Gate-In',
+  CGI: 'Origin Haulage & Export Gate-In',
+  // Origin Port Ops & Export Customs
+  CLL: 'Origin Port Ops & Export Customs', LOAD: 'Origin Port Ops & Export Customs', INSP: 'Origin Port Ops & Export Customs',
+  CUSS: 'Origin Port Ops & Export Customs', CUSI: 'Origin Port Ops & Export Customs', CUSR: 'Origin Port Ops & Export Customs',
+  VDL: 'Origin Port Ops & Export Customs', DEPA: 'Origin Port Ops & Export Customs',
+  // Main Carriage / Ocean Transit
+  VAT: 'Main Carriage / Ocean Transit', CDT: 'Main Carriage / Ocean Transit', CLT: 'Main Carriage / Ocean Transit',
+  VDT: 'Main Carriage / Ocean Transit', TSD: 'Main Carriage / Ocean Transit', LTS: 'Main Carriage / Ocean Transit',
+  BTS: 'Main Carriage / Ocean Transit', ARRI: 'Main Carriage / Ocean Transit', DISC: 'Main Carriage / Ocean Transit',
+  // Vessel arrived
+  VAD: 'Vessel Arrived',
+  // Destination Port Ops & Import Customs
+  CDD: 'Destination Port Ops & Import Customs', HOLD: 'Destination Port Ops & Import Customs',
+  RELS: 'Destination Port Ops & Import Customs', CROS: 'Destination Port Ops & Import Customs',
+  // Destination Haulage & Delivery
+  CGO: 'Destination Haulage & Delivery', GTOT: 'Destination Haulage & Delivery', AVDO: 'Destination Haulage & Delivery',
+  DROP: 'Destination Haulage & Delivery', STRP: 'Destination Haulage & Delivery', CDC: 'Destination Haulage & Delivery',
+  RSEA: 'Destination Haulage & Delivery', RMVD: 'Destination Haulage & Delivery',
+  // Completion
+  CER: 'Completion', CMPL: 'Completion', SURR: 'Completion',
+  // Exception
+  CANC: 'Exception', UNK: 'Exception',
+};
+
+function journeyEventPhase(eventCode: string | null): string | undefined {
+  return eventCode ? JOURNEY_EVENT_CODE_PHASE[eventCode.toUpperCase()] : undefined;
+}
+
+// ─── Inventory Journey Progress (horizontal tracker) ──────────────────────────
+// A condensed 5-stage view of the operational journey, distinct from the
+// finer-grained accordion phases above. Completion/Exception are status
+// states layered on top rather than stages of their own.
+const INVENTORY_JOURNEY_STAGE_LABELS = [
+  'Booking & Documentation',
+  'Origin Haulage & Export Gate-In',
+  'Origin Port Ops & Export Customs',
+  'Main Carriage / Ocean Transit',
+  'Destination Haulage & Delivery',
+];
+
+const INVENTORY_JOURNEY_CODE_STAGE: Record<string, number> = {
+  RECE: 0, DRFT: 0, REQS: 0, SUBM: 0, PENA: 0, PENU: 0, PENC: 0, CONF: 0, APPR: 0, REJE: 0, ISSU: 0, VOID: 0,
+  CEP: 1, CPS: 1, GTIN: 1, STUF: 1, AVPU: 1, PICK: 1, CGI: 1,
+  CLL: 2, LOAD: 2, INSP: 2, CUSS: 2, CUSI: 2, CUSR: 2, VDL: 2, DEPA: 2,
+  VAT: 3, CDT: 3, CLT: 3, VDT: 3, TSD: 3, LTS: 3, BTS: 3, ARRI: 3, DISC: 3,
+  VAD: 4, CDD: 4, HOLD: 4, RELS: 4, CROS: 4, CGO: 4, GTOT: 4, AVDO: 4, DROP: 4, STRP: 4, CDC: 4, RSEA: 4, RMVD: 4,
+};
+const INVENTORY_JOURNEY_COMPLETION_CODES = new Set(['CER', 'CMPL', 'SURR']);
+const INVENTORY_JOURNEY_EXCEPTION_CODES = new Set(['CANC', 'UNK']);
+
+interface InventoryJourneyStage { label: string; status: ShipmentGateProgressStatus; count: number }
+
+// Derives which of the 5 stages the shipment is currently in from real
+// SafeCube event codes (deduped via safeCubeInventoryJourneyItems). Unmapped
+// codes are skipped rather than thrown on, and a shipment with no trackable
+// events yet defaults to stage 1 active rather than rendering nothing.
+function deriveInventoryJourneyStages(scData: SafeCubeData | null): {
+  stages: InventoryJourneyStage[]; completed: boolean; exception: boolean;
+} {
+  const stages: InventoryJourneyStage[] = INVENTORY_JOURNEY_STAGE_LABELS.map(label => ({ label, status: 'future', count: 0 }));
+  const items = safeCubeInventoryJourneyItems(scData);
+
+  if (items.length === 0) {
+    stages[0].status = 'active';
+    return { stages, completed: false, exception: false };
+  }
+
+  let completed = false;
+  let exception = false;
+  let lastActualStage = -1;
+
+  for (const item of items) {
+    const code = item.eventCode ? item.eventCode.toUpperCase() : null;
+    if (!code) continue;
+    if (INVENTORY_JOURNEY_COMPLETION_CODES.has(code)) {
+      if (item.isActual) completed = true;
+      continue;
+    }
+    if (INVENTORY_JOURNEY_EXCEPTION_CODES.has(code)) {
+      if (item.isActual) exception = true;
+      continue;
+    }
+    const stageIdx = INVENTORY_JOURNEY_CODE_STAGE[code];
+    if (stageIdx === undefined) continue; // unrecognised code — skip gracefully
+    stages[stageIdx].count += 1;
+    if (item.isActual && stageIdx >= lastActualStage) lastActualStage = stageIdx;
+  }
+
+  if (completed) {
+    stages.forEach(s => { s.status = 'passed'; });
+    return { stages, completed, exception };
+  }
+
+  if (lastActualStage === -1) {
+    stages[0].status = 'active';
+  } else {
+    stages.forEach((s, i) => {
+      s.status = i < lastActualStage ? 'passed' : i === lastActualStage ? (exception ? 'blocked' : 'active') : 'future';
+    });
+  }
+
+  return { stages, completed, exception };
+}
+
+function InventoryJourneyProgressCard({ scData, scLoading }: { scData: SafeCubeData | null; scLoading: boolean; }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const { stages, exception } = deriveInventoryJourneyStages(scData);
+  const trackRows: GateProgressTrackRow[] = stages.map((s, i) => ({
+    id: String(i), label: s.label, status: s.status, meta: s.count > 0 ? s.count : undefined,
+  }));
+  const activeStage = stages.find(s => s.status === 'active' || s.status === 'blocked');
+
+  return (
+    <Card style={{ padding: '13px 19px', marginBottom: 10 }}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(o => !o)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 6, background: 'none', border: 'none', padding: 0, margin: 0, cursor: 'pointer', textAlign: 'left',
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <Package size={11} color={TEAL} />
+          <span className="vs-mono" style={{ fontSize: 11, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Shipment Tracking
+          </span>
+
+          {exception && (
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--vs-danger))' }}>· Exception</span>
+          )}
+          {!isOpen && activeStage && (
+            <span style={{ fontSize: 11, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              · {activeStage.label}
+            </span>
+          )}
+        </span>
+        {isOpen ? <ChevronDown size={13} color={MUTED} /> : <ChevronRight size={13} color={MUTED} />}
+      </button>
+
+      {isOpen && (
+        scLoading ? (
+          <SkeletonRow width={256} />
+        ) : (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${BDR}` }}>
+            <GateProgressTrack rows={trackRows} />
+          </div>
+        )
+      )}
+    </Card>
+  );
+}
+
 function InventoryJourneyPanel({ scData, milestones, shipment, inventoryItems, packingListItems = [] }: {
   scData: SafeCubeData | null; milestones: ApiMilestoneTracking[];
   shipment: ApiShipment | null; inventoryItems: ApiShipment['inventoryItems'];
   packingListItems?: PlItem[];
 }) {
-  type JItem = { id: string; date: string | null; label: string; sublabel?: string; isActual: boolean; isCurrent?: boolean };
+  type JItem = { id: string; date: string | null; label: string; sublabel?: string; isActual: boolean; isCurrent?: boolean; phase?: string };
 
   const apiJourneyItems = safeCubeInventoryJourneyItems(scData);
   const items: JItem[] = apiJourneyItems.length > 0
@@ -572,66 +702,161 @@ function InventoryJourneyPanel({ scData, milestones, shipment, inventoryItems, p
   const totalKg      = invKg      > 0 ? invKg      : plGrossKg;
   const containers   = shipment?.containers ?? [];
 
+  // Group items that share a journey phase into one accordion section each,
+  // ordered by the canonical journey sequence (not by when they first appear —
+  // events from different containers interleave in time).
+  const hasPhases = items.some(i => i.phase);
+  const groups: { phase: string; items: JItem[] }[] = hasPhases
+    ? (() => {
+        const byPhase = new Map<string, JItem[]>();
+        items.forEach(item => {
+          const phase = item.phase ?? 'Other';
+          const arr = byPhase.get(phase);
+          if (arr) arr.push(item); else byPhase.set(phase, [item]);
+        });
+        const phaseRank = (p: string) => {
+          const i = (JOURNEY_PHASE_ORDER as readonly string[]).indexOf(p);
+          return i === -1 ? JOURNEY_PHASE_ORDER.length : i;
+        };
+        return Array.from(byPhase.entries())
+          .map(([phase, phaseItems]) => ({ phase, items: phaseItems }))
+          .sort((a, b) => phaseRank(a.phase) - phaseRank(b.phase));
+      })()
+    : [{ phase: '', items }];
+
+  const [openIdx, setOpenIdx] = useState<Set<number>>(() => new Set());
+  const togglePhase = (idx: number) => setOpenIdx(prev => {
+    const next = new Set(prev);
+    if (next.has(idx)) next.delete(idx); else next.add(idx);
+    return next;
+  });
+
+  const renderTimelineItems = (groupItems: JItem[]) => (
+    <div style={{ position: 'relative' }}>
+      <div style={{ position: 'absolute', left: 9, top: 6, bottom: 6, width: 2, background: BDR, borderRadius: 1 }} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+        {groupItems.map((item, idx) => {
+          const isLast = idx === groupItems.length - 1;
+          const isPast = item.isActual && !item.isCurrent;
+          const dotColor = item.isCurrent ? TEAL : isPast ? GREEN : MUTED;
+          return (
+            <div key={item.id} style={{ display: 'flex', gap: 10, paddingBottom: isLast ? 0 : 14, position: 'relative' }}>
+              <div style={{ flexShrink: 0, width: 19, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 2 }}>
+                <div style={{
+                  width: item.isCurrent ? 12 : 10, height: item.isCurrent ? 12 : 10,
+                  borderRadius: '50%', flexShrink: 0,
+                  background: item.isCurrent ? TEAL : isPast ? GREEN : 'hsl(var(--muted))',
+                  border: `2px ${item.isCurrent || isPast ? 'solid' : 'dashed'} ${dotColor}`,
+                  boxShadow: item.isCurrent ? `0 0 0 3px hsl(var(--vs-teal)/0.15)` : 'none',
+                  transition: 'all 0.2s',
+                }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6 }}>
+                  <span style={{ fontSize: 11.5, fontWeight: item.isCurrent ? 600 : 500, color: item.isCurrent ? FG : isPast ? FG : MUTED, lineHeight: 1.3 }}>
+                    {item.label}
+                  </span>
+                  <span style={{ fontSize: 11.5, color: item.isCurrent ? TEAL : MUTED, fontWeight: item.isCurrent ? 600 : 400, flexShrink: 0 }}>
+                    {item.isCurrent ? 'Now' : item.date ? fmtDate(item.date) : '—'}
+                  </span>
+                </div>
+                {item.sublabel && (
+                  <div style={{ fontSize: 11.5, color: MUTED, marginTop: 1 }}>{item.sublabel}</div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   return (
-    <Card style={{ padding: '18px 20px', marginBottom: 16 }}>
-      <SectionLabel right={<span style={{ fontSize: 14.5, color: MUTED }}>{items.length} MILESTONES</span>}>
-        <Package size={12} style={{ display: 'inline', marginRight: 5 }} />Inventory Journey
+    <Card style={{ padding: '14px 16px', marginBottom: 13 }}>
+      <SectionLabel right={<span style={{ fontSize: 11.5, color: MUTED }}>{items.length} MILESTONES</span>}>
+        <Package size={10} style={{ display: 'inline', marginRight: 4 }} />Shipment Tracking
       </SectionLabel>
 
       {items.length === 0 ? (
-        <div style={{ fontSize: 14.5, color: MUTED, fontStyle: 'italic', padding: '8px 0' }}>No journey events yet.</div>
+        <div style={{ fontSize: 11.5, color: MUTED, fontStyle: 'italic', padding: '6px 0' }}>No journey events yet.</div>
+      ) : !hasPhases ? (
+        renderTimelineItems(items)
       ) : (
-        <div style={{ position: 'relative' }}>
-          {/* Vertical line */}
-          <div style={{ position: 'absolute', left: 11, top: 8, bottom: 8, width: 2, background: BDR, borderRadius: 1 }} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {items.map((item, idx) => {
-              const isLast = idx === items.length - 1;
-              const isPast = item.isActual && !item.isCurrent;
-              const dotColor = item.isCurrent ? TEAL : isPast ? GREEN : MUTED;
-              return (
-                <div key={item.id} style={{ display: 'flex', gap: 12, paddingBottom: isLast ? 0 : 14, position: 'relative' }}>
-                  <div style={{ flexShrink: 0, width: 24, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', paddingTop: 2 }}>
-                    <div style={{
-                      width: item.isCurrent ? 12 : 10, height: item.isCurrent ? 12 : 10,
-                      borderRadius: '50%', flexShrink: 0,
-                      background: item.isCurrent ? TEAL : isPast ? GREEN : 'hsl(var(--muted))',
-                      border: item.isCurrent ? `2px solid ${TEAL}` : isPast ? `2px solid ${GREEN}` : `2px dashed ${MUTED}`,
-                      boxShadow: item.isCurrent ? `0 0 0 3px hsl(var(--vs-teal)/0.15)` : 'none',
-                      transition: 'all 0.2s',
-                    }} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-                      <span style={{ fontSize: 14.5, fontWeight: item.isCurrent ? 600 : 500, color: item.isCurrent ? FG : isPast ? FG : MUTED, lineHeight: 1.3 }}>
-                        {item.label}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {(() => {
+            // The furthest-reached group is always "current" (even once the
+            // shipment is fully delivered) — groups before it are done,
+            // groups after it haven't started yet.
+            const lastReachedIdx = groups.reduce((last, g, i) => g.items.some(it => it.isActual) ? i : last, -1);
+            return groups.map((group, gIdx) => {
+            const isOpen = openIdx.has(gIdx);
+            const groupHasCurrent = gIdx === lastReachedIdx;
+            const groupAllDone = gIdx < lastReachedIdx;
+            return (
+              <div key={gIdx} style={{ border: `1px solid ${BDR}`, borderRadius: 6, overflow: 'hidden' }}>
+                <button
+                  type="button"
+                  onClick={() => togglePhase(gIdx)}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    gap: 6, padding: '7px 10px', background: isOpen ? 'hsl(var(--muted)/0.35)' : CARD,
+                    border: 'none', cursor: 'pointer', textAlign: 'left',
+                  }}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    {groupAllDone ? (
+                      <span style={{
+                        width: 11, height: 11, borderRadius: '50%', flexShrink: 0,
+                        background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Check size={7} color="#fff" strokeWidth={3} />
                       </span>
-                      <span style={{ fontSize: 14.5, color: item.isCurrent ? TEAL : MUTED, fontWeight: item.isCurrent ? 600 : 400, flexShrink: 0 }}>
-                        {item.isCurrent ? 'Now' : item.date ? fmtDate(item.date) : '—'}
+                    ) : (
+                      <span style={{ position: 'relative', width: 6, height: 6, flexShrink: 0, display: 'inline-flex' }}>
+                        {groupHasCurrent && (
+                          <span style={{
+                            position: 'absolute', inset: -3, borderRadius: '50%',
+                            border: `2px solid ${GREEN}`, opacity: 0.45,
+                            animation: 'gateRing 1.4s ease-out infinite',
+                          }} />
+                        )}
+                        <span style={{
+                          width: 6, height: 6, borderRadius: '50%',
+                          background: groupHasCurrent ? GREEN : 'transparent',
+                          border: groupHasCurrent ? 'none' : `1.5px solid ${MUTED}`,
+                        }} />
                       </span>
-                    </div>
-                    {item.sublabel && (
-                      <div style={{ fontSize: 14.5, color: MUTED, marginTop: 1 }}>{item.sublabel}</div>
                     )}
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: FG, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      {group.phase}
+                    </span>
+                    <span style={{ fontSize: 10, color: MUTED, fontWeight: 500, flexShrink: 0 }}>({group.items.length})</span>
+                  </span>
+                  {isOpen ? <ChevronDown size={12} color={MUTED} /> : <ChevronRight size={12} color={MUTED} />}
+                </button>
+                {isOpen && (
+                  <div style={{ padding: '10px 11px' }}>
+                    {renderTimelineItems(group.items)}
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                )}
+              </div>
+            );
+            });
+          })()}
         </div>
       )}
 
       {/* Cargo summary KPIs */}
       {(totalBundles > 0 || containers.length > 0) && (
-        <div style={{ display: 'flex', gap: 0, marginTop: 18, paddingTop: 14, borderTop: `1px solid ${BDR}` }}>
+        <div style={{ display: 'flex', gap: 0, marginTop: 14, paddingTop: 11, borderTop: `1px solid ${BDR}` }}>
           {[
             { val: totalBundles || '—', label: 'BUNDLES' },
             { val: containers.length || '—', label: 'CONTAINERS' },
             { val: totalKg > 0 ? `${(totalKg / 1000).toFixed(1)}t` : '—', label: 'GROSS WT' },
           ].map((k, i) => (
             <div key={i} style={{ flex: 1, textAlign: 'center', borderRight: i < 2 ? `1px solid ${BDR}` : 'none' }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: FG, fontFamily: 'var(--app-font-sans)' }}>{k.val}</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: MUTED, letterSpacing: '0.08em', marginTop: 2 }}>{k.label}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: FG, fontFamily: 'var(--app-font-sans)' }}>{k.val}</div>
+              <div style={{ fontSize: 10.5, fontWeight: 600, color: MUTED, letterSpacing: '0.08em', marginTop: 2 }}>{k.label}</div>
             </div>
           ))}
         </div>
@@ -650,6 +875,8 @@ function safeCubeInventoryJourneyItems(scData: SafeCubeData | null): {
   sublabel?: string;
   isActual: boolean;
   isCurrent?: boolean;
+  phase?: string;
+  eventCode: string | null;
 }[] {
   if (!scData?.events?.length) return [];
 
@@ -692,6 +919,8 @@ function safeCubeInventoryJourneyItems(scData: SafeCubeData | null): {
       sublabel: [event.facilityName ?? event.locationName, event.vesselName, containerText].filter(Boolean).join(' - ') || undefined,
       isActual: event.isActual ?? false,
       isCurrent: false,
+      phase: journeyEventPhase(event.eventCode),
+      eventCode: event.eventCode ?? null,
     };
   });
 
@@ -707,24 +936,24 @@ function safeCubeInventoryJourneyItems(scData: SafeCubeData | null): {
 function SkuTable({ items }: { items: PlItem[] }) {
   if (!items.length) return null;
   return (
-    <div style={{ marginTop: 10, borderTop: `1px solid ${BDR}`, paddingTop: 10 }}>
-      <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: '0.06em', color: MUTED, textTransform: 'uppercase', marginBottom: 6 }}>Contents</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '3px 12px', alignItems: 'baseline' }}>
+    <div style={{ marginTop: 8, borderTop: `1px solid ${BDR}`, paddingTop: 8 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', color: MUTED, textTransform: 'uppercase', marginBottom: 5 }}>Contents</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '2px 10px', alignItems: 'baseline' }}>
         {/* header */}
-        <span style={{ fontSize: 14, color: MUTED, fontWeight: 600 }}>SKU / Description</span>
-        <span style={{ fontSize: 14, color: MUTED, fontWeight: 600, textAlign: 'right' }}>Bundles</span>
-        <span style={{ fontSize: 14, color: MUTED, fontWeight: 600, textAlign: 'right' }}>Qty (pcs)</span>
-        <span style={{ fontSize: 14, color: MUTED, fontWeight: 600, textAlign: 'right' }}>Net Wt (kg)</span>
+        <span style={{ fontSize: 11, color: MUTED, fontWeight: 600 }}>SKU / Description</span>
+        <span style={{ fontSize: 11, color: MUTED, fontWeight: 600, textAlign: 'right' }}>Bundles</span>
+        <span style={{ fontSize: 11, color: MUTED, fontWeight: 600, textAlign: 'right' }}>Qty (pcs)</span>
+        <span style={{ fontSize: 11, color: MUTED, fontWeight: 600, textAlign: 'right' }}>Net Wt (kg)</span>
         {items.map((item, i) => (
           <Fragment key={item.id ?? i}>
             <div style={{ minWidth: 0 }}>
-              {item.productCode && <span className="vs-mono" style={{ fontSize: 14.5, fontWeight: 600, color: FG }}>{item.productCode}</span>}
-              {item.productDescription && <span style={{ fontSize: 14.5, color: MUTED, marginLeft: item.productCode ? 6 : 0 }}>{item.productDescription}</span>}
-              {item.productSpecification && <span style={{ fontSize: 14, color: MUTED, display: 'block', marginTop: 1 }}>{item.productSpecification}</span>}
+              {item.productCode && <span className="vs-mono" style={{ fontSize: 11.5, fontWeight: 600, color: FG }}>{item.productCode}</span>}
+              {item.productDescription && <span style={{ fontSize: 11.5, color: MUTED, marginLeft: item.productCode ? 6 : 0 }}>{item.productDescription}</span>}
+              {item.productSpecification && <span style={{ fontSize: 11, color: MUTED, display: 'block', marginTop: 1 }}>{item.productSpecification}</span>}
             </div>
-            <span style={{ fontSize: 14.5, color: FG, textAlign: 'right' }}>{item.noOfBundles ?? '—'}</span>
-            <span style={{ fontSize: 14.5, color: FG, textAlign: 'right' }}>{item.totalQtyInPcs ?? '—'}</span>
-            <span style={{ fontSize: 14.5, color: FG, textAlign: 'right' }}>{item.netWeightKgs ?? '—'}</span>
+            <span style={{ fontSize: 11.5, color: FG, textAlign: 'right' }}>{item.noOfBundles ?? '—'}</span>
+            <span style={{ fontSize: 11.5, color: FG, textAlign: 'right' }}>{item.totalQtyInPcs ?? '—'}</span>
+            <span style={{ fontSize: 11.5, color: FG, textAlign: 'right' }}>{item.netWeightKgs ?? '—'}</span>
           </Fragment>
         ))}
       </div>
@@ -744,7 +973,7 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
   const getDnd         = (num: string) => dndAlerts.find(a => a.containerNumber === num);
 
   const stateChip = (label: string, color: string, bg: string) => (
-    <span style={{ fontSize: 14, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: bg, color, letterSpacing: '0.04em' }}>{label}</span>
+    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 6px', borderRadius: 5, background: bg, color, letterSpacing: '0.04em' }}>{label}</span>
   );
 
   const containerMilestones = (c: ApiShipment['containers'][0]): { label: string; done: boolean; date?: string }[] => {
@@ -764,31 +993,31 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
   };
 
   const headerRight = viewState === 'active' && dndAlerts.some(a => a.status === 'ACCRUING')
-    ? <span style={{ fontSize: 14, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: 'hsla(0,72%,51%,0.1)', color: 'hsl(var(--vs-danger))' }}>D&amp;D ACCRUING</span>
+    ? <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 6px', borderRadius: 6, background: 'hsla(0,72%,51%,0.1)', color: 'hsl(var(--vs-danger))' }}>D&amp;D ACCRUING</span>
     : viewState === 'approaching'
-    ? <span style={{ fontSize: 14, fontWeight: 700, padding: '2px 8px', borderRadius: 8, background: 'hsla(38,92%,50%,0.12)', color: AMBER }}>ARRIVING SOON</span>
+    ? <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 6px', borderRadius: 6, background: 'hsla(38,92%,50%,0.12)', color: AMBER }}>ARRIVING SOON</span>
     : null;
 
   const rowLink = (id: string) => `/inventory/containers/${id}`;
 
   return (
-    <Card style={{ padding: '18px 20px' }}>
+    <Card style={{ padding: '14px 16px' }}>
       <SectionLabel right={headerRight}>
-        <Package size={12} style={{ display: 'inline', marginRight: 5 }} />
+        <Package size={10} style={{ display: 'inline', marginRight: 4 }} />
         Containers ({N} × {sizeLabel})
       </SectionLabel>
 
       {/* early — locked, no detail page yet */}
       {viewState === 'early' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {containers.map(c => (
-            <div key={c.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderRadius: 8, background: 'hsl(var(--muted)/0.3)', opacity: 0.7 }}>
-              <span className="vs-mono" style={{ fontSize: 14.5, fontWeight: 600, color: MUTED }}>{c.containerNumber}</span>
-              <span style={{ fontSize: 14.5, color: MUTED }}>{c.containerSize} {c.containerType}</span>
+            <div key={c.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', borderRadius: 6, background: 'hsl(var(--muted)/0.3)', opacity: 0.7 }}>
+              <span className="vs-mono" style={{ fontSize: 11.5, fontWeight: 600, color: MUTED }}>{c.containerNumber}</span>
+              <span style={{ fontSize: 11.5, color: MUTED }}>{c.containerSize} {c.containerType}</span>
             </div>
           ))}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14.5, color: MUTED, marginTop: 4 }}>
-            <Lock size={11} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: MUTED, marginTop: 3 }}>
+            <Lock size={9} />
             Container-level tracking activates as vessel approaches destination
           </div>
         </div>
@@ -796,42 +1025,42 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
 
       {/* preview */}
       {viewState === 'preview' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           {containers.map(c => {
             const sc = getScContainer(c.containerNumber);
             return (
-              <Link key={c.id} href={rowLink(c.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 12px', borderRadius: 8, background: 'hsl(var(--muted)/0.3)', border: `1px solid ${BDR}`, textDecoration: 'none' }}>
-                <span className="vs-mono" style={{ fontSize: 14.5, fontWeight: 600, color: FG }}>{c.containerNumber}</span>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ fontSize: 14.5, color: MUTED }}>{c.containerSize}</span>
+              <Link key={c.id} href={rowLink(c.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 10px', borderRadius: 6, background: 'hsl(var(--muted)/0.3)', border: `1px solid ${BDR}`, textDecoration: 'none' }}>
+                <span className="vs-mono" style={{ fontSize: 11.5, fontWeight: 600, color: FG }}>{c.containerNumber}</span>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11.5, color: MUTED }}>{c.containerSize}</span>
                   {sc?.status && stateChip(sc.status, TEAL, 'hsl(var(--vs-teal)/0.1)')}
-                  <ChevronRight size={13} color={MUTED} />
+                  <ChevronRight size={10} color={MUTED} />
                 </div>
               </Link>
             );
           })}
-          <div style={{ fontSize: 14.5, color: MUTED, marginTop: 4 }}>Full container detail activates at T-5 days</div>
+          <div style={{ fontSize: 11.5, color: MUTED, marginTop: 3 }}>Full container detail activates at T-5 days</div>
         </div>
       )}
 
       {/* approaching */}
       {viewState === 'approaching' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {containers.map(c => {
             const sc  = getScContainer(c.containerNumber);
             const dnd = getDnd(c.containerNumber);
             return (
-              <Link key={c.id} href={rowLink(c.id)} style={{ display: 'block', padding: '10px 14px', borderRadius: 8, border: `1px solid ${BDR}`, background: 'hsl(var(--background))', textDecoration: 'none' }}>
+              <Link key={c.id} href={rowLink(c.id)} style={{ display: 'block', padding: '8px 11px', borderRadius: 6, border: `1px solid ${BDR}`, background: 'hsl(var(--background))', textDecoration: 'none' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span className="vs-mono" style={{ fontSize: 14.5, fontWeight: 600, color: FG }}>{c.containerNumber}</span>
-                    <span style={{ fontSize: 14.5, color: MUTED }}>{c.containerSize}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className="vs-mono" style={{ fontSize: 11.5, fontWeight: 600, color: FG }}>{c.containerNumber}</span>
+                    <span style={{ fontSize: 11.5, color: MUTED }}>{c.containerSize}</span>
                     {sc?.status && stateChip(sc.status, TEAL, 'hsl(var(--vs-teal)/0.1)')}
                   </div>
-                  <ChevronRight size={13} color={MUTED} />
+                  <ChevronRight size={10} color={MUTED} />
                 </div>
-                {dnd?.lfd && <div style={{ fontSize: 14.5, color: AMBER, fontWeight: 600, marginTop: 5 }}>LFD: {fmtDate(dnd.lfd)} · {dnd.status}</div>}
-                {c.grossWeightKg && <div style={{ fontSize: 14.5, color: MUTED, marginTop: 2 }}>{c.grossWeightKg.toLocaleString()} kg</div>}
+                {dnd?.lfd && <div style={{ fontSize: 11.5, color: AMBER, fontWeight: 600, marginTop: 4 }}>LFD: {fmtDate(dnd.lfd)} · {dnd.status}</div>}
+                {c.grossWeightKg && <div style={{ fontSize: 11.5, color: MUTED, marginTop: 2 }}>{c.grossWeightKg.toLocaleString()} kg</div>}
               </Link>
             );
           })}
@@ -840,42 +1069,42 @@ function ContainerGridPanel({ containers, scData, dndAlerts, viewState, packingL
 
       {/* active — flat rows with inline milestone stepper */}
       {viewState === 'active' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {containers.map(c => {
             const sc         = getScContainer(c.containerNumber);
             const dnd        = getDnd(c.containerNumber);
             const ms         = containerMilestones(c);
             const isAccruing = dnd?.status === 'ACCRUING';
             return (
-              <Link key={c.id} href={rowLink(c.id)} style={{ display: 'block', borderRadius: 8, border: `1px solid ${isAccruing ? 'hsl(var(--vs-danger)/0.3)' : BDR}`, background: isAccruing ? 'hsla(0,72%,51%,0.03)' : 'hsl(var(--background))', padding: '10px 14px', textDecoration: 'none' }}>
+              <Link key={c.id} href={rowLink(c.id)} style={{ display: 'block', borderRadius: 6, border: `1px solid ${isAccruing ? 'hsl(var(--vs-danger)/0.3)' : BDR}`, background: isAccruing ? 'hsla(0,72%,51%,0.03)' : 'hsl(var(--background))', padding: '8px 11px', textDecoration: 'none' }}>
                 {/* header row */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span className="vs-mono" style={{ fontSize: 14.5, fontWeight: 700, color: FG }}>{c.containerNumber}</span>
-                    <span style={{ fontSize: 14.5, color: MUTED }}>{c.containerSize}</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className="vs-mono" style={{ fontSize: 11.5, fontWeight: 700, color: FG }}>{c.containerNumber}</span>
+                    <span style={{ fontSize: 11.5, color: MUTED }}>{c.containerSize}</span>
                     {sc?.status && stateChip(sc.status, TEAL, 'hsl(var(--vs-teal)/0.12)')}
                     {isAccruing && stateChip(`D&D Day ${Math.floor((Date.now() - new Date(scData!.podAt!).getTime()) / 86400000)}`, 'hsl(var(--vs-danger))', 'hsla(0,72%,51%,0.1)')}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {dnd?.lfd && <span style={{ fontSize: 14.5, color: AMBER, fontWeight: 600 }}>LFD {fmtDate(dnd.lfd)}</span>}
-                    {dnd?.totalCharge && dnd.totalCharge > 0 && <span style={{ fontSize: 14.5, fontWeight: 700, color: 'hsl(var(--vs-danger))' }}>${dnd.totalCharge.toFixed(0)}</span>}
-                    <ChevronRight size={13} color={MUTED} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {dnd?.lfd && <span style={{ fontSize: 11.5, color: AMBER, fontWeight: 600 }}>LFD {fmtDate(dnd.lfd)}</span>}
+                    {dnd?.totalCharge && dnd.totalCharge > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--vs-danger))' }}>${dnd.totalCharge.toFixed(0)}</span>}
+                    <ChevronRight size={10} color={MUTED} />
                   </div>
                 </div>
                 {/* inline 4-step stepper */}
                 <div style={{ display: 'flex', gap: 0, position: 'relative' }}>
-                  <div style={{ position: 'absolute', top: 10, left: 9, right: 9, height: 2, background: BDR, zIndex: 0 }} />
+                  <div style={{ position: 'absolute', top: 8, left: 7, right: 7, height: 2, background: BDR, zIndex: 0 }} />
                   {ms.map((m, i) => (
                     <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', zIndex: 1 }}>
-                      <div style={{ width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: m.done ? GREEN : 'hsl(var(--muted))', border: `2px solid ${m.done ? GREEN : BDR}` }}>
-                        {m.done && <Check size={10} color="#fff" />}
+                      <div style={{ width: 16, height: 16, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: m.done ? GREEN : 'hsl(var(--muted))', border: `2px solid ${m.done ? GREEN : BDR}` }}>
+                        {m.done && <Check size={8} color="#fff" />}
                       </div>
-                      <div style={{ fontSize: 14, color: m.done ? FG : MUTED, marginTop: 5, textAlign: 'center', lineHeight: 1.3, maxWidth: 70 }}>{m.label}</div>
-                      {m.date && <div style={{ fontSize: 13, color: MUTED, marginTop: 1 }}>{fmtDate(m.date)}</div>}
+                      <div style={{ fontSize: 11, color: m.done ? FG : MUTED, marginTop: 4, textAlign: 'center', lineHeight: 1.3, maxWidth: 56 }}>{m.label}</div>
+                      {m.date && <div style={{ fontSize: 10.5, color: MUTED, marginTop: 1 }}>{fmtDate(m.date)}</div>}
                     </div>
                   ))}
                 </div>
-                {c.grossWeightKg && <div style={{ fontSize: 14.5, color: MUTED, marginTop: 8 }}>{c.grossWeightKg.toLocaleString()} kg · {c.containerType ?? ''}</div>}
+                {c.grossWeightKg && <div style={{ fontSize: 11.5, color: MUTED, marginTop: 6 }}>{c.grossWeightKg.toLocaleString()} kg · {c.containerType ?? ''}</div>}
                 <SkuTable items={packingListItems} />
               </Link>
             );
@@ -1052,16 +1281,16 @@ function DocRow360({ docType, docs, isLast }: { docType: string; docs: any[]; is
   const count = docs.length;
   const label = `${docLabel(docType)}${count > 1 ? ` (${count})` : ''}`;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', borderBottom: isLast ? 'none' : `1px solid ${BDR}` }}>
-      <div style={{ width: 44, height: 44, borderRadius: 8, background: 'hsl(var(--muted)/0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'var(--app-font-sans)', letterSpacing: '0.02em' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 13px', borderBottom: isLast ? 'none' : `1px solid ${BDR}` }}>
+      <div style={{ width: 35, height: 35, borderRadius: 6, background: 'hsl(var(--muted)/0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'var(--app-font-sans)', letterSpacing: '0.02em' }}>
         {dtShort(docType)}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 15, fontWeight: 600, color: FG, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: FG, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {label}
         </div>
       </div>
-      <span style={{ fontSize: 14, fontWeight: 600, padding: '4px 12px', borderRadius: 999, flexShrink: 0, background: pill.bg, color: pill.color }}>
+      <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 799, flexShrink: 0, background: pill.bg, color: pill.color }}>
         {pill.label}
       </span>
     </div>
@@ -1070,14 +1299,14 @@ function DocRow360({ docType, docs, isLast }: { docType: string; docs: any[]; is
 
 function AwaitedRow360({ docType, isLast }: { docType: string; isLast: boolean }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', borderBottom: isLast ? 'none' : `1px solid ${BDR}`, opacity: 0.45 }}>
-      <div style={{ width: 44, height: 44, borderRadius: 8, background: 'hsl(var(--muted)/0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'var(--app-font-sans)', letterSpacing: '0.02em' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 13px', borderBottom: isLast ? 'none' : `1px solid ${BDR}`, opacity: 0.45 }}>
+      <div style={{ width: 35, height: 35, borderRadius: 6, background: 'hsl(var(--muted)/0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'var(--app-font-sans)', letterSpacing: '0.02em' }}>
         {dtShort(docType)}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 15, fontWeight: 600, color: MUTED }}>{docLabel(docType)}</div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: MUTED }}>{docLabel(docType)}</div>
       </div>
-      <span style={{ fontSize: 14, fontWeight: 600, padding: '4px 12px', borderRadius: 999, flexShrink: 0, background: 'hsl(var(--muted)/0.3)', color: MUTED }}>
+      <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 799, flexShrink: 0, background: 'hsl(var(--muted)/0.3)', color: MUTED }}>
         Awaited
       </span>
     </div>
@@ -1158,7 +1387,7 @@ function shipmentGateProgressColor(status: ShipmentGateProgressStatus): string {
   return BDR;
 }
 
-function ShipmentPortMarker({ status, size = 20 }: { status: ShipmentGateProgressStatus; size?: number }) {
+function ShipmentPortMarker({ status, size = 16 }: { status: ShipmentGateProgressStatus; size?: number }) {
   const isPassed = status === 'passed';
   const isActive = status === 'active';
   const isBlocked = status === 'blocked';
@@ -1167,7 +1396,7 @@ function ShipmentPortMarker({ status, size = 20 }: { status: ShipmentGateProgres
     <div style={{ position: 'relative', width: size, height: size, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       {isActive && (
         <div style={{
-          position: 'absolute', inset: -4, borderRadius: '50%',
+          position: 'absolute', inset: -3, borderRadius: '50%',
           border: `2px solid ${TEAL}`, opacity: 0.45,
           animation: 'gateRing 1.4s ease-out infinite',
         }} />
@@ -1179,10 +1408,76 @@ function ShipmentPortMarker({ status, size = 20 }: { status: ShipmentGateProgres
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         boxShadow: isActive ? `0 0 8px ${TEAL}55` : isPassed ? `0 0 4px ${GREEN}40` : 'none',
       }}>
-        {isPassed && <Check size={11} color="#fff" strokeWidth={3} />}
+        {isPassed && <Check size={9} color="#fff" strokeWidth={3} />}
         {isActive && <div style={{ width: size * 0.28, height: size * 0.28, borderRadius: '50%', backgroundColor: '#fff' }} />}
-        {isBlocked && <span style={{ color: '#fff', fontSize: 11, fontWeight: 800, lineHeight: 1 }}>!</span>}
+        {isBlocked && <span style={{ color: '#fff', fontSize: 10, fontWeight: 800, lineHeight: 1 }}>!</span>}
       </div>
+    </div>
+  );
+}
+
+// Generic horizontal stage track — shared visual language for Voyage Progress
+// and Inventory Journey Progress. Consumers just supply status-labelled rows.
+interface GateProgressTrackRow { id: string; label: string; status: ShipmentGateProgressStatus; meta?: React.ReactNode }
+
+function GateProgressTrack({ rows, marker = 16 }: { rows: GateProgressTrackRow[]; marker?: number }) {
+  const N = rows.length;
+  const activeIdx = rows.findIndex(row => row.status === 'active' || row.status === 'blocked');
+  const lastPassedIdx = rows.reduce((last, row, index) => row.status === 'passed' ? index : last, -1);
+  const shipIdx = activeIdx >= 0 ? activeIdx : lastPassedIdx >= 0 ? lastPassedIdx : 0;
+  const pct = (index: number) => (2 * index + 1) / (2 * Math.max(N, 1)) * 100;
+  const firstPct = pct(0);
+  const lastPct = pct(Math.max(N - 1, 0));
+  const trackW = Math.max(lastPct - firstPct, 0);
+  const shipPct = pct(shipIdx);
+  const sailedW = trackW > 0 ? Math.max(0, Math.min(100, (shipPct - firstPct) / trackW * 100)) : 0;
+
+  return (
+    <div style={{ position: 'relative', display: 'flex' }}>
+      <div style={{
+        position: 'absolute', top: marker / 2 - 1,
+        left: `${firstPct}%`, width: `${trackW}%`, height: 2,
+        zIndex: 0, pointerEvents: 'none',
+      }}>
+        <div style={{
+          position: 'absolute', inset: 0, width: `${sailedW}%`,
+          background: `linear-gradient(90deg, ${GREEN}, ${TEAL})`,
+          borderRadius: 2, boxShadow: `0 0 6px ${TEAL}55`,
+        }} />
+        <div style={{
+          position: 'absolute', top: 0, bottom: 0, left: `${sailedW}%`, right: 0,
+          background: `repeating-linear-gradient(90deg, ${BDR} 0px, ${BDR} 5px, transparent 5px, transparent 11px)`,
+          opacity: 0.7,
+        }} />
+      </div>
+
+      {rows.map(row => (
+        <div key={row.id} style={{
+          flex: 1, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', gap: 3, position: 'relative', zIndex: 1,
+          minWidth: 0,
+        }}>
+          <ShipmentPortMarker status={row.status} size={marker} />
+          <div style={{
+            fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase',
+            letterSpacing: '0.06em', lineHeight: 1.3,
+            color: row.status === 'future' ? MUTED : FG,
+            width: '100%', textAlign: 'center',
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+            overflow: 'hidden', wordBreak: 'break-word',
+          }}>
+            {row.label}
+          </div>
+          {row.meta != null && (
+            <span className="vs-mono" style={{
+              fontSize: 11, fontWeight: 700,
+              color: row.status === 'future' ? MUTED : row.status === 'blocked' ? 'hsl(var(--vs-danger))' : row.status === 'active' ? TEAL : GREEN,
+            }}>
+              {row.meta}
+            </span>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -1203,87 +1498,34 @@ function VoyageProgressDocumentTracker({
   const gateRows = buildShipmentGateProgressRows(gates, documents);
   if (!loading && gateRows.length === 0) return null;
 
-  const N = gateRows.length;
-
-  const activeIdx = gateRows.findIndex(row => row.status === 'active' || row.status === 'blocked');
-  const lastPassedIdx = gateRows.reduce((last, row, index) => row.status === 'passed' ? index : last, -1);
-  const shipIdx = activeIdx >= 0 ? activeIdx : lastPassedIdx >= 0 ? lastPassedIdx : 0;
-  const pct = (index: number) => (2 * index + 1) / (2 * Math.max(N, 1)) * 100;
-  const firstPct = pct(0);
-  const lastPct = pct(Math.max(N - 1, 0));
-  const trackW = Math.max(lastPct - firstPct, 0);
-  let shipPct = pct(shipIdx);
-
-  const sailedW = trackW > 0 ? Math.max(0, Math.min(100, (shipPct - firstPct) / trackW * 100)) : 0;
-  const marker = 20;
   const route = [shipment?.portOfLoading, shipment?.portOfDischarge].filter(Boolean).join(' -> ');
+  const trackRows: GateProgressTrackRow[] = gateRows.map(row => ({
+    id: row.gate.id, label: row.label, status: row.status, meta: row.docCount,
+  }));
 
   return (
-    <Card style={{ padding: '16px 24px', marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <Anchor size={14} color={TEAL} />
-        <span className="vs-mono" style={{ fontSize: 14, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          Voyage progress
+    <Card style={{ padding: '13px 19px', marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+        <Anchor size={11} color={TEAL} />
+        <span className="vs-mono" style={{ fontSize: 11, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          Document Tracking
         </span>
-        <span style={{ fontSize: 14, color: BDR }}>·</span>
-        <span className="vs-mono" style={{ fontSize: 14, fontWeight: 700, color: TEAL }}>
-          {shipment?.shipmentNumber ?? 'Shipment'}
+        <span style={{ fontSize: 11, color: BDR }}>·</span>
+        <span className="vs-mono" style={{ fontSize: 11, fontWeight: 700, color: TEAL }}>
+          {shipment?.blNumber ?? 'Shipment'}
         </span>
         {(shipment?.vesselName || route) && (
-          <span style={{ fontSize: 14, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: 11, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {[shipment?.vesselName, route].filter(Boolean).join(' · ')}
           </span>
         )}
       </div>
 
       {loading ? (
-        <SkeletonRow width={320} />
+        <SkeletonRow width={256} />
       ) : (
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${BDR}` }}>
-          <div style={{ position: 'relative', display: 'flex' }}>
-            <div style={{
-              position: 'absolute', top: marker / 2 - 1,
-              left: `${firstPct}%`, width: `${trackW}%`, height: 2,
-              zIndex: 0, pointerEvents: 'none',
-            }}>
-              <div style={{
-                position: 'absolute', inset: 0, width: `${sailedW}%`,
-                background: `linear-gradient(90deg, ${GREEN}, ${TEAL})`,
-                borderRadius: 2, boxShadow: `0 0 6px ${TEAL}55`,
-              }} />
-              <div style={{
-                position: 'absolute', top: 0, bottom: 0, left: `${sailedW}%`, right: 0,
-                background: `repeating-linear-gradient(90deg, ${BDR} 0px, ${BDR} 5px, transparent 5px, transparent 11px)`,
-                opacity: 0.7,
-              }} />
-            </div>
-
-            {gateRows.map(row => (
-              <div key={row.gate.id} style={{
-                flex: 1, display: 'flex', flexDirection: 'column',
-                alignItems: 'center', gap: 4, position: 'relative', zIndex: 1,
-                minWidth: 0,
-              }}>
-                <ShipmentPortMarker status={row.status} size={marker} />
-                <div style={{
-                  fontSize: 13, fontWeight: 700, textTransform: 'uppercase',
-                  letterSpacing: '0.06em', lineHeight: 1.3,
-                  color: row.status === 'future' ? MUTED : FG,
-                  width: '100%', textAlign: 'center',
-                  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden', wordBreak: 'break-word',
-                }}>
-                  {row.label}
-                </div>
-                <span className="vs-mono" style={{
-                  fontSize: 14, fontWeight: 700,
-                  color: row.status === 'future' ? MUTED : row.status === 'blocked' ? 'hsl(var(--vs-danger))' : row.status === 'active' ? TEAL : GREEN,
-                }}>
-                  {row.docCount}
-                </span>
-              </div>
-            ))}
-          </div>
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${BDR}` }}>
+          <GateProgressTrack rows={trackRows} />
         </div>
       )}
     </Card>
@@ -1320,17 +1562,17 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
   ) + ungatedDocs.filter(isDocumentAvailable).length;
 
   return (
-    <Card style={{ padding: '18px 20px', marginBottom: 16 }}>
-      <SectionLabel right={<span style={{ fontSize: 14.5, fontWeight: 700, color: expectedCount > 0 && validatedCount === expectedCount ? GREEN : MUTED }}>{validatedCount} OF {expectedCount} AVAILABLE</span>}>
-        <FileText size={12} style={{ display: 'inline', marginRight: 5 }} />Documents
+    <Card style={{ padding: '14px 16px', marginBottom: 13 }}>
+      <SectionLabel right={<span style={{ fontSize: 11.5, fontWeight: 700, color: expectedCount > 0 && validatedCount === expectedCount ? GREEN : MUTED }}>{validatedCount} OF {expectedCount} AVAILABLE</span>}>
+        <FileText size={10} style={{ display: 'inline', marginRight: 4 }} />Documents
       </SectionLabel>
 
-      {loading && <SkeletonRow width={220} />}
+      {loading && <SkeletonRow width={176} />}
 
       {!loading && hasAlert && (
-        <div style={{ display: 'flex', gap: 10, padding: '9px 12px', borderRadius: 8, background: 'hsla(38,92%,50%,0.08)', border: `1px solid hsl(38 92% 50% / 0.3)`, marginBottom: 12, alignItems: 'flex-start' }}>
-          <AlertTriangle size={13} color={AMBER} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontSize: 14, color: 'hsl(38 92% 30%)' }}>
+        <div style={{ display: 'flex', gap: 8, padding: '7px 10px', borderRadius: 6, background: 'hsla(38,92%,50%,0.08)', border: `1px solid hsl(38 92% 50% / 0.3)`, marginBottom: 10, alignItems: 'flex-start' }}>
+          <AlertTriangle size={10} color={AMBER} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 11, color: 'hsl(38 92% 30%)' }}>
             <strong>US broker queue:</strong>{' '}
             {pendingUs.map(d => docLabel(d.documentType)).join(', ')} {pendingUs.length === 1 ? 'is' : 'are'} still open
           </div>
@@ -1338,12 +1580,12 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
       )}
 
       {!loading && gateGroups.length === 0 && documents.length === 0 && (
-        <div style={{ fontSize: 14.5, color: MUTED, fontStyle: 'italic' }}>No documents yet.</div>
+        <div style={{ fontSize: 11.5, color: MUTED, fontStyle: 'italic' }}>No documents yet.</div>
       )}
 
       {/* Gate-grouped view */}
       {!loading && gateGroups.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
           {gateGroups.map(({ gate, entries }) => {
             const gc = gate.gateConfig;
             const gateNumber = Number(gc.gateNumber ?? 0);
@@ -1358,24 +1600,24 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
             return (
               <div key={gate.id}>
                 {/* Gate section header */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                   <div style={{
-                    width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                    width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 13, fontWeight: 700, color: '#fff',
+                    fontSize: 10.5, fontWeight: 700, color: '#fff',
                     backgroundColor: statusColor,
                   }}>
                     {gc.gateNumber}
                   </div>
-                  <span style={{ fontSize: 14.5, fontWeight: 600, color: FG, flex: 1 }}>{SHIPMENT_GATE_LABELS[gateNumber] ?? gc.gateName}</span>
-                  {gc.geography && <span style={{ fontSize: 14, color: MUTED }}>{gc.geography}</span>}
-                  <span style={{ fontSize: 14, fontWeight: 700, color: statusColor, letterSpacing: '0.03em' }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 600, color: FG, flex: 1 }}>{SHIPMENT_GATE_LABELS[gateNumber] ?? gc.gateName}</span>
+                  {gc.geography && <span style={{ fontSize: 11, color: MUTED }}>{gc.geography}</span>}
+                  <span style={{ fontSize: 11, fontWeight: 700, color: statusColor, letterSpacing: '0.03em' }}>
                     {isPassed ? `✓ ${gate.passedAt ? fmtDate(gate.passedAt) : 'Passed'}` : isSkipped ? 'Skipped' : status}
                   </span>
                 </div>
 
                 {/* Document rows */}
-                <div style={{ borderRadius: 8, border: `1px solid ${BDR}`, overflow: 'hidden' }}>
+                <div style={{ borderRadius: 6, border: `1px solid ${BDR}`, overflow: 'hidden' }}>
                   {visible.map(({ dt, docs }, i) => {
                     const isLast = i === visible.length - 1;
                     return docs.length > 0
@@ -1390,13 +1632,13 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
           {/* Documents not matched to any gate */}
           {ungatedDocs.length > 0 && (
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
-                <div style={{ width: 18, height: 18, borderRadius: '50%', flexShrink: 0, background: 'hsl(var(--muted)/0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{ fontSize: 13, color: MUTED }}>•</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <div style={{ width: 14, height: 14, borderRadius: '50%', flexShrink: 0, background: 'hsl(var(--muted)/0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <span style={{ fontSize: 10.5, color: MUTED }}>•</span>
                 </div>
-                <span style={{ fontSize: 14.5, fontWeight: 600, color: MUTED }}>Other</span>
+                <span style={{ fontSize: 11.5, fontWeight: 600, color: MUTED }}>Other</span>
               </div>
-              <div style={{ borderRadius: 8, border: `1px solid ${BDR}`, overflow: 'hidden' }}>
+              <div style={{ borderRadius: 6, border: `1px solid ${BDR}`, overflow: 'hidden' }}>
                 {groupDocsByType(ungatedDocs).map((group, i, groups) => (
                   <DocRow360 key={group.docType} docType={group.docType} docs={group.docs} isLast={i === groups.length - 1} />
                 ))}
@@ -1463,22 +1705,22 @@ function OutwardPlCta({ shipment, documents, milestones, gates, onRefresh }: {
       && d.ocrStatus !== 'discarded',
     );
     return (
-      <div style={{ marginBottom: 16, padding: '14px 18px', borderRadius: 8, border: `1px solid ${BDR}`, background: CARD, boxShadow: 'var(--vs-shadow-card)' }}>
-        <div style={{ fontSize: 14.5, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
-          <Truck size={11} style={{ display: 'inline', marginRight: 5 }} />Proof of Delivery
+      <div style={{ marginBottom: 13, padding: '11px 14px', borderRadius: 6, border: `1px solid ${BDR}`, background: CARD, boxShadow: 'var(--vs-shadow-card)' }}>
+        <div style={{ fontSize: 11.5, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+          <Truck size={9} style={{ display: 'inline', marginRight: 4 }} />Proof of Delivery
         </div>
         {podDoc ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: 'hsla(142,71%,45%,0.08)', border: '1px solid hsla(142,71%,45%,0.3)' }}>
-            <Check size={13} color={GREEN} />
-            <span style={{ fontSize: 14, fontWeight: 600, color: 'hsl(142 71% 30%)' }}>POD uploaded</span>
-            {podDoc.approvedAt && <span style={{ fontSize: 14.5, color: MUTED }}>· {fmtDate(podDoc.approvedAt)}</span>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 6, background: 'hsla(142,71%,45%,0.08)', border: '1px solid hsla(142,71%,45%,0.3)' }}>
+            <Check size={10} color={GREEN} />
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'hsl(142 71% 30%)' }}>POD uploaded</span>
+            {podDoc.approvedAt && <span style={{ fontSize: 11.5, color: MUTED }}>· {fmtDate(podDoc.approvedAt)}</span>}
           </div>
         ) : (
           <div>
-            <div style={{ fontSize: 14, color: MUTED, marginBottom: 10 }}>Customs cleared. Upload the Proof of Delivery to close out this shipment.</div>
+            <div style={{ fontSize: 11, color: MUTED, marginBottom: 8 }}>Customs cleared. Upload the Proof of Delivery to close out this shipment.</div>
             <ActionBtn
               onClick={() => openUploadWith({ shipmentId: shipment.id, docType: 'proof_of_delivery' })}
-              icon={<MapPin size={13} />}
+              icon={<MapPin size={10} />}
               label="Upload Proof of Delivery"
               variant="primary"
             />
@@ -1512,25 +1754,25 @@ function OutwardPlCta({ shipment, documents, milestones, gates, onRefresh }: {
   }
 
   return (
-    <div style={{ marginBottom: 16, padding: '14px 18px', borderRadius: 8, border: `1px solid ${ctaState === 'done' ? 'hsla(142,71%,45%,0.3)' : ctaState === 'ready' ? 'hsl(var(--primary)/0.3)' : BDR}`, background: CARD, boxShadow: 'var(--vs-shadow-card)' }}>
-      <div style={{ fontSize: 14.5, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
-        <Box size={11} style={{ display: 'inline', marginRight: 5 }} />Outward GRN / Packing List
+    <div style={{ marginBottom: 13, padding: '11px 14px', borderRadius: 6, border: `1px solid ${ctaState === 'done' ? 'hsla(142,71%,45%,0.3)' : ctaState === 'ready' ? 'hsl(var(--primary)/0.3)' : BDR}`, background: CARD, boxShadow: 'var(--vs-shadow-card)' }}>
+      <div style={{ fontSize: 11.5, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+        <Box size={9} style={{ display: 'inline', marginRight: 4 }} />Outward GRN / Packing List
       </div>
       {ctaState === 'locked' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, background: 'hsl(var(--muted)/0.3)', border: `1px solid ${BDR}` }}>
-          <Lock size={13} color={MUTED} />
-          <span style={{ fontSize: 14, color: MUTED }}>Awaiting inbound GRN confirmation from 3PL partner</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 6, background: 'hsl(var(--muted)/0.3)', border: `1px solid ${BDR}` }}>
+          <Lock size={10} color={MUTED} />
+          <span style={{ fontSize: 11, color: MUTED }}>Awaiting inbound GRN confirmation from 3PL partner</span>
         </div>
       )}
       {ctaState === 'ready' && (
         <div>
-          <div style={{ fontSize: 14, color: MUTED, marginBottom: 10 }}>Inbound GRN confirmed. Generate the Outward Packing List to proceed.</div>
-          {genError && <div style={{ fontSize: 14, color: 'hsl(var(--vs-danger))', marginBottom: 8 }}>{genError}</div>}
+          <div style={{ fontSize: 11, color: MUTED, marginBottom: 8 }}>Inbound GRN confirmed. Generate the Outward Packing List to proceed.</div>
+          {genError && <div style={{ fontSize: 11, color: 'hsl(var(--vs-danger))', marginBottom: 6 }}>{genError}</div>}
           <ActionBtn
             onClick={handleGenerate}
             icon={generating
-              ? <div style={{ width: 13, height: 13, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-              : <CheckCircle2 size={13} />}
+              ? <div style={{ width: 10, height: 10, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+              : <CheckCircle2 size={10} />}
             label={generating ? 'Generating…' : 'Generate Outward GRN/PL'}
             variant="primary"
             disabled={generating}
@@ -1538,17 +1780,17 @@ function OutwardPlCta({ shipment, documents, milestones, gates, onRefresh }: {
         </div>
       )}
       {ctaState === 'done' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: 'hsla(142,71%,45%,0.08)', border: '1px solid hsla(142,71%,45%,0.3)' }}>
-          <CheckCircle2 size={14} color={GREEN} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 6, background: 'hsla(142,71%,45%,0.08)', border: '1px solid hsla(142,71%,45%,0.3)' }}>
+          <CheckCircle2 size={11} color={GREEN} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: 'hsl(142 71% 30%)' }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'hsl(142 71% 30%)' }}>
               {plDoc?.approvedAt ? 'Outward GRN/PL approved' : 'Outward GRN/PL generated — pending approval'}
             </div>
-            {plDoc?.approvedAt && <div style={{ fontSize: 14.5, color: MUTED }}>{fmtDate(plDoc.approvedAt)}</div>}
+            {plDoc?.approvedAt && <div style={{ fontSize: 11.5, color: MUTED }}>{fmtDate(plDoc.approvedAt)}</div>}
           </div>
           <button
             onClick={() => window.location.href = `/shipments/${shipment.id}/documents`}
-            style={{ fontSize: 14, fontWeight: 500, color: TEAL, background: 'none', border: 'none', cursor: 'pointer', padding: 0, whiteSpace: 'nowrap' }}
+            style={{ fontSize: 11, fontWeight: 500, color: TEAL, background: 'none', border: 'none', cursor: 'pointer', padding: 0, whiteSpace: 'nowrap' }}
           >
             View →
           </button>
@@ -1564,18 +1806,18 @@ function AccountingPanel360({ tickets, loading }: { tickets: any[]; loading: boo
   const pending = tickets.filter(t => t.status !== 'posted' && t.status !== 'POSTED');
 
   return (
-    <Card style={{ padding: '18px 20px' }}>
+    <Card style={{ padding: '14px 16px' }}>
       <SectionLabel right={
-        <div style={{ display: 'flex', gap: 8 }}>
-          {posted.length > 0  && <span style={{ fontSize: 14, fontWeight: 700, color: GREEN }}>{posted.length} POSTED</span>}
-          {pending.length > 0 && <span style={{ fontSize: 14, fontWeight: 700, color: AMBER }}>{pending.length} PENDING</span>}
+        <div style={{ display: 'flex', gap: 6 }}>
+          {posted.length > 0  && <span style={{ fontSize: 11, fontWeight: 700, color: GREEN }}>{posted.length} POSTED</span>}
+          {pending.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: AMBER }}>{pending.length} PENDING</span>}
         </div>
       }>
-        <CreditCard size={12} style={{ display: 'inline', marginRight: 5 }} />Accounting
+        <CreditCard size={10} style={{ display: 'inline', marginRight: 4 }} />Accounting
       </SectionLabel>
 
-      {loading && <SkeletonRow width={220} />}
-      {!loading && tickets.length === 0 && <div style={{ fontSize: 14.5, color: MUTED, fontStyle: 'italic' }}>No accounting tickets.</div>}
+      {loading && <SkeletonRow width={176} />}
+      {!loading && tickets.length === 0 && <div style={{ fontSize: 11.5, color: MUTED, fontStyle: 'italic' }}>No accounting tickets.</div>}
 
       {!loading && tickets.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -1584,23 +1826,23 @@ function AccountingPanel360({ tickets, loading }: { tickets: any[]; loading: boo
             const isLast    = i === tickets.length - 1;
             return (
               <div key={t.id} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-                padding: '9px 10px', marginBottom: 2, borderRadius: 7,
-                ...(isPending ? { background: 'hsla(38,92%,50%,0.07)', borderLeft: `3px solid ${AMBER}`, paddingLeft: 8 } : {}),
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                padding: '7px 8px', marginBottom: 2, borderRadius: 6,
+                ...(isPending ? { background: 'hsla(38,92%,50%,0.07)', borderLeft: `3px solid ${AMBER}`, paddingLeft: 6 } : {}),
                 borderBottom: isLast || isPending ? 'none' : `1px solid ${BDR}`,
               }}>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 500, color: isPending ? 'hsl(38 92% 28%)' : FG, lineHeight: 1.3 }}>
+                  <div style={{ fontSize: 11, fontWeight: 500, color: isPending ? 'hsl(38 92% 28%)' : FG, lineHeight: 1.3 }}>
                     {(t.entryType ?? '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c: string) => c.toUpperCase())}
                   </div>
                   {(t.postedAt || t.erpVoucherNumber || t.vendorName) && (
-                    <div className="vs-mono" style={{ fontSize: 14.5, color: MUTED, marginTop: 1 }}>
+                    <div className="vs-mono" style={{ fontSize: 11.5, color: MUTED, marginTop: 1 }}>
                       {t.postedAt ? `Posted ${fmtDateFull(t.postedAt)}` : ''}{t.erpVoucherNumber ? ` · ${t.erpVoucherNumber}` : t.vendorName ? ` · ${t.vendorName}` : ''}
                     </div>
                   )}
-                  {isPending && <div style={{ fontSize: 14.5, color: AMBER, fontWeight: 500, marginTop: 2 }}>{t.status?.replace(/_/g, ' ')}</div>}
+                  {isPending && <div style={{ fontSize: 11.5, color: AMBER, fontWeight: 500, marginTop: 2 }}>{t.status?.replace(/_/g, ' ')}</div>}
                 </div>
-                <div className="vs-mono" style={{ fontSize: 14.5, fontWeight: 700, color: isPending ? AMBER : FG, flexShrink: 0 }}>
+                <div className="vs-mono" style={{ fontSize: 11.5, fontWeight: 700, color: isPending ? AMBER : FG, flexShrink: 0 }}>
                   {fmtAmount(t.amount, t.currency)}
                 </div>
               </div>
@@ -1662,52 +1904,52 @@ function GateRow({ gate, milestones, documents, shipmentId, onGateAction, onMile
   const coveredCodes  = new Set(documents.filter(d => d.approvedAt).map((d: any) => dtShort(d.documentType)));
 
   return (
-    <div style={{ borderRadius: 8, border: `1px solid ${status === 'OPEN' ? 'hsl(var(--vs-teal)/0.3)' : BDR}`, overflow: 'hidden', marginBottom: 8 }}>
-      <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', backgroundColor: isExpanded ? gateStatusBg(status) : CARD, cursor: 'pointer', transition: 'background 0.15s', borderBottom: isExpanded ? `1px solid ${BDR}` : 'none' }}>
-        <div style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: gateStatusColor(status), color: '#fff', fontSize: 14, fontWeight: 700 }}>{gc.gateNumber}</div>
+    <div style={{ borderRadius: 6, border: `1px solid ${status === 'OPEN' ? 'hsl(var(--vs-teal)/0.3)' : BDR}`, overflow: 'hidden', marginBottom: 6 }}>
+      <div onClick={onToggle} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 13px', backgroundColor: isExpanded ? gateStatusBg(status) : CARD, cursor: 'pointer', transition: 'background 0.15s', borderBottom: isExpanded ? `1px solid ${BDR}` : 'none' }}>
+        <div style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: gateStatusColor(status), color: '#fff', fontSize: 11, fontWeight: 700 }}>{gc.gateNumber}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: FG }}>{gc.gateName}</div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 2, flexWrap: 'wrap' }}>
-            {gc.geography && <span style={{ fontSize: 14.5, color: MUTED }}>{gc.geography}</span>}
-            <span style={{ fontSize: 14.5, color: gateStatusColor(status), fontWeight: 500 }}>{status}</span>
-            {gate.passedAt && <span style={{ fontSize: 14.5, color: MUTED }}>· {fmtDate(gate.passedAt)}</span>}
+          <div style={{ fontSize: 11, fontWeight: 600, color: FG }}>{gc.gateName}</div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+            {gc.geography && <span style={{ fontSize: 11.5, color: MUTED }}>{gc.geography}</span>}
+            <span style={{ fontSize: 11.5, color: gateStatusColor(status), fontWeight: 500 }}>{status}</span>
+            {gate.passedAt && <span style={{ fontSize: 11.5, color: MUTED }}>· {fmtDate(gate.passedAt)}</span>}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {requiredDocs.map(dt => {
             const code = dtShort(dt.docType);
             const ok   = coveredCodes.has(code);
-            return <span key={dt.id} style={{ fontSize: 14.5, fontWeight: 700, padding: '2px 7px', borderRadius: 5, fontFamily: 'var(--app-font-sans)', background: ok ? 'hsla(142,71%,45%,0.12)' : 'hsl(var(--muted)/0.5)', color: ok ? 'hsl(142 71% 30%)' : MUTED }}>{code}</span>;
+            return <span key={dt.id} style={{ fontSize: 11.5, fontWeight: 700, padding: '2px 6px', borderRadius: 4, fontFamily: 'var(--app-font-sans)', background: ok ? 'hsla(142,71%,45%,0.12)' : 'hsl(var(--muted)/0.5)', color: ok ? 'hsl(142 71% 30%)' : MUTED }}>{code}</span>;
           })}
         </div>
-        {isExpanded ? <ChevronDown size={16} color={MUTED} /> : <ChevronRight size={16} color={MUTED} />}
+        {isExpanded ? <ChevronDown size={13} color={MUTED} /> : <ChevronRight size={13} color={MUTED} />}
       </div>
 
       {isExpanded && (
-        <div style={{ padding: '14px 16px', background: gateStatusBg(status) }}>
+        <div style={{ padding: '11px 13px', background: gateStatusBg(status) }}>
           {gateMilestones.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
+            <div style={{ marginBottom: 10 }}>
               {gateMilestones.map(m => {
                 const isManualPending = m.milestoneConfig?.type === 'MANUAL' && m.status === 'PENDING';
                 const isConfirming    = completingMs === m.milestoneNumber;
                 return (
                   <div key={m.id} style={{ marginBottom: isConfirming ? 10 : 6 }}>
                     {/* Milestone row */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: FG }}>
-                      <div style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: FG }}>
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
                         background: m.status === 'COMPLETED' ? GREEN : isManualPending ? AMBER : MUTED }} />
                       <span style={{ flex: 1 }}>{m.milestoneConfig?.name}</span>
                       {m.status === 'COMPLETED' && m.completedAt && (
-                        <span style={{ fontSize: 14.5, color: MUTED }}>
+                        <span style={{ fontSize: 11.5, color: MUTED }}>
                           ✓ {fmtDate(m.completedAt)}
-                          {m.completedByName && <span style={{ marginLeft: 4 }}>· {m.completedByName}</span>}
+                          {m.completedByName && <span style={{ marginLeft: 3 }}>· {m.completedByName}</span>}
                         </span>
                       )}
                       {isManualPending && !isConfirming && (
                         <RequireActivity code="GATE-002">
                           <button
                             onClick={e => { e.stopPropagation(); setCompletingMs(m.milestoneNumber); setCompleteNotes(''); setCompleteError(null); }}
-                            style={{ fontSize: 14.5, fontWeight: 600, padding: '2px 8px', borderRadius: 5, cursor: 'pointer',
+                            style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
                               background: 'hsla(142,71%,45%,0.1)', border: '1px solid hsla(142,71%,45%,0.3)', color: 'hsl(142 71% 30%)',
                               whiteSpace: 'nowrap', flexShrink: 0 }}
                           >
@@ -1718,7 +1960,7 @@ function GateRow({ gate, milestones, documents, shipmentId, onGateAction, onMile
                       {isManualPending && isConfirming && (
                         <button
                           onClick={e => { e.stopPropagation(); setCompletingMs(null); setCompleteError(null); }}
-                          style={{ fontSize: 14.5, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                          style={{ fontSize: 11.5, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
                         >
                           Cancel
                         </button>
@@ -1728,10 +1970,10 @@ function GateRow({ gate, milestones, documents, shipmentId, onGateAction, onMile
                     {isManualPending && isConfirming && (
                       <div
                         onClick={e => e.stopPropagation()}
-                        style={{ marginTop: 6, marginLeft: 15, padding: '10px 12px', borderRadius: 8,
+                        style={{ marginTop: 5, marginLeft: 12, padding: '8px 10px', borderRadius: 6,
                           background: CARD, border: `1px solid ${BDR}`, boxShadow: '0 1px 6px hsl(var(--background)/0.8)' }}
                       >
-                        <div style={{ fontSize: 14.5, fontWeight: 600, color: FG, marginBottom: 6 }}>
+                        <div style={{ fontSize: 11.5, fontWeight: 600, color: FG, marginBottom: 5 }}>
                           Complete: {m.milestoneConfig?.name}
                         </div>
                         <textarea
@@ -1739,18 +1981,18 @@ function GateRow({ gate, milestones, documents, shipmentId, onGateAction, onMile
                           onChange={e => setCompleteNotes(e.target.value)}
                           placeholder="Optional notes…"
                           rows={2}
-                          style={{ width: '100%', fontSize: 14.5, padding: '6px 8px', borderRadius: 6,
+                          style={{ width: '100%', fontSize: 11.5, padding: '5px 6px', borderRadius: 5,
                             border: `1px solid ${BDR}`, background: 'hsl(var(--background))', color: FG,
                             resize: 'vertical', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
                         />
                         {completeError && (
-                          <div style={{ fontSize: 14.5, color: 'hsl(var(--vs-danger))', marginTop: 4 }}>{completeError}</div>
+                          <div style={{ fontSize: 11.5, color: 'hsl(var(--vs-danger))', marginTop: 3 }}>{completeError}</div>
                         )}
-                        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                        <div style={{ display: 'flex', gap: 5, marginTop: 6 }}>
                           <button
                             onClick={() => handleMilestoneComplete(m.milestoneNumber)}
                             disabled={completing}
-                            style={{ fontSize: 14, fontWeight: 600, padding: '5px 12px', borderRadius: 6, cursor: completing ? 'not-allowed' : 'pointer',
+                            style={{ fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 5, cursor: completing ? 'not-allowed' : 'pointer',
                               background: 'hsl(142 71% 38%)', border: 'none', color: '#fff', opacity: completing ? 0.7 : 1 }}
                           >
                             {completing ? 'Saving…' : 'Confirm'}
@@ -1758,7 +2000,7 @@ function GateRow({ gate, milestones, documents, shipmentId, onGateAction, onMile
                           <button
                             onClick={() => { setCompletingMs(null); setCompleteNotes(''); setCompleteError(null); }}
                             disabled={completing}
-                            style={{ fontSize: 14, padding: '5px 10px', borderRadius: 6, cursor: 'pointer',
+                            style={{ fontSize: 11, padding: '4px 8px', borderRadius: 5, cursor: 'pointer',
                               background: CARD, border: `1px solid ${BDR}`, color: FG }}
                           >
                             Cancel
@@ -1771,12 +2013,12 @@ function GateRow({ gate, milestones, documents, shipmentId, onGateAction, onMile
               })}
             </div>
           )}
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 6 }}>
             <RequireActivity code="GATE-002">
-              {status === 'OPEN' && (<><ActionBtn onClick={() => handleAction('pass')} icon={<CheckCircle2 size={13} />} label="Pass" variant="success" disabled={acting} /><ActionBtn onClick={() => handleAction('skip')} icon={<SkipForward size={13} />} label="Skip" variant="outline" disabled={acting} /></>)}
+              {status === 'OPEN' && (<><ActionBtn onClick={() => handleAction('pass')} icon={<CheckCircle2 size={10} />} label="Pass" variant="success" disabled={acting} /><ActionBtn onClick={() => handleAction('skip')} icon={<SkipForward size={10} />} label="Skip" variant="outline" disabled={acting} /></>)}
             </RequireActivity>
             <RequireActivity code="SHP-005">
-              {status === 'PASSED' && <ActionBtn onClick={() => handleAction('revert')} icon={<RotateCcw size={13} />} label="Revert" variant="outline" disabled={acting} />}
+              {status === 'PASSED' && <ActionBtn onClick={() => handleAction('revert')} icon={<RotateCcw size={10} />} label="Revert" variant="outline" disabled={acting} />}
             </RequireActivity>
           </div>
         </div>
@@ -1862,11 +2104,11 @@ function blankDndInputsDraft(): DndInputsDraft {
 }
 
 function DndFieldLabel({ children }: { children: React.ReactNode }) {
-  return <div className="mb-1 text-[12px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">{children}</div>;
+  return <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">{children}</div>;
 }
 
 function DndSectionTitle({ title, desc }: { title: string; desc: string }) {
-  return <div className="mb-3"><h3 className="m-0 text-[14px] font-semibold">{title}</h3><p className="m-0 mt-1 text-[12px] text-muted-foreground">{desc}</p></div>;
+  return <div className="mb-3"><h3 className="m-0 text-[11px] font-semibold">{title}</h3><p className="m-0 mt-1 text-[10px] text-muted-foreground">{desc}</p></div>;
 }
 
 function addDays(date: string, days: number) {
@@ -2082,27 +2324,27 @@ export function ShipmentDndInputsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92vh] w-[calc(100vw-48px)] max-w-4xl overflow-y-auto p-0">
         <DialogHeader className="border-b border-border px-6 py-4">
-          <DialogTitle>Shipment - BOL Upload</DialogTitle>
-          <DialogDescription>Operations shipment console inputs for D&D applicability, free time and day-count rules.</DialogDescription>
+          <DialogTitle className="text-[14px]">Shipment - BOL Upload</DialogTitle>
+          <DialogDescription className="text-[11px]">Operations shipment console inputs for D&D applicability, free time and day-count rules.</DialogDescription>
         </DialogHeader>
         <div className="space-y-5 bg-muted/20 px-6 py-5">
           <section className="rounded-md border border-border p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <DndFieldLabel>Shipment</DndFieldLabel>
-                <div className="text-[22px] font-semibold leading-tight">{displayCarrierName || 'Field not in the file (Carrier Name)'}</div>
+                <div className="text-[18px] font-semibold leading-tight">{displayCarrierName || 'Field not in the file (Carrier Name)'}</div>
               </div>
               <Badge intent={draft.carrierState === 'matched' ? 'success' : 'warning'} size="sm">
                 {matchStatus === 'matched' ? 'Auto Detected' : matchStatus === 'carrier-review' ? 'Carrier Review' : 'No Matching Tariff'}
               </Badge>
             </div>
             {matchStatus === 'carrier-review' && (
-              <div className="mt-3 rounded-md border border-destructive/20 bg-destructive/5 p-3 text-[13px] text-destructive">
+              <div className="mt-3 rounded-md border border-destructive/20 bg-destructive/5 p-3 text-[10px] text-destructive">
                 Carrier could not be matched from the BOL. Logistics Admin review is required before D&D can be activated.
               </div>
             )}
             {matchStatus === 'no-match' && (
-              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-[13px] text-amber-800">
+              <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-[10px] text-amber-800">
                 No Published D&D tariff matches this carrier, route, cargo and charge combination.
               </div>
             )}
@@ -2114,7 +2356,7 @@ export function ShipmentDndInputsDialog({
               <Badge intent={isActivated ? 'success' : 'neutral'} size="sm">{isActivated ? 'D&D Activated' : 'Awaiting Inputs'}</Badge>
             </div>
             {dndInputsLockedMessage && (
-              <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-[13px] text-amber-800">
+              <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-[10px] text-amber-800">
                 {dndInputsLockedMessage}
               </div>
             )}
@@ -2144,7 +2386,7 @@ export function ShipmentDndInputsDialog({
                         : <SelectItem value="__no_free_days__" disabled>No free-day options</SelectItem>}
                   </SelectContent>
                 </Select>
-                <p className="m-0 mt-1 text-[12px] text-muted-foreground">Options are Admin-curated master data from the matching Published tariff.</p>
+                <p className="m-0 mt-1 text-[10px] text-muted-foreground">Options are Admin-curated master data from the matching Published tariff.</p>
               </div>
               <div>
                 <DndFieldLabel>Pricing Method *</DndFieldLabel>
@@ -2160,13 +2402,13 @@ export function ShipmentDndInputsDialog({
               <div className="space-y-3">
                 <DndFieldLabel>Day Count Basis</DndFieldLabel>
                 <DndInputsAccess>
-                  <label className="flex items-center gap-2 text-[13px]">
+                  <label className="flex items-center gap-2 text-[10px]">
                     <Checkbox checked={draft.excludeWeekends} onCheckedChange={(checked) => setDraft({ ...draft, excludeWeekends: checked === true })} />
                     Exclude weekends from chargeable day count
                   </label>
                 </DndInputsAccess>
                 <DndInputsAccess>
-                  <label className="flex items-center gap-2 text-[13px]">
+                  <label className="flex items-center gap-2 text-[10px]">
                     <Checkbox checked={draft.excludeHolidays} onCheckedChange={(checked) => setDraft({ ...draft, excludeHolidays: checked === true })} />
                     Exclude public holidays from chargeable day count
                   </label>
@@ -2189,26 +2431,26 @@ export function ShipmentDndInputsDialog({
             <DndSectionTitle title="LFD Preview" desc="Preview uses the same selected rule inputs that will be saved for the shipment." />
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-md border border-border bg-background p-3">
-                <div className="text-[12px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">Last Free Day</div>
-                <div className="mt-2 text-[18px] font-semibold">{draft.lastFreeDay || lastFreeDay || '-'}</div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">Last Free Day</div>
+                <div className="mt-2 text-[14px] font-semibold">{draft.lastFreeDay || lastFreeDay || '-'}</div>
               </div>
               <div className="rounded-md border border-border bg-background p-3">
-                <div className="text-[12px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">Chargeable Rate</div>
-                <div className="mt-2 text-[18px] font-semibold">{chargeableRate}</div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">Chargeable Rate</div>
+                <div className="mt-2 text-[14px] font-semibold">{chargeableRate}</div>
               </div>
             </div>
             {draft.estimatedCharge != null && (
-              <div className="mt-3 rounded-md border border-border bg-background p-3 text-[13px]">
+              <div className="mt-3 rounded-md border border-border bg-background p-3 text-[10px]">
                 Estimated charge: <span className="font-mono font-semibold">{draft.currency ?? 'USD'} {draft.estimatedCharge.toFixed(2)}</span>
                 {draft.basis && <span className="text-muted-foreground"> · {draft.basis}</span>}
               </div>
             )}
             {showRules && (
-              <div className="mt-3 rounded-md border border-primary/20 bg-primary/5 p-3 text-[13px] text-foreground">
+              <div className="mt-3 rounded-md border border-primary/20 bg-primary/5 p-3 text-[10px] text-foreground">
                 Rates, thresholds and slabs stay in D&D Tariff Master. Operations selects the matched event, free days, pricing method and exclusions; those inputs drive LFD and chargeable-day calculation.
               </div>
             )}
-            {saveNote && <div className="mt-3 rounded-md border border-primary/20 bg-primary/5 p-3 text-[13px]">{saveNote}</div>}
+            {saveNote && <div className="mt-3 rounded-md border border-primary/20 bg-primary/5 p-3 text-[10px]">{saveNote}</div>}
           </section>
         </div>
         <DialogFooter className="border-t border-border px-6 py-4">
@@ -2331,7 +2573,7 @@ export function ShipmentDetailPage() {
 
   // ─── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: '24px 28px', minHeight: '100%' }}>
+    <div style={{ padding: '19px 22px', minHeight: '100%' }}>
       <style>{`
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
         @keyframes spin{to{transform:rotate(360deg)}}
@@ -2341,18 +2583,18 @@ export function ShipmentDetailPage() {
 
       {/* Breadcrumb — three-level when arriving from a project, single-level otherwise */}
       {projectCtx ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, fontSize: 14.5, color: MUTED }}>
-          <button onClick={() => navigate(PROJECTS_LIST_ROUTE)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'hsl(var(--primary))', fontWeight: 500, fontSize: 14.5 }}>Projects</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 10, fontSize: 11.5, color: MUTED }}>
+          <button onClick={() => navigate(PROJECTS_LIST_ROUTE)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'hsl(var(--primary))', fontWeight: 500, fontSize: 11.5 }}>Projects</button>
           <span style={{ opacity: 0.5 }}>›</span>
-          <button onClick={() => navigate(PROJECT_DETAIL_ROUTE(projectCtx.projectId))} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'hsl(var(--primary))', fontWeight: 500, fontSize: 14.5 }}>{projectCtx.projectRef}</button>
+          <button onClick={() => navigate(PROJECT_DETAIL_ROUTE(projectCtx.projectId))} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'hsl(var(--primary))', fontWeight: 500, fontSize: 11.5 }}>{projectCtx.projectRef}</button>
           <span style={{ opacity: 0.5 }}>›</span>
-          <span className="vs-mono">{shipment?.shipmentNumber ?? shipmentId}</span>
+          <span className="vs-mono">{shipment?.blNumber ?? shipmentId}</span>
         </div>
       ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, fontSize: 14.5, color: MUTED }}>
-          <button onClick={() => navigate('/dashboard')} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'hsl(var(--primary))', fontWeight: 500, fontSize: 14.5 }}>← Shipments</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 10, fontSize: 11.5, color: MUTED }}>
+          <button onClick={() => navigate('/dashboard')} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'hsl(var(--primary))', fontWeight: 500, fontSize: 11.5 }}>← Shipments</button>
           <span>/</span>
-          <span className="vs-mono">{shipment?.shipmentNumber ?? shipmentId}</span>
+          <span className="vs-mono">{shipment?.blNumber ?? shipmentId}</span>
         </div>
       )}
 
@@ -2360,31 +2602,31 @@ export function ShipmentDetailPage() {
       {projectCtx && (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '10px 14px', marginBottom: 12,
+          padding: '8px 11px', marginBottom: 10,
           background: 'hsl(var(--card))', border: `1px solid ${BDR}`,
-          borderRadius: 8, gap: 12, flexWrap: 'wrap',
+          borderRadius: 6, gap: 10, flexWrap: 'wrap',
         }}>
           {/* Left — project identity */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <i className="ti ti-folder" style={{ fontSize: 15, color: MUTED }} aria-hidden="true" />
-            <span style={{ fontWeight: 600, fontSize: 14, color: FG, letterSpacing: '0.01em' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <i className="ti ti-folder" style={{ fontSize: 12, color: MUTED }} aria-hidden="true" />
+            <span style={{ fontWeight: 600, fontSize: 11, color: FG, letterSpacing: '0.01em' }}>
               {projectCtx.projectRef}
             </span>
             {projectCtx.projectName && (
-              <span style={{ fontSize: 14, color: MUTED }}>{projectCtx.projectName}</span>
+              <span style={{ fontSize: 11, color: MUTED }}>{projectCtx.projectName}</span>
             )}
             <span style={{
               ...getProjectStatusStyle(projectCtx.projectStatus),
-              fontSize: 11.5, fontWeight: 600, letterSpacing: '0.06em',
-              textTransform: 'uppercase', padding: '2px 8px', borderRadius: 5,
+              fontSize: 10.5, fontWeight: 600, letterSpacing: '0.06em',
+              textTransform: 'uppercase', padding: '2px 6px', borderRadius: 4,
             }}>
               {projectCtx.projectStatus}
             </span>
           </div>
 
           {/* Right — sibling navigation */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 13, color: MUTED, marginRight: 2 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ fontSize: 10.5, color: MUTED, marginRight: 2 }}>
               Shipment {projectCtx.shipmentIndex + 1} of {projectCtx.shipmentIds.length}
             </span>
             <button
@@ -2392,15 +2634,15 @@ export function ShipmentDetailPage() {
               onClick={() => navigateSibling(-1, projectCtx)}
               aria-label="Previous shipment in project"
               style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                padding: '4px 10px', fontSize: 13, fontWeight: 500,
-                border: `1px solid ${BDR}`, borderRadius: 7,
+                display: 'flex', alignItems: 'center', gap: 3,
+                padding: '3px 8px', fontSize: 10.5, fontWeight: 500,
+                border: `1px solid ${BDR}`, borderRadius: 6,
                 background: 'hsl(var(--background))', cursor: projectCtx.shipmentIndex === 0 ? 'not-allowed' : 'pointer',
                 color: projectCtx.shipmentIndex === 0 ? MUTED : FG,
                 opacity: projectCtx.shipmentIndex === 0 ? 0.45 : 1,
               }}
             >
-              <i className="ti ti-chevron-left" style={{ fontSize: 13 }} aria-hidden="true" />
+              <i className="ti ti-chevron-left" style={{ fontSize: 10.5 }} aria-hidden="true" />
               Prev
             </button>
             <button
@@ -2408,9 +2650,9 @@ export function ShipmentDetailPage() {
               onClick={() => navigateSibling(1, projectCtx)}
               aria-label="Next shipment in project"
               style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                padding: '4px 10px', fontSize: 13, fontWeight: 500,
-                border: `1px solid ${BDR}`, borderRadius: 7,
+                display: 'flex', alignItems: 'center', gap: 3,
+                padding: '3px 8px', fontSize: 10.5, fontWeight: 500,
+                border: `1px solid ${BDR}`, borderRadius: 6,
                 background: 'hsl(var(--background))',
                 cursor: projectCtx.shipmentIndex === projectCtx.shipmentIds.length - 1 ? 'not-allowed' : 'pointer',
                 color: projectCtx.shipmentIndex === projectCtx.shipmentIds.length - 1 ? MUTED : FG,
@@ -2418,19 +2660,19 @@ export function ShipmentDetailPage() {
               }}
             >
               Next
-              <i className="ti ti-chevron-right" style={{ fontSize: 13 }} aria-hidden="true" />
+              <i className="ti ti-chevron-right" style={{ fontSize: 10.5 }} aria-hidden="true" />
             </button>
             <button
               onClick={() => navigate(PROJECT_DETAIL_ROUTE(projectCtx.projectId))}
               style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                padding: '4px 10px', fontSize: 13, fontWeight: 500,
-                border: `1px solid ${BDR}`, borderRadius: 7,
+                display: 'flex', alignItems: 'center', gap: 3,
+                padding: '3px 8px', fontSize: 10.5, fontWeight: 500,
+                border: `1px solid ${BDR}`, borderRadius: 6,
                 background: 'hsl(var(--background))', cursor: 'pointer',
                 color: 'hsl(var(--primary))',
               }}
             >
-              <i className="ti ti-layout-list" style={{ fontSize: 13 }} aria-hidden="true" />
+              <i className="ti ti-layout-list" style={{ fontSize: 10.5 }} aria-hidden="true" />
               All shipments
             </button>
           </div>
@@ -2447,59 +2689,58 @@ export function ShipmentDetailPage() {
         scData={scData}
       />
 
-      {!scLoading && <AlertsBanner scData={scData} />}
+      {/* Inventory Journey progress — condensed 5-stage tracker, same visual language as Voyage Progress */}
+      <InventoryJourneyProgressCard scData={scData} scLoading={scLoading} />
 
-      {/* Context strip */}
-      {!loading && <ContextStrip shipment={shipment} gates={gates} scData={scData} documents={documents} />}
+      {!scLoading && <AlertsBanner scData={scData} />}
 
       {/* Page header — sticky so identity + actions stay visible while scrolling */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 20,
         background: 'hsl(var(--background))',
-        marginLeft: -28, marginRight: -28,
-        paddingLeft: 28, paddingRight: 28,
-        paddingTop: 10, paddingBottom: 10,
+        marginLeft: -22, marginRight: -22,
+        paddingLeft: 22, paddingRight: 22,
+        paddingTop: 8, paddingBottom: 8,
         borderBottom: `1px solid ${BDR}`,
         boxShadow: '0 2px 12px hsl(var(--background) / 0.95)',
-        marginBottom: 8,
+        marginBottom: 6,
       }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 13, flexWrap: 'wrap' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
-              <h2 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: FG, margin: 0, lineHeight: 1.15 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
+              <h2 style={{ fontSize: 30, fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: FG, margin: 0, lineHeight: 1.15 }}>
                 {loading ? 'Loading…' : (shipment?.shipmentNumber ?? shipmentId)}
               </h2>
-              {shipment && !loading && <StatusPill status={shipment.currentStageName ?? shipment.status} variant="transit" />}
               {isOnHold    && <StatusPill status="On Hold" variant="warning" />}
               {isCancelled && <StatusPill status="Cancelled" variant="danger" />}
             </div>
             {shipment && (
-              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px 14px', fontSize: 14.5, color: MUTED }}>
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '3px 11px', fontSize: 11.5, color: MUTED }}>
                 {shipment.loadMode && <span style={{ fontWeight: 500, color: FG }}>Load: {shipment.loadMode}</span>}
                 {shipment.blNumber && <span>MBL: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.blNumber}</span></span>}
                 {shipment.vesselName && <span>Vessel: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.vesselName}</span></span>}
                 {(shipment.portOfLoading || shipment.portOfDischarge) && <span>Route: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{shipment.portOfLoading ?? '—'} → {shipment.portOfDischarge ?? '—'}</span></span>}
                 {revTicket && <span>Value: <span className="vs-mono" style={{ fontWeight: 600, color: FG }}>{fmtAmount(revTicket.amount, revTicket.currency)}</span></span>}
-                {(shipment as any).project && <a href={`/projects/${(shipment as any).project.id}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: TEAL, textDecoration: 'none', fontSize: 14 }}><FolderOpen size={12} />{(shipment as any).project.projectCode}</a>}
+                {(shipment as any).project && <a href={`/projects/${(shipment as any).project.id}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: TEAL, textDecoration: 'none', fontSize: 11 }}><FolderOpen size={10} />{(shipment as any).project.projectCode}</a>}
               </div>
             )}
-            {error && <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, color: 'hsl(var(--vs-danger))' }}><AlertCircle size={14} /><span style={{ fontSize: 14.5 }}>{error}</span></div>}
+            {error && <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, color: 'hsl(var(--vs-danger))' }}><AlertCircle size={11} /><span style={{ fontSize: 11.5 }}>{error}</span></div>}
           </div>
 
-          <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
             <DndInputsAccess>
-              <ActionBtn onClick={() => setDndInputsOpen(true)} icon={<Calculator size={14} />} label="D&D Inputs" variant="outline" />
+              <ActionBtn onClick={() => setDndInputsOpen(true)} icon={<Calculator size={11} />} label="D&D Inputs" variant="outline" />
             </DndInputsAccess>
             <RequireActivity code="GATE-002">
               {isOnHold
-                ? <ActionBtn onClick={() => handleShipmentAction('resume')} icon={<PlayCircle size={14} />} label="Resume" variant="success" disabled={acting} />
-                : <ActionBtn onClick={() => handleShipmentAction('hold')} icon={<PauseCircle size={14} />} label="Hold" variant="outline" disabled={acting || isCancelled} />
+                ? <ActionBtn onClick={() => handleShipmentAction('resume')} icon={<PlayCircle size={11} />} label="Resume" variant="success" disabled={acting} />
+                : <ActionBtn onClick={() => handleShipmentAction('hold')} icon={<PauseCircle size={11} />} label="Hold" variant="outline" disabled={acting || isCancelled} />
               }
             </RequireActivity>
             <RequireActivity code="SHP-005">
-              {!isCancelled && <ActionBtn onClick={() => handleShipmentAction('cancel')} icon={<XCircle size={14} />} label="Cancel" variant="danger" disabled={acting} />}
+              {!isCancelled && <ActionBtn onClick={() => handleShipmentAction('cancel')} icon={<XCircle size={11} />} label="Cancel" variant="danger" disabled={acting} />}
             </RequireActivity>
-            <ActionBtn onClick={() => navigate(`/shipments/${shipmentId}/documents`)} icon={<FileText size={14} />} label="Document matrix" variant="outline" />
+            <ActionBtn onClick={() => navigate(`/shipments/${shipmentId}/documents`)} icon={<FileText size={11} />} label="Document matrix" variant="outline" />
           </div>
         </div>
       </div>
@@ -2516,18 +2757,18 @@ export function ShipmentDetailPage() {
       />
 
       {!scLoading && (
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: MUTED, margin: 0 }}>Vessel tracking</h3>
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <h3 style={{ fontSize: 10.5, fontWeight: 600, color: MUTED, margin: 0 }}>Vessel tracking</h3>
             {mapProps?.shippingStatus && (
-              <span style={{ fontSize: 11, color: MUTED }}>{mapProps.shippingStatus}</span>
+              <span style={{ fontSize: 10, color: MUTED }}>{mapProps.shippingStatus}</span>
             )}
           </div>
           {mapProps ? (
             <VesselRouteMap {...mapProps} />
           ) : (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 260, borderRadius: 8, background: '#071e32', border: '1px solid rgba(255,255,255,0.05)' }}>
-              <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.38)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 208, borderRadius: 6, background: '#071e32', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <p style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.38)' }}>
                 {trackingMessage ?? 'Waiting for SafeCube tracking from MBL or booking reference'}
               </p>
             </div>
@@ -2536,12 +2777,12 @@ export function ShipmentDetailPage() {
       )}
 
       {/* ── 2-column 360° body ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '55fr 45fr', gap: 20, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '55fr 45fr', gap: 16, alignItems: 'start' }}>
 
         {/* LEFT — Inventory Journey + Containers */}
         <div>
           {loading ? (
-            <Card><div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{[1,2,3,4,5].map(i => <SkeletonRow key={i} width={280} />)}</div></Card>
+            <Card><div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{[1,2,3,4,5].map(i => <SkeletonRow key={i} width={224} />)}</div></Card>
           ) : (
             <>
               <InventoryJourneyPanel scData={scData} milestones={milestones} shipment={shipment} inventoryItems={inventoryItems} packingListItems={shipment?.packingListItems ?? []} />
@@ -2578,13 +2819,13 @@ export function ShipmentDetailPage() {
               (sum: number, item: { bundleCount?: number | null }) => sum + (item.bundleCount ?? 0), 0
             );
             return (
-              <div style={{ marginBottom: 16, padding: '12px 16px', borderRadius: 8, border: '1px solid hsla(142,71%,45%,0.3)', background: 'hsla(142,71%,45%,0.06)', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <CheckCircle2 size={15} color={GREEN} />
+              <div style={{ marginBottom: 13, padding: '10px 13px', borderRadius: 6, border: '1px solid hsla(142,71%,45%,0.3)', background: 'hsla(142,71%,45%,0.06)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <CheckCircle2 size={12} color={GREEN} />
                 <div>
-                  <div style={{ fontSize: 14.5, fontWeight: 600, color: 'hsl(142 71% 30%)' }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: 'hsl(142 71% 30%)' }}>
                     Inwarded —{totalUnits > 0 ? ` ${totalUnits.toLocaleString()} units` : ''} at {warehouseName}
                   </div>
-                  {inwardDate && <div style={{ fontSize: 14.5, color: MUTED, marginTop: 1 }}>{fmtDate(inwardDate)}</div>}
+                  {inwardDate && <div style={{ fontSize: 11.5, color: MUTED, marginTop: 1 }}>{fmtDate(inwardDate)}</div>}
                 </div>
               </div>
             );
@@ -2593,19 +2834,19 @@ export function ShipmentDetailPage() {
 
           {/* Partners (compact) */}
           {!loading && partnerTags.length > 0 && (
-            <Card style={{ marginTop: 0, padding: '16px 20px' }}>
-              <SectionLabel><Users size={12} style={{ display: 'inline', marginRight: 5 }} />Partners</SectionLabel>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <Card style={{ marginTop: 0, padding: '13px 16px' }}>
+              <SectionLabel><Users size={10} style={{ display: 'inline', marginRight: 4 }} />Partners</SectionLabel>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                 {partnerTags.map(tag => (
-                  <div key={tag.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 7, background: 'hsl(var(--background))', border: `1px solid ${BDR}` }}>
-                    <div style={{ width: 24, height: 24, borderRadius: 5, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'hsl(var(--primary)/0.1)', color: 'hsl(var(--primary))', fontSize: 13, fontWeight: 700 }}>
+                  <div key={tag.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 6, background: 'hsl(var(--background))', border: `1px solid ${BDR}` }}>
+                    <div style={{ width: 19, height: 19, borderRadius: 4, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'hsl(var(--primary)/0.1)', color: 'hsl(var(--primary))', fontSize: 10.5, fontWeight: 700 }}>
                       {(tag.partner.partnerType || 'P').substring(0, 2).toUpperCase()}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: FG, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag.partner.companyName}</div>
-                      <div style={{ fontSize: 14.5, color: MUTED }}>{tag.partner.partnerType?.replace(/_/g, ' ')}</div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: FG, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tag.partner.companyName}</div>
+                      <div style={{ fontSize: 11.5, color: MUTED }}>{tag.partner.partnerType?.replace(/_/g, ' ')}</div>
                     </div>
-                    {tag.tagSource === 'auto' && <span style={{ fontSize: 14, padding: '2px 5px', borderRadius: 8, background: 'hsl(var(--muted))', color: MUTED }}>Auto</span>}
+                    {tag.tagSource === 'auto' && <span style={{ fontSize: 11, padding: '2px 4px', borderRadius: 6, background: 'hsl(var(--muted))', color: MUTED }}>Auto</span>}
                   </div>
                 ))}
               </div>
