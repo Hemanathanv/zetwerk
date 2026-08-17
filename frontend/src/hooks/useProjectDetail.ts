@@ -1,10 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { getAuthToken } from '@/lib/api';
-
-function authHeaders(): Record<string, string> {
-  const token = getAuthToken();
-  return token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : {};
-}
+import { useQuery } from '@tanstack/react-query';
+import { apiGet } from '@/lib/api';
 
 export interface GateProgressItem {
   gateNumber: number;
@@ -89,30 +84,25 @@ export interface ProjectDetailData {
 }
 
 export function useProjectDetail(projectId: string | undefined) {
-  const [data, setData]     = useState<ProjectDetailData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]   = useState<string | null>(null);
+  const query = useQuery({
+    queryKey: ['projects', 'detail', projectId ?? ''],
+    enabled: Boolean(projectId),
+    queryFn: async () => {
+      if (!projectId) throw new Error('Project id is required');
+      const json = await apiGet<{ ok: boolean; data: ProjectDetailData; error?: string }>(
+        '/api/projects/' + projectId + '/detail',
+      );
+      if (!json.ok) throw new Error(json.error ?? 'Failed to load project');
+      return json.data;
+    },
+    placeholderData: previousData => previousData,
+    staleTime: 60_000,
+  });
 
-  const refetch = useCallback(async () => {
-    if (!projectId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/projects/${projectId}/detail`, { headers: authHeaders() });
-      const json = await res.json();
-      if (json.ok) {
-        setData(json.data);
-      } else {
-        setError(json.error ?? 'Failed to load project');
-      }
-    } catch {
-      setError('Network error — could not load project');
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId]);
-
-  useEffect(() => { refetch(); }, [refetch]);
-
-  return { data, loading, error, refetch };
+  return {
+    data: query.data ?? null,
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+  };
 }

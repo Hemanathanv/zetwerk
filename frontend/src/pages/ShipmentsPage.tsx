@@ -339,13 +339,15 @@ export function ShipmentsPage() {
         fetchedAt: new Date(),
       };
     },
-    refetchOnWindowFocus: true,
+    placeholderData: previousData => previousData,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 
   const rows = shipmentsQuery.data?.rows ?? [];
   const total = shipmentsQuery.data?.total ?? rows.length;
   const lastFetch = shipmentsQuery.data?.fetchedAt ?? null;
-  const loading = shipmentsQuery.isLoading || shipmentsQuery.isFetching;
+  const loading = shipmentsQuery.isLoading;
   const error = shipmentsQuery.error instanceof Error ? shipmentsQuery.error.message : null;
 
   useEffect(() => {

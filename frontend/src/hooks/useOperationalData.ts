@@ -168,15 +168,17 @@ export interface ShipmentFilters {
 }
 
 export function useShipments(filters: ShipmentFilters = {}) {
-  const [data, setData] = useState<any[]>([]);
-  const [meta, setMeta] = useState<{ total: number }>({ total: 0 });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  const query = useQuery({
+    queryKey: [
+      'shipments',
+      'legacy-list',
+      filters.status ?? '',
+      filters.templateId ?? '',
+      filters.search ?? '',
+      filters.limit ?? 'all',
+      filters.offset ?? 0,
+    ],
+    queryFn: async () => {
       const params = new URLSearchParams();
       if (filters.status)     params.set('status',     filters.status);
       if (filters.templateId) params.set('templateId', filters.templateId);
@@ -184,19 +186,19 @@ export function useShipments(filters: ShipmentFilters = {}) {
       if (filters.limit)      params.set('limit',      String(filters.limit));
       if (filters.offset)     params.set('offset',     String(filters.offset));
       const qs = params.toString();
-      const result = await apiFetch<{ ok: boolean; data: any[]; meta?: { total: number } }>(`/api/shipments${qs ? `?${qs}` : ''}`);
-      setData(result.data ?? []);
-      setMeta(result.meta ?? { total: 0 });
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [filters.status, filters.templateId, filters.search, filters.limit, filters.offset]);
+      return apiFetch<{ ok: boolean; data: any[]; meta?: { total: number } }>('/api/shipments' + (qs ? '?' + qs : ''));
+    },
+    placeholderData: previousData => previousData,
+    staleTime: 60_000,
+  });
 
-  useEffect(() => { fetch(); }, [fetch]);
-
-  return { shipments: data, meta, loading, error, refetch: fetch };
+  return {
+    shipments: query.data?.data ?? [],
+    meta: query.data?.meta ?? { total: 0 },
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+  };
 }
 
 export function useShipmentDocuments(shipmentId: string | null | undefined) {

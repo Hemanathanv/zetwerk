@@ -10,7 +10,6 @@ from helpers.config import settings
 from helpers.dependencies import get_current_user
 from helpers.shipment_operational import ensure_operational_shipment_tables, link_documents_to_shipment_by_keys
 from project.db_setup import ensure_project_tables
-from project.service import sync_projects_from_shipments
 
 
 router = APIRouter(prefix=settings.API_SLUG + "/projects", tags=["Projects"])
@@ -277,11 +276,6 @@ async def list_projects(
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
     await ensure_project_tables(prisma)
-    try:
-        await sync_projects_from_shipments(prisma, limit=1000)
-    except Exception as exc:
-        print(f"[projects] warning: could not sync projects before listing: {exc}", flush=True)
-
     query_text = (search or q or "").strip()
     status_text = (status or "").strip().upper()
     total_rows = await _query_raw(
@@ -348,10 +342,6 @@ async def get_project(project_id: str, _user=Depends(get_current_user)):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
     await ensure_project_tables(prisma)
-    try:
-        await sync_projects_from_shipments(prisma, limit=1000)
-    except Exception as exc:
-        print(f"[projects] warning: could not sync projects before detail: {exc}", flush=True)
     project = await _project_row(prisma, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -363,10 +353,6 @@ async def get_project_detail(project_id: str, _user=Depends(get_current_user)):
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
     await ensure_project_tables(prisma)
-    try:
-        await sync_projects_from_shipments(prisma, limit=1000)
-    except Exception as exc:
-        print(f"[projects] warning: could not sync projects before detail: {exc}", flush=True)
     return {"ok": True, "data": await _project_detail_payload(prisma, project_id)}
 
 
@@ -435,11 +421,6 @@ async def list_project_shipments(
     prisma = await get_prisma()
     await ensure_operational_shipment_tables(prisma)
     await ensure_project_tables(prisma)
-    try:
-        await sync_projects_from_shipments(prisma, limit=1000)
-    except Exception as exc:
-        print(f"[projects] warning: could not sync projects before listing shipments: {exc}", flush=True)
-
     project_rows = await _query_raw(
         prisma,
         """

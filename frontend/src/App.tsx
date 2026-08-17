@@ -68,7 +68,16 @@ import { EwmsShipLoader } from '@/components/EwmsShipLoader';
 import { firstAllowedLandingPath } from '@/lib/allowedNavigation';
 import { EwmsScrollArea } from '@/components/ewms/Media';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 const INTENDED_PATH_KEY = 'ewms:intended-path';
 
 function UnauthorizedPage() {

@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from db import get_prisma
 from helpers.config import settings
 from helpers.dependencies import get_current_user
-from helpers.shipment_operational import ensure_operational_shipment_tables, link_documents_to_shipment_by_keys, sync_reviewed_bols_as_shipments
+from helpers.shipment_operational import ensure_operational_shipment_tables, link_documents_to_shipment_by_keys
 from shipment_360.safecube import infer_shipment_type, track_container
 
 
@@ -189,6 +189,18 @@ async def _ensure_shipment_360_views(prisma) -> None:
     global _SHIPMENT_VIEWS_READY
     if _SHIPMENT_VIEWS_READY:
         return
+
+    existing = await _query_raw(
+        prisma,
+        """
+        SELECT to_regclass('shipment_360.shipment_list_view')::text AS list_view,
+               to_regclass('shipment_360.shipment_detail_view')::text AS detail_view
+        """,
+    )
+    if existing and existing[0].get("list_view") and existing[0].get("detail_view"):
+        _SHIPMENT_VIEWS_READY = True
+        return
+
     await _ensure_safecube_tables(prisma)
     sql = SHIPMENT_VIEWS_SQL.read_text(encoding="utf-8")
     statements = [statement.strip() for statement in sql.split(";") if statement.strip()]
@@ -1380,43 +1392,6 @@ async def list_shipments(
     await ensure_operational_shipment_tables(prisma)
     resolved_offset = offset if offset is not None else (page - 1) * limit
     query_text = str(search or "").strip()
-    try:
-        await sync_reviewed_bols_as_shipments(prisma, limit=500)
-    except Exception as exc:
-        print(f"[shipments] warning: could not sync reviewed BOLs before listing shipments: {exc}", flush=True)
-    try:
-        shipment_link_rows = await _query_raw(
-            prisma,
-            """
-            SELECT "id"::text AS id
-            FROM "public"."shipments"
-            WHERE $1::text = ''
-               OR concat_ws(
-                    ' ',
-                    "shipment_number",
-                    "mbl_number",
-                    "booking_number",
-                    "bol_number",
-                    "vessel_name",
-                    "port_of_loading",
-                    "port_of_discharge",
-                    "exporter_name",
-                    "buyer_name",
-                    "project_name"
-                  ) ILIKE ('%' || $1::text || '%')
-            ORDER BY "created_at" DESC
-            LIMIT $2 OFFSET $3
-            """,
-            query_text,
-            limit,
-            resolved_offset,
-        )
-        for shipment_row in shipment_link_rows:
-            shipment_id = shipment_row.get("id")
-            if shipment_id:
-                await link_documents_to_shipment_by_keys(prisma, str(shipment_id))
-    except Exception as exc:
-        print(f"[shipments] warning: could not refresh linked documents before listing shipments: {exc}", flush=True)
     await _ensure_shipment_360_views(prisma)
     try:
         total_rows = await _query_raw(
@@ -1445,7 +1420,6 @@ async def list_shipments(
         )
         total = int((total_rows[0] or {}).get("total") or 0) if total_rows else 0
         data = [_view_shipment_payload(row) for row in shipment_rows]
-        data = await _merge_document_module_gate_docs(prisma, data)
         return {
             "ok": True,
             "data": data,

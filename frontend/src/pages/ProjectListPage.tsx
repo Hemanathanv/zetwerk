@@ -1,14 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Search, FolderOpen, ChevronRight } from 'lucide-react';
-import { getAuthToken } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 import { MetricCard } from '@/components/vs/MetricCard';
 import { ProgressBar } from '@/components/vs/ProgressBar';
 import { StatusBadge } from '@/components/StatusBadge';
-
-function authHeaders(): Record<string, string> {
-  const token = getAuthToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 function fmtDate(d: string | Date) {
   return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
@@ -61,8 +57,6 @@ function ProjectCard({ project }: { project: any }) {
 }
 
 export function ProjectListPage() {
-  const [projects, setProjects] = useState<any[]>([]);
-  const [loading, setLoading]   = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -72,16 +66,23 @@ export function ProjectListPage() {
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (statusFilter !== 'all') params.set('status', statusFilter.toUpperCase());
-    if (search) params.set('search', search);
-    setLoading(true);
-    fetch(`/api/projects?${params}`, { headers: authHeaders() })
-      .then(r => r.json())
-      .then(d => { setProjects(d.data || []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [statusFilter, search]);
+  const projectsQuery = useQuery({
+    queryKey: ['projects', 'list', statusFilter, search],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (statusFilter !== 'all') params.set('status', statusFilter.toUpperCase());
+      if (search) params.set('search', search);
+      const qs = params.toString();
+      return apiGet<{ ok: boolean; data: any[]; meta?: { total: number } }>(
+        '/api/projects' + (qs ? '?' + qs : ''),
+      );
+    },
+    placeholderData: previousData => previousData,
+    staleTime: 60_000,
+  });
+
+  const projects = projectsQuery.data?.data ?? [];
+  const loading = projectsQuery.isLoading;
 
   const stats = useMemo(() => ({
     total:          projects.length,
