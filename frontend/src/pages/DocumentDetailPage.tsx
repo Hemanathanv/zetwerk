@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
-import { AlertTriangle, ArrowLeft, Check, CheckCircle2, Circle, Clock3, Eye, FileText, Info, Loader2, Pencil, Ship, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronUp, Circle, Clock3, Eye, FileText, Info, Loader2, Pencil, Ship, X } from 'lucide-react';
 import { documentApi } from '@/auth/api';
 import type { DocumentDetailRecord, JsonValue } from '@/types/backend';
 import { getDocConfig } from '@/config/docFieldConfig';
@@ -29,6 +29,7 @@ const UPLOAD_PROCESS_RETURN_PATH_KEY = 'ewms-upload-process-return-path';
 const BOL_REFERENCE_ACTION_FIELDS = new Set(['mblNumber', 'bookingReferenceNumber']);
 
 type PipelineStageState = 'done' | 'current' | 'current-spin' | 'future';
+type ExtractionFieldFilter = 'all' | 'issues' | 'edited' | `section:${string}` | `array:${string}` | 'additional';
 
 type DraftFieldValue = {
   targetField: string;
@@ -162,6 +163,10 @@ function formatValue(value: JsonValue | undefined): string {
   if (Array.isArray(value)) return value.length ? JSON.stringify(value) : 'Field not in the file';
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
+}
+
+function isFieldIssue(field: FieldDef, rawData: JsonValue | null | undefined): boolean {
+  return !field.optional && formatValue(findExtractionValue(rawData, field.key)) === 'Field not in the file';
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -534,9 +539,10 @@ function labelFromKey(key: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function FieldCard({ field, rawData, onSave }: {
+function FieldCard({ field, rawData, isEdited = false, onSave }: {
   field: FieldDef;
   rawData: JsonValue | null | undefined;
+  isEdited?: boolean;
   onSave?: (key: string, value: string | null) => Promise<void>;
 }) {
   const formattedValue = formatValue(findExtractionValue(rawData, field.key));
@@ -555,7 +561,7 @@ function FieldCard({ field, rawData, onSave }: {
   const isEmpty = displayValue === 'Field not in the file';
   const isOptionalEmpty = isEmpty && field.optional;
   const isManualEmpty = field.manual && displayValue === 'Enter value';
-  const isAmended = amendedValue !== null;
+  const isAmended = amendedValue !== null || isEdited;
 
   function startEdit() {
     setDraftValue(['Field not in the file', 'Enter value'].includes(displayValue) ? '' : displayValue);
@@ -1083,12 +1089,15 @@ export function DocumentDetailPage() {
   const [dndInputsOpen, setDndInputsOpen] = useState(false);
   const [safeCubeInputsOpen, setSafeCubeInputsOpen] = useState(false);
   const [safeCubeInputsSaving, setSafeCubeInputsSaving] = useState(false);
+  const [extractionFieldFilter, setExtractionFieldFilter] = useState<ExtractionFieldFilter>('all');
+  const [editedExtractionFields, setEditedExtractionFields] = useState<Set<string>>(() => new Set());
   const [warehouseMappingOpen, setWarehouseMappingOpen] = useState(false);
   const [warehouseMappingLoading, setWarehouseMappingLoading] = useState(false);
   const [warehouseMappingSaving, setWarehouseMappingSaving] = useState(false);
   const [warehouseOptions, setWarehouseOptions] = useState<WarehouseOption[]>([]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
   const [warehouseMappingShipmentId, setWarehouseMappingShipmentId] = useState<string | null>(null);
+  const [documentOverviewCollapsed, setDocumentOverviewCollapsed] = useState(false);
   const isApprovalRoute = currentPath.endsWith('/approve');
   const uploadProcessBackPath = sessionStorage.getItem(UPLOAD_PROCESS_RETURN_PATH_KEY) === PROCESSING_QUEUE_ROUTE
     ? PROCESSING_QUEUE_ROUTE
@@ -1115,6 +1124,11 @@ export function DocumentDetailPage() {
     return () => {
       cancelled = true;
     };
+  }, [documentId]);
+
+  useEffect(() => {
+    setExtractionFieldFilter('all');
+    setEditedExtractionFields(new Set());
   }, [documentId]);
 
   const extraction = documentDetail?.extraction ?? documentDetail?.salesInvoiceExtraction ?? null;
@@ -1173,6 +1187,47 @@ export function DocumentDetailPage() {
       && (value === null || typeof value !== 'object')
     ))
     .map(([key]) => ({ key, label: labelFromKey(key) }));
+  const displayableSections = config?.sections.map((section) => ({
+    ...section,
+    fields: section.fields.filter((field) => (
+      !(field.key === 'goodsDescription' && hasStructuredGoodsDescription)
+      && !(hasBolReferenceActionFields && BOL_REFERENCE_ACTION_FIELDS.has(field.key))
+    )),
+  })) ?? [];
+  const allDisplayableFields = [
+    ...displayableSections.flatMap((section) => section.fields),
+    ...additionalPrismaFields,
+  ];
+  const issueFieldCount = allDisplayableFields.filter((field) => isFieldIssue(field, extraction?.rawData)).length;
+  const editedFieldCount = allDisplayableFields.filter((field) => editedExtractionFields.has(field.key)).length;
+  const filterExtractionFields = (fields: FieldDef[]) => fields.filter((field) => {
+    if (extractionFieldFilter === 'issues') return isFieldIssue(field, extraction?.rawData);
+    if (extractionFieldFilter === 'edited') return editedExtractionFields.has(field.key);
+    return true;
+  });
+  const selectedConfiguredSection = extractionFieldFilter.startsWith('section:')
+    ? extractionFieldFilter.slice('section:'.length)
+    : null;
+  const selectedArraySection = extractionFieldFilter.startsWith('array:')
+    ? extractionFieldFilter.slice('array:'.length)
+    : null;
+  const filteredSections = displayableSections
+    .filter((section) => {
+      if (selectedArraySection || extractionFieldFilter === 'additional') return false;
+      return !selectedConfiguredSection || section.sectionLabel === selectedConfiguredSection;
+    })
+    .map((section) => ({ ...section, fields: selectedConfiguredSection ? section.fields : filterExtractionFields(section.fields) }))
+    .filter((section) => section.fields.length > 0);
+  const filteredAdditionalPrismaFields = extractionFieldFilter === 'additional' || !selectedConfiguredSection && !selectedArraySection
+    ? filterExtractionFields(additionalPrismaFields)
+    : [];
+  const arrayFilterOptions = extraction?.arrays && Object.keys(extraction.arrays).length > 0
+    ? Object.entries(extraction.arrays)
+        .filter(([, rows]) => rows.length > 0)
+        .map(([arrayName, rows]) => ({ key: `array:${arrayName}` as const, label: labelFromKey(arrayName), count: rows.length }))
+    : extraction?.lineItems?.length
+      ? [{ key: 'array:lineItems' as const, label: 'Line Items', count: extraction.lineItems.length }]
+      : [];
   const isImagePreview = Boolean(documentDetail?.contentType?.startsWith('image/'));
 
   useEffect(() => {
@@ -1348,6 +1403,11 @@ export function DocumentDetailPage() {
     if (!documentDetail) return;
     try {
       await documentApi.updateExtraction(documentDetail.id, { fields: { [key]: value } });
+      setEditedExtractionFields((current) => {
+        const next = new Set(current);
+        next.add(key);
+        return next;
+      });
       const { data } = await documentApi.getById(documentDetail.id);
       setDocumentDetail(data);
     } catch (err) {
@@ -1443,70 +1503,130 @@ export function DocumentDetailPage() {
         </div>
       ) : (
         <>
-          {config.sections.map((section) => (
-            <div key={section.sectionLabel}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
-                {section.sectionLabel}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-                {section.fields
-                  .filter((field) => (
-                    !(field.key === 'goodsDescription' && hasStructuredGoodsDescription)
-                    && !(hasBolReferenceActionFields && BOL_REFERENCE_ACTION_FIELDS.has(field.key))
-                  ))
-                  .map((field) => (
-                    <FieldCard key={field.key} field={field} rawData={extraction.rawData} onSave={canEditCurrentExtraction ? saveFieldValue : undefined} />
-                  ))}
-              </div>
-            </div>
-          ))}
-          {documentDetail?.docType === 'BILL_OF_LADING' && !hasStructuredGoodsDescription && (
-            <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, padding: '10px 12px', color: MUTED, fontSize: 11.5, lineHeight: 1.45 }}>
-              Goods Description Line Items are not present in this older extraction. Re-extract this BOL to split the cargo text into Sales Invoice-style rows.
-            </div>
-          )}
-          {additionalPrismaFields.length > 0 && (
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
-                Additional Prisma Fields
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
-                {additionalPrismaFields.map((field) => (
-                  <FieldCard key={field.key} field={field} rawData={extraction.rawData} onSave={canEditCurrentExtraction ? saveFieldValue : undefined} />
-                ))}
-              </div>
-            </div>
-          )}
-          {extraction.arrays && Object.keys(extraction.arrays).length > 0
-            ? Object.entries(extraction.arrays).map(([arrayName, rows]) => (
-                rows.length
-                  ? (
-                    <LineItemsTable
-                      key={arrayName}
-                      rows={rows}
-                      title={arrayName}
-                      editable={canEditCurrentExtraction}
-                      onSave={canEditCurrentExtraction ? (updatedRows) => saveArrayRows(arrayName, updatedRows) : undefined}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {[
+              { key: 'all' as const, label: 'All fields', count: allDisplayableFields.length },
+              { key: 'issues' as const, label: 'Issues only', count: issueFieldCount },
+              { key: 'edited' as const, label: 'Edited fields', count: editedFieldCount },
+              ...displayableSections.map((section) => ({
+                key: `section:${section.sectionLabel}` as const,
+                label: section.sectionLabel,
+                count: section.fields.length,
+              })),
+              ...(additionalPrismaFields.length > 0
+                ? [{ key: 'additional' as const, label: 'Additional Fields', count: additionalPrismaFields.length }]
+                : []),
+              ...arrayFilterOptions,
+            ].map((chip) => {
+              const active = extractionFieldFilter === chip.key;
+              return (
+                <button
+                  key={chip.key}
+                  type="button"
+                  onClick={() => setExtractionFieldFilter(chip.key)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    border: `1px solid ${active ? TEAL : BORDER}`,
+                    borderRadius: 999,
+                    padding: '5px 10px',
+                    backgroundColor: active ? `${TEAL}12` : 'hsl(var(--card))',
+                    color: active ? TEAL : FG,
+                    fontSize: 11.5,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {chip.label}
+                  <span style={{ color: active ? TEAL : MUTED, fontWeight: 750 }}>{chip.count}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, backgroundColor: 'hsl(var(--card))', maxHeight: 'min(62vh, 560px)', overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {filteredSections.map((section) => (
+              <div key={section.sectionLabel}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+                  {section.sectionLabel}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                  {section.fields.map((field) => (
+                    <FieldCard
+                      key={field.key}
+                      field={field}
+                      rawData={extraction.rawData}
+                      isEdited={editedExtractionFields.has(field.key)}
+                      onSave={canEditCurrentExtraction ? saveFieldValue : undefined}
                     />
-                  )
-                  : null
-              ))
-            : extraction.lineItems?.length
-              ? (
-                <LineItemsTable
-                  rows={extraction.lineItems}
-                  editable={canEditCurrentExtraction}
-                  onSave={canEditCurrentExtraction ? (updatedRows) => saveArrayRows('lineItems', updatedRows) : undefined}
-                />
-              )
-              : null}
-          {approvedContainerMappingRows.length > 0 && (
-            <LineItemsTable
-              rows={approvedContainerMappingRows}
-              title="Approved Container Mapping"
-              editable={false}
-            />
-          )}
+                  ))}
+                </div>
+              </div>
+            ))}
+            {filteredSections.length === 0 && filteredAdditionalPrismaFields.length === 0 && !selectedArraySection && (
+              <div style={{ color: MUTED, fontSize: 13 }}>
+                {extractionFieldFilter === 'issues'
+                  ? 'No fields currently have issues.'
+                  : extractionFieldFilter === 'edited'
+                    ? 'No fields have been edited after extraction in this view.'
+                    : 'No extracted fields available.'}
+              </div>
+            )}
+            {extractionFieldFilter === 'all' && documentDetail?.docType === 'BILL_OF_LADING' && !hasStructuredGoodsDescription && (
+              <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, padding: '10px 12px', color: MUTED, fontSize: 11.5, lineHeight: 1.45 }}>
+                Goods Description Line Items are not present in this older extraction. Re-extract this BOL to split the cargo text into Sales Invoice-style rows.
+              </div>
+            )}
+            {filteredAdditionalPrismaFields.length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
+                  Additional Fields
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+                  {filteredAdditionalPrismaFields.map((field) => (
+                    <FieldCard
+                      key={field.key}
+                      field={field}
+                      rawData={extraction.rawData}
+                      isEdited={editedExtractionFields.has(field.key)}
+                      onSave={canEditCurrentExtraction ? saveFieldValue : undefined}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            {(extractionFieldFilter === 'all' || selectedArraySection) && extraction.arrays && Object.keys(extraction.arrays).length > 0
+              ? Object.entries(extraction.arrays).map(([arrayName, rows]) => (
+                  rows.length && (!selectedArraySection || selectedArraySection === arrayName)
+                    ? (
+                      <LineItemsTable
+                        key={arrayName}
+                        rows={rows}
+                        title={arrayName}
+                        editable={canEditCurrentExtraction}
+                        onSave={canEditCurrentExtraction ? (updatedRows) => saveArrayRows(arrayName, updatedRows) : undefined}
+                      />
+                    )
+                    : null
+                ))
+              : (extractionFieldFilter === 'all' || selectedArraySection === 'lineItems') && extraction.lineItems?.length
+                ? (
+                  <LineItemsTable
+                    rows={extraction.lineItems}
+                    editable={canEditCurrentExtraction}
+                    onSave={canEditCurrentExtraction ? (updatedRows) => saveArrayRows('lineItems', updatedRows) : undefined}
+                  />
+                )
+                : null}
+            {extractionFieldFilter === 'all' && approvedContainerMappingRows.length > 0 && (
+              <LineItemsTable
+                rows={approvedContainerMappingRows}
+                title="Approved Container Mapping"
+                editable={false}
+              />
+            )}
+          </div>
         </>
       )}
     </section>
@@ -1535,7 +1655,7 @@ export function DocumentDetailPage() {
   }
 
   return (
-    <div style={{ padding: 24, backgroundColor: 'hsl(var(--background))', minHeight: 'calc(100vh - 64px)' }}>
+    <div style={{ padding: documentOverviewCollapsed ? '8px 24px 24px' : 24, backgroundColor: 'hsl(var(--background))', minHeight: 'calc(100vh - 64px)' }}>
       {containerMappingOpen && (
         <BolContainerMappingModal
           mapping={containerMapping}
@@ -1586,91 +1706,112 @@ export function DocumentDetailPage() {
           onClose={() => setSourcePreviewOpen(false)}
         />
       )}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
-        <button onClick={() => navigate(uploadProcessBackPath)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: TEAL, background: 'transparent', border: `1px solid ${TEAL}50`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-          <ArrowLeft size={14} /> Upload & Process
-        </button>
-        <button
-          onClick={() => navigate(uploadProcessBackPath)}
-          title="Close document"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: MUTED, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
-        >
-          <X size={14} /> Close
-        </button>
-      </div>
+      {!documentOverviewCollapsed && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
+          <button onClick={() => navigate(uploadProcessBackPath)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: TEAL, background: 'transparent', border: `1px solid ${TEAL}50`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+            <ArrowLeft size={14} /> Upload & Process
+          </button>
+          <button
+            onClick={() => navigate(uploadProcessBackPath)}
+            title="Close document"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: MUTED, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+          >
+            <X size={14} /> Close
+          </button>
+        </div>
+      )}
 
-      <PageHeader
+      {!documentOverviewCollapsed && (
+        <>
+          <PageHeader
         title={isApprovalRoute ? `Approve ${config?.displayName ?? documentDetail.docType}` : (config?.displayName ?? documentDetail.docType)}
         subtitle={`${documentDetail.fileName} · ${documentDetail.status}`}
       />
 
-      <DocumentPipeline states={documentPipelineStates(documentDetail.status, documentDetail.validationStatus)} />
+          <DocumentPipeline states={documentPipelineStates(documentDetail.status, documentDetail.validationStatus)} />
+        </>
+      )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
-        <DocBadge code={docCode(documentDetail.docType)} size="md" />
-        <span style={{ fontSize: 12, color: MUTED, fontWeight: 650, overflowWrap: 'anywhere' }}>{documentDetail.fileName}</span>
-        {extraction?.extractedAt && (
-          <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${GREEN}18`, color: GREEN }}>
-            Extracted {formatDateTime(extraction.extractedAt)}
-          </span>
-        )}
-        {extraction?.reviewedAt && (
-          <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${BLUE}14`, color: BLUE }}>
-            Reviewed {formatDateTime(extraction.reviewedAt)}
-          </span>
-        )}
-        {(hasBolReferenceActionFields || documentDetail.docType === 'BILL_OF_LADING') && extraction && (
-          <div style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {hasBolReferenceActionFields && (
-              <Button type="button" variant="outline" size="sm" onClick={() => setSafeCubeInputsOpen(true)} className="h-9">
-                SafeCube Inputs
-              </Button>
-            )}
-            {canUseDndInputs && (
-              <Button type="button" variant="outline" size="sm" onClick={() => setDndInputsOpen(true)} className="h-9">
-                D&D Inputs
-              </Button>
-            )}
-            {canUseContainerMapping && (
-              <Button type="button" size="sm" onClick={() => void openContainerMapping()} className="h-9">
-                {containerMappingApproved ? 'Mapping approved' : 'Container Mapping'}
-              </Button>
-            )}
-          </div>
-        )}
-        {documentDetail.docType === 'US_CARGO_RELEASE_ORDER' && extraction && (
-          <button
-            onClick={() => void openWarehouseMapping()}
-            style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: TEAL, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
-          >
-            Warehouse Mapping
-          </button>
-        )}
-        {isApprovalRoute && (
-          <>
-            {canReprocessCurrentDoc && (
-              <button
-                onClick={flagForReExtraction}
-                disabled={actionLoading !== null}
-                style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: FG, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: actionLoading ? 0.65 : 1 }}
-              >
-                {actionLoading === 'retry' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : null}
-                Flag for re-extraction
-              </button>
-            )}
-            {canApproveCurrentExtraction && (
-              <button
-                onClick={approveAllFields}
-                disabled={!extraction || isExtractionApproved || actionLoading !== null}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: isExtractionApproved ? TEAL : GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: !extraction || isExtractionApproved || actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 800, opacity: !extraction || actionLoading ? 0.65 : 1 }}
-              >
-                {actionLoading === 'approve' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : <CheckCircle2 size={14} />}
-                {isExtractionApproved ? 'Approved' : 'Approve all fields'}
-              </button>
-            )}
-          </>
-        )}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: documentOverviewCollapsed ? 6 : 8 }}>
+        <button
+          type="button"
+          onClick={() => setDocumentOverviewCollapsed((value) => !value)}
+          title={documentOverviewCollapsed ? 'Show document overview' : 'Hide document overview'}
+          aria-expanded={!documentOverviewCollapsed}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: MUTED, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+        >
+          {documentOverviewCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          {documentOverviewCollapsed ? 'Show overview' : 'Hide overview'}
+        </button>
       </div>
+
+      {!documentOverviewCollapsed && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+          <DocBadge code={docCode(documentDetail.docType)} size="md" />
+          <span style={{ fontSize: 12, color: MUTED, fontWeight: 650, overflowWrap: 'anywhere' }}>{documentDetail.fileName}</span>
+          {extraction?.extractedAt && (
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${GREEN}18`, color: GREEN }}>
+              Extracted {formatDateTime(extraction.extractedAt)}
+            </span>
+          )}
+          {extraction?.reviewedAt && (
+            <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${BLUE}14`, color: BLUE }}>
+              Reviewed {formatDateTime(extraction.reviewedAt)}
+            </span>
+          )}
+          {(hasBolReferenceActionFields || documentDetail.docType === 'BILL_OF_LADING') && extraction && (
+            <div style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {hasBolReferenceActionFields && (
+                <Button type="button" variant="outline" size="sm" onClick={() => setSafeCubeInputsOpen(true)} className="h-9">
+                  SafeCube Inputs
+                </Button>
+              )}
+              {canUseDndInputs && (
+                <Button type="button" variant="outline" size="sm" onClick={() => setDndInputsOpen(true)} className="h-9">
+                  D&D Inputs
+                </Button>
+              )}
+              {canUseContainerMapping && (
+                <Button type="button" size="sm" onClick={() => void openContainerMapping()} className="h-9">
+                  {containerMappingApproved ? 'Mapping approved' : 'Container Mapping'}
+                </Button>
+              )}
+            </div>
+          )}
+          {documentDetail.docType === 'US_CARGO_RELEASE_ORDER' && extraction && (
+            <button
+              onClick={() => void openWarehouseMapping()}
+              style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: TEAL, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+            >
+              Warehouse Mapping
+            </button>
+          )}
+          {isApprovalRoute && (
+            <>
+              {canReprocessCurrentDoc && (
+                <button
+                  onClick={flagForReExtraction}
+                  disabled={actionLoading !== null}
+                  style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: FG, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: actionLoading ? 0.65 : 1 }}
+                >
+                  {actionLoading === 'retry' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : null}
+                  Flag for re-extraction
+                </button>
+              )}
+              {canApproveCurrentExtraction && (
+                <button
+                  onClick={approveAllFields}
+                  disabled={!extraction || isExtractionApproved || actionLoading !== null}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: isExtractionApproved ? TEAL : GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: !extraction || isExtractionApproved || actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 800, opacity: !extraction || actionLoading ? 0.65 : 1 }}
+                >
+                  {actionLoading === 'approve' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : <CheckCircle2 size={14} />}
+                  {isExtractionApproved ? 'Approved' : 'Approve all fields'}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {isDraftCbpBrokerDocument ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(420px, 0.92fr) minmax(520px, 1.08fr)', gap: 18, alignItems: 'start' }}>
