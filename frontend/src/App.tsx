@@ -11,6 +11,7 @@ import { PermissionProvider, usePermissions } from '@/contexts/PermissionContext
 import { RequireAnyModule, RequireModule } from '@/components/PermissionGate';
 import { ConfigProvider } from '@/contexts/ConfigContext';
 import { UploadProvider } from '@/contexts/UploadContext';
+import { PageMetaProvider } from '@/contexts/PageMetaContext';
 import { Sidebar, SIDEBAR_WIDTH_OPEN, SIDEBAR_WIDTH_COLLAPSED } from '@/components/Sidebar';
 import { TopHeader } from '@/components/TopHeader';
 import { UploadSheet } from '@/components/UploadSheet';
@@ -513,14 +514,16 @@ function AdminExitWatcher() {
 function AuthenticatedApp() {
   return (
     <SidebarProvider>
-      <UploadProvider>
-        <AdminExitWatcher />
-        <Switch>
-          <Route path="/admin/:rest*" component={AdminArea} />
-          <Route path="/admin" component={AdminArea} />
-          <Route component={AppLayout} />
-        </Switch>
-      </UploadProvider>
+      <PageMetaProvider>
+        <UploadProvider>
+          <AdminExitWatcher />
+          <Switch>
+            <Route path="/admin/:rest*" component={AdminArea} />
+            <Route path="/admin" component={AdminArea} />
+            <Route component={AppLayout} />
+          </Switch>
+        </UploadProvider>
+      </PageMetaProvider>
     </SidebarProvider>
   );
 }
