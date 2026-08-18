@@ -167,6 +167,10 @@ export function DashboardPage() {
       const q = search.toLowerCase();
       result = result.filter(s =>
         (s.shipmentNumber ?? '').toLowerCase().includes(q) ||
+        (s.bolNumber      ?? '').toLowerCase().includes(q) ||
+        (s.blNumber       ?? '').toLowerCase().includes(q) ||
+        (s.hblNumber      ?? '').toLowerCase().includes(q) ||
+        (s.mblNumber      ?? '').toLowerCase().includes(q) ||
         (s.exporterName   ?? '').toLowerCase().includes(q) ||
         (s.buyerName      ?? '').toLowerCase().includes(q) ||
         (s.projectName    ?? '').toLowerCase().includes(q),
@@ -451,6 +455,7 @@ export function DashboardPage() {
                 .sort((a: any, b: any) =>
                   (a.gateConfig?.gateNumber ?? 0) - (b.gateConfig?.gateNumber ?? 0),
                 );
+              const shipmentRef = shipment.bolNumber ?? shipment.blNumber ?? shipment.hblNumber ?? shipment.mblNumber ?? shipment.shipmentNumber;
 
               return (
                 <a
@@ -461,7 +466,7 @@ export function DashboardPage() {
                   {/* Shipment ID + status + project link */}
                   <div className="w-[200px] @max-[1150px]:w-[170px] shrink-0">
                     <div className="data-mono-id">
-                      {shipment.shipmentNumber || (
+                      {shipmentRef || (
                         <span className="text-muted-foreground italic text-[13px] font-normal">Pending ID</span>
                       )}
                     </div>

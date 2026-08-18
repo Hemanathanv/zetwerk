@@ -20,6 +20,10 @@ export interface AttentionItem {
 export interface ShipmentRow {
   id: string;
   shipmentNumber: string | null;
+  blNumber?: string | null;
+  bolNumber?: string | null;
+  hblNumber?: string | null;
+  mblNumber?: string | null;
   vesselName: string | null;
   portOfLoading: string | null;
   portOfDischarge: string | null;

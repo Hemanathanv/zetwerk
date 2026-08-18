@@ -126,6 +126,7 @@ export function ProjectShipmentTable({ shipments, project }: Props) {
           ? (SCHEDULE_STATUS_DISPLAY[shipment.scheduleStatus] ?? { label: shipment.scheduleStatus, cls: 'text-muted-foreground' })
           : null;
         const etaDisplay = shipment.etaLabel ?? (shipment.etaAt ? fmtDate(shipment.etaAt) : null);
+        const shipmentRef = shipment.bolNumber ?? shipment.blNumber ?? shipment.hblNumber ?? shipment.mblNumber ?? shipment.shipmentNumber;
 
         return (
           <button
@@ -136,7 +137,7 @@ export function ProjectShipmentTable({ shipments, project }: Props) {
             {/* Shipment */}
             <div className="min-w-0">
               <div className="text-[13px] font-mono font-semibold text-foreground truncate">
-                {shipment.shipmentNumber || <span className="font-sans font-normal italic text-muted-foreground">Pending</span>}
+                {shipmentRef || <span className="font-sans font-normal italic text-muted-foreground">Pending</span>}
               </div>
               <div className="mt-0.5 flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap">
                 <span className={`shrink-0 text-[11px] font-semibold uppercase ${SHIPMENT_STATUS_COLOUR[shipment.status] ?? 'text-muted-foreground'}`}>

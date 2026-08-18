@@ -53,9 +53,9 @@ def _shipment_payload(row: dict[str, Any]) -> dict[str, Any]:
         "portOfDischarge": row.get("port_of_discharge"),
         "exporterName": row.get("exporter_name"),
         "buyerName": row.get("buyer_name"),
-        "blNumber": row.get("bol_number") or row.get("hbl_number"),
-        "bolNumber": row.get("bol_number") or row.get("hbl_number"),
-        "hblNumber": row.get("hbl_number"),
+        "blNumber": row.get("bol_number"),
+        "bolNumber": row.get("bol_number"),
+        "hblNumber": row.get("bol_number"),
         "mblNumber": row.get("mbl_number"),
         "bookingNumber": row.get("booking_number"),
         "loadType": row.get("load_type"),
@@ -102,6 +102,10 @@ def _detail_shipment_payload(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
         "shipmentNumber": row.get("shipment_number"),
+        "blNumber": row.get("bol_number"),
+        "bolNumber": row.get("bol_number"),
+        "hblNumber": row.get("bol_number"),
+        "mblNumber": row.get("mbl_number"),
         "vesselName": row.get("vessel_name"),
         "portOfLoading": row.get("port_of_loading"),
         "portOfDischarge": row.get("port_of_discharge"),
@@ -154,6 +158,24 @@ async def _project_row(prisma, project_ref: str) -> dict[str, Any] | None:
     return rows[0] if rows else None
 
 
+async def _refresh_project_shipment_document_links(prisma, project_id: str) -> None:
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT "id"::text AS id
+        FROM "public"."shipments"
+        WHERE "project_id"::text = $1::text
+          AND lower(COALESCE("status", '')) NOT IN ('cancelled', 'canceled')
+        """,
+        project_id,
+    )
+    for row in rows:
+        try:
+            await link_documents_to_shipment_by_keys(prisma, str(row["id"]))
+        except Exception as exc:
+            print(f"[projects] warning: could not refresh shipment document links {row.get('id')}: {exc}", flush=True)
+
+
 async def _project_shipment_rows(prisma, project_id: str, *, limit: int, offset: int) -> list[dict[str, Any]]:
     return await _query_raw(
         prisma,
@@ -189,14 +211,27 @@ async def _project_shipment_rows(prisma, project_id: str, *, limit: int, offset:
             ) FILTER (WHERE gc."id" IS NOT NULL),
             '[]'::jsonb
           ) AS gate_progress,
-          COUNT(DISTINCT d."id")::int AS document_count,
-          COUNT(DISTINCT d."id") FILTER (
+          COUNT(DISTINCT CASE
+            WHEN d."doc_type"::text = 'SALES_INVOICE' THEN 'SALES_INVOICE|' || COALESCE(NULLIF(regexp_replace(COALESCE(si."invoice_no", d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+            WHEN d."doc_type"::text = 'PACKING_LIST' THEN 'PACKING_LIST|' || COALESCE(NULLIF(regexp_replace(COALESCE(pl."invoice_no", d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+            WHEN d."doc_type"::text = 'BILL_OF_LADING' THEN 'BILL_OF_LADING|' || COALESCE(NULLIF(regexp_replace(COALESCE(bol."bol_number", bol."mbl_number", d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+            ELSE d."doc_type"::text || '|' || COALESCE(NULLIF(regexp_replace(COALESCE(d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+          END)::int AS document_count,
+          COUNT(DISTINCT CASE
+            WHEN d."doc_type"::text = 'SALES_INVOICE' THEN 'SALES_INVOICE|' || COALESCE(NULLIF(regexp_replace(COALESCE(si."invoice_no", d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+            WHEN d."doc_type"::text = 'PACKING_LIST' THEN 'PACKING_LIST|' || COALESCE(NULLIF(regexp_replace(COALESCE(pl."invoice_no", d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+            WHEN d."doc_type"::text = 'BILL_OF_LADING' THEN 'BILL_OF_LADING|' || COALESCE(NULLIF(regexp_replace(COALESCE(bol."bol_number", bol."mbl_number", d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+            ELSE d."doc_type"::text || '|' || COALESCE(NULLIF(regexp_replace(COALESCE(d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+          END) FILTER (
             WHERE d."status"::text IN ('REVIEWED', 'ARCHIVED') OR d."approved_at" IS NOT NULL
           )::int AS approved_document_count
         FROM "public"."shipments" s
         LEFT JOIN "public"."documents" d
           ON d."shipment_id" = s."id"
          AND COALESCE(d."is_deleted", false) = false
+        LEFT JOIN "aiextraction"."sales_invoice_extractions" si ON si."document_id" = d."id"
+        LEFT JOIN "aiextraction"."packing_list_extractions" pl ON pl."document_id" = d."id"
+        LEFT JOIN "aiextraction"."bills_of_lading" bol ON bol."document_id" = d."id"
         LEFT JOIN "public"."shipment_gates" sg ON sg."shipment_id" = s."id"
         LEFT JOIN "public"."gate_configs" gc ON gc."id" = sg."gate_config_id"
         WHERE s."project_id"::text = $1::text
@@ -215,6 +250,7 @@ async def _project_detail_payload(prisma, project_ref: str) -> dict[str, Any]:
     project = await _project_row(prisma, project_ref)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    await _refresh_project_shipment_document_links(prisma, str(project["id"]))
     shipment_rows = await _project_shipment_rows(prisma, str(project["id"]), limit=500, offset=0)
     shipments = [_detail_shipment_payload(row) for row in shipment_rows]
     total_documents = sum(shipment["docTotal"] for shipment in shipments)
@@ -436,6 +472,7 @@ async def list_project_shipments(
         raise HTTPException(status_code=404, detail="Project not found")
     project = project_rows[0]
 
+    await _refresh_project_shipment_document_links(prisma, str(project["id"]))
     shipment_rows = await _query_raw(
         prisma,
         """
@@ -460,14 +497,27 @@ async def list_project_shipments(
           s."eta_port",
           s."eta_delivery",
           s."updated_at",
-          COUNT(d."id")::int AS document_count,
-          COUNT(d."id") FILTER (
+          COUNT(DISTINCT CASE
+            WHEN d."doc_type"::text = 'SALES_INVOICE' THEN 'SALES_INVOICE|' || COALESCE(NULLIF(regexp_replace(COALESCE(si."invoice_no", d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+            WHEN d."doc_type"::text = 'PACKING_LIST' THEN 'PACKING_LIST|' || COALESCE(NULLIF(regexp_replace(COALESCE(pl."invoice_no", d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+            WHEN d."doc_type"::text = 'BILL_OF_LADING' THEN 'BILL_OF_LADING|' || COALESCE(NULLIF(regexp_replace(COALESCE(bol."bol_number", bol."mbl_number", d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+            ELSE d."doc_type"::text || '|' || COALESCE(NULLIF(regexp_replace(COALESCE(d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+          END)::int AS document_count,
+          COUNT(DISTINCT CASE
+            WHEN d."doc_type"::text = 'SALES_INVOICE' THEN 'SALES_INVOICE|' || COALESCE(NULLIF(regexp_replace(COALESCE(si."invoice_no", d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+            WHEN d."doc_type"::text = 'PACKING_LIST' THEN 'PACKING_LIST|' || COALESCE(NULLIF(regexp_replace(COALESCE(pl."invoice_no", d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+            WHEN d."doc_type"::text = 'BILL_OF_LADING' THEN 'BILL_OF_LADING|' || COALESCE(NULLIF(regexp_replace(COALESCE(bol."bol_number", bol."mbl_number", d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+            ELSE d."doc_type"::text || '|' || COALESCE(NULLIF(regexp_replace(COALESCE(d."document_number", d."file_name", ''), '[^A-Za-z0-9]+', '', 'g'), ''), d."id"::text)
+          END) FILTER (
             WHERE d."status"::text IN ('REVIEWED', 'ARCHIVED') OR d."approved_at" IS NOT NULL
           )::int AS approved_document_count
         FROM "public"."shipments" s
         LEFT JOIN "public"."documents" d
           ON d."shipment_id" = s."id"
          AND COALESCE(d."is_deleted", false) = false
+        LEFT JOIN "aiextraction"."sales_invoice_extractions" si ON si."document_id" = d."id"
+        LEFT JOIN "aiextraction"."packing_list_extractions" pl ON pl."document_id" = d."id"
+        LEFT JOIN "aiextraction"."bills_of_lading" bol ON bol."document_id" = d."id"
         WHERE s."project_id"::text = $1::text
           AND lower(COALESCE(s."status", '')) NOT IN ('cancelled', 'canceled')
         GROUP BY s."id"
@@ -478,12 +528,6 @@ async def list_project_shipments(
         limit,
         offset,
     )
-    for row in shipment_rows:
-        try:
-            await link_documents_to_shipment_by_keys(prisma, str(row["id"]))
-        except Exception as exc:
-            print(f"[projects] warning: could not refresh shipment document links {row.get('id')}: {exc}", flush=True)
-
     return {
         "ok": True,
         "project": {

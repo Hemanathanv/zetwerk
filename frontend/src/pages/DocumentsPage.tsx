@@ -129,6 +129,9 @@ interface ApiShipmentGate {
 
 interface ApiShipment {
   id: string; shipmentNumber: string; status: string;
+  blNumber?: string | null; bolNumber?: string | null;
+  hblNumber?: string | null; mblNumber?: string | null;
+  bookingNumber?: string | null;
   blockedReason?: string; currentStage: number; currentStageName?: string;
   templateId?: string;
   vesselName?: string; portOfLoading?: string; portOfDischarge?: string;
@@ -459,6 +462,7 @@ function shipmentToLane(
 
   const totalDocs  = s._count?.documents ?? 0;
   const closedDocs = (s.documents ?? []).filter(d => d.approvedAt).length;
+  const shipmentRef = s.bolNumber ?? s.blNumber ?? s.hblNumber ?? s.mblNumber ?? s.shipmentNumber;
   const activeGateIndex = gates.findIndex(gate => gate.status === 'active' || gate.status === 'blocked');
   let statusLabel: string = activeGateIndex >= 0 ? `Gate ${activeGateIndex + 1} active` : 'Completed';
   let statusVariant: ShipmentLane['statusVariant'] = 'info';
@@ -473,7 +477,7 @@ function shipmentToLane(
   return {
     id: s.id,
     isPending,
-    shipmentId: s.shipmentNumber,
+    shipmentId: shipmentRef,
     vessel: `${s.vesselName ?? 'Vessel TBD'} · ${s.portOfLoading ?? 'India'} → ${s.portOfDischarge ?? 'US'}`,
     meta: `${s.exporterName ?? 'Exporter'} → ${s.buyerName ?? 'Buyer'}${totalDocs ? ` · ${totalDocs} docs` : ''}`,
     gateStatuses: gates.map(g => g.status),

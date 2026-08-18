@@ -1277,12 +1277,95 @@ function groupDocsByType(docs: any[]): Array<{ docType: string; docs: any[] }> {
   return Array.from(groups.entries()).map(([docType, groupDocs]) => ({ docType, docs: groupDocs }));
 }
 
+function normalizeDocumentIdentity(value: unknown): string | null {
+  const normalized = String(value ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return normalized.length >= 3 && normalized.length <= 80 ? normalized : null;
+}
+
+function extractedString(document: any, keys: RegExp): string | null {
+  let result: string | null = null;
+
+  function walk(value: unknown, key = ''): void {
+    if (result) return;
+    if (Array.isArray(value)) {
+      value.forEach(item => walk(item, key));
+      return;
+    }
+    if (value && typeof value === 'object') {
+      Object.entries(value as Record<string, unknown>).forEach(([childKey, child]) => walk(child, childKey));
+      return;
+    }
+    if (!key || !keys.test(key)) return;
+    if (typeof value === 'string' && value.trim()) result = value.trim();
+    if (typeof value === 'number') result = String(value);
+  }
+
+  walk(document?.extractedData ?? document?.rawData ?? {});
+  return result;
+}
+
+function documentIdentityKey(document: any): string {
+  const type = normalizedDocType(document?.documentType ?? document?.docType ?? 'DOCUMENT');
+  const invoiceRef = normalizeDocumentIdentity(
+    extractedString(document, /^(invoiceNumber|invoiceNo|invoice_number|invoice_no|commercialInvoiceNumber|salesInvoiceNumber|siNumber)$/i)
+    ?? document?.invoiceNumber
+    ?? document?.invoiceNo
+  );
+  const packingInvoiceRef = normalizeDocumentIdentity(
+    extractedString(document, /(invoice.*number|sales.*invoice|siNumber|invoiceNo)/i)
+    ?? document?.invoiceNumber
+    ?? document?.invoiceNo
+  );
+  const bolRef = normalizeDocumentIdentity(
+    extractedString(document, /(bolNumber|bol_number|billOfLadingNumber|bill.*lading|hblNumber|hbl_number|mblNumber|mbl_number|master.*bill|house.*bill)/i)
+    ?? document?.bolNumber
+    ?? document?.hblNumber
+    ?? document?.mblNumber
+  );
+  const docNumber = normalizeDocumentIdentity(document?.documentNumber ?? document?.document_number);
+  const fileName = normalizeDocumentIdentity(document?.fileName ?? document?.file_name);
+
+  if (docTypeMatches(type, 'SALES_INVOICE')) return `SALES_INVOICE|${invoiceRef ?? docNumber ?? fileName ?? document?.id ?? ''}`;
+  if (docTypeMatches(type, 'PACKING_LIST')) return `PACKING_LIST|${packingInvoiceRef ?? docNumber ?? fileName ?? document?.id ?? ''}`;
+  if (docTypeMatches(type, 'BILL_OF_LADING')) return `BILL_OF_LADING|${bolRef ?? docNumber ?? fileName ?? document?.id ?? ''}`;
+  return `${type}|${docNumber ?? fileName ?? document?.id ?? ''}`;
+}
+
+function documentDisplayScore(document: any): number {
+  let score = 0;
+  if (isDocumentAvailable(document)) score += 100;
+  if (isCrossValidationPassed(document)) score += 20;
+  if (document?.extractedData) score += 10;
+  const time = document?.approvedAt ?? document?.updatedAt ?? document?.createdAt;
+  const timestamp = time ? new Date(time).getTime() : NaN;
+  if (Number.isFinite(timestamp)) score += Math.min(9, Math.max(0, timestamp / 1_000_000_000_000));
+  return score;
+}
+
+function dedupeDocumentsForDisplay(documents: any[]): any[] {
+  const deduped = new Map<string, any>();
+  documents.forEach(document => {
+    if (!document?.id && !document?.documentType && !document?.docType) return;
+    const key = documentIdentityKey(document);
+    const existing = deduped.get(key);
+    if (!existing || documentDisplayScore(document) > documentDisplayScore(existing)) {
+      deduped.set(key, document);
+    }
+  });
+  return Array.from(deduped.values());
+}
+
+function uploadQueueDocTypeFilter(docType: string): string {
+  return docType.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
 function DocRow360({ docType, docs, isLast }: { docType: string; docs: any[]; isLast: boolean }) {
   const pill = docGroupStatusPill(docs);
   const count = docs.length;
   const label = `${docLabel(docType)}${count > 1 ? ` (${count})` : ''}`;
+  const href = `/documents/upload/queue?docType=${encodeURIComponent(uploadQueueDocTypeFilter(docType))}`;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 13px', borderBottom: isLast ? 'none' : `1px solid ${BDR}` }}>
+    <Link href={href} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 13px', borderBottom: isLast ? 'none' : `1px solid ${BDR}`, textDecoration: 'none', color: 'inherit' }}>
       <div style={{ width: 35, height: 35, borderRadius: 6, background: 'hsl(var(--muted)/0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'var(--app-font-sans)', letterSpacing: '0.02em' }}>
         {dtShort(docType)}
       </div>
@@ -1294,7 +1377,7 @@ function DocRow360({ docType, docs, isLast }: { docType: string; docs: any[]; is
       <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 799, flexShrink: 0, background: pill.bg, color: pill.color }}>
         {pill.label}
       </span>
-    </div>
+    </Link>
   );
 }
 
@@ -1534,7 +1617,8 @@ function VoyageProgressDocumentTracker({
 }
 
 function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[]; loading: boolean; gates?: ApiGate[] }) {
-  const pending   = documents.filter(d => !isCrossValidationPassed(d));
+  const uniqueDocuments = useMemo(() => dedupeDocumentsForDisplay(documents), [documents]);
+  const pending   = uniqueDocuments.filter(d => !isCrossValidationPassed(d));
   const pendingUs = pending.filter(d => US_DOC_TYPES.some(t => (d.documentType ?? '').toUpperCase().includes(t)));
   const hasAlert  = pendingUs.length > 0;
 
@@ -1544,9 +1628,9 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
   const gateGroups = sortedGates.map(gate => {
     const gateNumber = Number(gate.gateConfig.gateNumber ?? 0);
     const usedInGate = new Set<string>();
-    const entries = docTypesForGate(gate, documents).map(dt => ({
+    const entries = docTypesForGate(gate, uniqueDocuments).map(dt => ({
       dt,
-      docs: findDocsForSlot(documents, dt.docType, usedInGate, gateNumber),
+      docs: findDocsForSlot(uniqueDocuments, dt.docType, usedInGate, gateNumber),
     }));
     return { gate, entries };
   });
@@ -1555,7 +1639,7 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
   const assignedDocIds = new Set<string>(
     gateGroups.flatMap(g => g.entries.flatMap(e => e.docs.map(doc => doc.id)).filter((id): id is string => !!id))
   );
-  const ungatedDocs = documents.filter(d => !assignedDocIds.has(d.id));
+  const ungatedDocs = uniqueDocuments.filter(d => !assignedDocIds.has(d.id));
   const expectedCount = gateGroups.reduce((sum, group) => sum + group.entries.length, 0) + ungatedDocs.length;
   const validatedCount = gateGroups.reduce(
     (sum, group) => sum + group.entries.filter(entry => entry.docs.length > 0 && entry.docs.every(isDocumentAvailable)).length,
@@ -1580,7 +1664,7 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
         </div>
       )}
 
-      {!loading && gateGroups.length === 0 && documents.length === 0 && (
+      {!loading && gateGroups.length === 0 && uniqueDocuments.length === 0 && (
         <div style={{ fontSize: 11.5, color: MUTED, fontStyle: 'italic' }}>No documents yet.</div>
       )}
 
@@ -1650,9 +1734,9 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
       )}
 
       {/* Fallback flat list when no gate data */}
-      {!loading && gateGroups.length === 0 && documents.length > 0 && (
+      {!loading && gateGroups.length === 0 && uniqueDocuments.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-          {groupDocsByType(documents).map((group, i, groups) => (
+          {groupDocsByType(uniqueDocuments).map((group, i, groups) => (
             <DocRow360 key={group.docType} docType={group.docType} docs={group.docs} isLast={i === groups.length - 1} />
           ))}
         </div>

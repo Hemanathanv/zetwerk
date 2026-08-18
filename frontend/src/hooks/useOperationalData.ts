@@ -15,122 +15,6 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return apiGet<T>(path);
 }
 
-function walkExtractedValues(
-  value: unknown,
-  visit: (key: string, value: string) => void,
-  parentKey = '',
-): void {
-  if (Array.isArray(value)) {
-    value.forEach(item => walkExtractedValues(item, visit, parentKey));
-    return;
-  }
-  if (value && typeof value === 'object') {
-    Object.entries(value as Record<string, unknown>).forEach(([key, child]) => {
-      walkExtractedValues(child, visit, key);
-    });
-    return;
-  }
-  if ((typeof value === 'string' || typeof value === 'number') && parentKey) {
-    visit(parentKey, String(value));
-  }
-}
-
-function normalizedReference(value: string | null | undefined): string | null {
-  const normalized = String(value ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  return normalized.length >= 4 && normalized.length <= 50 ? normalized : null;
-}
-
-function documentReferences(document: any): Set<string> {
-  const references = new Set<string>();
-  [document.shipmentId, document.shipmentNumber, document.documentNumber].forEach(value => {
-    const ref = normalizedReference(value);
-    if (ref) references.add(ref);
-  });
-
-  const referenceKey = /(shipment|invoice|booking|container|entry.*number|bill.*lading|master.*bill|house.*bill|shipping.*bill|(^|_)(mbl|hbl|bol|bl|sbno)(_|$))/i;
-  walkExtractedValues(document.extractedData ?? {}, (key, value) => {
-    if (!referenceKey.test(key) || /date|amount|value|count|address/i.test(key)) return;
-    const normalized = normalizedReference(value);
-    if (normalized) references.add(normalized);
-  });
-  return references;
-}
-
-function referencesMatch(left: Set<string>, right: Set<string>): boolean {
-  for (const leftValue of left) {
-    for (const rightValue of right) {
-      if (leftValue === rightValue) return true;
-      if (
-        Math.min(leftValue.length, rightValue.length) >= 6
-        && (leftValue.includes(rightValue) || rightValue.includes(leftValue))
-      ) return true;
-    }
-  }
-  return false;
-}
-
-function extractedValue(document: any, keys: RegExp): string | undefined {
-  let result: string | undefined;
-  walkExtractedValues(document?.extractedData ?? {}, (key, value) => {
-    if (!result && keys.test(key) && value.trim()) result = value.trim();
-  });
-  return result;
-}
-
-function groupApprovedDocuments(documents: any[]): Array<{ documents: any[]; references: Set<string>; shipmentNumber?: string }> {
-  const groups: Array<{ documents: any[]; references: Set<string> }> = [];
-
-  for (const document of documents) {
-    const references = documentReferences(document);
-    const matchingIndexes = groups
-      .map((group, index) => referencesMatch(references, group.references) ? index : -1)
-      .filter(index => index >= 0);
-
-    if (matchingIndexes.length === 0) {
-      groups.push({ documents: [document], references });
-      continue;
-    }
-
-    const target = groups[matchingIndexes[0]];
-    target.documents.push(document);
-    references.forEach(reference => target.references.add(reference));
-    for (let i = matchingIndexes.length - 1; i > 0; i--) {
-      const merged = groups.splice(matchingIndexes[i], 1)[0];
-      target.documents.push(...merged.documents);
-      merged.references.forEach(reference => target.references.add(reference));
-    }
-  }
-
-  return groups.map(group => {
-    const identityDoc = group.documents.find(document => {
-      const type = String(document.documentType ?? '').toUpperCase();
-      return type === 'BOL' || type === 'BL' || type.includes('BILL_OF_LADING');
-    });
-    const shipmentNumber =
-      identityDoc?.shipmentId
-      ?? extractedValue(identityDoc, /(shipmentNumber|shipment_number|master.*bill|mbl|hbl|bolNumber|billOfLadingNumber)/i)
-      ?? undefined;
-    return { ...group, shipmentNumber };
-  });
-}
-
-function shipmentReferences(shipment: any): Set<string> {
-  const references = new Set<string>();
-  [
-    shipment?.id,
-    shipment?.shipmentNumber,
-    shipment?.blNumber,
-    shipment?.bolNumber,
-    shipment?.hblNumber,
-    shipment?.mblNumber,
-    shipment?.bookingNumber,
-  ].forEach(value => {
-    const ref = normalizedReference(value);
-    if (ref) references.add(ref);
-  });
-  return references;
-}
-
 function normalizeApprovedDocument(document: any): any {
   return {
     ...document,
@@ -211,23 +95,13 @@ export function useShipmentDocuments(shipmentId: string | null | undefined) {
     setLoading(true);
     setError(null);
     try {
-      const [shipmentResult, linkedResult, approvedResult] = await Promise.all([
-        apiFetch<{ ok: boolean; data: any }>(`/api/shipments/${shipmentId}`).catch(() => ({ ok: false, data: null })),
+      const [linkedResult, approvedResult] = await Promise.all([
         apiFetch<{ ok: boolean; data: any[] }>(`/api/shipments/${shipmentId}/documents`),
-        apiFetch<{ ok: boolean; data: any[] }>('/api/v1/uploads/documents-approved').catch(() => ({ ok: false, data: [] })),
+        apiFetch<{ ok: boolean; data: any[] }>(`/api/v1/uploads/documents-approved?shipmentId=${encodeURIComponent(shipmentId)}`).catch(() => ({ ok: false, data: [] })),
       ]);
 
       const linkedDocuments = linkedResult.data ?? [];
-      const shipment = shipmentResult.data ?? { id: shipmentId, shipmentNumber: shipmentId };
-      const refs = shipmentReferences(shipment);
-      const approvedGroups = groupApprovedDocuments(approvedResult.data ?? []);
-      const matchedGroup = approvedGroups.find(group => {
-        const groupRefs = new Set(group.references);
-        const shipmentNumberRef = normalizedReference(group.shipmentNumber);
-        if (shipmentNumberRef) groupRefs.add(shipmentNumberRef);
-        return referencesMatch(refs, groupRefs);
-      });
-      const documentModuleDocuments = (matchedGroup?.documents ?? []).map(normalizeApprovedDocument);
+      const documentModuleDocuments = (approvedResult.data ?? []).map(normalizeApprovedDocument);
       setData(mergeDocuments(linkedDocuments, documentModuleDocuments));
     } catch (err: any) {
       setError(err.message);

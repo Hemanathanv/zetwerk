@@ -664,7 +664,7 @@ const authApi = {
 };
 
 const documentApi = {
-  list: (params?: { page?: number; pageSize?: number; section?: string }) =>
+  list: (params?: { page?: number; pageSize?: number; section?: string; docType?: string }) =>
     api.get<DocumentListResponse>('/uploads/documents', { params }),
   getQueueItem: (documentId: string) => api.get<DocumentRecord>(`/uploads/documents/${documentId}/queue-item`),
   getById: (documentId: string) => api.get<DocumentDetailRecord>(`/uploads/documents/${documentId}`),

@@ -1450,11 +1450,13 @@ async def _ensure_document_queue_indexes(prisma) -> None:
         _DOCUMENT_QUEUE_INDEXES_READY = True
 
 
-def _document_section_where(*, user: Any, section: str) -> dict[str, Any]:
+def _document_section_where(*, user: Any, section: str, doc_type_filter: str | None = None) -> dict[str, Any]:
     where: dict[str, Any] = document_prisma_where(user)
     statuses = DOCUMENT_SECTION_STATUS_FILTERS.get(section)
     if statuses:
         where["status"] = {"in": sorted(statuses)}
+    if doc_type_filter:
+        where["docType"] = doc_type_filter
     return where
 
 
@@ -1549,11 +1551,13 @@ async def _document_count(*, prisma, user: Any, section: str) -> int:
         return 0
 
 
-async def _document_counts(*, prisma, user: Any) -> DocumentListCounts:
+async def _document_counts(*, prisma, user: Any, doc_type_filter: str | None = None) -> DocumentListCounts:
     try:
         await _ensure_cross_validation_tables(prisma)
-        access_where, access_params, _ = document_sql_where("d", user)
+        access_where, access_params, next_param = document_sql_where("d", user)
         validation_active_clause = _validation_active_clause("d")
+        doc_type_clause = f' AND d."doc_type"::text = ${next_param}::text' if doc_type_filter else ''
+        doc_type_params = [doc_type_filter] if doc_type_filter else []
         rows = await prisma.query_raw(
             f"""
             SELECT
@@ -1570,9 +1574,10 @@ async def _document_counts(*, prisma, user: Any) -> DocumentListCounts:
                    OR (d."status"::text = 'REVIEWED' AND NOT {validation_active_clause})
               ) AS done
             FROM "public"."documents" d
-            WHERE {access_where}
+            WHERE {access_where}{doc_type_clause}
             """,
             *access_params,
+            *doc_type_params,
         )
         row = rows[0] if rows else {}
         return DocumentListCounts(
@@ -1604,6 +1609,7 @@ async def _document_page_rows(
     where: dict[str, Any],
     skip: int,
     page_size: int,
+    doc_type_filter: str | None = None,
 ) -> list[Any]:
     if section not in {"cross-validating", "done"}:
         return await prisma.document.find_many(
@@ -1615,6 +1621,12 @@ async def _document_page_rows(
 
     await _ensure_cross_validation_tables(prisma)
     access_where, access_params, next_param = document_sql_where("d", user)
+    doc_type_clause = ''
+    query_params = [*access_params]
+    if doc_type_filter:
+        doc_type_clause = f' AND d."doc_type"::text = ${next_param}::text'
+        query_params.append(doc_type_filter)
+        next_param += 1
     validation_active_clause = _validation_active_clause("d")
     if section == "done":
         section_clause = f'''
@@ -1643,12 +1655,12 @@ async def _document_page_rows(
           d."updated_at" AS "updatedAt"
         FROM "public"."documents" d
         WHERE {access_where}
-          AND {section_clause}
+          AND {section_clause}{doc_type_clause}
         ORDER BY d."created_at" DESC
         OFFSET ${next_param}
         LIMIT ${next_param + 1}
         ''',
-        *access_params,
+        *query_params,
         skip,
         page_size,
     )
@@ -1791,17 +1803,19 @@ async def list_documents(
     page: int = Query(1, ge=1),
     page_size: int = Query(DOCUMENT_LIST_PAGE_SIZE, alias="pageSize", ge=1, le=DOCUMENT_LIST_PAGE_SIZE),
     section: str = Query("all"),
+    doc_type: str | None = Query(default=None, alias="docType"),
     user=Depends(get_current_user),
 ):
     prisma = await get_prisma()
     normalized_section = (section or "all").strip().lower()
+    normalized_doc_type = str(doc_type or "").strip().upper().replace("-", "_").replace(" ", "_") or None
     if normalized_section not in {"all", *DOCUMENT_SECTION_STATUS_FILTERS.keys()}:
         raise HTTPException(status_code=400, detail=f"Unsupported document section: {section!r}")
 
     try:
         await _ensure_document_queue_indexes(prisma)
-        where = _document_section_where(user=user, section=normalized_section)
-        counts = await _document_counts(prisma=prisma, user=user)
+        where = _document_section_where(user=user, section=normalized_section, doc_type_filter=normalized_doc_type)
+        counts = await _document_counts(prisma=prisma, user=user, doc_type_filter=normalized_doc_type)
         total = {
             "all": counts.total,
             "needs-approval": counts.needsApproval,
@@ -1820,6 +1834,7 @@ async def list_documents(
             where=where,
             skip=skip,
             page_size=page_size,
+            doc_type_filter=normalized_doc_type,
         )
         validation_snapshots = await _document_validation_snapshots(
             prisma,

@@ -769,7 +769,7 @@ async def _public_shipment_row(prisma, shipment_ref: str) -> dict[str, Any] | No
 
 
 def _shipment_bol_ref(row: dict[str, Any]) -> Any:
-    return row.get("bol_number") or row.get("hbl_number")
+    return row.get("bol_number")
 
 
 def _public_shipment_payload(row: dict[str, Any]) -> dict[str, Any]:
@@ -789,7 +789,7 @@ def _public_shipment_payload(row: dict[str, Any]) -> dict[str, Any]:
         "buyerName": row.get("buyer_name"),
         "blNumber": _shipment_bol_ref(row),
         "bolNumber": _shipment_bol_ref(row),
-        "hblNumber": row.get("hbl_number"),
+        "hblNumber": _shipment_bol_ref(row),
         "mblNumber": row.get("mbl_number"),
         "bookingNumber": row.get("booking_number"),
         "loadMode": row.get("load_type"),
@@ -827,20 +827,28 @@ def _document_done_score(document: dict[str, Any]) -> int:
     return score
 
 
+def _document_identity_key(document: dict[str, Any]) -> str:
+    doc_type = str(document.get("documentType") or document.get("document_type") or "DOCUMENT").upper()
+    doc_number = _link_ref(document.get("documentNumber") or document.get("document_number"))
+    file_ref = _link_ref(document.get("fileName") or document.get("file_name"))
+    fallback = doc_number or file_ref or str(document.get("id") or "")
+
+    if doc_type in {"SI", "SALES_INVOICE"} or "SALES_INVOICE" in doc_type:
+        return f"SALES_INVOICE|{fallback}"
+    if doc_type in {"PL", "PACKING_LIST"} or ("PACKING_LIST" in doc_type and "OUTWARD" not in doc_type):
+        return f"PACKING_LIST|{fallback}"
+    if doc_type in {"BL", "BOL", "BILL_OF_LADING"} or "BILL_OF_LADING" in doc_type:
+        return f"BILL_OF_LADING|{fallback}"
+    return f"{doc_type}|{fallback}"
+
+
 def _dedupe_shipment_documents(documents: list[Any]) -> list[dict[str, Any]]:
     deduped: dict[str, dict[str, Any]] = {}
     order: list[str] = []
     for document in documents:
         if not isinstance(document, dict):
             continue
-        doc_type = str(document.get("documentType") or document.get("document_type") or "")
-        ref = _link_ref(
-            document.get("documentNumber")
-            or document.get("document_number")
-            or document.get("fileName")
-            or document.get("file_name")
-        )
-        key = f"{doc_type}|{ref}" if doc_type and ref else f"id|{document.get('id')}"
+        key = _document_identity_key(document)
         if key not in deduped:
             deduped[key] = document
             order.append(key)
@@ -871,7 +879,7 @@ def _view_shipment_payload(row: dict[str, Any], *, include_containers: bool = Fa
         "buyerName": row.get("buyer_name"),
         "blNumber": _shipment_bol_ref(row),
         "bolNumber": _shipment_bol_ref(row),
-        "hblNumber": row.get("hbl_number"),
+        "hblNumber": _shipment_bol_ref(row),
         "mblNumber": row.get("mbl_number"),
         "bookingNumber": row.get("booking_number"),
         "loadMode": row.get("load_type"),
@@ -917,7 +925,6 @@ async def _merge_document_module_gate_docs(prisma, shipments: list[dict[str, Any
             shipment.get("hblNumber"),
             shipment.get("mblNumber"),
             shipment.get("bookingNumber"),
-            shipment.get("projectName"),
         ):
             if not value:
                 continue
@@ -955,7 +962,7 @@ async def _merge_document_module_gate_docs(prisma, shipments: list[dict[str, Any
               ) AS mapped_shipment_ref,
               v."document_id"::text AS id,
               v."doc_type" AS document_type,
-              v."file_name" AS document_number,
+              COALESCE(v."document_number", d."document_number", v."file_name") AS document_number,
               'REVIEWED' AS status,
               'completed' AS ocr_status,
               COALESCE(d."validation_status", 'WAITING') AS validation_status,
@@ -994,7 +1001,6 @@ async def _merge_document_module_gate_docs(prisma, shipments: list[dict[str, Any
             shipment.get("hblNumber"),
             shipment.get("mblNumber"),
             shipment.get("bookingNumber"),
-            shipment.get("projectName"),
         ):
             if value:
                 by_ref[str(value)] = shipment

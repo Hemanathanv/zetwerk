@@ -182,7 +182,7 @@ function mapApiShipment(s: any): ShipmentListRow {
 
   return {
     realId:      s.id,
-    id:          s.shipmentNumber ?? s.id,
+    id:          s.bolNumber ?? s.blNumber ?? s.hblNumber ?? s.mblNumber ?? s.shipmentNumber ?? s.id,
     mbl:         s.mblNumber ?? s.shipmentNumber ?? '—',
     buyer:       s.buyerName ?? s.exporterName ?? '—',
     vessel:      s.vesselName ?? 'TBD',

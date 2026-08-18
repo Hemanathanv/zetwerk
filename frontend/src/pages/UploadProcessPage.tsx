@@ -55,6 +55,15 @@ const QUEUE_SECTION_BY_CHIP = [
   'done',
 ] as const;
 
+function normalizeQueueDocTypeFilter(value: string | null | undefined): string {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'all';
+}
+
+function queueDocTypeFilterFromLocation(location: string): string {
+  const query = location.includes('?') ? location.slice(location.indexOf('?') + 1) : '';
+  return normalizeQueueDocTypeFilter(new URLSearchParams(query).get('docType'));
+}
+
 type StatusCategory = 'needs-approval' | 'needs-reapproval' | 'processing' | 'cross-validating' | 'draft-review' | 'done';
 
 type WaitingDoc = {
@@ -2095,7 +2104,7 @@ export function UploadProcessPage() {
   const [shipmentVal,   setShipmentVal]   = useState('');
   const [activeChip,    setActiveChip]    = useState(0);
   const [queueSearch,   setQueueSearch]   = useState('');
-  const [queueDocTypeFilter, setQueueDocTypeFilter] = useState('all');
+  const [queueDocTypeFilter, setQueueDocTypeFilter] = useState(() => queueDocTypeFilterFromLocation(location));
   const [queuePage,         setQueuePage]         = useState(1);
   const [detailCard,        setDetailCard]        = useState<QueueCard | null>(null);
   const [waitingDocs,       setWaitingDocs]       = useState<WaitingDoc[]>([]);
@@ -2110,6 +2119,11 @@ export function UploadProcessPage() {
   const queueSection = activeChip === WAITING_FOR_BOL_CHIP_INDEX
     ? 'all'
     : QUEUE_SECTION_BY_CHIP[activeChip] ?? 'all';
+
+  useEffect(() => {
+    const locationFilter = queueDocTypeFilterFromLocation(location);
+    setQueueDocTypeFilter(current => current === locationFilter ? current : locationFilter);
+  }, [location]);
 
   useEffect(() => {
     const handleModuleSearch = (event: Event) => {
@@ -2145,9 +2159,9 @@ export function UploadProcessPage() {
   }, [corridors]);
 
   const documentsQuery = useQuery({
-    queryKey: ['upload-process', 'documents', queueSection, queuePage, QUEUE_PAGE_SIZE],
+    queryKey: ['upload-process', 'documents', queueSection, queuePage, QUEUE_PAGE_SIZE, queueDocTypeFilter],
     queryFn: async () => {
-      const response = await documentApi.list({ page: queuePage, pageSize: QUEUE_PAGE_SIZE, section: queueSection });
+      const response = await documentApi.list({ page: queuePage, pageSize: QUEUE_PAGE_SIZE, section: queueSection, docType: queueDocTypeFilter === 'all' ? undefined : queueDocTypeFilter });
       return response.data;
     },
     enabled: activeChip !== WAITING_FOR_BOL_CHIP_INDEX && (!routedDetail || !routedDetail.isGenerated),
@@ -2725,7 +2739,7 @@ export function UploadProcessPage() {
   }, [visibleCards]);
 
   useEffect(() => {
-    if (queueDocTypeFilter === 'all') return;
+    if (queueDocTypeFilter === 'all' || queueDocTypeOptions.length === 0) return;
     if (!queueDocTypeOptions.some((option) => option.value === queueDocTypeFilter)) {
       setQueueDocTypeFilter('all');
     }
