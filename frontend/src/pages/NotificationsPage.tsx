@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'wouter';
 import { Bell, AlertCircle, Info, CheckCircle2, AlertTriangle, CheckCheck } from 'lucide-react';
 import { useNotifications } from '@/hooks/useOperationalData';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 
 type NotifFilter = 'All' | 'Unread' | 'alert' | 'warning' | 'info' | 'success' | 'escalation' | 'blocker';
 const filters: NotifFilter[] = ['All', 'Unread', 'alert', 'warning', 'info', 'success', 'escalation', 'blocker'];
@@ -23,6 +24,7 @@ function formatTime(value: string | null | undefined): string {
 }
 
 export function NotificationsPage() {
+  const { setPageMeta } = usePageMeta();
   const [, navigate] = useLocation();
   const [filter, setFilter] = useState<NotifFilter>('All');
   const [page, setPage] = useState(1);
@@ -38,14 +40,15 @@ export function NotificationsPage() {
     setPage(1);
   }, [filter]);
 
+  useEffect(() => {
+    setPageMeta({ title: 'Notifications', subtitle: 'Task reminders, escalations, exceptions, and workflow updates' });
+    return () => setPageMeta(null);
+  }, [setPageMeta]);
+
   return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Notifications</h1>
-          <p className="text-[13px] text-muted-foreground mt-0.5">Task reminders, escalations, exceptions, and workflow updates</p>
-        </div>
-        {unreadCount > 0 && (
+    <div className="px-6 pb-6 space-y-5">
+      {unreadCount > 0 && (
+        <div className="flex items-center justify-end">
           <button
             onClick={() => markAllAsRead()}
             className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-red-50 border border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400"
@@ -53,8 +56,8 @@ export function NotificationsPage() {
             <CheckCheck className="w-3.5 h-3.5" />
             <span className="text-[13px] font-semibold">Mark {unreadCount} read</span>
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {(Object.keys(typeConfig) as Array<keyof typeof typeConfig>).map(type => {

@@ -9,6 +9,7 @@ import {
 import { apiGet, apiPost, getAuthToken } from '@/lib/api';
 import { useShipments } from '@/hooks/useOperationalData';
 import { usePermissions } from '@/contexts/PermissionContext';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -2127,6 +2128,7 @@ function toDndManagementRow(item: any, shipment: any | undefined): DndManagement
 }
 
 export function DndManagementPage() {
+  const { setPageMeta } = usePageMeta();
   const { shipments } = useShipments();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2179,14 +2181,13 @@ export function DndManagementPage() {
     { label: 'In Free Time', value: rows.filter((row) => row.status === 'In Free Time').length.toLocaleString(), description: 'Shipments within free time' },
   ];
 
+  useEffect(() => {
+    setPageMeta({ title: 'D&D Management' });
+    return () => setPageMeta(null);
+  }, [setPageMeta]);
+
   return (
     <div className="ewms-page-shell">
-      <div className="mb-6">
-        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>
-          D&D Management
-        </h1>
-      </div>
-
       <div className="grid gap-3 md:grid-cols-4">
         {kpis.map((kpi) => (
           <div key={kpi.label} className="ewms-surface ewms-card-default">

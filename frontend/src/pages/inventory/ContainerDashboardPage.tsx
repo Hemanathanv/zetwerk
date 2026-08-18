@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { getAuthToken } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -311,6 +312,7 @@ function BreakBulkEmptyState() {
 
 type InventoryViewMode = 'container' | 'breakBulk';
 export function ContainerDashboardPage() {
+  const { setPageMeta } = usePageMeta();
   const { user } = useAuth();
   const roleCategory = (user?.role as any)?.category;
   const isAdmin = roleCategory === 'org_admin' || roleCategory === 'ADMIN';
@@ -445,24 +447,21 @@ export function ContainerDashboardPage() {
     return result;
   }, [containers, searchQuery, statusFilter, portFilter, riskFilter, sortBy, alertLookup]);
 
+  useEffect(() => {
+    setPageMeta({
+      title: 'Inventory Tracking',
+      subtitle: viewMode === 'container'
+        ? `${containers.length} mapped container${containers.length !== 1 ? 's' : ''} from approved BOL mappings`
+        : 'Break bulk inventory tracking',
+    });
+    return () => setPageMeta(null);
+  }, [viewMode, containers.length, setPageMeta]);
+
   return (
     <div className="ewms-page-shell">
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 'var(--ewms-page-section-gap)', gap: 16, flexWrap: 'wrap' }}>
-        <div>
-          <h1 style={{
-            fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)',
-            letterSpacing: 0, margin: 0, color: 'hsl(var(--foreground))', lineHeight: 1.2,
-          }}>
-            Inventory Tracking
-          </h1>
-          <p style={{ fontSize: 'var(--text-subtitle-size)', color: 'hsl(var(--muted-foreground))', margin: '4px 0 0' }}>
-            {viewMode === 'container'
-              ? `${containers.length} mapped container${containers.length !== 1 ? 's' : ''} from approved BOL mappings`
-              : 'Break bulk inventory tracking'}
-          </p>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', marginBottom: 'var(--ewms-page-section-gap)', gap: 16, flexWrap: 'wrap' }}>
         <div className="ewms-toolbar">
           <SegmentedControl
             value={viewMode}

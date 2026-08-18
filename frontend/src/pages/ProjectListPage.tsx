@@ -5,6 +5,7 @@ import { apiGet } from '@/lib/api';
 import { MetricCard } from '@/components/vs/MetricCard';
 import { ProgressBar } from '@/components/vs/ProgressBar';
 import { StatusBadge } from '@/components/StatusBadge';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 
 function fmtDate(d: string | Date) {
   return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
@@ -57,6 +58,7 @@ function ProjectCard({ project }: { project: any }) {
 }
 
 export function ProjectListPage() {
+  const { setPageMeta } = usePageMeta();
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -91,15 +93,17 @@ export function ProjectListPage() {
     totalShipments: projects.reduce((s, p) => s + p.shipmentCount, 0),
   }), [projects]);
 
+  useEffect(() => {
+    setPageMeta({
+      title: 'Projects',
+      subtitle: `${stats.total} project${stats.total !== 1 ? 's' : ''} · ${stats.totalShipments} shipments`,
+    });
+    return () => setPageMeta(null);
+  }, [stats.total, stats.totalShipments, setPageMeta]);
+
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <div>
-          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Projects</h1>
-          <p className="text-[14.5px] text-muted-foreground mt-0.5">
-            {stats.total} project{stats.total !== 1 ? 's' : ''} · {stats.totalShipments} shipments
-          </p>
-        </div>
+    <div className="px-6 pb-6">
+      <div className="flex items-center justify-end mb-6 flex-wrap gap-3">
         <div className="flex gap-2 flex-wrap">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />

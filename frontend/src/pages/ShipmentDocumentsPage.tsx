@@ -2,6 +2,7 @@ import { useParams, useLocation } from 'wouter';
 import { useEffect, useState, useCallback } from 'react';
 import { useShipmentDocuments } from '@/hooks/useOperationalData';
 import { useConfig } from '@/contexts/ConfigContext';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 import { RequireActivity } from '@/components/PermissionGate';
 import { getAuthToken } from '@/lib/api';
 import {
@@ -12,7 +13,7 @@ import {
 } from '@/config/documentGateConfig';
 import {
   Fingerprint, Sparkles, Calculator, CheckCircle, Circle,
-  AlertCircle, ChevronLeft, Camera, Clock, CheckCircle2,
+  AlertCircle, Camera, Clock, CheckCircle2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -992,6 +993,7 @@ function MilestonePanelRow({ milestone: m, shipmentId, onComplete }: {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function ShipmentDocumentsPage() {
+  const { setPageMeta } = usePageMeta();
   const params = useParams<{ id: string }>();
   const shipmentId = params.id ?? '';
   const [, navigate] = useLocation();
@@ -1131,27 +1133,19 @@ export function ShipmentDocumentsPage() {
     );
   }
 
+  const gatesPassed = gates.filter(g => g.status === 'PASSED').length;
+  const docsValidated = documents.filter(d => validationPassed(d, validationMap[d.id])).length;
+  useEffect(() => {
+    setPageMeta({
+      title: 'Documents Status',
+      subtitle: `Gate-column view · ${gatesPassed}/${gates.length} gates passed · ${docsValidated}/${documents.length} docs validated`,
+    });
+    return () => setPageMeta(null);
+  }, [gatesPassed, gates.length, docsValidated, documents.length, setPageMeta]);
+
   return (
     <div style={{ padding: 28, minHeight: '100%' }}>
       <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}`}</style>
-
-      {/* Header */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <button
-            onClick={() => navigate(`/shipments/${shipmentId}`)}
-            style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'hsl(var(--primary))', fontSize: 14.5, fontWeight: 500 }}
-          >
-            <ChevronLeft size={14} />
-            {shipment.shipmentNumber || 'Shipment'}
-          </button>
-          <span style={{ color: 'hsl(var(--muted-foreground))' }}>/</span>
-          <h1 style={{ margin: 0, fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', color: 'hsl(var(--foreground))', letterSpacing: 0 }}>Documents Status</h1>
-        </div>
-        <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
-          Gate-column view · {gates.filter(g => g.status === 'PASSED').length}/{gates.length} gates passed · {documents.filter(d => validationPassed(d, validationMap[d.id])).length}/{documents.length} docs validated
-        </div>
-      </div>
 
       {/* G-S13: Identity banner */}
       <IdentityBanner shipment={shipment} identityGateName={identityGateName} />

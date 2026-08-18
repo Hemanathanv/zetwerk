@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import React from 'react';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 import { Link, useLocation } from 'wouter';
 import {
   Truck, Package, Send, Check, X, Loader2, CheckCircle,
@@ -716,6 +717,7 @@ function OutboundTab({ containers }: { containers: any[] }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ThreePlPage() {
+  const { setPageMeta } = usePageMeta();
   const { loaded: permLoaded } = usePermissions();
   const { canDo } = useDocTypePermissions();
   const { user } = useAuth();
@@ -776,6 +778,12 @@ export default function ThreePlPage() {
 
   const warehouse = inboundWarehouse;
 
+  useEffect(() => {
+    if (!warehouse) return;
+    setPageMeta({ title: warehouse.name, subtitle: warehouse.address ?? undefined });
+    return () => setPageMeta(null);
+  }, [warehouse, setPageMeta]);
+
   const tabCounts = useMemo(() => ({
     inbound: pendingContainers.filter(c => !c.existingGrn).length,
     stock: allContainers.filter(c => c.stage === 'in_stock').length,
@@ -826,21 +834,7 @@ export default function ThreePlPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6">
-      {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-1">
-          <a href="/partner" className="text-[14.5px] text-muted-foreground hover:text-foreground transition-colors">
-            ← Home
-          </a>
-          <span className="text-muted-foreground">/</span>
-          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>{warehouse.name}</h1>
-        </div>
-        {warehouse.address && (
-          <p className="text-[14.5px] text-muted-foreground">{warehouse.address}</p>
-        )}
-      </div>
-
+    <div className="max-w-2xl mx-auto px-4 pb-6">
       {/* Tab bar — only show tabs the user has permission to view */}
       <div className="flex gap-1 mb-6 bg-muted/30 rounded-lg p-1 border border-border">
         {visibleTabs.map(tab => {

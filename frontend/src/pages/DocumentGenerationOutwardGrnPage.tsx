@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronUp, FileText, Loader2, Package, Plus, Send, Truck, X } from 'lucide-react';
-import { Link, useLocation } from 'wouter';
+import { AlertCircle, Check, CheckCircle2, ChevronDown, ChevronUp, FileText, Loader2, Package, Plus, Send, Truck, X } from 'lucide-react';
+import { useLocation } from 'wouter';
 import { getAuthToken, apiUrl, readJsonResponse } from '@/lib/api';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { usePermissions } from '@/contexts/PermissionContext';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 import { allowedDocGenerationOptions } from '@/lib/docGenerationAccess';
 import { DocumentPreviewModal } from '@/components/DocumentPreviewModal';
+import { DocGenerationTabs } from '@/components/DocGenerationHeader';
 import { DOC_GEN_SCHEMAS, DocGenSchema, FieldMapping, GenSection, MappingType } from '@/config/docGenConfig';
 
 function authHeaders(): Record<string, string> {
@@ -785,6 +787,7 @@ function OutwardRecordCard({
 
 export default function DocumentGenerationOutwardGrnPage() {
   const [location, navigate] = useLocation();
+  const { setPageMeta } = usePageMeta();
   const fromDocGeneration = location.startsWith('/documents/generate');
   const { activities, docTypes, documentScope, activityDocTypes } = usePermissions();
   const generationOptions = allowedDocGenerationOptions({ activities, docTypes, documentScope, activityDocTypes });
@@ -816,14 +819,17 @@ export default function DocumentGenerationOutwardGrnPage() {
   const warehouseOptions = warehousesQuery.data ?? [];
   const records = dispatchesQuery.data ?? [];
 
-  const backHref = fromDocGeneration ? '/documents/generate' : '/inventory/warehouse';
-  const crumbRoot = fromDocGeneration ? 'Documents' : 'Warehouse';
-  const crumbRootHref = fromDocGeneration ? '/documents/generate' : '/inventory/warehouse';
   const fallbackGenerationType = generationOptions[0]?.type;
   const [previewSchema, setPreviewSchema] = useState<DocGenSchema | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [filterStatus, setFilterStatus] = useState<'ALL' | OutwardRecord['status']>('ALL');
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
+
+  useEffect(() => {
+    if (!fromDocGeneration) { setPageMeta(null); return; }
+    setPageMeta({ title: 'Document Generation', subtitle: 'AI-drafted documents for review & approval' });
+    return () => setPageMeta(null);
+  }, [fromDocGeneration, setPageMeta]);
 
   useEffect(() => {
     if (warehouseOptions.length === 0) return;
@@ -864,58 +870,50 @@ export default function DocumentGenerationOutwardGrnPage() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-5">
+    <div className="ewms-page-shell" style={{ display: 'flex', flexDirection: 'column', height: '100%', paddingTop: 12, paddingBottom: 16 }}>
+
       {fromDocGeneration && (
-        <div className="flex items-center gap-3 border-b border-border pb-4">
-          <div>
-            <h1 className="text-[15px] font-semibold text-foreground">Document Generation</h1>
-            <p className="text-[12px] text-muted-foreground">AI-drafted documents for review & approval</p>
-          </div>
-          <div className="flex items-center gap-1 ml-4 p-1 rounded-lg bg-muted/60">
-            {generationOptions.map((option) => {
-              const active = option.type === 'outward-grn';
-              return (
-                <button
-                  key={option.type}
-                  type="button"
-                  onClick={() => navigate(`/documents/generate/${option.type}`)}
-                  className={`rounded-md px-3 py-1.5 text-[12px] font-semibold transition-colors ${active ? 'bg-card text-foreground shadow-sm border border-border' : 'text-muted-foreground hover:text-foreground'}`}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <DocGenerationTabs
+          activeType="outward-grn"
+          options={generationOptions}
+          onSelectType={(value) => navigate(`/documents/generate/${value}`)}
+        />
       )}
 
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
-          <div className="flex items-center gap-2 text-[13px] text-muted-foreground mb-4">
-            <Link href={crumbRootHref} className="hover:text-foreground">{crumbRoot}</Link>
-            <span>/</span>
-            <span className="text-foreground">Outward GRN</span>
-          </div>
-          <div className="flex items-center gap-2 mb-1">
-            <Link href={backHref}>
-              <button className="text-muted-foreground hover:text-foreground transition-colors">
-                <ArrowLeft className="w-4 h-4" />
+      {/* Status filters + warehouse / dispatch action */}
+      <div className="flex items-center gap-3 flex-wrap" style={{ marginBottom: 20 }}>
+        <div className="flex gap-1 bg-muted/30 rounded-xl p-1 w-fit">
+          {(['ALL', 'DRAFT', 'CONFIRMED', 'DISPATCHED'] as const).map((status) => {
+            const draftCount = records.filter((record) => record.status === 'DRAFT').length;
+            return (
+              <button
+                key={status}
+                type="button"
+                onClick={() => setFilterStatus(status)}
+                className={`px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
+                  filterStatus === status
+                    ? 'bg-background shadow-sm text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {status === 'ALL' ? 'All' : status.charAt(0) + status.slice(1).toLowerCase()}
+                {status === 'DRAFT' && draftCount > 0 && (
+                  <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[12px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+                    {draftCount}
+                  </span>
+                )}
               </button>
-            </Link>
-            <h1 className="text-xl font-semibold text-foreground">Outward GRN</h1>
-          </div>
-          <p className="text-[14.5px] text-muted-foreground">
-            Record outward dispatches and review the draft GRN document for each reference.
-          </p>
+            );
+          })}
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-3 flex-nowrap flex-shrink-0" style={{ marginLeft: 'auto' }}>
           <select
             value={selectedWarehouseId}
             onChange={(event) => setSelectedWarehouseId(event.target.value)}
             aria-label="Warehouse or port location"
             title={selectedWarehouse?.name}
             disabled={warehousesQuery.isLoading || warehouseOptions.length === 0}
-            className="h-9 w-full min-w-[320px] max-w-[390px] rounded-lg border border-primary bg-background px-4 text-sm text-foreground outline-none disabled:opacity-60"
+            className="h-9 min-w-[320px] max-w-[390px] rounded-lg border border-primary bg-background px-4 text-sm text-foreground outline-none disabled:opacity-60"
           >
             {warehouseOptions.length === 0 ? (
               <option value="">No warehouses configured</option>
@@ -932,38 +930,15 @@ export default function DocumentGenerationOutwardGrnPage() {
             <Plus className="w-4 h-4" />
             New Dispatch
           </button>
-          {warehousesQuery.isError && (
-            <div className="basis-full text-[13px] text-red-600">
-              {warehousesQuery.error instanceof Error ? warehousesQuery.error.message : 'Failed to load warehouse settings'}
-            </div>
-          )}
         </div>
+        {warehousesQuery.isError && (
+          <div className="basis-full text-[13px] text-red-600">
+            {warehousesQuery.error instanceof Error ? warehousesQuery.error.message : 'Failed to load warehouse settings'}
+          </div>
+        )}
       </div>
 
-      <div className="flex gap-1 bg-muted/30 rounded-xl p-1 w-fit">
-        {(['ALL', 'DRAFT', 'CONFIRMED', 'DISPATCHED'] as const).map((status) => {
-          const draftCount = records.filter((record) => record.status === 'DRAFT').length;
-          return (
-            <button
-              key={status}
-              type="button"
-              onClick={() => setFilterStatus(status)}
-              className={`px-3 py-1.5 text-[13px] font-medium rounded-lg transition-colors ${
-                filterStatus === status
-                  ? 'bg-background shadow-sm text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {status === 'ALL' ? 'All' : status.charAt(0) + status.slice(1).toLowerCase()}
-              {status === 'DRAFT' && draftCount > 0 && (
-                <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[12px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
-                  {draftCount}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      <div className="flex-1 overflow-auto space-y-5 w-full">
 
       {dispatchesQuery.isLoading && (
         <div className="space-y-3">
@@ -1055,6 +1030,7 @@ export default function DocumentGenerationOutwardGrnPage() {
           onClose={() => setPreviewSchema(null)}
         />
       )}
+      </div>
     </div>
   );
 }

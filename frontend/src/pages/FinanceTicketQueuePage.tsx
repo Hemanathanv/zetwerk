@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { getAuthToken } from '@/lib/api';
 import { usePermissions } from '@/contexts/PermissionContext';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 import { RequireActivity } from '@/components/PermissionGate';
 import {
   Search, ChevronRight, Receipt, FileText, ExternalLink, Clock, AlertTriangle,
@@ -340,6 +341,7 @@ function TicketCard({ ticket, onAction }: {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function FinanceTicketQueuePage() {
+  const { setPageMeta } = usePageMeta();
   const { role } = usePermissions();
 
   const [tickets, setTickets]       = useState<any[]>([]);
@@ -432,44 +434,46 @@ export function FinanceTicketQueuePage() {
     }
   }
 
-  return (
-    <div className="p-6 max-w-5xl mx-auto">
-
-      {/* ── Header ── */}
-      <div className="mb-6">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Accounting Tickets</h1>
-            <div className="flex items-center gap-2 mt-1 text-[14.5px] text-muted-foreground flex-wrap">
-              <span>{summary.pendingCount} pending</span>
-              {Object.entries(summary.pendingByCurrency).map(([curr, amount]) => (
-                <span key={curr} className="font-mono">
-                  · {curr} {Number(amount).toLocaleString()}
-                </span>
-              ))}
-              {role && (
-                <span className="text-[13px] bg-muted px-2 py-0.5 rounded-full ml-2">
-                  {role.name}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Summary pills */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {summary.reviewCount > 0 && (
-              <span className="text-[13px] bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-medium">
-                {summary.reviewCount} in review
-              </span>
-            )}
-            {summary.approvedCount > 0 && (
-              <span className="text-[13px] bg-teal-50 text-teal-700 px-2.5 py-1 rounded-full font-medium">
-                {summary.approvedCount} approved
-              </span>
-            )}
-          </div>
+  useEffect(() => {
+    setPageMeta({
+      title: 'Accounting Tickets',
+      subtitle: (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span>{summary.pendingCount} pending</span>
+          {Object.entries(summary.pendingByCurrency).map(([curr, amount]) => (
+            <span key={curr} className="font-mono">
+              · {curr} {Number(amount).toLocaleString()}
+            </span>
+          ))}
+          {role && (
+            <span className="text-[13px] bg-muted px-2 py-0.5 rounded-full ml-2">
+              {role.name}
+            </span>
+          )}
         </div>
-      </div>
+      ),
+    });
+    return () => setPageMeta(null);
+  }, [summary.pendingCount, summary.pendingByCurrency, role, setPageMeta]);
+
+  return (
+    <div className="px-6 pb-6 max-w-5xl mx-auto">
+
+      {/* Summary pills */}
+      {(summary.reviewCount > 0 || summary.approvedCount > 0) && (
+        <div className="flex items-center justify-end gap-2 flex-wrap mb-6">
+          {summary.reviewCount > 0 && (
+            <span className="text-[13px] bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-medium">
+              {summary.reviewCount} in review
+            </span>
+          )}
+          {summary.approvedCount > 0 && (
+            <span className="text-[13px] bg-teal-50 text-teal-700 px-2.5 py-1 rounded-full font-medium">
+              {summary.approvedCount} approved
+            </span>
+          )}
+        </div>
+      )}
 
       {/* ── Status tabs ── */}
       <div className="flex items-center gap-1 mb-4 overflow-x-auto pb-1">

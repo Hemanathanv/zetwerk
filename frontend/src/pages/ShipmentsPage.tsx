@@ -4,11 +4,12 @@ import { useQuery } from '@tanstack/react-query';
 import { Search, X, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { StatusPill, FilterChips, PageHeader } from '@/components/vs';
+import { StatusPill, FilterChips } from '@/components/vs';
 import { ALERT_PILL, PHASE_LABELS, type StageVariant } from '@/data/mockShipments';
 import { getAuthToken, readJsonResponse } from '@/lib/api';
 import { BACKEND_API_BASE } from '@/lib/apiBase';
 import { ScheduleStatusBadge } from '@/components/SafeCubePanel';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -295,6 +296,7 @@ function SortIcon({ colKey, sortKey, sortDir }: { colKey: SortKey; sortKey: Sort
 
 export function ShipmentsPage() {
   const [, navigate] = useLocation();
+  const { setPageMeta } = usePageMeta();
 
   const [page,    setPage]    = useState(1);
 
@@ -443,26 +445,25 @@ export function ShipmentsPage() {
   const showingStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const showingEnd = Math.min(page * PAGE_SIZE, total);
 
+  useEffect(() => {
+    setPageMeta({ title: 'Shipments', subtitle });
+    return () => setPageMeta(null);
+  }, [subtitle, setPageMeta]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6">
-      <PageHeader
-        title="Shipments"
-        subtitle={subtitle}
-        actions={
-          <>
-            <Button variant="outline" size="sm" onClick={() => shipmentsQuery.refetch()} disabled={loading} className="flex items-center gap-1.5">
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <Button variant="outline" size="sm">Export CSV</Button>
-          </>
-        }
-      />
+    <div className="px-6 pb-6 h-full flex flex-col">
+      <div className="flex items-center justify-end gap-2 mb-4 flex-none">
+        <Button variant="outline" size="sm" onClick={() => shipmentsQuery.refetch()} disabled={loading} className="flex items-center gap-1.5">
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
+        <Button variant="outline" size="sm">Export CSV</Button>
+      </div>
 
       {/* Phase filter banner (from Dashboard funnel) */}
       {phaseFilter !== null && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, marginBottom: 10, background: 'hsl(var(--primary) / 0.07)', border: '1px solid hsl(var(--primary) / 0.2)' }}>
+        <div className="flex-none" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, marginBottom: 10, background: 'hsl(var(--primary) / 0.07)', border: '1px solid hsl(var(--primary) / 0.2)' }}>
           <span style={{ fontSize: 13, fontWeight: 500, color: 'hsl(var(--primary))' }}>
             Filtered by phase: <strong>{PHASE_LABELS[phaseFilter]}</strong>
           </span>
@@ -475,14 +476,14 @@ export function ShipmentsPage() {
 
       {/* Error banner */}
       {error && (
-        <div style={{ padding: '8px 12px', borderRadius: 8, marginBottom: 10, background: 'hsl(0 84% 60% / 0.08)', border: '1px solid hsl(0 84% 60% / 0.2)', fontSize: 13, color: 'hsl(0 84% 45%)' }}>
+        <div className="flex-none" style={{ padding: '8px 12px', borderRadius: 8, marginBottom: 10, background: 'hsl(0 84% 60% / 0.08)', border: '1px solid hsl(0 84% 60% / 0.2)', fontSize: 13, color: 'hsl(0 84% 45%)' }}>
           Failed to load shipments: {error} —{' '}
           <button onClick={() => shipmentsQuery.refetch()} style={{ textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 'inherit' }}>retry</button>
         </div>
       )}
 
       {/* Filters + search */}
-      <div className="flex items-center flex-wrap gap-2 mb-4">
+      <div className="flex items-center flex-wrap gap-2 mb-4 flex-none">
         <FilterChips chips={filterChips} activeIndex={activeChip} onSelect={setActiveChip} />
         <select
           value={projectFilter}
@@ -523,7 +524,7 @@ export function ShipmentsPage() {
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-lg" style={{ boxShadow: 'var(--vs-shadow-card)' }}>
+      <div className="overflow-auto rounded-lg flex-1 min-h-0" style={{ boxShadow: 'var(--vs-shadow-card)' }}>
         <table className="w-full bg-card" style={{ minWidth: 820, tableLayout: 'fixed', borderCollapse: 'collapse' }}>
           <colgroup>
             <col style={{ width: '15%' }} />
@@ -542,7 +543,7 @@ export function ShipmentsPage() {
                 <th
                   key={key}
                   onClick={() => handleSort(key)}
-                  style={{ textAlign: 'left', padding: '10px 8px', fontSize: FS_HEADER, textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 600, color: sortKey === key ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))', whiteSpace: 'normal', cursor: 'pointer', userSelect: 'none' }}
+                  style={{ position: 'sticky', top: 0, zIndex: 1, backgroundColor: 'hsl(var(--background))', textAlign: 'left', padding: '10px 8px', fontSize: FS_HEADER, textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 600, color: sortKey === key ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground))', whiteSpace: 'normal', cursor: 'pointer', userSelect: 'none' }}
                 >
                   {label}
                   <SortIcon colKey={key} sortKey={sortKey} sortDir={sortDir} />
@@ -691,7 +692,7 @@ export function ShipmentsPage() {
       </div>
 
       {/* Footer */}
-      <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
+      <div className="flex-none" style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>
         <span>
           {loading && rows.length > 0
             ? 'Refreshing...'

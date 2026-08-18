@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { getAuthToken } from '@/lib/api';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 import { AlertTriangle, Clock, Calendar, CheckCircle, BarChart3, TrendingUp, TrendingDown } from 'lucide-react';
 
 function authHeaders(): Record<string, string> {
@@ -594,6 +595,7 @@ const TABS = [
 ];
 
 export function FinanceDashboardPage() {
+  const { setPageMeta } = usePageMeta();
   const [dashData, setDashData] = useState<any>(null);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
@@ -614,14 +616,13 @@ export function FinanceDashboardPage() {
   const urgencyCount = dashData?.urgencyTickets?.length ?? 0;
   const agingOverdue = dashData ? Object.values(dashData.apAging || {}).reduce((s: number, v: any) => s + (Number(v['90_plus']) || 0), 0) : 0;
 
-  return (
-    <div className="p-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Finance Dashboard</h1>
-        <p className="text-[14.5px] text-muted-foreground mt-0.5">Analytics across accounting tickets, shipment costs, and project P&L</p>
-      </div>
+  useEffect(() => {
+    setPageMeta({ title: 'Finance Dashboard', subtitle: 'Analytics across accounting tickets, shipment costs, and project P&L' });
+    return () => setPageMeta(null);
+  }, [setPageMeta]);
 
+  return (
+    <div className="px-6 pb-6 max-w-6xl mx-auto">
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-6 overflow-x-auto pb-1">
         {TABS.map(tab => {

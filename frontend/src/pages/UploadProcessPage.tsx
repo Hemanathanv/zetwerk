@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { PageHeader }    from '@/components/vs/PageHeader';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 import { StatusPill }    from '@/components/vs/StatusPill';
 import { DocBadge }      from '@/components/vs/DocBadge';
 import { ConfidenceBar } from '@/components/vs/ConfidenceBar';
@@ -2081,6 +2081,7 @@ function ContainerMappingModal({
 }
 
 export function UploadProcessPage() {
+  const { setPageMeta } = usePageMeta();
   const { templates, docTypes, loading: configLoading } = useConfig();
   const { activities, activitySla, docTypes: permittedDocTypes } = usePermissions();
   const [location, navigate] = useLocation();
@@ -2540,7 +2541,6 @@ export function UploadProcessPage() {
 
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [ocrTooltipOpen,   setOcrTooltipOpen]   = useState(false);
-  const [attentionDismissed, setAttentionDismissed] = useState(false);
   const [pageTab, setPageTab] = useState<'upload' | 'queue'>(() => (
     location === PROCESSING_QUEUE_ROUTE ? 'queue' : 'upload'
   ));
@@ -2707,7 +2707,6 @@ export function UploadProcessPage() {
     done:            backendCounts?.done ?? visibleCards.filter((c) => c.statusCategory === 'done').length,
   };
 
-  const unattachedCount = waitingDocs.length;
   const liveUnattachedCount = waitingDocs.length;
   const reviewActionCount = statsCount.needsApproval + statsCount.needsReapproval;
 
@@ -2781,6 +2780,14 @@ export function UploadProcessPage() {
     setQueuePage(nextPage);
   };
 
+  useEffect(() => {
+    setPageMeta({
+      title: 'Upload & Process',
+      subtitle: 'Upload documents · OCR extract · Approve fields · Route to shipment',
+    });
+    return () => setPageMeta(null);
+  }, [setPageMeta]);
+
   return (
     <div className="ewms-page-shell">
       <style>{`
@@ -2842,15 +2849,10 @@ export function UploadProcessPage() {
         onReupload={reuploadBlockedDocument}
       />
 
-      <PageHeader
-        title="Upload & Process"
-        subtitle="Upload documents · OCR extract · Approve fields · Route to shipment"
-      />
-
       {/* ── Tab navigation ── */}
       <div style={{ display: 'flex', alignItems: 'center', borderBottom: `1px solid ${BORDER}`, marginBottom: 28 }}>
         <button
-          onClick={() => { setAttentionDismissed(false); navigate(UPLOAD_PROCESS_ROUTE); }}
+          onClick={() => navigate(UPLOAD_PROCESS_ROUTE)}
           style={{
             fontSize: 14.5, fontWeight: pageTab === 'upload' ? 700 : 500,
             color: pageTab === 'upload' ? TEAL : MUTED,
@@ -3062,7 +3064,7 @@ export function UploadProcessPage() {
                       <option value="">Auto-match after OCR</option>
                       {shipmentOpts.map(s => (<option key={s.id} value={s.id}>{s.label}</option>))}
                     </select>
-                    <p style={{ fontSize: 14, color: MUTED, margin: '4px 0 0' }}>Matched via invoice / BOL · unattached docs wait for BOL</p>
+                    <p style={{ fontSize: 14, color: MUTED, margin: '4px 0 0' }}>Matched via invoice / BOL</p>
                   </div>
                 </div>
                 {classification && (
@@ -3213,67 +3215,77 @@ export function UploadProcessPage() {
       <div style={{ display: pageTab === 'queue' ? 'block' : 'none' }}>
         <div>
 
-          {/* ── Attention banner ── */}
-          {!attentionDismissed && (reviewActionCount > 0 || unattachedCount > 0) && (
+          {/* ── Document type filter + search ── */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+            <select
+              value={queueDocTypeFilter}
+              onChange={(event) => setQueueDocTypeFilter(event.target.value)}
+              aria-label="Filter queue by document type"
+              style={{
+                height: 38,
+                boxSizing: 'border-box',
+                flex: '0 0 auto',
+                minWidth: 190,
+                padding: '0 34px 0 12px',
+                border: `1px solid ${BORDER}`,
+                borderRadius: 7,
+                backgroundColor: 'hsl(var(--card))',
+                color: queueDocTypeFilter === 'all' ? MUTED : FG,
+                fontSize: 14,
+                outline: 'none',
+                cursor: 'pointer',
+              }}
+            >
+              <option value="all">All document types</option>
+              {queueDocTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label} ({option.count})
+                </option>
+              ))}
+            </select>
             <div style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: '9px 14px', marginBottom: 12, borderRadius: 8,
-              backgroundColor: 'hsla(221,83%,53%,0.06)',
-              border: `1px solid ${BLUE}28`,
+              display: 'flex', alignItems: 'center', gap: 7, padding: '0 10px',
+              height: 38, boxSizing: 'border-box', flex: '0 0 auto',
+              width: 280, border: `1px solid ${BORDER}`, borderRadius: 7, backgroundColor: 'hsl(var(--card))',
+              position: 'relative', zIndex: 5,
             }}>
-              <div style={{
-                width: 22, height: 22, borderRadius: 6, flexShrink: 0,
-                backgroundColor: `${BLUE}18`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <AlertTriangle size={11} style={{ color: BLUE }} />
-              </div>
-              <div style={{ flex: 1, fontSize: 14, color: FG, lineHeight: 1.5 }}>
-                {statsCount.needsApproval > 0 && (
-                  <span><span style={{ fontWeight: 700, color: BLUE }}>{statsCount.needsApproval}</span> {statsCount.needsApproval === 1 ? 'doc needs' : 'docs need'} approval</span>
-                )}
-                {statsCount.needsReapproval > 0 && (
-                  <span>{statsCount.needsApproval > 0 && <span style={{ color: MUTED }}> | </span>}<span style={{ fontWeight: 700, color: BLUE }}>{statsCount.needsReapproval}</span> {statsCount.needsReapproval === 1 ? 'doc needs' : 'docs need'} re-approval</span>
-                )}
-                {reviewActionCount > 0 && unattachedCount > 0 && <span style={{ color: MUTED }}> | </span>}
-                {unattachedCount > 0 && (
-                  <span><span style={{ fontWeight: 700, color: AMBER }}>{unattachedCount}</span> unattached — waiting for BOL</span>
-                )}
-              </div>
-              {unattachedCount > 0 && (
-                <button
-                  onClick={() => { setActiveChip(WAITING_FOR_BOL_CHIP_INDEX); setAttentionDismissed(true); }}
-                  style={{
-                    fontSize: 14.5, fontWeight: 600, color: '#fff', backgroundColor: AMBER,
-                    border: 'none', borderRadius: 6, padding: '4px 12px', cursor: 'pointer',
-                    flexShrink: 0,
-                  }}
-                >
-                  Review waiting →
-                </button>
+              <Search size={13} style={{ color: MUTED, flexShrink: 0 }} />
+              <input
+                value={queueSearch}
+                onChange={event => setQueueSearch(event.target.value)}
+                placeholder="Search documents..."
+                style={{ border: 'none', outline: 'none', background: 'transparent', color: FG, fontSize: 14, flex: 1, minWidth: 0 }}
+              />
+              {queueSearch && (
+                <button onClick={() => setQueueSearch('')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: MUTED, padding: 0 }}>×</button>
               )}
-              <button
-                onClick={() => { setActiveChip(statsCount.needsApproval > 0 ? 1 : 2); setAttentionDismissed(true); }}
-                style={{
-                  fontSize: 14.5, fontWeight: 600, color: '#fff', backgroundColor: BLUE,
-                  border: 'none', borderRadius: 6, padding: '4px 12px', cursor: 'pointer',
-                  flexShrink: 0,
-                  display: reviewActionCount > 0 ? 'block' : 'none',
-                }}
-              >
-                Review →
-              </button>
-              <button
-                onClick={() => setAttentionDismissed(true)}
-                style={{ fontSize: 14, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', padding: '4px', flexShrink: 0, lineHeight: 1 }}
-              >
-                ✕
-              </button>
+              {queueSearchOptions.length > 0 && (
+                <div style={{
+                  position: 'absolute', left: 0, right: 0, top: 'calc(100% + 6px)',
+                  backgroundColor: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8,
+                  boxShadow: '0 10px 28px hsla(0,0%,0%,0.16)', overflow: 'hidden',
+                }}>
+                  {queueSearchOptions.map(card => (
+                    <button
+                      key={card.id}
+                      onMouseDown={event => event.preventDefault()}
+                      onClick={() => {
+                        setQueueSearch(card.docNumber);
+                        handleRowClick(card);
+                      }}
+                      style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '9px 11px', textAlign: 'left' }}
+                    >
+                      <div style={{ fontSize: 13, fontWeight: 700, color: FG }}>{card.docType}</div>
+                      <div className="vs-mono" style={{ fontSize: 12.5, color: MUTED, marginTop: 2 }}>{card.docNumber} · {card.status}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          )}
+          </div>
 
-          {/* ── Queue header: title + filter chips + density toggle ── */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 10 }}>
+          {/* ── Status tabs ── */}
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 10 }}>
             <FilterChips
               chips={[
                 { label: 'All',              count: statsCount.total },
@@ -3289,70 +3301,6 @@ export function UploadProcessPage() {
               onSelect={setActiveChip}
               size="compact"
             />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              <select
-                value={queueDocTypeFilter}
-                onChange={(event) => setQueueDocTypeFilter(event.target.value)}
-                aria-label="Filter queue by document type"
-                style={{
-                  height: 38,
-                  minWidth: 190,
-                  padding: '0 34px 0 12px',
-                  border: `1px solid ${BORDER}`,
-                  borderRadius: 7,
-                  backgroundColor: 'hsl(var(--card))',
-                  color: queueDocTypeFilter === 'all' ? MUTED : FG,
-                  fontSize: 14,
-                  outline: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                <option value="all">All document types</option>
-                {queueDocTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label} ({option.count})
-                  </option>
-                ))}
-              </select>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 7, padding: '5px 10px',
-                border: `1px solid ${BORDER}`, borderRadius: 7, backgroundColor: 'hsl(var(--card))',
-                minWidth: 260, position: 'relative', zIndex: 5,
-              }}>
-                <Search size={13} style={{ color: MUTED, flexShrink: 0 }} />
-                <input
-                  value={queueSearch}
-                  onChange={event => setQueueSearch(event.target.value)}
-                  placeholder="Search documents..."
-                  style={{ border: 'none', outline: 'none', background: 'transparent', color: FG, fontSize: 14, flex: 1, minWidth: 0 }}
-                />
-                {queueSearch && (
-                  <button onClick={() => setQueueSearch('')} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: MUTED, padding: 0 }}>×</button>
-                )}
-                {queueSearchOptions.length > 0 && (
-                  <div style={{
-                    position: 'absolute', left: 0, right: 0, top: 'calc(100% + 6px)',
-                    backgroundColor: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8,
-                    boxShadow: '0 10px 28px hsla(0,0%,0%,0.16)', overflow: 'hidden',
-                  }}>
-                    {queueSearchOptions.map(card => (
-                      <button
-                        key={card.id}
-                        onMouseDown={event => event.preventDefault()}
-                        onClick={() => {
-                          setQueueSearch(card.docNumber);
-                          handleRowClick(card);
-                        }}
-                        style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '9px 11px', textAlign: 'left' }}
-                      >
-                        <div style={{ fontSize: 13, fontWeight: 700, color: FG }}>{card.docType}</div>
-                        <div className="vs-mono" style={{ fontSize: 12.5, color: MUTED, marginTop: 2 }}>{card.docNumber} · {card.status}</div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
 
           {/* ── Queue content ── */}
