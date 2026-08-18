@@ -7,6 +7,7 @@ import { useConfig } from '@/contexts/ConfigContext';
 import { useShipments, useUploadableDocTypes } from '@/hooks/useOperationalData';
 import { getAuthToken } from '@/lib/api';
 import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();
@@ -207,6 +208,7 @@ const STATUS_MAP: Record<string, string> = {
 };
 
 export default function PartnerDocumentsPage() {
+  const { setPageMeta } = usePageMeta();
   const { docTypes: allDocTypes } = useConfig();
   const uploadableTypes = useUploadableDocTypes();
   const { shipments } = useShipments();
@@ -260,23 +262,16 @@ export default function PartnerDocumentsPage() {
     { value: 'rejected', label: 'Rejected', count: docsByStatus.rejected },
   ].filter(tab => tab.count > 0 || tab.value === 'all');
 
-  return (
-    <div className="max-w-2xl mx-auto px-4 py-6">
-      {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center gap-3">
-          <a href="/partner" className="text-[14.5px] text-muted-foreground hover:text-foreground transition-colors">
-            ← Home
-          </a>
-          <span className="text-muted-foreground">/</span>
-          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>My Documents</h1>
-        </div>
-        <p className="text-[14.5px] text-muted-foreground mt-0.5">
-          {documents.length} document{documents.length !== 1 ? 's' : ''} across{' '}
-          {shipmentOptions.length} shipment{shipmentOptions.length !== 1 ? 's' : ''}
-        </p>
-      </div>
+  useEffect(() => {
+    setPageMeta({
+      title: 'My Documents',
+      subtitle: `${documents.length} document${documents.length !== 1 ? 's' : ''} across ${shipmentOptions.length} shipment${shipmentOptions.length !== 1 ? 's' : ''}`,
+    });
+    return () => setPageMeta(null);
+  }, [documents.length, shipmentOptions.length, setPageMeta]);
 
+  return (
+    <div className="max-w-2xl mx-auto px-4 pb-6">
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         {filterTabs.map(tab => (

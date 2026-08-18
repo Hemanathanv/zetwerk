@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { apiUrl, getAuthToken, readJsonResponse } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 import { Badge } from '@/components/ui/badge';
 import { StatusIndicator } from '@/components/ewms';
 
@@ -614,6 +615,7 @@ function StockAvailability({ available, onHand }: { available: number; onHand: n
 }
 
 function WarehouseStockPositionScreen() {
+  const { setPageMeta } = usePageMeta();
   const [rows, setRows] = useState<StockPositionRow[]>([]);
   const [locationOptions, setLocationOptions] = useState<InventoryLocationOption[]>(REFERENCE_WAREHOUSE_LOCATIONS);
   const [selectedLocationId, setSelectedLocationId] = useState(REFERENCE_WAREHOUSE_LOCATIONS[0].id);
@@ -690,19 +692,14 @@ function WarehouseStockPositionScreen() {
   const lastShown = Math.min(meta.total, (meta.page - 1) * meta.pageSize + rows.length);
   const selectedLocation = locationOptions.find((option) => option.id === selectedLocationId);
 
+  useEffect(() => {
+    setPageMeta({ title: 'Stock Position', subtitle: 'Current on-hand inventory at your warehouse' });
+    return () => setPageMeta(null);
+  }, [setPageMeta]);
+
   return (
     <div className="ewms-page-shell">
-      <div className="text-[13px] text-muted-foreground mb-6">
-        <span>Warehouse</span>
-        <span className="mx-2">›</span>
-        <span className="font-medium text-foreground">Stock</span>
-      </div>
-
-      <div className="flex items-start justify-between gap-4 flex-wrap" style={{ marginBottom: 'var(--ewms-page-section-gap)' }}>
-        <div>
-          <h1 className="text-xl font-semibold text-foreground" style={{ letterSpacing: 0 }}>Stock Position</h1>
-          <p className="text-[14.5px] text-muted-foreground mt-0.5">Current on-hand inventory at your warehouse</p>
-        </div>
+      <div className="flex items-start justify-end gap-4 flex-wrap" style={{ marginBottom: 'var(--ewms-page-section-gap)' }}>
         <div className="ewms-toolbar">
           <select
             value={selectedLocationId}

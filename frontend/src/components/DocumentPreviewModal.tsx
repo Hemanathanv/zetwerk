@@ -72,12 +72,6 @@ function DocHeader({ title, docNumber, date, subtitle }: {
     <div style={{ marginBottom: 20, paddingBottom: 14, borderBottom: `2px solid ${DOC_TEAL}` }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
-          <div style={{
-            fontSize: 14.5, fontWeight: 700, letterSpacing: '0.12em', color: DOC_TEAL,
-            textTransform: 'uppercase', marginBottom: 2,
-          }}>
-            Export Workflow Management System
-          </div>
           <h1 style={{ fontSize: 20, fontWeight: 800, color: DOC_FG, margin: 0, letterSpacing: 0 }}>
             {title}
           </h1>
@@ -250,7 +244,7 @@ function PackingListDoc({ schema, resolve, resolveRow }: {
         title="Packing List"
         docNumber={resolve('invoiceNo')}
         date={resolve('invoiceDate')}
-        subtitle={`Buyer PO: ${resolve('buyerPoNo')} · Exporter Ref: ${resolve('exporterRef')}`}
+        subtitle={`Buyer PO: ${resolve('buyerPoNo')}`}
       />
 
       <SectionTitle>Parties</SectionTitle>

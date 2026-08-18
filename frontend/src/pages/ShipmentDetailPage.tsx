@@ -85,7 +85,6 @@ const MUTED = 'hsl(var(--muted-foreground))';
 const BDR   = 'hsl(var(--border))';
 
 // ─── Route constants ──────────────────────────────────────────────────────────
-const PROJECTS_LIST_ROUTE        = '/projects';
 const PROJECT_DETAIL_ROUTE       = (id: string) => `/projects/${id}`;
 const SHIPMENT_ROUTE             = (id: string) => `/shipments/${id}`;
 const PROJECT_CTX_KEY            = 'fromProject';
@@ -2668,23 +2667,6 @@ export function ShipmentDetailPage() {
         @keyframes shipBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
         @keyframes gateRing{0%{transform:scale(1);opacity:.65}100%{transform:scale(1.9);opacity:0}}
       `}</style>
-
-      {/* Breadcrumb — three-level when arriving from a project, single-level otherwise */}
-      {projectCtx ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 10, fontSize: 11.5, color: MUTED }}>
-          <button onClick={() => navigate(PROJECTS_LIST_ROUTE)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'hsl(var(--primary))', fontWeight: 500, fontSize: 11.5 }}>Projects</button>
-          <span style={{ opacity: 0.5 }}>›</span>
-          <button onClick={() => navigate(PROJECT_DETAIL_ROUTE(projectCtx.projectId))} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'hsl(var(--primary))', fontWeight: 500, fontSize: 11.5 }}>{projectCtx.projectRef}</button>
-          <span style={{ opacity: 0.5 }}>›</span>
-          <span className="vs-mono">{shipment?.bolNumber ?? shipment?.blNumber ?? shipment?.hblNumber ?? shipmentId}</span>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 10, fontSize: 11.5, color: MUTED }}>
-          <button onClick={() => navigate('/dashboard')} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'hsl(var(--primary))', fontWeight: 500, fontSize: 11.5 }}>← Shipments</button>
-          <span>/</span>
-          <span className="vs-mono">{shipment?.bolNumber ?? shipment?.blNumber ?? shipment?.hblNumber ?? shipmentId}</span>
-        </div>
-      )}
 
       {/* Project context bar — only visible when navigated from a project detail page */}
       {projectCtx && (

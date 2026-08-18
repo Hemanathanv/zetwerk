@@ -8,6 +8,7 @@ import { RoleBadge } from '@/components/RoleBadge';
 import { Badge } from '@/components/ui/badge';
 import { getAuthToken } from '@/lib/api';
 import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();
@@ -300,6 +301,7 @@ function ShipmentUploadCard({ shipment, uploadableTypes, allDocTypes, onUploaded
 // ─── Main page ───────────────────────────────────────────────────────────────
 
 export default function PartnerUploadPage() {
+  const { setPageMeta } = usePageMeta();
   const { user } = useAuth();
   const permissions = usePermissions();
   const { docTypes: allDocTypes } = useConfig();
@@ -352,28 +354,28 @@ export default function PartnerUploadPage() {
   const orgName = user?.org?.name ?? '';
   const roleId = user?.role?.id ?? '';
 
-  return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
-      {/* ── Welcome header ── */}
-      <div className="mb-8">
-        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>
-          Welcome, {firstName}
-        </h1>
-        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-          {orgName && (
-            <span className="text-[14.5px] text-muted-foreground">{orgName}</span>
-          )}
+  useEffect(() => {
+    setPageMeta({
+      title: `Welcome, ${firstName}`,
+      subtitle: (orgName || roleId) ? (
+        <div className="flex items-center gap-2 flex-wrap">
+          {orgName && <span>{orgName}</span>}
           {roleId && (
             <>
-              {orgName && <span className="text-muted-foreground/50 text-[14.5px]">·</span>}
+              {orgName && <span className="text-muted-foreground/50">·</span>}
               <RoleBadge roleId={roleId} size="sm" />
             </>
           )}
         </div>
-      </div>
+      ) : undefined,
+    });
+    return () => setPageMeta(null);
+  }, [firstName, orgName, roleId, setPageMeta]);
 
+  return (
+    <div className="max-w-2xl mx-auto px-4 pb-8">
       {/* ── Quick links ── */}
-      <div className="flex items-center gap-3 mb-6 -mt-2">
+      <div className="flex items-center gap-3 mb-6">
         <a
           href="/partner/documents"
           className="text-[13px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"

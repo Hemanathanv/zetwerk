@@ -12,6 +12,7 @@ import { Banner } from '@/components/ewms/Banner';
 import { TextLink } from '@/components/ewms/TextLink';
 import { getAuthToken } from '@/lib/api';
 import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 
 function authFetchHeaders(): Record<string, string> {
   const token = getAuthToken();
@@ -95,6 +96,7 @@ export function DashboardPage() {
   const { user } = useAuth();
   const { gates: permittedGates, modules } = usePermissions();
   const templates = useTemplates();
+  const { setPageMeta } = usePageMeta();
 
   const [templateFilter, setTemplateFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -212,8 +214,16 @@ export function DashboardPage() {
   const hasGateAccess = permittedGates.some(g => g.accessLevel !== 'none');
   const activeTemplates = (templates as any[]).filter((t: any) => t.templateStatus === 'ACTIVE');
 
+  useEffect(() => {
+    setPageMeta({
+      title: 'Dashboard',
+      subtitle: `Welcome back, ${user?.fullName ?? user?.email ?? 'User'}`,
+    });
+    return () => setPageMeta(null);
+  }, [user, setPageMeta]);
+
   return (
-    <div className="p-8">
+    <div className="px-8 pb-8">
 
       {/* ── Escalation Banner ─────────────────────────────────────────────── */}
       {taskCount.blockers > 0 && (
@@ -229,15 +239,8 @@ export function DashboardPage() {
         </Banner>
       )}
 
-      {/* ── Page Header ───────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Welcome back, {user?.fullName ?? user?.email ?? 'User'}
-          </p>
-        </div>
-        {activeTemplates.length > 1 && (
+      {activeTemplates.length > 1 && (
+        <div className="flex items-center justify-end mb-6">
           <select
             value={templateFilter}
             onChange={e => setTemplateFilter(e.target.value)}
@@ -250,8 +253,8 @@ export function DashboardPage() {
               </option>
             ))}
           </select>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ── Metric Cards ──────────────────────────────────────────────────── */}
       {loading ? (

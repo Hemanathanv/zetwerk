@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Receipt, DollarSign, Clock, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { invoices } from '@/data/mockData';
 import { StatusBadge } from '@/components/StatusBadge';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 
 type InvFilter = 'All' | 'Approved' | 'Pending' | 'Exception' | 'Paid';
 type TypeFilter = 'All' | 'Sales' | 'Freight' | 'CHA' | 'Forwarder';
@@ -14,6 +15,7 @@ const totalValue = invoices.reduce((sum, inv) => {
 }, 0);
 
 export function InvoicesPage() {
+  const { setPageMeta } = usePageMeta();
   const [statusFilter, setStatusFilter] = useState<InvFilter>('All');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('All');
 
@@ -28,13 +30,13 @@ export function InvoicesPage() {
   const exception = invoices.filter(i => i.status === 'Exception').length;
   const paid      = invoices.filter(i => i.status === 'Paid').length;
 
-  return (
-    <div className="p-6 space-y-5">
-      <div>
-        <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: 0, lineHeight: 1.2 }}>Invoices</h1>
-        <p className="text-[13px] text-muted-foreground mt-0.5">Sales, freight, CHA, and forwarder invoices across all shipments</p>
-      </div>
+  useEffect(() => {
+    setPageMeta({ title: 'Invoices', subtitle: 'Sales, freight, CHA, and forwarder invoices across all shipments' });
+    return () => setPageMeta(null);
+  }, [setPageMeta]);
 
+  return (
+    <div className="px-6 pb-6 space-y-5">
       {/* Stats */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         {[

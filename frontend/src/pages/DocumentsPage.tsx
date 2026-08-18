@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'wouter';
 import { useConfig } from '@/contexts/ConfigContext';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 import type { ConfigTemplate, ConfigDocType } from '@/contexts/ConfigContext';
 import { getAuthToken } from '@/lib/api';
 import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
@@ -608,7 +609,7 @@ function DocItem({ doc, isParallel, onNavigate }: {
     <div
       onClick={path ? () => onNavigate(path) : undefined}
       style={{
-        display: 'flex', alignItems: 'flex-start', gap: 6, padding: '3px 0',
+        display: 'flex', alignItems: 'flex-start', gap: 5, padding: '2px 0',
         cursor: clickable && path ? 'pointer' : 'default',
         borderRadius: 4, transition: 'background-color 0.1s',
       }}
@@ -619,13 +620,13 @@ function DocItem({ doc, isParallel, onNavigate }: {
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
           <span style={{
-            fontSize: 14, fontWeight: 600, color: MUTED,
+            fontSize: 12, fontWeight: 600, color: MUTED,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             minWidth: 0, flex: 1,
           }}>{doc.label}</span>
           {doc.isParallel && (
             <span style={{
-              fontSize: 10, fontWeight: 700, lineHeight: 1,
+              fontSize: 9, fontWeight: 700, lineHeight: 1,
               color: INFO, backgroundColor: 'hsla(201,96%,32%,0.10)',
               borderRadius: 999, padding: '2px 5px', flexShrink: 0,
             }}>
@@ -635,7 +636,7 @@ function DocItem({ doc, isParallel, onNavigate }: {
           <DocStatusIcon status={doc.status} isParallel={isParallel || doc.isParallel} />
         </div>
         <span style={{
-          fontSize: 14, color: sub.color,
+          fontSize: 11.5, color: sub.color,
           fontStyle: sub.italic ? 'italic' : 'normal',
           fontFamily: sub.mono ? 'var(--font-mono, monospace)' : 'inherit',
           display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -672,7 +673,7 @@ function GateColPanel({ gate, isParallel, onNavigate }: {
       backgroundColor: isParallel ? 'hsl(var(--muted) / 0.08)' : 'transparent',
       borderLeft: isParallel ? `2px solid ${BORDER}` : undefined,
     }}>
-      <div style={{ padding: '10px 14px 8px', borderBottom: `1px solid ${BORDER}`, backgroundColor: headerBg }}>
+      <div style={{ padding: '7px 10px 6px', borderBottom: `1px solid ${BORDER}`, backgroundColor: headerBg }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
           {!isParallel && (
             <div style={{
@@ -681,27 +682,27 @@ function GateColPanel({ gate, isParallel, onNavigate }: {
               border: gate.status === 'future' ? `1.5px solid ${BORDER}` : 'none',
             }} />
           )}
-          <span style={{ fontSize: 14, fontWeight: 700, color: FG, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: FG, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             {gate.name}
           </span>
         </div>
-        <div style={{ fontSize: 14, color: MUTED, marginTop: 1 }}>{gate.label}</div>
+        <div style={{ fontSize: 11.5, color: MUTED, marginTop: 1 }}>{gate.label}</div>
         {!isParallel && (
-          <span className="vs-mono" style={{ fontSize: 15, color: MUTED, display: 'block', marginTop: 2 }}>
+          <span className="vs-mono" style={{ fontSize: 12.5, color: MUTED, display: 'block', marginTop: 2 }}>
             {gate.docCount}
           </span>
         )}
       </div>
-      <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+      <div style={{ padding: '7px 8px', display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
         {gate.docs.length === 0 ? (
-          <span style={{ fontSize: 14, color: MUTED, opacity: 0.5, fontStyle: 'italic' }}>—</span>
+          <span style={{ fontSize: 12, color: MUTED, opacity: 0.5, fontStyle: 'italic' }}>—</span>
         ) : (
           gate.docs.map((doc, i) => (
             <DocItem key={i} doc={doc} isParallel={isParallel || doc.isParallel} onNavigate={onNavigate} />
           ))
         )}
         {hasBlock && (
-          <div style={{ marginTop: 4, fontSize: 14, fontWeight: 600, color: RED }}>Cross validation blocked</div>
+          <div style={{ marginTop: 3, fontSize: 12, fontWeight: 600, color: RED }}>Cross validation blocked</div>
         )}
       </div>
     </div>
@@ -718,56 +719,56 @@ function ShipmentAccordion({ lane, open, onToggle }: {
   return (
     <div style={{
       backgroundColor: CARD_BG, borderRadius: 8, overflow: 'hidden',
-      border: `1px solid ${BORDER}`, boxShadow: 'var(--vs-shadow-card)', marginBottom: 10,
+      border: `1px solid ${BORDER}`, boxShadow: 'var(--vs-shadow-card)', marginBottom: 8,
     }}>
       {/* Collapsed header */}
       <div
         onClick={onToggle}
         style={{
-          padding: '14px 20px', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', gap: 16,
+          padding: '10px 14px', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', gap: 12,
           borderBottom: open ? `1px solid ${BORDER}` : 'none',
           backgroundColor: open ? 'hsl(var(--muted) / 0.25)' : 'transparent',
           transition: 'background-color 0.12s', userSelect: 'none',
         }}
       >
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, flexWrap: 'wrap' }}>
             {lane.isPending ? (
               <span style={{
                 display: 'flex', alignItems: 'center', gap: 5,
-                width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+                width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
                 backgroundColor: `${AMBER}20`, justifyContent: 'center',
               }}>
-                <Clock size={13} style={{ color: AMBER }} />
+                <Clock size={11} style={{ color: AMBER }} />
               </span>
             ) : (
               <DocBadge code="BL" size="sm" />
             )}
             <span className="vs-mono" style={{
-              fontSize: 14, fontWeight: 700,
+              fontSize: 12.5, fontWeight: 700,
               color: lane.isPending ? AMBER : FG,
               fontStyle: lane.isPending ? 'italic' : 'normal',
             }}>
               {lane.shipmentId}
             </span>
             {!lane.isPending && lane.vessel && (
-              <span style={{ fontSize: 14.5, color: MUTED }}>{lane.vessel}</span>
+              <span style={{ fontSize: 12.5, color: MUTED }}>{lane.vessel}</span>
             )}
           </div>
-          <div style={{ fontSize: 14, color: MUTED, marginTop: 2 }}>{lane.meta}</div>
+          <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>{lane.meta}</div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
           {lane.gateStatuses.map((s, i) => <MiniGateDot key={i} status={s} />)}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <span className="vs-mono" style={{ fontSize: 14, color: MUTED }}>{lane.docSummary} docs</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <span className="vs-mono" style={{ fontSize: 12, color: MUTED }}>{lane.docSummary} docs</span>
           <StatusPill status={lane.statusLabel} variant={lane.statusVariant} />
           {open
-            ? <ChevronDown size={18} style={{ color: MUTED }} />
-            : <ChevronRight size={18} style={{ color: MUTED }} />}
+            ? <ChevronDown size={16} style={{ color: MUTED }} />
+            : <ChevronRight size={16} style={{ color: MUTED }} />}
         </div>
       </div>
 
@@ -807,8 +808,8 @@ function ShipmentAccordion({ lane, open, onToggle }: {
           ) : (
             <div>
               <style>{`
-                @media (min-width: 1440px) { .gate-grid-${lane.id} { grid-template-columns: repeat(${lane.gates.length}, minmax(0, 1fr)) !important; } }
-                @media (min-width: 768px) and (max-width: 1439px) { .gate-grid-${lane.id} { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; } }
+                @media (min-width: 1180px) { .gate-grid-${lane.id} { grid-template-columns: repeat(${lane.gates.length}, minmax(0, 1fr)) !important; } }
+                @media (min-width: 768px) and (max-width: 1179px) { .gate-grid-${lane.id} { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; } }
                 @media (max-width: 767px) { .gate-grid-${lane.id} { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
               `}</style>
               <div
@@ -942,13 +943,13 @@ function ShipmentGateStrip({ lane }: { lane: ShipmentLane }) {
 
   const sailedW  = trackW > 0 ? (shipPct - firstPct) / trackW * 100 : 0;
 
-  const MARKER = 20;
+  const MARKER = 16;
 
   return (
-    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${BORDER}` }}>
+    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${BORDER}` }}>
 
       {/* ── Ship — floats above the port markers ─────────────────────────── */}
-      <div style={{ position: 'relative', height: 22, marginBottom: 2 }}>
+      <div style={{ position: 'relative', height: 18, marginBottom: 2 }}>
         <div style={{
           position: 'absolute', top: 0,
           left: `${shipPct}%`,
@@ -958,7 +959,7 @@ function ShipmentGateStrip({ lane }: { lane: ShipmentLane }) {
         }}>
           {/* Separate inner div so bob animation doesn't fight with translateX */}
           <div style={{ transform: 'translateX(-50%)', animation: 'shipBob 3s ease-in-out infinite' }}>
-            <ShipIcon size={32} />
+            <ShipIcon size={24} />
           </div>
         </div>
       </div>
@@ -1010,8 +1011,8 @@ function ShipmentGateStrip({ lane }: { lane: ShipmentLane }) {
               <span
                 className="voy-gate-label"
                 style={{
-                  fontSize: 13, fontWeight: 700,
-                  textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.3,
+                  fontSize: 11, fontWeight: 700,
+                  textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1.25,
                   color: gate.status === 'future' ? MUTED : FG,
                   width: '100%',
                 }}
@@ -1020,7 +1021,7 @@ function ShipmentGateStrip({ lane }: { lane: ShipmentLane }) {
               </span>
               {scLocode && (
                 <span style={{
-                  fontSize: 14, fontWeight: 700, letterSpacing: '0.08em',
+                  fontSize: 12, fontWeight: 700, letterSpacing: '0.08em',
                   color: TEAL, background: 'hsl(var(--vs-teal) / 0.1)',
                   borderRadius: 3, padding: '1px 4px', lineHeight: 1.4,
                 }}>
@@ -1028,7 +1029,7 @@ function ShipmentGateStrip({ lane }: { lane: ShipmentLane }) {
                 </span>
               )}
               <span className="vs-mono" style={{
-                fontSize: 14, fontWeight: 700,
+                fontSize: 12, fontWeight: 700,
                 color: gate.status === 'future'  ? MUTED
                      : gate.status === 'blocked' ? RED
                      : gate.status === 'active'  ? TEAL : GREEN,
@@ -1043,13 +1044,13 @@ function ShipmentGateStrip({ lane }: { lane: ShipmentLane }) {
       {/* ── Parallel channel ─────────────────────────────────────────────── */}
       {lane.parallel.length > 0 && (
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${BORDER}`,
+          display: 'flex', alignItems: 'center', gap: 7,
+          marginTop: 7, paddingTop: 6, borderTop: `1px dashed ${BORDER}`,
         }}>
-          <span style={{ fontSize: 14.5, color: MUTED, fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>∥</span>
-          <span style={{ fontSize: 14.5, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em', flexShrink: 0 }}>Parallel</span>
+          <span style={{ fontSize: 12.5, color: MUTED, fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>∥</span>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em', flexShrink: 0 }}>Parallel</span>
           <div style={{ flex: 1, height: 1, background: `repeating-linear-gradient(90deg, ${BORDER} 0, ${BORDER} 4px, transparent 4px, transparent 8px)`, opacity: 0.45 }} />
-          <span className="vs-mono" style={{ fontSize: 14, color: MUTED, flexShrink: 0 }}>
+          <span className="vs-mono" style={{ fontSize: 12, color: MUTED, flexShrink: 0 }}>
             {lane.parallel.filter(p => p.status === 'closed' || p.status === 'gen-closed').length}/{lane.parallel.length}
           </span>
         </div>
@@ -1061,6 +1062,7 @@ function ShipmentGateStrip({ lane }: { lane: ShipmentLane }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function DocumentsPage() {
+  const { setPageMeta } = usePageMeta();
   // ── Config (template-driven gate structure) ─────────────────────────────────
   const { templates, docTypes } = useConfig();
 
@@ -1152,8 +1154,13 @@ export function DocumentsPage() {
   // RENDER
   // ─────────────────────────────────────────────────────────────────────────
 
+  useEffect(() => {
+    setPageMeta({ title: 'Documents' });
+    return () => setPageMeta(null);
+  }, [setPageMeta]);
+
   return (
-    <div className="py-6 px-4">
+    <div className="pb-6 px-4">
       <style>{`
         @keyframes spin     { to { transform: rotate(360deg); } }
         @keyframes fadeIn   { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
@@ -1168,9 +1175,6 @@ export function DocumentsPage() {
           text-align: center;
         }
       `}</style>
-
-      {/* Page heading */}
-      <h1 style={{ fontSize: 'var(--text-page-title-size)', fontWeight: 'var(--text-page-title-weight)', letterSpacing: 0, color: 'hsl(var(--foreground))', margin: '0 0 20px', lineHeight: 1.2 }}>Documents</h1>
 
       {/* ── GATE VIEW ── */}
       <div>
@@ -1193,26 +1197,26 @@ export function DocumentsPage() {
             return focused ? (
               <div style={{
                 backgroundColor: CARD_BG, borderRadius: 8,
-                padding: '16px 24px', boxShadow: 'var(--vs-shadow-card)',
-                border: `1px solid ${BORDER}`, marginBottom: 12,
+                padding: '10px 14px', boxShadow: 'var(--vs-shadow-card)',
+                border: `1px solid ${BORDER}`, marginBottom: 8,
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                  <span style={{ fontSize: 14, lineHeight: 1 }}>⚓</span>
-                  <span className="vs-mono" style={{ fontSize: 14, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                  <span style={{ fontSize: 12, lineHeight: 1 }}>⚓</span>
+                  <span className="vs-mono" style={{ fontSize: 11.5, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                     Voyage progress
                   </span>
-                  <span style={{ fontSize: 14, color: BORDER }}>·</span>
-                  <span className="vs-mono" style={{ fontSize: 14, fontWeight: 700, color: TEAL }}>
+                  <span style={{ fontSize: 11.5, color: BORDER }}>·</span>
+                  <span className="vs-mono" style={{ fontSize: 12, fontWeight: 700, color: TEAL }}>
                     {focused.shipmentId}
                   </span>
-                  <span style={{ fontSize: 14, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{focused.vessel}</span>
+                  <span style={{ fontSize: 12, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{focused.vessel}</span>
                 </div>
                 <ShipmentGateStrip lane={focused} />
               </div>
             ) : null;
           })()}
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
             <button
               type="button"
               onClick={() => setShowOverview(value => !value)}
@@ -1221,9 +1225,9 @@ export function DocumentsPage() {
                 borderRadius: 999,
                 backgroundColor: CARD_BG,
                 color: MUTED,
-                fontSize: 12,
+                fontSize: 11.5,
                 fontWeight: 750,
-                padding: '7px 12px',
+                padding: '6px 10px',
                 cursor: 'pointer',
                 boxShadow: 'var(--vs-shadow-card)',
               }}
@@ -1231,27 +1235,28 @@ export function DocumentsPage() {
               {showOverview ? 'Hide overview' : 'Show overview'}
             </button>
             <FilterChips
+              size="compact"
               chips={[
                 { label: 'All shipments',  count: lanes.length },
                 { label: 'Active gate',    count: lanes.filter(l => !l.isPending && l.gates.some(g => g.status === 'active' || g.status === 'blocked')).length },
-                { label: 'Pending BOL',    count: lanes.filter(l => !!l.isPending).length },
+                // { label: 'Pending BOL',    count: lanes.filter(l => !!l.isPending).length },
                 { label: 'Complete',       count: lanes.filter(l => l.gateStatuses.every(s => s === 'passed')).length },
               ]}
               activeIndex={gateFilter}
               onSelect={setGateFilter}
             />
             <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
+              display: 'flex', alignItems: 'center', gap: 7,
               border: `1px solid ${BORDER}`, borderRadius: 8,
-              padding: '6px 12px', backgroundColor: CARD_BG,
-              flex: 1, maxWidth: 320, position: 'relative', zIndex: 5,
+              padding: '5px 10px', backgroundColor: CARD_BG,
+              flex: '0 1 280px', marginLeft: 'auto', position: 'relative', zIndex: 5,
             }}>
-              <Search size={13} style={{ color: MUTED, flexShrink: 0 }} />
+              <Search size={12} style={{ color: MUTED, flexShrink: 0 }} />
               <input
                 value={gateSearch}
                 onChange={e => setGateSearch(e.target.value)}
                 placeholder="Search shipment gates..."
-                style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, color: FG, backgroundColor: 'transparent' }}
+                style={{ flex: 1, border: 'none', outline: 'none', fontSize: 12.5, color: FG, backgroundColor: 'transparent' }}
               />
               {gateSearch && (
                 <button onClick={() => setGateSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>

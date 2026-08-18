@@ -12,9 +12,10 @@ import type { DocumentDetailRecord, DocumentPreviewUrlResponse, JsonValue } from
 import { DocumentPreviewModal } from '@/components/DocumentPreviewModal';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { SegmentedControl } from '@/components/ewms/SegmentedControl';
+import { DocGenerationTabs } from '@/components/DocGenerationHeader';
 import { useLocation, useParams } from 'wouter';
 import { usePermissions } from '@/contexts/PermissionContext';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 import { allowedDocGenerationOptions } from '@/lib/docGenerationAccess';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -235,7 +236,7 @@ type QueueFilter = 'all' | 'needs-review' | 'generated';
 
 // ─── QueueTable ───────────────────────────────────────────────────────────────
 
-function QueueTable({
+function QueueToolbar({
   items, onReview, search, onSearch, filter, onFilter,
 }: {
   items:    GenQueueItem[];
@@ -262,11 +263,6 @@ function QueueTable({
     generated:   items.filter(i => i.status === 'generated').length,
   };
 
-  const TD: React.CSSProperties = {
-    padding: '12px 16px', fontSize: 13, color: FG,
-    borderBottom: `1px solid ${BORDER}`, verticalAlign: 'middle',
-  };
-
   const FILTERS: { key: QueueFilter; label: string }[] = [
     { key: 'all',          label: 'All'     },
     { key: 'needs-review', label: 'Pending' },
@@ -274,73 +270,92 @@ function QueueTable({
   ];
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-
-      {/* Toolbar */}
-      <div style={{
-        padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 10,
-        flexShrink: 0, borderBottom: `1px solid ${BORDER}`,
-        background: 'hsl(var(--card))',
-      }}>
-        <div className="ewms-search-field" style={{
-          display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px',
-          background: 'hsl(var(--background))', flex: 1, maxWidth: 340, position: 'relative', zIndex: 5,
-        }}>
-          <Search size={12} style={{ color: MUTED, flexShrink: 0 }} />
-          <input
-            className="ewms-search-input"
-            value={search}
-            onChange={e => onSearch(e.target.value)}
-            placeholder="Search generated documents..."
-            style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, color: FG, flex: 1, minWidth: 0 }}
-          />
-          {searchOptions.length > 0 && (
-            <div style={{
-              position: 'absolute', left: 0, right: 0, top: 'calc(100% + 6px)',
-              background: 'hsl(var(--card))', border: `1px solid ${BORDER}`,
-              borderRadius: 8, boxShadow: '0 10px 28px hsla(0,0%,0%,0.16)', overflow: 'hidden',
+    <div style={{
+      paddingBottom: 12, display: 'flex', alignItems: 'center', gap: 10,
+      flexShrink: 0, borderBottom: `1px solid ${BORDER}`, marginBottom: 20, flexWrap: 'wrap',
+    }}>
+      <div style={{ display: 'flex', gap: 4 }}>
+        {FILTERS.map(t => (
+          <button key={t.key} onClick={() => onFilter(t.key)} style={{
+            fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 999,
+            border: `1px solid ${filter === t.key ? TEAL : BORDER}`,
+            background: filter === t.key ? 'hsla(173,58%,39%,0.08)' : 'transparent',
+            color: filter === t.key ? TEAL : MUTED, cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all 0.1s',
+          }}>
+            {t.label}
+            <span style={{
+              fontSize: 10, fontWeight: 700, padding: '0 4px', borderRadius: 8, lineHeight: '16px',
+              background: filter === t.key ? 'hsla(173,58%,39%,0.15)' : 'hsl(var(--muted))',
+              color: filter === t.key ? TEAL : MUTED,
             }}>
-              {searchOptions.map(item => (
-                <button
-                  key={item.id}
-                  onMouseDown={event => event.preventDefault()}
-                  onClick={() => {
-                    onSearch(item.invoiceNo || item.shipmentRef || docGenerationDisplayName(item.docType) || item.docType);
-                    onReview(item);
-                  }}
-                  style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '9px 11px', textAlign: 'left' }}
-                >
-                  <div style={{ fontSize: 13, fontWeight: 700, color: FG }}>{docGenerationDisplayName(item.docType)}</div>
-                  <div style={{ ...MONO, fontSize: 12.5, color: MUTED, marginTop: 2 }}>{item.invoiceNo} · {item.shipmentRef || 'No shipment'}</div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div style={{ display: 'flex', gap: 4 }}>
-          {FILTERS.map(t => (
-            <button key={t.key} onClick={() => onFilter(t.key)} style={{
-              fontSize: 12, fontWeight: 600, padding: '5px 12px', borderRadius: 999,
-              border: `1px solid ${filter === t.key ? TEAL : BORDER}`,
-              background: filter === t.key ? 'hsla(173,58%,39%,0.08)' : 'transparent',
-              color: filter === t.key ? TEAL : MUTED, cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', gap: 5, transition: 'all 0.1s',
-            }}>
-              {t.label}
-              <span style={{
-                fontSize: 10, fontWeight: 700, padding: '0 4px', borderRadius: 8, lineHeight: '16px',
-                background: filter === t.key ? 'hsla(173,58%,39%,0.15)' : 'hsl(var(--muted))',
-                color: filter === t.key ? TEAL : MUTED,
-              }}>
-                {counts[t.key === 'all' ? 'all' : t.key === 'needs-review' ? 'needsReview' : 'generated']}
-              </span>
-            </button>
-          ))}
-        </div>
-        <span style={{ fontSize: 11.5, color: MUTED, marginLeft: 'auto', whiteSpace: 'nowrap' }}>
-          {filteredByTab.length} document{filteredByTab.length !== 1 ? 's' : ''}
-        </span>
+              {counts[t.key === 'all' ? 'all' : t.key === 'needs-review' ? 'needsReview' : 'generated']}
+            </span>
+          </button>
+        ))}
       </div>
+      <span style={{ fontSize: 11.5, color: MUTED, whiteSpace: 'nowrap' }}>
+        {filteredByTab.length} document{filteredByTab.length !== 1 ? 's' : ''}
+      </span>
+      <div className="ewms-search-field" style={{
+        display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px',
+        background: 'hsl(var(--background))', flex: '0 1 340px', marginLeft: 'auto', position: 'relative', zIndex: 5,
+      }}>
+        <Search size={12} style={{ color: MUTED, flexShrink: 0 }} />
+        <input
+          className="ewms-search-input"
+          value={search}
+          onChange={e => onSearch(e.target.value)}
+          placeholder="Search generated documents..."
+          style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, color: FG, flex: 1, minWidth: 0 }}
+        />
+        {searchOptions.length > 0 && (
+          <div style={{
+            position: 'absolute', left: 0, right: 0, top: 'calc(100% + 6px)',
+            background: 'hsl(var(--card))', border: `1px solid ${BORDER}`,
+            borderRadius: 8, boxShadow: '0 10px 28px hsla(0,0%,0%,0.16)', overflow: 'hidden',
+          }}>
+            {searchOptions.map(item => (
+              <button
+                key={item.id}
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => {
+                  onSearch(item.invoiceNo || item.shipmentRef || docGenerationDisplayName(item.docType) || item.docType);
+                  onReview(item);
+                }}
+                style={{ width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '9px 11px', textAlign: 'left' }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 700, color: FG }}>{docGenerationDisplayName(item.docType)}</div>
+                <div style={{ ...MONO, fontSize: 12.5, color: MUTED, marginTop: 2 }}>{item.invoiceNo} · {item.shipmentRef || 'No shipment'}</div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function QueueTable({
+  items, onReview, filter,
+}: {
+  items:    GenQueueItem[];
+  onReview: (item: GenQueueItem) => void;
+  filter:   QueueFilter;
+}) {
+  const filteredByTab = useMemo(() => {
+    if (filter === 'needs-review') return items.filter(i => i.status !== 'generated');
+    if (filter === 'generated')    return items.filter(i => i.status === 'generated');
+    return items;
+  }, [items, filter]);
+
+  const TD: React.CSSProperties = {
+    padding: '12px 16px', fontSize: 13, color: FG,
+    borderBottom: `1px solid ${BORDER}`, verticalAlign: 'middle',
+  };
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
       {/* Table */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -1903,16 +1918,15 @@ function OverflowMenu() {
 // ─── DocReviewModal ───────────────────────────────────────────────────────────
 
 function DocReviewModal({
-  item, schema, siblings, isBlocked, isApproved, manualValues,
+  item, schema, isBlocked, isApproved, manualValues,
   computedDerivations, splitIssues, packageTypes, sourcePanelOpen, approving, showPreview,
   bolDocument, bolDocumentLoading, brokerDocument, brokerDocumentLoading,
   brokerSourceExtractedData,
-  onClose, onManualChange, onPackageTypeChange, onAddLineItemRow, onApprove, onPreview, onSelectSibling,
+  onClose, onManualChange, onPackageTypeChange, onAddLineItemRow, onApprove, onPreview,
   onToggleSourcePanel, onSetShowPreview,
 }: {
   item:                GenQueueItem;
   schema:              DocGenSchema;
-  siblings:            GenQueueItem[];
   isBlocked:           boolean;
   isApproved:          boolean;
   manualValues:        Record<string, string>;
@@ -1933,7 +1947,6 @@ function DocReviewModal({
   onAddLineItemRow:    (sectionLabel: string, rowIndex: number) => void;
   onApprove:           () => void;
   onPreview:           () => void;
-  onSelectSibling:     (item: GenQueueItem) => void;
   onToggleSourcePanel: () => void;
   onSetShowPreview:    (v: boolean) => void;
 }) {
@@ -1973,84 +1986,58 @@ function DocReviewModal({
         }}
       >
         {/* ── Modal header ── */}
-        <div style={{
-          padding: '12px 18px', borderBottom: `1px solid ${BORDER}`,
-          display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
-          background: 'hsl(var(--card))',
-        }}>
-          {/* Title */}
-          <div style={{ minWidth: 0, flexShrink: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <h2 style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0, color: FG, margin: 0, whiteSpace: 'nowrap' }}>
-                {isBlocked ? 'Waiting:' : isApproved ? 'Approved:' : 'Draft:'}{' '}{docGenerationDisplayName(schema.docType, schema.displayName)}
-              </h2>
-              {isApproved && (
-                <Badge intent="success" size="sm" leadingIcon={<CheckCircle2 className="size-3" />}>Approved</Badge>
-              )}
+        <div style={{ flexShrink: 0, background: 'hsl(var(--card))', borderBottom: `1px solid ${BORDER}` }}>
+          <div style={{
+            padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            {/* Title */}
+            <div style={{ minWidth: 0, flexShrink: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <h2 style={{ fontSize: 16, fontWeight: 700, letterSpacing: 0, color: FG, margin: 0, whiteSpace: 'nowrap' }}>
+                  {isBlocked ? 'Waiting:' : isApproved ? 'Approved:' : 'Draft:'}{' '}{docGenerationDisplayName(schema.docType, schema.displayName)}
+                </h2>
+                {isApproved && (
+                  <Badge intent="success" size="sm" leadingIcon={<CheckCircle2 className="size-3" />}>Approved</Badge>
+                )}
+              </div>
+              <p style={{ fontSize: 11.5, color: MUTED, margin: '2px 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <span style={{ ...MONO }}>{item.invoiceNo}</span>
+                {(item.shipmentRef ?? '').trim() && <> &middot; <span style={{ ...MONO }}>{item.shipmentRef}</span></>}
+                &nbsp;&middot;&nbsp; Source: {schema.sourceDocs.map(d => d.label).join(' + ')}
+              </p>
             </div>
-            <p style={{ fontSize: 11.5, color: MUTED, margin: '2px 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              <span style={{ ...MONO }}>{item.invoiceNo}</span>
-              {(item.shipmentRef ?? '').trim() && <> &middot; <span style={{ ...MONO }}>{item.shipmentRef}</span></>}
-              &nbsp;&middot;&nbsp; Source: {schema.sourceDocs.map(d => d.label).join(' + ')}
-            </p>
-          </div>
 
-          {/* Sibling doc tabs */}
-          {siblings.length > 1 && (
-            <div style={{ display: 'flex', gap: 3, marginLeft: 14, flexWrap: 'wrap', flexShrink: 0 }}>
-              {siblings.map(sib => {
-                const sibSch    = DOC_GEN_SCHEMAS[sib.docType];
-                const isActive  = sib.id === item.id;
-                const sibBlocked = sib.status === 'waiting' && sib.prerequisites.some(p => !p.met);
-                const sibDone   = sib.status === 'generated';
-                return (
-                  <button key={sib.id} onClick={() => onSelectSibling(sib)} style={{
-                    padding: '3px 9px', borderRadius: 6, fontSize: 11, fontWeight: isActive ? 600 : 500,
-                    cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3,
-                    border: isActive ? `1.5px solid ${TEAL}` : `1px solid ${BORDER}`,
-                    background: isActive ? 'hsla(173,58%,39%,0.08)' : 'transparent',
-                    color: isActive ? TEAL : sibDone ? GREEN : sibBlocked ? AMBER : MUTED,
-                    transition: 'all 0.1s',
-                  }}>
-                    {sibDone && <CheckCircle2 size={9} />}
-                    {sibBlocked && !isActive && <Lock size={9} />}
-                    {sibSch?.displayName ?? sib.docType}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+            <div style={{ flex: 1 }} />
 
-          <div style={{ flex: 1 }} />
+            {/* Source doc toggle */}
+            {!isBlocked && !isEntrySummaryReview && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onToggleSourcePanel}
+                className="shrink-0 gap-1.5"
+              >
+                <FileText className="size-3.5" />
+                {sourcePanelOpen ? 'Hide source' : 'View source doc'}
+              </Button>
+            )}
 
-          {/* Source doc toggle */}
-          {!isBlocked && !isEntrySummaryReview && (
+            {!isBlocked && <OverflowMenu />}
+
+            {/* Close */}
             <Button
               type="button"
-              variant="outline"
-              size="sm"
-              onClick={onToggleSourcePanel}
-              className="shrink-0 gap-1.5"
+              variant="ghost"
+              size="icon"
+              aria-label="Close document generation review"
+              title="Close"
+              onClick={onClose}
+              className="shrink-0"
             >
-              <FileText className="size-3.5" />
-              {sourcePanelOpen ? 'Hide source' : 'View source doc'}
+              <X className="size-4" />
             </Button>
-          )}
-
-          {!isBlocked && <OverflowMenu />}
-
-          {/* Close */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Close document generation review"
-            title="Close"
-            onClick={onClose}
-            className="shrink-0"
-          >
-            <X className="size-4" />
-          </Button>
+          </div>
         </div>
 
         {/* ── Modal body: source panel | editor ── */}
@@ -2216,18 +2203,7 @@ function DocReviewModal({
 
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{
-        padding: '12px var(--ewms-page-padding-x)', borderBottom: `1px solid ${BORDER}`,
-        display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
-        background: 'hsl(var(--card))',
-      }}>
-        <Sparkles size={15} style={{ color: TEAL }} />
-        <h1 style={{ fontSize: 15, fontWeight: 700, letterSpacing: 0, color: FG, margin: 0 }}>
-          Document Generation
-        </h1>
-        <span style={{ fontSize: 11.5, color: MUTED }}>— AI-drafted documents for review &amp; approval</span>
-      </div>
+    <div className="ewms-page-shell" style={{ display: 'flex', flexDirection: 'column', height: '100%', paddingTop: 12, paddingBottom: 16 }}>
       {children}
     </div>
   );
@@ -2576,6 +2552,7 @@ function generatedDocTypeToSchemaKey(type: DraftPayload['generatedDocType']): st
 export function DocumentGeneratePage() {
   const params = useParams<{ type?: string }>();
   const [location, navigate] = useLocation();
+  const { setPageMeta } = usePageMeta();
   const { activities, docTypes, documentScope, activityDocTypes, loaded: permissionsLoaded } = usePermissions();
   const routeType = params.type
     ?? (location.endsWith('/boe') ? 'draft-boe' : location.endsWith('/packing-list') ? 'packing-list' : undefined);
@@ -2594,6 +2571,11 @@ export function DocumentGeneratePage() {
   const [approving,      setApproving]       = useState(false);
   const [manualValues,   setManualValues]    = useState<Record<string, string>>({});
   const [showPreview,    setShowPreview]     = useState(false);
+
+  useEffect(() => {
+    setPageMeta({ title: 'Document Generation', subtitle: 'AI-drafted documents for review & approval' });
+    return () => setPageMeta(null);
+  }, [setPageMeta]);
 
   useEffect(() => {
     const handleModuleSearch = (event: Event) => {
@@ -3041,11 +3023,6 @@ export function DocumentGeneratePage() {
     [schema, manualValues, computedDerivations.rowMap],
   );
 
-  const siblings = useMemo(() =>
-    liveReviewingItem ? queue.filter(i => i.shipmentRef === liveReviewingItem.shipmentRef) : [],
-    [queue, liveReviewingItem]
-  );
-
   function handleReview(item: GenQueueItem) {
     setReviewingItem(item);
     setManualValues({});
@@ -3172,34 +3149,27 @@ export function DocumentGeneratePage() {
 
   // ── Main render ────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="ewms-page-shell" style={{ display: 'flex', flexDirection: 'column', height: '100%', paddingTop: 12, paddingBottom: 16 }}>
 
-      {/* Page header */}
-      <div style={{
-        padding: '12px var(--ewms-page-padding-x)', borderBottom: `1px solid ${BORDER}`,
-        display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, flexWrap: 'wrap',
-        background: 'hsl(var(--card))',
-      }}>
-        <Sparkles size={15} style={{ color: TEAL, flexShrink: 0 }} />
-        <h1 style={{ fontSize: 15, fontWeight: 700, letterSpacing: 0, color: FG, margin: 0 }}>
-          Document Generation
-        </h1>
-        <span style={{ fontSize: 11.5, color: MUTED }}>— AI-drafted documents for review &amp; approval</span>
-        <SegmentedControl
-          className="ml-1"
-          value={generatedDocTypeToSchemaKey(routeTypeToGeneratedDocType(routeType))}
-          onValueChange={(value) => navigate(`/documents/generate/${value}`)}
-          options={generationOptions.map(option => ({ value: option.type, label: option.label }))}
+      {/* Document type tabs */}
+      <DocGenerationTabs
+        activeType={generatedDocTypeToSchemaKey(routeTypeToGeneratedDocType(routeType))}
+        options={generationOptions}
+        onSelectType={(value) => navigate(`/documents/generate/${value}`)}
+        pendingCount={queue.length > 0 ? queue.filter(i => i.status !== 'generated').length : undefined}
+      />
+
+      {/* Search + status filters */}
+      {queue.length > 0 && (
+        <QueueToolbar
+          items={filteredQueue}
+          onReview={handleReview}
+          search={search}
+          onSearch={setSearch}
+          filter={queueFilter}
+          onFilter={setQueueFilter}
         />
-        {queue.length > 0 && (() => {
-          const pending = queue.filter(i => i.status !== 'generated').length;
-          return (
-            <Badge intent={pending > 0 ? 'warning' : 'success'} size="sm" className="ml-2">
-              {pending > 0 ? `${pending} pending` : 'All approved'}
-            </Badge>
-          );
-        })()}
-      </div>
+      )}
 
       {/* Queue table — full width */}
       {queue.length === 0 ? (
@@ -3214,10 +3184,7 @@ export function DocumentGeneratePage() {
         <QueueTable
           items={filteredQueue}
           onReview={handleReview}
-          search={search}
-          onSearch={setSearch}
           filter={queueFilter}
-          onFilter={setQueueFilter}
         />
       )}
 
@@ -3226,7 +3193,6 @@ export function DocumentGeneratePage() {
         <DocReviewModal
           item={liveReviewingItem}
           schema={schema}
-          siblings={siblings}
           isBlocked={isBlocked}
           isApproved={isApproved}
           manualValues={manualValues}
@@ -3247,7 +3213,6 @@ export function DocumentGeneratePage() {
           onAddLineItemRow={handleAddLineItemRow}
           onApprove={handleApprove}
           onPreview={() => setShowPreview(true)}
-          onSelectSibling={item => { setReviewingItem(item); setManualValues({}); setShowPreview(false); }}
           onToggleSourcePanel={toggleSourcePanel}
           onSetShowPreview={setShowPreview}
         />

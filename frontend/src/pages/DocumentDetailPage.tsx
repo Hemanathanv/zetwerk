@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
-import { AlertTriangle, ArrowLeft, Check, CheckCircle2, ChevronDown, ChevronUp, Circle, Clock3, Eye, FileText, Info, Loader2, Pencil, Plus, Ship, X } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronUp, Circle, Clock3, Eye, FileText, Info, Loader2, Pencil, Plus, Ship, X } from 'lucide-react';
 import { documentApi } from '@/auth/api';
 import type { DocumentDetailRecord, JsonValue } from '@/types/backend';
 import { getDocConfig } from '@/config/docFieldConfig';
 import type { FieldDef } from '@/config/docFieldConfig';
 import { DOC_GEN_SCHEMAS } from '@/config/docGenConfig';
 import type { DocGenSchema } from '@/config/docGenConfig';
-import { PageHeader } from '@/components/vs/PageHeader';
 import { DocBadge } from '@/components/vs/DocBadge';
 import { useToast } from '@/hooks/use-toast';
 import type { ContainerMappingResponse, ContainerMappingRow } from '@/types/backend';
@@ -15,6 +14,7 @@ import { apiGet, apiPatch, apiUrl, getAuthToken, readJsonResponse } from '@/lib/
 import { Button } from '@/components/ui/button';
 import { ShipmentDndInputsDialog } from '@/pages/ShipmentDetailPage';
 import { useDocTypePermissions, usePermissions } from '@/contexts/PermissionContext';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 
 const FG = 'hsl(var(--foreground))';
 const MUTED = 'hsl(var(--muted-foreground))';
@@ -111,18 +111,19 @@ function DocumentPipeline({ states }: { states: PipelineStageState[] }) {
       <div style={{ fontSize: 11, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>
         Pipeline
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${PIPELINE_LABELS.length}, minmax(112px, 1fr))`, alignItems: 'start', width: '100%', gap: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', width: '100%' }}>
         {PIPELINE_LABELS.map((label, index) => {
           const state = states[index] ?? 'future';
-          const nextState = states[index + 1] ?? 'future';
           const isDone = state === 'done';
           const isCurrent = state === 'current' || state === 'current-spin';
-          const nextReached = nextState === 'done' || nextState === 'current' || nextState === 'current-spin';
           const markerColor = isDone ? GREEN : isCurrent ? TEAL : 'hsl(var(--muted-foreground) / 0.32)';
-          const connectorColor = nextReached ? (nextState === 'done' ? GREEN : TEAL) : 'hsl(var(--border))';
+          const connectorColor = isDone ? GREEN : isCurrent ? TEAL : 'hsl(var(--border))';
           return (
-            <div key={label} style={{ minWidth: 0, position: 'relative', paddingRight: index < PIPELINE_LABELS.length - 1 ? 10 : 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', minHeight: 26 }}>
+            <Fragment key={label}>
+              {index > 0 && (
+                <span style={{ height: 2, flex: 1, minWidth: 24, marginTop: 12, backgroundColor: connectorColor, opacity: isDone ? 0.9 : 0.55 }} />
+              )}
+              <div style={{ minWidth: 0, position: 'relative', flexShrink: 0, textAlign: 'center', padding: '0 10px' }}>
                 <span style={{
                   width: 24,
                   height: 24,
@@ -135,7 +136,6 @@ function DocumentPipeline({ states }: { states: PipelineStageState[] }) {
                   justifyContent: 'center',
                   boxShadow: isCurrent ? `0 0 0 3px ${TEAL}14` : 'none',
                   animation: isCurrent ? 'doc-pipeline-pulse 1.45s ease-out infinite' : undefined,
-                  flexShrink: 0,
                 }}>
                   {isDone ? (
                     <CheckCircle2 size={15} />
@@ -147,19 +147,16 @@ function DocumentPipeline({ states }: { states: PipelineStageState[] }) {
                     <Circle size={9} />
                   )}
                 </span>
-                {index < PIPELINE_LABELS.length - 1 && (
-                  <span style={{ height: 2, flex: 1, backgroundColor: connectorColor, marginLeft: 8, minWidth: 24, opacity: isDone ? 0.9 : 0.55 }} />
-                )}
+                <div style={{ marginTop: 6, fontSize: 12.5, fontWeight: isCurrent ? 800 : 600, color: isDone ? FG : isCurrent ? TEAL : 'hsl(var(--muted-foreground) / 0.50)', lineHeight: 1.25, whiteSpace: 'nowrap' }}>
+                  {label}
+                </div>
+                <div style={{ marginTop: 2, fontSize: 11.5, color: isDone ? GREEN : isCurrent ? TEAL : MUTED, opacity: isDone || isCurrent ? 1 : 0.55 }}>
+                  <span style={{ animation: isCurrent ? 'doc-pipeline-blink 1.2s ease-in-out infinite' : undefined }}>
+                    {isDone ? 'Done' : isCurrent ? 'Current' : 'Pending'}
+                  </span>
+                </div>
               </div>
-              <div style={{ marginTop: 6, fontSize: 12.5, fontWeight: isCurrent ? 800 : 600, color: isDone ? FG : isCurrent ? TEAL : 'hsl(var(--muted-foreground) / 0.50)', lineHeight: 1.25, whiteSpace: 'normal' }}>
-                {label}
-              </div>
-              <div style={{ marginTop: 2, fontSize: 11.5, color: isDone ? GREEN : isCurrent ? TEAL : MUTED, opacity: isDone || isCurrent ? 1 : 0.55 }}>
-                <span style={{ animation: isCurrent ? 'doc-pipeline-blink 1.2s ease-in-out infinite' : undefined }}>
-                  {isDone ? 'Done' : isCurrent ? 'Current' : 'Pending'}
-                </span>
-              </div>
-            </div>
+            </Fragment>
           );
         })}
       </div>
@@ -293,7 +290,7 @@ function draftRowMap(draft: CbpDraftPayload | null): Record<string, Record<strin
 function cbpTableComparisonRows(
   comparison: CbpComparisonResponse | null,
   tableName: string,
-): CbpComparisonResponse['tables'][string]['rows'] | undefined {
+): NonNullable<CbpComparisonResponse['tables']>[string]['rows'] | undefined {
   const key = tableName.toLowerCase().replace(/[^a-z0-9]/g, '');
   if (key.includes('tariff')) return comparison?.tables?.tariffLines?.rows;
   if (key.includes('lineitem') || key === 'lineitems') return comparison?.tables?.lineItems?.rows;
@@ -920,22 +917,20 @@ function FieldCard({ field, rawData, comparison, isEdited = false, onSave, onDra
             fontSize: 12.5,
             color: isMismatch || (isEmpty && !isOptionalEmpty) ? RED : isManualEmpty ? GREEN : isOptionalEmpty ? MUTED : FG,
             fontStyle: isEmpty || isManualEmpty ? 'italic' : 'normal',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
+            whiteSpace: 'normal',
+            wordBreak: 'break-word',
           }}
-          title={displayValue}
         >
           {isOptionalEmpty ? '—' : displayValue}
         </div>
       )}
       {isAmended && extractedValue !== displayValue && (
-        <div style={{ marginTop: 5, fontSize: 10.5, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={extractedValue}>
+        <div style={{ marginTop: 5, fontSize: 10.5, color: MUTED, whiteSpace: 'normal', wordBreak: 'break-word' }}>
           Original: {extractedValue}
         </div>
       )}
       {isMismatch && (
-        <div style={{ marginTop: 5, fontSize: 10.5, color: RED, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={formatValue(comparison?.brokerValue)}>
+        <div style={{ marginTop: 5, fontSize: 10.5, color: RED, fontWeight: 700, whiteSpace: 'normal', wordBreak: 'break-word' }}>
           Broker value: {formatValue(comparison?.brokerValue)}
         </div>
       )}
@@ -975,7 +970,7 @@ function BolSafeCubeInputsDialog({
       <div onClick={(event) => event.stopPropagation()} style={{ width: 'min(520px, 94vw)', background: 'hsl(var(--background))', border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden', boxShadow: '0 24px 70px hsla(220,20%,10%,0.3)' }}>
         <div style={{ padding: '16px 18px', borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 750, color: FG }}>SafeCube Inputs</div>
+            <div style={{ fontSize: 16, fontWeight: 750, color: FG }}>MBL/BR No.</div>
             <div style={{ marginTop: 4, fontSize: 12, color: MUTED }}>Enter either MBL No or Booking Ref No for tracking.</div>
           </div>
           <button type="button" onClick={onClose} style={{ border: 'none', background: 'transparent', color: MUTED, cursor: 'pointer' }}><X size={18} /></button>
@@ -1020,7 +1015,7 @@ function LineItemsTable({
 }: {
   rows: Array<Record<string, JsonValue>>;
   title?: string;
-  comparisonRows?: CbpComparisonResponse['tables'][string]['rows'];
+  comparisonRows?: NonNullable<CbpComparisonResponse['tables']>[string]['rows'];
   editable?: boolean;
   onSave?: (rows: Array<Record<string, JsonValue>>) => Promise<void>;
   onDraftChange?: (rows: Array<Record<string, JsonValue>>) => void;
@@ -1059,12 +1054,12 @@ function LineItemsTable({
         {saving && <span style={{ marginLeft: 8, color: BLUE, textTransform: 'none' }}>Saving…</span>}
       </div>
       <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'auto', backgroundColor: 'hsl(var(--card))' }}>
-        <table style={{ width: '100%', minWidth: Math.max(760, columns.length * 190), borderCollapse: 'collapse', tableLayout: 'auto' }}>
+        <table style={{ width: '100%', minWidth: Math.max(600, columns.length * 140), borderCollapse: 'collapse', tableLayout: 'auto' }}>
           <thead>
             <tr style={{ backgroundColor: 'hsl(var(--muted) / 0.45)' }}>
               <th className="vs-mono" style={{ width: 44, padding: '9px 10px', borderBottom: `1px solid ${BORDER}`, fontSize: 10, color: MUTED, textAlign: 'left' }}>#</th>
               {columns.map((column) => (
-                <th key={column} style={{ padding: '9px 10px', borderBottom: `1px solid ${BORDER}`, borderLeft: `1px solid ${BORDER}`, fontSize: 10, color: MUTED, textAlign: 'left', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <th key={column} style={{ width: column === 'itemIndex' ? 90 : undefined, padding: '9px 10px', borderBottom: `1px solid ${BORDER}`, borderLeft: `1px solid ${BORDER}`, fontSize: 10, color: MUTED, textAlign: 'left', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {labelFromKey(column)}
                 </th>
               ))}
@@ -1080,9 +1075,15 @@ function LineItemsTable({
                   const comparison = comparisonRows?.[index]?.fields?.[column];
                   const isMismatch = comparison?.status === 'mismatch';
                   return (
-                    <td key={column} style={{ minWidth: 180, padding: '7px 8px', borderTop: index === 0 ? 'none' : `1px solid ${BORDER}`, borderLeft: `1px solid ${BORDER}`, fontSize: 12, color: isMismatch || isEmpty ? RED : FG, fontStyle: isEmpty ? 'italic' : 'normal', verticalAlign: 'top', background: isMismatch ? 'hsla(0,84%,60%,0.07)' : undefined }}>
+                    <td key={column} style={{ minWidth: column === 'itemIndex' ? 90 : 130, padding: '7px 8px', borderTop: index === 0 ? 'none' : `1px solid ${BORDER}`, borderLeft: `1px solid ${BORDER}`, fontSize: 12, color: isMismatch || isEmpty ? RED : FG, fontStyle: isEmpty ? 'italic' : 'normal', verticalAlign: 'top', background: isMismatch ? 'hsla(0,84%,60%,0.07)' : undefined }}>
                       {editable ? (
                         <textarea
+                          ref={(el) => {
+                            if (el) {
+                              el.style.height = 'auto';
+                              el.style.height = `${el.scrollHeight}px`;
+                            }
+                          }}
                           value={isEmpty ? '' : displayValue}
                           placeholder="Field not in the file"
                           onChange={(event) => {
@@ -1095,9 +1096,14 @@ function LineItemsTable({
                               return nextRows;
                             });
                           }}
+                          onInput={(event) => {
+                            const el = event.currentTarget;
+                            el.style.height = 'auto';
+                            el.style.height = `${el.scrollHeight}px`;
+                          }}
                           onBlur={() => void saveRows()}
                           style={{
-                            width: '100%', minWidth: 160, minHeight: 46, resize: 'vertical',
+                            width: '100%', minWidth: column === 'itemIndex' ? 60 : 110, minHeight: 46, resize: 'none', overflow: 'hidden',
                             border: `1px solid ${isMismatch ? 'hsla(0,84%,60%,0.50)' : isEmpty ? `${RED}45` : BORDER}`,
                             borderRadius: 5, padding: '6px 7px', boxSizing: 'border-box',
                             backgroundColor: 'hsl(var(--background))', color: FG,
@@ -1490,6 +1496,7 @@ export function DocumentDetailPage() {
   const { toast } = useToast();
   const { activities } = usePermissions();
   const { canDo: canDoDocType } = useDocTypePermissions();
+  const { setPageMeta } = usePageMeta();
   const documentId = params.id ?? '';
   const [documentDetail, setDocumentDetail] = useState<DocumentDetailRecord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1525,6 +1532,7 @@ export function DocumentDetailPage() {
   const [selectedShipmentId, setSelectedShipmentId] = useState('');
   const [documentOverviewCollapsed, setDocumentOverviewCollapsed] = useState(false);
   const [extractionFieldFilter, setExtractionFieldFilter] = useState<ExtractionFieldFilter>('all');
+  const [isCategoriesExpanded, setIsCategoriesExpanded] = useState(false);
   const [editedExtractionFields, setEditedExtractionFields] = useState<Set<string>>(() => new Set());
   const [pendingFieldEdits, setPendingFieldEdits] = useState<Record<string, string | null>>({});
   const [pendingArrayEdits, setPendingArrayEdits] = useState<Record<string, Array<Record<string, JsonValue>>>>({});
@@ -2163,9 +2171,9 @@ export function DocumentDetailPage() {
 
   const extractionFieldsPanel = (
     <section style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+      {/* <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
         {isDraftCbpBrokerDocument ? 'Broker Extracted Values' : 'AI Extraction Fields'}
-      </div>
+      </div> */}
       {isCbpComparisonDocument && cbpComparison?.linkedDocumentId && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${cbpComparison.summary.mismatches ? 'hsla(0,84%,60%,0.28)' : `${GREEN}45`}`, background: cbpComparison.summary.mismatches ? 'hsla(0,84%,60%,0.06)' : `${GREEN}08`, color: cbpComparison.summary.mismatches ? RED : GREEN, borderRadius: 8, padding: '8px 10px', fontSize: 12, fontWeight: 750 }}>
           {cbpComparison.summary.mismatches
@@ -2189,11 +2197,13 @@ export function DocumentDetailPage() {
         </div>
       ) : (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {[
+          {(() => {
+            const filterChips = [
               { key: 'all' as const, label: 'All fields', count: allDisplayableFields.length },
               { key: 'issues' as const, label: 'Issues only', count: issueFieldCount },
               { key: 'edited' as const, label: 'Edited fields', count: editedFieldCount },
+            ];
+            const categoryChips = [
               ...displayableSections.map((section) => ({
                 key: `section:${section.sectionLabel}` as const,
                 label: section.sectionLabel,
@@ -2203,13 +2213,15 @@ export function DocumentDetailPage() {
                 ? [{ key: 'additional' as const, label: 'Additional Fields', count: additionalPrismaFields.length }]
                 : []),
               ...arrayFilterOptions,
-            ].map((chip) => {
+            ];
+            const visibleCategoryChips = isCategoriesExpanded ? categoryChips : categoryChips.slice(0, 3);
+            const renderChip = (chip: { key: string; label: string; count: number }) => {
               const active = extractionFieldFilter === chip.key;
               return (
                 <button
                   key={chip.key}
                   type="button"
-                  onClick={() => setExtractionFieldFilter(chip.key)}
+                  onClick={() => setExtractionFieldFilter(chip.key as ExtractionFieldFilter)}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -2228,8 +2240,53 @@ export function DocumentDetailPage() {
                   <span style={{ color: active ? TEAL : MUTED, fontWeight: 750 }}>{chip.count}</span>
                 </button>
               );
-            })}
-          </div>
+            };
+            return (
+              <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 20, position: 'sticky', top: 0, zIndex: 2, backgroundColor: 'hsl(var(--background))', paddingTop: 2, paddingBottom: 12, borderBottom: `1px solid ${BORDER}`, boxShadow: '0 4px 6px -4px hsla(0,0%,0%,0.08)' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                    Filter
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {filterChips.map(renderChip)}
+                  </div>
+                </div>
+
+                {categoryChips.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                      AI Extraction
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      {visibleCategoryChips.map(renderChip)}
+                      {categoryChips.length > 3 && (
+                        <button
+                          type="button"
+                          onClick={() => setIsCategoriesExpanded((value) => !value)}
+                          aria-expanded={isCategoriesExpanded}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            border: 'none',
+                            background: 'none',
+                            padding: '5px 2px',
+                            color: TEAL,
+                            fontSize: 11.5,
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {isCategoriesExpanded ? 'Less' : 'More'}
+                          {isCategoriesExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {filteredSections.map((section) => (
             <div key={section.sectionLabel}>
@@ -2312,6 +2369,26 @@ export function DocumentDetailPage() {
     </section>
   );
 
+  useEffect(() => {
+    if (!documentDetail) { setPageMeta(null); return; }
+    setPageMeta({
+      title: isApprovalRoute ? `Approve ${config?.displayName ?? documentDetail.docType}` : (config?.displayName ?? documentDetail.docType),
+      actions: (
+        <button
+          type="button"
+          onClick={() => setDocumentOverviewCollapsed(value => !value)}
+          title={documentOverviewCollapsed ? 'Show document overview' : 'Hide document overview'}
+          aria-expanded={!documentOverviewCollapsed}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: MUTED, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+        >
+          {documentOverviewCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          {documentOverviewCollapsed ? 'Show overview' : 'Hide overview'}
+        </button>
+      ),
+    });
+    return () => setPageMeta(null);
+  }, [documentDetail, isApprovalRoute, config, documentOverviewCollapsed, setPageMeta]);
+
   if (loading) {
     return (
       <div style={{ minHeight: 'calc(100vh - 64px)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: MUTED, fontSize: 14 }}>
@@ -2335,7 +2412,7 @@ export function DocumentDetailPage() {
   }
 
   return (
-    <div style={{ padding: 24, backgroundColor: 'hsl(var(--background))', minHeight: 'calc(100vh - 64px)' }}>
+    <div style={{ padding: '8px 24px 24px', backgroundColor: 'hsl(var(--background))', minHeight: 'calc(100vh - 64px)' }}>
       {containerMappingOpen && (
         <BolContainerMappingModal
           mapping={containerMapping}
@@ -2438,41 +2515,8 @@ export function DocumentDetailPage() {
         />
       )}
       {!documentOverviewCollapsed && (
-        <>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 14 }}>
-        <button onClick={() => navigate(uploadProcessBackPath)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: TEAL, background: 'transparent', border: `1px solid ${TEAL}50`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-          <ArrowLeft size={14} /> Upload & Process
-        </button>
-        <button
-          onClick={() => navigate(uploadProcessBackPath)}
-          title="Close document"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: MUTED, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
-        >
-          <X size={14} /> Close
-        </button>
-      </div>
-
-      <PageHeader
-        title={isApprovalRoute ? `Approve ${config?.displayName ?? documentDetail.docType}` : (config?.displayName ?? documentDetail.docType)}
-        subtitle={`${documentDetail.fileName} · ${documentDetail.status}`}
-      />
-
-      <DocumentPipeline states={documentPipelineStates(documentDetail.status, documentDetail.validationStatus)} />
-        </>
+        <DocumentPipeline states={documentPipelineStates(documentDetail.status, documentDetail.validationStatus)} />
       )}
-
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: documentOverviewCollapsed ? 6 : 8 }}>
-        <button
-          type="button"
-          onClick={() => setDocumentOverviewCollapsed(value => !value)}
-          title={documentOverviewCollapsed ? 'Show document overview' : 'Hide document overview'}
-          aria-expanded={!documentOverviewCollapsed}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: MUTED, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
-        >
-          {documentOverviewCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-          {documentOverviewCollapsed ? 'Show overview' : 'Hide overview'}
-        </button>
-      </div>
 
       {!documentOverviewCollapsed && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
@@ -2601,9 +2645,6 @@ export function DocumentDetailPage() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.05fr) minmax(360px, 0.95fr)', gap: 18 }}>
           <section>
-            <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
-              Source PDF
-            </div>
             <AuthenticatedPreviewPane
               title={documentDetail.fileName}
               previewUrl={documentPreviewUrl}
@@ -2612,7 +2653,9 @@ export function DocumentDetailPage() {
             />
           </section>
 
-          {extractionFieldsPanel}
+          <div className="ewms-scrollarea" style={{ height: 680, overflowY: 'auto' }}>
+            {extractionFieldsPanel}
+          </div>
         </div>
       )}
     </div>
