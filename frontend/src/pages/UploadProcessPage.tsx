@@ -2375,6 +2375,7 @@ export function UploadProcessPage() {
     grn_inbound: 'GRN_INBOUND',
     port_to_wh: 'PORT_TO_WH',
     wh_to_customer: 'WH_TO_CUSTOMER',
+    outward_grn: 'OUTWARD_GRN',
     us_sales_invoice: 'US_SALES_INVOICE',
     us_packing_list: 'US_PACKING_LIST',
     us_delivery_order: 'US_DELIVERY_ORDER',

@@ -17,6 +17,7 @@ export type DocType =
   | "US_CUSTOMS_RELEASE_ORDER"
   | "US_DELIVERY_ORDER"
   | "US_PACKING_LIST"
+  | "OUTWARD_GRN"
   | "PROOF_OF_DELIVERY"
   | "ISF"
   | "SHIPPING_BILL"

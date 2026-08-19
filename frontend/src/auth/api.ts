@@ -676,7 +676,8 @@ const documentApi = {
   saveContainerMapping: (
     documentId: string,
     assignments: Array<{ lineItemId: string; containerNo: string | null }>,
-  ) => api.patch(`/uploads/documents/${documentId}/container-mapping`, { assignments }),
+    rows?: Array<Record<string, unknown>>,
+  ) => api.patch(`/uploads/documents/${documentId}/container-mapping`, { assignments, rows }),
   getWarehouseMapping: (documentId: string) =>
     api.get<{ ok: boolean; data: WarehouseMappingResponse }>(`/uploads/documents/${documentId}/warehouse-mapping`),
   saveWarehouseMapping: (documentId: string, warehouseId: string | null) =>
@@ -695,6 +696,7 @@ const documentApi = {
     },
   ) => api.patch(`/uploads/documents/${documentId}/extraction`, payload),
   approve: (documentId: string) => api.post<ApproveDocumentResponse>(`/uploads/documents/${documentId}/approve`),
+  revertApproval: (documentId: string) => api.post<{ ok: boolean; data: { documentId: string; status: string } }>(`/uploads/documents/${documentId}/revert-approval`),
   assignShipment: (documentId: string, shipmentId: string) =>
     api.post<{ ok: boolean; data: { documentId: string; shipmentId: string; shipmentNumber?: string | null } }>(
       `/uploads/documents/${documentId}/assign-shipment`,

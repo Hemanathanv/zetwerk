@@ -15,6 +15,7 @@ const TYPECODE_TO_OCR_ID: Record<string, string> = {
   PACKING_LIST:                 'packing_list',
   OUTWARD_PACKING_LIST:         'packing_list',
   US_PACKING_LIST:              'us_packing_list',
+  OUTWARD_GRN:                  'us_packing_list',
   US_SALES_INVOICE:             'us_sales_invoice',
   DELIVERY_ORDER:               'us_delivery_order',
   US_DELIVERY_ORDER:            'us_delivery_order',

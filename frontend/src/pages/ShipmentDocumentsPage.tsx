@@ -160,7 +160,7 @@ function docTypeMatches(actual: string | null | undefined, expected: string): bo
   if (e === 'FREIGHT_FORWARDER_BILL') return a.includes('FREIGHT_FORWARDER');
   if (e === 'ENTRY_SUMMARY_DRAFT') return a.includes('DRAFT') && (a.includes('ENTRY_SUMMARY') || a.includes('BOE') || a.includes('CBP'));
   if (e === 'ENTRY_SUMMARY_TARIFF_LINES') return a.includes('ENTRY_SUMMARY_TARIFF') || a.includes('TARIFF_LINES');
-  if (e === 'ENTRY_SUMMARY') return a === 'BOE' || a.includes('BILL_OF_ENTRY') || a.includes('CBP_FORM_7501');
+  if (e === 'ENTRY_SUMMARY') return a === 'ENTRY_SUMMARY' || a=== 'BOE' || a.includes('BILL_OF_ENTRY') || a.includes('CBP_FORM_7501');
   if (e === 'US_CARGO_RELEASE_ORDER') return a.includes('CARGO_RELEASE');
   if (e === 'US_CUSTOMS_RELEASE_ORDER') return a.includes('CUSTOMS_RELEASE');
   if (e === 'US_DELIVERY_ORDER') return a.includes('DELIVERY_ORDER');
@@ -169,17 +169,39 @@ function docTypeMatches(actual: string | null | undefined, expected: string): bo
   if (e === 'OCEAN_FREIGHT') return a.includes('OCEAN_FREIGHT');
   if (e === 'GRN_INBOUND') return a === 'GR' || a.includes('GRN_INBOUND') || a.includes('GOODS_RECEIPT');
   if (e === 'PORT_TO_WH') return a.includes('PORT_TO_WH') || a.includes('PORT_TO_WAREHOUSE');
+  if (e === 'OUTWARD_GRN') return a === 'OG' || a.includes('OUTWARD_GRN') || a.includes('OUTWARD');
   if (e === 'US_PACKING_LIST') return a.includes('US_PACKING');
   if (e === 'US_SALES_INVOICE') return a.includes('US_SALES');
   if (e === 'WH_TO_CUSTOMER') return a.includes('WH_TO_CUSTOMER') || a.includes('WAREHOUSE_TO_CUSTOMER');
   return false;
 }
 
+function isGeneratedEntrySummaryDoc(doc: any): boolean {
+  if (normalizedDocType(doc?.documentType) !== 'ENTRY_SUMMARY') return false;
+  const labelText = `${doc?.fileName ?? ''} ${doc?.documentNumber ?? ''} ${doc?.gateCode ?? ''}`.toUpperCase();
+  return Boolean(doc?.isGenerated)
+    || labelText.includes('DRAFT_CBP')
+    || labelText.includes('DRAFT CBP')
+    || labelText.includes('BOE-D');
+}
+
+function isDraftBrokerDoc(doc: any): boolean {
+  return normalizedDocType(doc?.documentType) === 'DRAFT_CBP_FORM_7501_BROKER';
+}
+
+function docBelongsToGate(doc: any, gateNumber?: number): boolean {
+  if (gateNumber == null) return true;
+  if (isDraftBrokerDoc(doc)) return Number(gateNumber) === 2;
+  if (isGeneratedEntrySummaryDoc(doc)) return Number(gateNumber) === 2;
+  if (doc.gateNumber == null) return true;
+  return Number(doc.gateNumber) === Number(gateNumber);
+}
+
 function findDocForSlot(documents: any[], docType: string, usedDocIds?: Set<string>, gateNumber?: number): any | undefined {
   const doc = documents.find((d: any) =>
     !usedDocIds?.has(d.id)
     && docTypeMatches(d.documentType, docType)
-    && (gateNumber == null || d.gateNumber == null || Number(d.gateNumber) === gateNumber)
+    && docBelongsToGate(d, gateNumber)
   );
   if (doc && usedDocIds) usedDocIds.add(doc.id);
   return doc;
@@ -226,7 +248,7 @@ function expectedDocTypesForGate(gate: ApiGate): ApiDocTypeGate[] {
 function documentModuleDocTypesForGate(documents: any[], gateNumber: number, existingDocTypes: Set<string>): ApiDocTypeGate[] {
   const seen = new Set<string>();
   return documents
-    .filter(doc => Number(doc.gateNumber) === gateNumber)
+    .filter(doc => doc.gateNumber != null && docBelongsToGate(doc, gateNumber))
     .map(doc => normalizedDocType(doc.documentType))
     .filter(docType => {
       if (!docType || existingDocTypes.has(docType) || seen.has(docType)) return false;
@@ -234,7 +256,7 @@ function documentModuleDocTypesForGate(documents: any[], gateNumber: number, exi
       return true;
     })
     .map((docType, index) => {
-      const sample = documents.find(doc => Number(doc.gateNumber) === gateNumber && docTypeMatches(doc.documentType, docType));
+      const sample = documents.find(doc => docBelongsToGate(doc, gateNumber) && docTypeMatches(doc.documentType, docType));
       return {
         id: `document-module-${gateNumber}-${docType}`,
         docType,
@@ -281,7 +303,7 @@ function GateStatusBadge({ status }: { status: string }) {
 
 // ─── DocumentStatusCard (G-S10, G-S11) ───────────────────────────────────────
 
-function DocumentStatusCard({ dtInfo, assignment, document, documentCount = 0, validation, isAccountingTrigger, slaDeadline, onNavigate }: {
+function DocumentStatusCard({ dtInfo, assignment, document, documentCount = 0, validation, isAccountingTrigger, slaDeadline, gateNumber, onNavigate }: {
   dtInfo: any;
   assignment: ApiDocTypeGate;
   document: any | undefined;
@@ -289,6 +311,7 @@ function DocumentStatusCard({ dtInfo, assignment, document, documentCount = 0, v
   validation: ValidationCount | null;
   isAccountingTrigger: boolean;
   slaDeadline?: Date | null;
+  gateNumber?: number;
   onNavigate: (path: string) => void;
 }) {
   const geo = dtInfo?.geography ?? '';
@@ -303,8 +326,15 @@ function DocumentStatusCard({ dtInfo, assignment, document, documentCount = 0, v
     'hsl(173 58% 39%)';
 
   const isUsPackingOrInvoice = ['US_PACKING_LIST', 'US_SALES_INVOICE'].includes(normalizedDocType(assignment.docType));
-  const shortCode = isUsPackingOrInvoice ? docTypeShortCode(assignment.docType) : (dtInfo?.shortCode ?? docTypeShortCode(assignment.docType));
-  const baseDisplayLabel = isUsPackingOrInvoice ? formatTypeCode(assignment.docType) : (dtInfo?.displayName ?? formatTypeCode(assignment.docType));
+  const isGeneratedEntrySummary = normalizedDocType(assignment.docType) === 'ENTRY_SUMMARY' && (
+    Number(gateNumber) === 2 || Boolean(document?.isGenerated || assignment.isGenerated)
+  );
+  const shortCode = isGeneratedEntrySummary
+    ? 'CB'
+    : isUsPackingOrInvoice ? docTypeShortCode(assignment.docType) : (dtInfo?.shortCode ?? docTypeShortCode(assignment.docType));
+  const baseDisplayLabel = isGeneratedEntrySummary
+    ? 'Draft CBP FORM 7501'
+    : isUsPackingOrInvoice ? formatTypeCode(assignment.docType) : (dtInfo?.displayLabel ?? formatTypeCode(assignment.docType));
   const displayLabel = `${baseDisplayLabel}${documentCount > 1 ? ` (${documentCount})` : ''}`;
 
   const docStatus = deriveDocStatus(document);
@@ -622,6 +652,7 @@ function GateColumn({ gate, displayStatus, accessLevel, documents, validationMap
                   validation={validation}
                   isAccountingTrigger={isAccTrigger}
                   slaDeadline={slaDeadline}
+                  gateNumber={gc.gateNumber}
                   onNavigate={onNavigate}
                 />
               );

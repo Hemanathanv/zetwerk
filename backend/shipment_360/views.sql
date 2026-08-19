@@ -104,7 +104,10 @@ LEFT JOIN LATERAL (
     UNION ALL
     SELECT DISTINCT ON (dr.id)
       dr.id::text AS id,
-      dr.generated_doc_type AS document_type,
+      CASE
+        WHEN dr.generated_doc_type = 'US_PACKING_LIST' THEN 'OUTWARD_GRN'
+        ELSE dr.generated_doc_type
+      END AS document_type,
       COALESCE(
         dr.rendered_payload->>'displayName',
         dr.rendered_payload->>'documentNumber',
@@ -112,7 +115,11 @@ LEFT JOIN LATERAL (
       ) AS document_number,
       lower(dr.status::text) AS ocr_status,
       'PASSED'::text AS validation_status,
-      dr.updated_at AS approved_at,
+      CASE
+        WHEN dr.status IN ('CONFIRMED'::docgen."DocGenerationStatus", 'GENERATED'::docgen."DocGenerationStatus")
+          THEN dr.updated_at
+        ELSE NULL
+      END AS approved_at,
       true AS is_generated,
       dr.created_at,
       dr.status::text AS status_text
@@ -121,11 +128,14 @@ LEFT JOIN LATERAL (
     JOIN public.documents source_d ON source_d.id::text = source_doc.value
     WHERE source_d.shipment_id = s.id
       AND COALESCE(source_d.is_deleted, false) = false
-      AND dr.status IN ('CONFIRMED'::docgen."DocGenerationStatus", 'GENERATED'::docgen."DocGenerationStatus")
+      AND dr.status IN ('DRAFT'::docgen."DocGenerationStatus", 'CONFIRMED'::docgen."DocGenerationStatus", 'GENERATED'::docgen."DocGenerationStatus")
     UNION
     SELECT DISTINCT ON (dr.id)
       dr.id::text AS id,
-      dr.generated_doc_type AS document_type,
+      CASE
+        WHEN dr.generated_doc_type = 'US_PACKING_LIST' THEN 'OUTWARD_GRN'
+        ELSE dr.generated_doc_type
+      END AS document_type,
       COALESCE(
         dr.rendered_payload->>'displayName',
         dr.rendered_payload->>'documentNumber',
@@ -133,12 +143,16 @@ LEFT JOIN LATERAL (
       ) AS document_number,
       lower(dr.status::text) AS ocr_status,
       'PASSED'::text AS validation_status,
-      dr.updated_at AS approved_at,
+      CASE
+        WHEN dr.status IN ('CONFIRMED'::docgen."DocGenerationStatus", 'GENERATED'::docgen."DocGenerationStatus")
+          THEN dr.updated_at
+        ELSE NULL
+      END AS approved_at,
       true AS is_generated,
       dr.created_at,
       dr.status::text AS status_text
     FROM docgen.drafts dr
-    WHERE dr.status IN ('CONFIRMED'::docgen."DocGenerationStatus", 'GENERATED'::docgen."DocGenerationStatus")
+    WHERE dr.status IN ('DRAFT'::docgen."DocGenerationStatus", 'CONFIRMED'::docgen."DocGenerationStatus", 'GENERATED'::docgen."DocGenerationStatus")
       AND (
         dr.rendered_payload->>'originShipmentId' = s.id::text
         OR EXISTS (
@@ -178,7 +192,12 @@ LEFT JOIN LATERAL (
       AND (d.approved_at IS NOT NULL OR d.status::text = 'REVIEWED')
       AND trim(COALESCE(d.document_type, d.doc_type::text, '')) <> ''
     UNION
-    SELECT DISTINCT upper(trim(dr.generated_doc_type)) AS doc_type
+    SELECT DISTINCT upper(trim(
+      CASE
+        WHEN dr.generated_doc_type = 'US_PACKING_LIST' THEN 'OUTWARD_GRN'
+        ELSE dr.generated_doc_type
+      END
+    )) AS doc_type
     FROM docgen.drafts dr
     JOIN LATERAL jsonb_each_text(COALESCE(dr.source_document_ids, '{}'::jsonb)) source_doc(key, value) ON true
     JOIN public.documents source_d ON source_d.id::text = source_doc.value
@@ -187,7 +206,12 @@ LEFT JOIN LATERAL (
       AND dr.status IN ('CONFIRMED'::docgen."DocGenerationStatus", 'GENERATED'::docgen."DocGenerationStatus")
       AND trim(COALESCE(dr.generated_doc_type, '')) <> ''
     UNION
-    SELECT DISTINCT upper(trim(dr.generated_doc_type)) AS doc_type
+    SELECT DISTINCT upper(trim(
+      CASE
+        WHEN dr.generated_doc_type = 'US_PACKING_LIST' THEN 'OUTWARD_GRN'
+        ELSE dr.generated_doc_type
+      END
+    )) AS doc_type
     FROM docgen.drafts dr
     WHERE dr.status IN ('CONFIRMED'::docgen."DocGenerationStatus", 'GENERATED'::docgen."DocGenerationStatus")
       AND trim(COALESCE(dr.generated_doc_type, '')) <> ''

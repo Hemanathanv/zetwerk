@@ -12,7 +12,8 @@ DEFAULT_GATE_CONFIGS: tuple[tuple[str, int, str, str, list[str]], ...] = (
     ("22222222-2222-4222-8222-222222222222", 2, "INDIA_PORT_EXIT", "India Port Exit", ["BILL_OF_LADING", "ENTRY_SUMMARY", "DRAFT_CBP_FORM_7501_BROKER"]),
     ("33333333-3333-4333-8333-333333333333", 3, "US_PORT_ENTRY", "US Port Entry", ["ISF", "ENTRY_SUMMARY", "US_CARGO_RELEASE_ORDER", "US_CUSTOMS_RELEASE_ORDER"]),
     ("44444444-4444-4444-8444-444444444444", 4, "WAREHOUSE_ENTRY", "3PL Warehouse Entry", ["US_DELIVERY_ORDER", "GRN_INBOUND"]),
-    ("55555555-5555-4555-8555-555555555555", 5, "CUSTOMER_DELIVERY", "Customer Delivery", ["US_SALES_INVOICE", "US_PACKING_LIST"]),
+    ("55555555-5555-4555-8555-555555555555", 5, "CUSTOMER_DELIVERY", "Customer Delivery", ["US_SALES_INVOICE", "US_PACKING_LIST", "OUTWARD_GRN"]),
+
 )
 
 DEFAULT_DOC_TYPE_GATES: tuple[tuple[str, str, str, str, bool], ...] = (
@@ -36,6 +37,7 @@ DEFAULT_DOC_TYPE_GATES: tuple[tuple[str, str, str, str, bool], ...] = (
     ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa18", "55555555-5555-4555-8555-555555555555", "US_SALES_INVOICE", "PRIMARY", False),
     ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa19", "55555555-5555-4555-8555-555555555555", "US_PACKING_LIST", "PRIMARY", True),
     ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa20", "55555555-5555-4555-8555-555555555555", "WH_TO_CUSTOMER", "PARALLEL", False),
+    ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa21", "55555555-5555-4555-8555-555555555555", "OUTWARD_GRN", "PRIMARY", True),
 )
 _OPERATIONAL_TABLES_READY = False
 
@@ -801,7 +803,7 @@ async def link_documents_to_shipment_by_keys(prisma: Any, shipment_id: str) -> i
             ),
             ("bl", "invoice", "shipping_bill", "project"),
         )
-        pass_count += await link("us_packing_list_extractions", ("US_PACKING_LIST",), ("packing_slip_number", "bol_number", "project_name"), ("packing_slip", "bl", "project"))
+        pass_count += await link("us_packing_list_extractions", ("US_PACKING_LIST","OUTWARD_GRN"), ("packing_slip_number", "bol_number", "project_name"), ("packing_slip", "bl", "project"))
         pass_count += await link("us_sales_invoice_extractions", ("US_SALES_INVOICE",), ("invoice_no", "so_no", "po_no"), ("packing_slip", "invoice"))
         linked += pass_count
         if pass_count == 0:

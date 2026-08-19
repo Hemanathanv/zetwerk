@@ -32,7 +32,7 @@ const fallbackOcrTypes: OcrTypeOption[] = [
   { id: 'BILL_OF_LADING', label: 'Bill of Lading' },
   { id: 'SHIPPING_BILL', label: 'Shipping Bill' },
   { id: 'ENTRY_SUMMARY', label: 'CBP FORM 7501' },
-  { id: 'DRAFT_CBP_FORM_7501_BROKER', label: 'Draft CBP FORM 7501_Broker' },
+  { id: 'DRAFT_CBP_FORM_7501_BROKER', label: 'Draft CBP FORM 7501 Broker' },
   { id: 'OCEAN_FREIGHT', label: 'Ocean Freight' },
   { id: 'FREIGHT_FORWARDER_BILL', label: 'Freight Forwarder Bill' },
   { id: 'CHA_BILL', label: 'CHA Bill' },
@@ -45,6 +45,7 @@ const fallbackOcrTypes: OcrTypeOption[] = [
   { id: 'US_CUSTOMS_RELEASE_ORDER', label: 'US Customs Release Order' },
   { id: 'US_DELIVERY_ORDER', label: 'US Delivery Order' },
   { id: 'US_PACKING_LIST', label: 'US Packing List' },
+  { id: 'OUTWARD_GRN', label: 'Outward GRN' },
   { id: 'PROOF_OF_DELIVERY', label: 'Proof of Delivery' },
 ];
 

@@ -93,6 +93,7 @@ DOC_TYPE_VALUES: Final[set[str]] = {
     "US_CUSTOMS_RELEASE_ORDER",
     "US_DELIVERY_ORDER",
     "US_PACKING_LIST",
+    "OUTWARD_GRN",
     "ISF",
     "SHIPPING_BILL",
     "CHA_BILL",
@@ -540,6 +541,7 @@ DOC_TYPE_TO_EXTRACTION_RELATION: Final[dict[str, str]] = {
     "US_CUSTOMS_RELEASE_ORDER": "usCustomsReleaseExtraction",
     "US_DELIVERY_ORDER": "usDeliveryOrderExtraction",
     "US_PACKING_LIST": "usPackingListExtraction",
+    "OUTWARD_GRN": "usPackingListExtraction",
     "ISF": "isfExtraction",
     "SHIPPING_BILL": "shippingBillExtraction",
     "CHA_BILL": "chaBillExtraction",
@@ -1943,7 +1945,7 @@ async def list_approved_documents_for_shipments(
             "gateNumber": row.get("gate_number"),
             "gateCode": row.get("gate_code"),
             "isParallel": bool(row.get("is_parallel")),
-            "isGenerated": False,
+            "isGenerated": bool(row.get("is_generated")),
         })
 
     generated_rows = await prisma.query_raw(
@@ -2328,6 +2330,74 @@ async def preview_document_file(document_id: str, user=Depends(get_current_user)
         media_type=content_type,
         headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
     )
+
+
+@router.post("/documents/{document_id}/revert-approval")
+async def revert_document_approval(
+    document_id: str,
+    user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.approve_draft")),
+):
+    prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
+    document = await prisma.document.find_first(where=where)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    doc_type = str(document.docType)
+    if doc_type != "DRAFT_CBP_FORM_7501_BROKER":
+        raise HTTPException(status_code=400, detail="Approval revert is only available for Draft CBP Broker documents")
+    _require_doc_type_action(user, "approve_draft", doc_type)
+
+    accessor_name = DOC_TYPE_TO_EXTRACTION_ACCESSOR.get(doc_type)
+    model_accessor = getattr(prisma, accessor_name, None) if accessor_name else None
+    if model_accessor is not None:
+        extraction = await model_accessor.find_unique(where={"documentId": document_id})
+        if extraction:
+            await model_accessor.update(
+                where={"documentId": document_id},
+                data={"reviewedBy": None, "reviewedAt": None},
+            )
+
+    await prisma.document.update(
+        where={"id": document_id},
+        data={"status": "EXTRACTED"},
+    )
+    await _execute_raw(
+        prisma,
+        """
+        UPDATE "public"."documents"
+        SET
+          "status" = 'EXTRACTED',
+          "approved_at" = NULL,
+          "shipment_id" = NULL,
+          "ocr_status" = COALESCE(NULLIF("ocr_status", ''), 'extracted'),
+          "validation_status" = NULL,
+          "updated_at" = NOW()
+        WHERE "id"::text = $1::text
+        """,
+        document_id,
+    )
+    try:
+        await _execute_raw(
+            prisma,
+            """
+            DELETE FROM "document_module"."document_validation_status"
+            WHERE "document_id"::text = $1::text
+            """,
+            document_id,
+        )
+    except Exception as exc:
+        print(f"[documents] warning: could not clear validation status for reverted document {document_id}: {exc}", flush=True)
+    return {
+        "ok": True,
+        "data": {
+            "documentId": document_id,
+            "status": "EXTRACTED",
+        },
+    }
+
 
 
 @router.post("/documents/{document_id}/assign-shipment")

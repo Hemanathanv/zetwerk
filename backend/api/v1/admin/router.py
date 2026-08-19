@@ -1057,7 +1057,7 @@ DOC_TYPE_REGISTRY: list[dict[str, Any]] = [
     {"id": "BILL_OF_LADING", "typeCode": "BILL_OF_LADING", "displayName": "Bill of Lading", "shortCode": "BOL", "geography": "GLOBAL", "hasExtraction": True, "isSystem": True, "sortOrder": 30},
     {"id": "SHIPPING_BILL", "typeCode": "SHIPPING_BILL", "displayName": "Shipping Bill", "shortCode": "SB", "geography": "INDIA", "hasExtraction": True, "isSystem": True, "sortOrder": 40},
     {"id": "ENTRY_SUMMARY", "typeCode": "ENTRY_SUMMARY", "displayName": "CBP FORM 7501", "shortCode": "CBP", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 50},
-    {"id": "DRAFT_CBP_FORM_7501_BROKER", "typeCode": "DRAFT_CBP_FORM_7501_BROKER", "displayName": "Draft CBP FORM 7501_Broker", "shortCode": "CBP", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 55},
+    {"id": "DRAFT_CBP_FORM_7501_BROKER", "typeCode": "DRAFT_CBP_FORM_7501_BROKER", "displayName": "Draft CBP FORM 7501 Broker", "shortCode": "CB", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 55},
     {"id": "CHA_BILL", "typeCode": "CHA_BILL", "displayName": "CHA Bill", "shortCode": "CHA", "geography": "INDIA", "hasExtraction": True, "isSystem": True, "sortOrder": 60},
     {"id": "FREIGHT_FORWARDER_BILL", "typeCode": "FREIGHT_FORWARDER_BILL", "displayName": "Freight Forwarder Bill", "shortCode": "FF", "geography": "GLOBAL", "hasExtraction": True, "isSystem": True, "sortOrder": 70},
     {"id": "OCEAN_FREIGHT", "typeCode": "OCEAN_FREIGHT", "displayName": "Ocean Freight", "shortCode": "OF", "geography": "GLOBAL", "hasExtraction": True, "isSystem": True, "sortOrder": 80},
@@ -1067,11 +1067,40 @@ DOC_TYPE_REGISTRY: list[dict[str, Any]] = [
     {"id": "WH_TO_CUSTOMER", "typeCode": "WH_TO_CUSTOMER", "displayName": "WH to Customer", "shortCode": "WC", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 120},
     {"id": "US_SALES_INVOICE", "typeCode": "US_SALES_INVOICE", "displayName": "US Sales Invoice", "shortCode": "UI", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 130},
     {"id": "US_PACKING_LIST", "typeCode": "US_PACKING_LIST", "displayName": "US Packing List", "shortCode": "UP", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 140},
+    {"id": "OUTWARD_GRN", "typeCode": "OUTWARD_GRN", "displayName": "Outward GRN", "shortCode": "OG", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 145},
     {"id": "US_DELIVERY_ORDER", "typeCode": "US_DELIVERY_ORDER", "displayName": "US Delivery Order", "shortCode": "DO", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 150},
     {"id": "US_CARGO_RELEASE_ORDER", "typeCode": "US_CARGO_RELEASE_ORDER", "displayName": "US Cargo Release", "shortCode": "CR", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 160},
     {"id": "US_CUSTOMS_RELEASE_ORDER", "typeCode": "US_CUSTOMS_RELEASE_ORDER", "displayName": "US Customs Release", "shortCode": "CU", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 170},
     {"id": "ISF", "typeCode": "ISF", "displayName": "ISF", "shortCode": "ISF", "geography": "US", "hasExtraction": True, "isSystem": True, "sortOrder": 180},
 ]
+
+GENERATED_DOC_TYPE_CODES = {
+    "PACKING_LIST",
+    "ENTRY_SUMMARY",
+    "OUTWARD_GRN",
+}
+
+GENERATED_DOCUMENT_ACTIVITY_CODES = {
+    "documents.view_draft",
+    "documents.fill_manual_fields",
+    "documents.modify_generated_fields",
+    "documents.save_draft",
+    "documents.submit_for_review",
+    "documents.approve_generated_document",
+    "documents.approve_draft",
+    "documents.reject_generated_document",
+    "documents.generate_draft",
+    "documents.re_trigger_generation",
+}
+
+CONTAINER_MAPPING_DOC_TYPE_CODES = {"BILL_OF_LADING"}
+
+CONTAINER_MAPPING_ACTIVITY_CODES = {
+    "documents.map_container_to_sku",
+    "documents.submit_mapping_for_approval",
+    "documents.approve_container_mapping",
+    "documents.reject_container_mapping",
+}
 
 DEFAULT_ESCALATION_CHANNELS: dict[str, Any] = {
     "reminder": {"email": False, "freshdesk": False},
@@ -1080,7 +1109,8 @@ DEFAULT_ESCALATION_CHANNELS: dict[str, Any] = {
     "blocker": {"email": True, "freshdesk": True},
 }
 
-GENERATED_DOCUMENT_SOURCE_DOCS = "Sales Invoice, Packing List, Bill of Lading"
+GENERATED_DOCUMENT_SCOPE_DOCS = "Packing List, Draft CBP FORM 7501, Outward GRN"
+CONTAINER_MAPPING_SCOPE_DOCS = "Bill of Lading"
 
 SLA_ACTIVITY_CONFIG_BY_CODE: dict[str, dict[str, str]] = {
     "documents.upload": {
@@ -1093,19 +1123,19 @@ SLA_ACTIVITY_CONFIG_BY_CODE: dict[str, dict[str, str]] = {
         "activityType": "fill_manual_fields",
         "activityName": "Fill Manual Fields",
         "description": "Scope -3 docs",
-        "baseDoc": GENERATED_DOCUMENT_SOURCE_DOCS,
+        "baseDoc": GENERATED_DOCUMENT_SCOPE_DOCS,
     },
     "documents.submit_for_review": {
         "activityType": "submit_for_review",
         "activityName": "Submit for Review",
         "description": "SCOPE OF DOCS BASED - every doc to have a SLA. Edge case: If the doc is rejected - the submit for review timer will start",
-        "baseDoc": GENERATED_DOCUMENT_SOURCE_DOCS,
+        "baseDoc": GENERATED_DOCUMENT_SCOPE_DOCS,
     },
     "documents.approve_generated_document": {
         "activityType": "approve_generated_document",
         "activityName": "Approve Generated Document",
         "description": "",
-        "baseDoc": GENERATED_DOCUMENT_SOURCE_DOCS,
+        "baseDoc": GENERATED_DOCUMENT_SCOPE_DOCS,
     },
     "documents.resolve_validation_failure": {
         "activityType": "resolve_validation_failure",
@@ -1117,14 +1147,26 @@ SLA_ACTIVITY_CONFIG_BY_CODE: dict[str, dict[str, str]] = {
         "activityType": "map_container_to_sku",
         "activityName": "Map Container to SKU",
         "description": "",
-        "baseDoc": "",
+        "baseDoc": CONTAINER_MAPPING_SCOPE_DOCS,
     },
-    "documents.approve_container_mapping": {
-        "activityType": "approve_container_mapping",
-        "activityName": "Approve Container Mapping",
+    "documents.submit_mapping_for_approval": {
+        "activityType": "submit_mapping_for_approval",
+        "activityName": "Submit Mapping for Approval",
         "description": "",
-        "baseDoc": "",
+        "baseDoc": CONTAINER_MAPPING_SCOPE_DOCS,
     },
+    "documents.reject_container_mapping": {
+        "activityType": "reject_container_mapping",
+        "activityName": "Reject Container Mapping",
+        "description": "",
+        "baseDoc": CONTAINER_MAPPING_SCOPE_DOCS,
+    },
+}
+
+ROLE_EDITOR_MANAGED_SLA_ACTIVITY_TYPES = {
+    str(config.get("activityType") or "").strip()
+    for config in SLA_ACTIVITY_CONFIG_BY_CODE.values()
+    if str(config.get("activityType") or "").strip()
 }
 
 TRIGGER_SLA_CONFIG_BY_CODE: dict[str, dict[str, Any]] = {
@@ -1464,14 +1506,14 @@ for activity_code, trigger_config in TRIGGER_SLA_CONFIG_BY_CODE.items():
 
 SLA_ELIGIBLE_ACTIVITY_ROWS: list[tuple[str, str, str, str]] = [
     ("Document", "Upload Document", "SCOPE OF DOCS BASED - every doc to have a SLA", "Doc names"),
-    ("Generated Documents", "Fill Manual Fields", "Scope -3 docs", GENERATED_DOCUMENT_SOURCE_DOCS),
+    ("Generated Documents", "Fill Manual Fields", "Scope -3 docs", GENERATED_DOCUMENT_SCOPE_DOCS),
     (
         "Generated Documents",
         "Submit for Review",
         "SCOPE OF DOCS BASED - every doc to have a SLA. Edge case: If the doc is rejected - the submit for review timer will start",
-        GENERATED_DOCUMENT_SOURCE_DOCS,
+        GENERATED_DOCUMENT_SCOPE_DOCS,
     ),
-    ("Generated Documents", "Approve Generated Document", "", GENERATED_DOCUMENT_SOURCE_DOCS),
+    ("Generated Documents", "Approve Generated Document", "", GENERATED_DOCUMENT_SCOPE_DOCS),
     ("Validation", "Resolve Validation Failure", "SCOPE OF DOCS BASED - every doc to have a SLA", "Doc names"),
     ("", "Map Container to SKU", "", ""),
     ("", "Approve Container Mapping", "", ""),
@@ -1718,6 +1760,12 @@ def _doc_type_display_name(type_code: str) -> str:
             return str(item.get("displayName") or normalized)
     return normalized
 
+def _generated_doc_scope_labels() -> set[str]:
+    labels = set(GENERATED_DOC_TYPE_CODES)
+    labels.update(_doc_type_display_name(code).strip().upper() for code in GENERATED_DOC_TYPE_CODES)
+    labels.add("DRAFT CBP FORM 7501")
+    return labels
+
 
 def _parse_doc_type_scopes(attrs: dict | None) -> dict[str, list[str]]:
     raw = _attr_json_value(attrs, "ewms.docTypeScopes", "")
@@ -1766,7 +1814,9 @@ def _activity_sla_from_request(request: RoleProfileRequest) -> list[dict[str, An
         activity_name = str(item.activityName or activity_type).strip()
         scope = str(item.scope or "").strip()
         base_doc = str(item.baseDoc or "").strip()
-        if not activity_code or not activity_type or not activity_name or not scope:
+        if activity_code in GENERATED_DOCUMENT_ACTIVITY_CODES and scope.upper() not in _generated_doc_scope_labels():
+            continue
+        if activity_code in CONTAINER_MAPPING_ACTIVITY_CODES and scope.upper() not in CONTAINER_MAPPING_DOC_TYPE_CODES and scope.upper() != "BILL OF LADING":
             continue
         base_sla_hours = float(item.baseSlaHours or 0)
         if base_sla_hours <= 0:

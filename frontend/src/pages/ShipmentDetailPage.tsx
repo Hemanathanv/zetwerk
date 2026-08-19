@@ -1152,6 +1152,7 @@ function docTypeMatches(actual: string | null | undefined, expected: string): bo
   if (e === 'OCEAN_FREIGHT') return a.includes('OCEAN_FREIGHT');
   if (e === 'GRN_INBOUND') return a === 'GR' || a.includes('GRN_INBOUND') || a.includes('GOODS_RECEIPT');
   if (e === 'PORT_TO_WH') return a.includes('PORT_TO_WH') || a.includes('PORT_TO_WAREHOUSE');
+   if (e === 'OUTWARD_GRN') return a === 'OG' || a.includes('OUTWARD_GRN') || a.includes('OUTWARD');
   if (e === 'US_PACKING_LIST') return a.includes('US_PACKING');
   if (e === 'US_SALES_INVOICE') return a.includes('US_SALES');
   if (e === 'WH_TO_CUSTOMER') return a.includes('WH_TO_CUSTOMER') || a.includes('WAREHOUSE_TO_CUSTOMER');

@@ -59,6 +59,7 @@ export const DOCUMENT_GATE_DEFS: DocumentGateDef[] = [
     label: 'Customer Delivery',
     docs: [
       { docType: 'US_PACKING_LIST', code: 'UP', label: 'US Packing List', role: 'PRIMARY' },
+      { docType: 'OUTWARD_GRN', code: 'OG', label: 'Outward GRN', role: 'PRIMARY' },
       { docType: 'US_SALES_INVOICE', code: 'UI', label: 'US Sales Invoice', role: 'PRIMARY' },
       { docType: 'WH_TO_CUSTOMER', code: 'WC', label: 'Warehouse to Customer Bill', role: 'PARALLEL' },
     ],

@@ -299,6 +299,7 @@ PROCESSOR_BY_DOC_TYPE: dict[str, OcrProcessor] = {
     "US_CUSTOMS_RELEASE_ORDER": next(item for item in PROCESSORS if item.parse_result is parse_us_customs_release_result),
     "US_DELIVERY_ORDER": next(item for item in PROCESSORS if item.parse_result is parse_us_delivery_order_result),
     "US_PACKING_LIST": next(item for item in PROCESSORS if item.parse_result is parse_us_packing_list_result),
+    "OUTWARD_GRN": next(item for item in PROCESSORS if item.parse_result is parse_us_packing_list_result),
     "US_SALES_INVOICE": next(item for item in PROCESSORS if item.parse_result is parse_us_sales_invoice_result),
     "WH_TO_CUSTOMER": next(item for item in PROCESSORS if item.parse_result is parse_wh_to_customer_result),
 }

@@ -845,16 +845,25 @@ def _document_identity_key(document: dict[str, Any]) -> str:
 def _dedupe_shipment_documents(documents: list[Any]) -> list[dict[str, Any]]:
     deduped: dict[str, dict[str, Any]] = {}
     order: list[str] = []
+    def _doc_count(document: dict[str, Any]) -> int:
+        try:
+            return max(1, int(document.get("count") or document.get("documentCount") or 1))
+        except Exception:
+            return 1
     for document in documents:
         if not isinstance(document, dict):
             continue
+        incoming_count = _doc_count(document)
         key = _document_identity_key(document)
         if key not in deduped:
-            deduped[key] = document
+            deduped[key] = {**document, "count": incoming_count}
             order.append(key)
             continue
+        combined_count = _doc_count(deduped[key]) + incoming_count
         if _document_done_score(document) > _document_done_score(deduped[key]):
-            deduped[key] = document
+             deduped[key] = {**document, "count": combined_count}
+        else:
+            deduped[key]["count"] = combined_count
     return [deduped[key] for key in order]
 
 
@@ -909,6 +918,68 @@ def _view_shipment_payload(row: dict[str, Any], *, include_containers: bool = Fa
         },
     }
     return payload
+
+async def _annotate_linked_document_counts(prisma, shipments: list[dict[str, Any]]) -> None:
+    def _count_aliases(doc_type: str) -> set[str]:
+        normalized = str(doc_type or "").upper()
+        aliases = {normalized} if normalized else set()
+        if normalized in {"PL", "PACKING_LIST"}:
+            aliases.update({"PL", "PACKING_LIST"})
+        if normalized in {"SI", "SALES_INVOICE"}:
+            aliases.update({"SI", "SALES_INVOICE"})
+        if normalized in {"SB", "SHIPPING_BILL"}:
+            aliases.update({"SB", "SHIPPING_BILL"})
+        if normalized in {"CB", "ENTRY_SUMMARY", "CBP_FORM_7501"}:
+            aliases.update({"CB", "ENTRY_SUMMARY", "CBP_FORM_7501"})
+        return aliases
+
+    shipment_ids = [str(shipment.get("id")) for shipment in shipments if shipment.get("id")]
+    if not shipment_ids:
+        return
+    try:
+        rows = await _query_raw(
+            prisma,
+            """
+            SELECT
+              "shipment_id"::text AS shipment_id,
+              COALESCE("doc_type"::text, "document_type", '') AS document_type,
+              COUNT(*)::int AS count
+            FROM "public"."documents"
+            WHERE "shipment_id"::text = ANY($1::text[])
+              AND COALESCE("is_deleted", false) = false
+            GROUP BY "shipment_id"::text, COALESCE("doc_type"::text, "document_type", '')
+            """,
+            shipment_ids,
+        )
+    except Exception as exc:
+        print(f"[shipments] warning: could not annotate document counts: {exc}", flush=True)
+        return
+
+    counts_by_shipment: dict[str, dict[str, int]] = {}
+    for row in rows:
+        shipment_id = str(row.get("shipment_id") or "")
+        doc_type = str(row.get("document_type") or "").upper()
+        if shipment_id and doc_type:
+            shipment_counts = counts_by_shipment.setdefault(shipment_id, {})
+            for alias in _count_aliases(doc_type):
+                shipment_counts[alias] = max(shipment_counts.get(alias, 0), int(row.get("count") or 0))
+
+    for shipment in shipments:
+        shipment_counts = counts_by_shipment.get(str(shipment.get("id") or ""), {})
+        if not shipment_counts:
+            continue
+        for document in _as_list(shipment.get("documents")):
+            if not isinstance(document, dict):
+                continue
+            doc_type = str(document.get("documentType") or document.get("document_type") or "").upper()
+            count = max((shipment_counts.get(alias, 0) for alias in _count_aliases(doc_type)), default=0)
+            try:
+                current_count = int(document.get("count") or 1)
+            except Exception:
+                current_count = 1
+            if count and count > current_count:
+                document["count"] = count
+
 
 
 async def _merge_document_module_gate_docs(prisma, shipments: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1029,6 +1100,7 @@ async def _merge_document_module_gate_docs(prisma, shipments: list[dict[str, Any
             "gateNumber": row.get("gate_number"),
             "gateCode": row.get("gate_code"),
             "isParallel": bool(row.get("is_parallel")),
+            "count": 1,
         }
         duplicate_index = next(
             (
@@ -1052,8 +1124,17 @@ async def _merge_document_module_gate_docs(prisma, shipments: list[dict[str, Any
         )
         if duplicate_index is None:
             documents.append(incoming_doc)
-        elif _document_done_score(incoming_doc) > _document_done_score(documents[duplicate_index]):
-            documents[duplicate_index] = incoming_doc
+        else:
+            existing_doc = documents[duplicate_index]
+            try:
+                combined_count = max(1, int(existing_doc.get("count") or 1)) + 1 if isinstance(existing_doc, dict) else 2
+            except Exception:
+                combined_count = 2
+            incoming_doc["count"] = combined_count
+            if _document_done_score(incoming_doc) > _document_done_score(existing_doc):
+                documents[duplicate_index] = incoming_doc
+            elif isinstance(existing_doc, dict):
+                existing_doc["count"] = combined_count
         count = shipment.setdefault("_count", {})
         deduped_documents = _dedupe_shipment_documents(documents)
         shipment["documents"] = deduped_documents
@@ -1430,6 +1511,7 @@ async def list_shipments(
         )
         total = int((total_rows[0] or {}).get("total") or 0) if total_rows else 0
         data = [_view_shipment_payload(row) for row in shipment_rows]
+        await _annotate_linked_document_counts(prisma, data)
         return {
             "ok": True,
             "data": data,

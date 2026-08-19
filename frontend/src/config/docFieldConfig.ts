@@ -1352,6 +1352,7 @@ export const DOC_FIELD_CONFIG: Record<string, DocTypeConfig> = {
   US_CUSTOMS_RELEASE_ORDER: US_CUSTOMS_RELEASE,
   US_DELIVERY_ORDER,
   US_PACKING_LIST,
+  OUTWARD_GRN: { ...US_PACKING_LIST, docType: 'OUTWARD_GRN', displayName: 'Outward GRN' },
   ISF,
 };
 

@@ -57,6 +57,58 @@ type ShipmentOption = {
   projectName?: string | null;
 };
 
+
+function normalizeShipmentOption(raw: unknown): ShipmentOption | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const row = raw as Record<string, unknown>;
+  const id = String(row.id ?? row.shipmentId ?? row.shipment_id ?? '').trim();
+  const shipmentNumber = String(row.shipmentNumber ?? row.shipment_number ?? '').trim();
+  if (!id && !shipmentNumber) return null;
+  const text = (value: unknown) => {
+    const normalized = String(value ?? '').trim();
+    return normalized || null;
+  };
+  return {
+    id: id || shipmentNumber,
+    shipmentNumber: shipmentNumber || null,
+    bolNumber: text(row.bolNumber ?? row.bol_number),
+    hblNumber: text(row.hblNumber ?? row.hbl_number),
+    mblNumber: text(row.mblNumber ?? row.mbl_number),
+    bookingNumber: text(row.bookingNumber ?? row.booking_number ?? row.bookingReferenceNumber ?? row.booking_reference_number),
+    projectName: text(row.projectName ?? row.project_name),
+  };
+}
+
+function shipmentOptionLabel(shipment: ShipmentOption): string {
+  const refs = [
+    shipment.mblNumber && `MBL ${shipment.mblNumber}`,
+    shipment.hblNumber && `HBL ${shipment.hblNumber}`,
+    shipment.bookingNumber && `Booking ${shipment.bookingNumber}`,
+    shipment.projectName,
+  ].filter(Boolean).join(' - ');
+  return `${shipment.shipmentNumber || shipment.bolNumber || shipment.id}${refs ? ` - ${refs}` : ''}`;
+}
+
+function shipmentOptionValue(shipment: ShipmentOption): string {
+  return shipment.shipmentNumber || shipment.bolNumber || shipment.id;
+}
+
+function shipmentOptionsFromResponse(response: unknown): ShipmentOption[] {
+  const record = response && typeof response === 'object' ? response as Record<string, unknown> : {};
+  const nestedData = record.data && typeof record.data === 'object' ? record.data as Record<string, unknown> : {};
+  const candidates = [
+    response,
+    record.data,
+    nestedData.data,
+    nestedData.items,
+    record.items,
+    record.results,
+  ];
+  const rows = candidates.find(Array.isArray) as unknown[] | undefined;
+  return (rows ?? []).map(normalizeShipmentOption).filter((option): option is ShipmentOption => Boolean(option));
+}
+
+
 type CbpComparisonField = {
   status: 'match' | 'mismatch' | 'blank' | string;
   cbpValue?: JsonValue | null;
@@ -1501,7 +1553,7 @@ export function DocumentDetailPage() {
   const [documentDetail, setDocumentDetail] = useState<DocumentDetailRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [actionLoading, setActionLoading] = useState<'approve' | 'retry' | null>(null);
+  const [actionLoading, setActionLoading] = useState<'approve' | 'retry' | 'revert' | null>(null);
   const [sourcePreviewOpen, setSourcePreviewOpen] = useState(false);
   const [sourcePreviewUrl, setSourcePreviewUrl] = useState<string | null>(null);
   const [documentPreviewUrl, setDocumentPreviewUrl] = useState<string | null>(null);
@@ -1715,8 +1767,26 @@ export function DocumentDetailPage() {
   async function loadShipmentOptions() {
     setShipmentAssignLoading(true);
     try {
-      const response = await apiGet<{ ok: boolean; data: ShipmentOption[] }>('/shipments?limit=500');
-      setShipmentOptions(Array.isArray(response.data) ? response.data : []);
+      const collected: ShipmentOption[] = [];
+      let page = 1;
+      let hasNext = true;
+      while (hasNext && page <= 5) {
+        const response = await apiGet<unknown>(`/shipments?limit=100&page=${page}`);
+        collected.push(...shipmentOptionsFromResponse(response));
+        const record = response && typeof response === 'object' ? response as { data?: { meta?: { hasNext?: boolean } }; meta?: { hasNext?: boolean } } : {};
+        hasNext = Boolean(record.meta?.hasNext ?? record.data?.meta?.hasNext);
+        page += 1;
+      }
+      const deduped = new Map<string, ShipmentOption>();
+      collected.forEach((shipment) => {
+        deduped.set(shipment.id, shipment);
+      });
+      const options = [...deduped.values()];
+      setShipmentOptions(options);
+      setSelectedShipmentId((current) => {
+        const selected = options.find((shipment) => shipment.id === current);
+        return selected ? shipmentOptionValue(selected) : current;
+      });
     } catch (err) {
       setShipmentOptions([]);
       toast({
@@ -1726,6 +1796,29 @@ export function DocumentDetailPage() {
       });
     } finally {
       setShipmentAssignLoading(false);
+    }
+  }
+
+  async function revertApprovalStatus() {
+    if (!documentDetail || actionLoading) return;
+    setActionLoading('revert');
+    try {
+      await documentApi.revertApproval(documentDetail.id);
+      const { data } = await documentApi.getById(documentDetail.id);
+      setDocumentDetail(data);
+      await fetchCbpComparison();
+      toast({
+        title: 'Approval reverted',
+        description: 'Draft CBP Broker is back in review state and can be assigned to a shipment.',
+      });
+    } catch (err) {
+      toast({
+        title: 'Could not revert approval',
+        description: getApiErrorMessage(err, 'Unable to revert this document approval.'),
+        variant: 'destructive',
+      });
+    } finally {
+      setActionLoading(null);
     }
   }
 
@@ -2454,13 +2547,15 @@ export function DocumentDetailPage() {
               <label style={{ fontSize: 11, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
                 Shipment
               </label>
-              <select
+              <input
+                list="shipment-assign-options"
                 value={selectedShipmentId}
                 disabled={shipmentAssignLoading || shipmentAssignSaving}
                 onChange={(event) => setSelectedShipmentId(event.target.value)}
+                placeholder={shipmentAssignLoading ? 'Loading shipments...' : 'Select or type shipment ID/number...'}
                 style={{ width: '100%', height: 40, border: `1px solid ${BORDER}`, borderRadius: 7, background: 'hsl(var(--background))', color: FG, padding: '0 10px', fontSize: 14 }}
-              >
-                <option value="">{shipmentAssignLoading ? 'Loading shipments...' : 'Select shipment...'}</option>
+               />
+                <datalist id="shipment-assign-options">
                 {shipmentOptions.map((shipment) => {
                   const refs = [
                     shipment.mblNumber && `MBL ${shipment.mblNumber}`,
@@ -2469,15 +2564,15 @@ export function DocumentDetailPage() {
                     shipment.projectName,
                   ].filter(Boolean).join(' · ');
                   return (
-                    <option key={shipment.id} value={shipment.id}>
+                    <option key={shipment.id} value={shipmentOptionValue(shipment)}>
                       {(shipment.shipmentNumber || shipment.bolNumber || shipment.id)}{refs ? ` - ${refs}` : ''}
                     </option>
                   );
                 })}
-              </select>
+              </datalist>
               {shipmentOptions.length === 0 && !shipmentAssignLoading && (
                 <div style={{ fontSize: 12, color: MUTED }}>
-                  No shipments are available yet. Approve a BOL first to create shipments.
+                  No shipments loaded. You can still type a shipment ID or shipment number.
                 </div>
               )}
             </div>
@@ -2559,6 +2654,12 @@ export function DocumentDetailPage() {
             Warehouse Mapping
           </button>
         )}
+        {isApprovalRoute && canApproveCurrentExtraction && !documentDetail.shipmentId && (
+          <Button type="button" variant="outline" size="sm" disabled={actionLoading !== null} onClick={() => void openShipmentAssignment()} className="h-9">
+            <Ship size={14} />
+            Assign shipment
+          </Button>
+        )}
         {isApprovalRoute && (
           <>
             {canReprocessCurrentDoc && (
@@ -2569,6 +2670,16 @@ export function DocumentDetailPage() {
               >
                 {actionLoading === 'retry' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : null}
                 Flag for re-extraction
+              </button>
+            )}
+             {isDraftCbpBrokerDocument && isExtractionApproved && canApproveCurrentExtraction && (
+              <button
+                onClick={() => void revertApprovalStatus()}
+                disabled={actionLoading !== null}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: FG, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: actionLoading ? 0.65 : 1 }}
+              >
+                {actionLoading === 'revert' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : null}
+                Revert approval
               </button>
             )}
             {canApproveCurrentExtraction && (
