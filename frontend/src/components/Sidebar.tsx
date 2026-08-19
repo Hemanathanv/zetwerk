@@ -460,13 +460,13 @@ export function Sidebar() {
                   }}
                   data-testid={`nav-${item.label.toLowerCase().replace(/ /g, '-')}`}
                 >
-                  {/* Icon + optional badge */}
+                  {/* Icon + optional badge (collapsed state only) */}
                   <div style={{ position: 'relative', flexShrink: 0 }}>
                     <Icon style={{
                       width: 20, height: 20,
                       color: isActive ? TEAL_ACTIVE_TEXT : 'inherit',
                     }} />
-                    {liveCount > 0 && (
+                    {!isOpen && liveCount > 0 && (
                       <span style={{
                         position: 'absolute',
                         top: -5, right: -6,
@@ -494,6 +494,25 @@ export function Sidebar() {
                       flex: 1,
                     }}>
                       {item.label}
+                    </span>
+                  )}
+
+                  {/* Badge, shown after the label when expanded */}
+                  {isOpen && liveCount > 0 && (
+                    <span style={{
+                      flexShrink: 0,
+                      minWidth: 20, height: 20,
+                      borderRadius: 999,
+                      background: 'hsl(0 84% 60%)',
+                      color: '#fff',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      fontFamily: 'var(--app-font-sans)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      padding: '0 5px',
+                      lineHeight: 1,
+                    }}>
+                      {liveCount > 99 ? '99+' : liveCount}
                     </span>
                   )}
                 </Link>

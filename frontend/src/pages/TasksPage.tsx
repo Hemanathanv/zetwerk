@@ -20,6 +20,7 @@ import {
   RefreshCw, UserPlus, Loader2, Plus, Users, Play, Send, UserCheck,
   ArrowRight, Package, BarChart2,
 } from 'lucide-react';
+import { FilterChips } from '@/components/vs/FilterChips';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
@@ -2257,8 +2258,7 @@ export function TasksPage() {
       <div style={{
         padding: '6px 20px 0 20px',
         flexShrink: 0,
-        borderBottom: `1px solid ${BORDER}`,
-        backgroundColor: CARD,
+        backgroundColor: PANEL,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         {/* Scope tabs (hidden for external users) */}
@@ -2343,7 +2343,7 @@ export function TasksPage() {
               }}
             />
           </div>
-          <button
+          {/* <button
             onClick={() => setSidebarOpen(v => !v)}
             style={{
               display: 'flex', alignItems: 'center', gap: 5,
@@ -2361,7 +2361,7 @@ export function TasksPage() {
                 {activeFilters}
               </span>
             )}
-          </button>
+          </button> */}
           <button
             onClick={handleRefresh}
             disabled={refreshing || loading}
@@ -2395,31 +2395,36 @@ export function TasksPage() {
         </div>
       </div>
 
-      {/* ── Stat strip (hidden when overview is active) ── */}
+      {/* ── Stat filter strip (hidden when overview is active) ── */}
       {activeTab !== 'overview' && <div style={{
-        display: 'flex', gap: 0, padding: '0 20px',
+        display: 'flex', padding: '10px 20px',
         borderBottom: `1px solid ${BORDER}`,
         flexShrink: 0,
-        backgroundColor: 'hsl(var(--muted)/0.15)',
+        backgroundColor: PANEL,
       }}>
-        {[
-          { label: 'Total',     value: summary.total,     color: FG },
-          { label: 'Blockers',  value: summary.blockers,  color: summary.blockers  > 0 ? RED   : MUTED },
-          { label: 'Warnings',  value: summary.warnings,  color: summary.warnings  > 0 ? AMBER : MUTED },
-          { label: 'Escalated', value: summary.escalated, color: summary.escalated > 0 ? RED   : MUTED },
-        ].map((stat, i) => (
-          <div key={stat.label} style={{
-            padding: '8px 20px 8px 0',
-            marginRight: 24,
-            borderRight: i < 3 ? `1px solid ${BORDER}` : 'none',
-            paddingRight: 24,
-          }}>
-            <span style={{ fontSize: 18, fontWeight: 700, color: stat.color, fontVariantNumeric: 'tabular-nums' }}>
-              {stat.value}
-            </span>
-            <span style={{ fontSize: 11.5, color: MUTED, marginLeft: 5 }}>{stat.label}</span>
-          </div>
-        ))}
+        <FilterChips
+          size="compact"
+          chips={[
+            { label: 'Total',     count: summary.total },
+            { label: 'Blockers',  count: summary.blockers },
+            { label: 'Warnings',  count: summary.warnings },
+            { label: 'Escalated', count: summary.escalated },
+          ]}
+          activeIndex={
+            statusFilter.length === 1 && statusFilter[0] === 'ESCALATED' ? 3
+            : urgencyFilter === 'BLOCKER' ? 1
+            : urgencyFilter === 'WARNING' ? 2
+            : urgencyFilter === '' && statusFilter.length === 0 ? 0
+            : -1
+          }
+          onSelect={(i) => {
+            setSelectedId(null); clearSelection();
+            if (i === 0) { setUrgencyFilter(''); setStatusFilter([]); }
+            else if (i === 1) { setUrgencyFilter('BLOCKER'); setStatusFilter([]); }
+            else if (i === 2) { setUrgencyFilter('WARNING'); setStatusFilter([]); }
+            else if (i === 3) { setUrgencyFilter(''); setStatusFilter(['ESCALATED']); }
+          }}
+        />
       </div>}
 
       {/* ── Body (sidebar + table + detail) ── */}
@@ -2429,14 +2434,14 @@ export function TasksPage() {
         {activeTab === 'overview' && <TaskAnalyticsPanel />}
 
         {/* Filter sidebar */}
-        {activeTab === 'tasks' && sidebarOpen && (
+        {/* {activeTab === 'tasks' && sidebarOpen && (
           <FilterSidebar
             urgencyFilter={urgencyFilter}
             setUrgencyFilter={setUrgencyFilter}
             statusFilter={statusFilter}
             setStatusFilter={setStatusFilter}
           />
-        )}
+        )} */}
 
         {/* Main table area (only shown in tasks tab) */}
         {activeTab === 'tasks' && <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>

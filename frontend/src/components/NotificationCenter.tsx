@@ -40,13 +40,24 @@ export function NotificationCenter() {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="relative flex items-center justify-center h-9 w-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        className="relative flex items-center justify-center h-9 w-9 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
         data-testid="button-notifications"
         aria-label="Notifications"
       >
         <Bell className="w-4 h-4" />
         {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[12px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 leading-none">
+          <span
+            className="absolute flex items-center justify-center bg-red-500 text-white font-bold leading-none"
+            style={{
+              top: -6, right: -6,
+              minWidth: 16, height: 16,
+              borderRadius: 999,
+              fontSize: 10,
+              padding: '0 3px',
+              boxSizing: 'border-box',
+              border: '2px solid hsl(var(--background))',
+            }}
+          >
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}

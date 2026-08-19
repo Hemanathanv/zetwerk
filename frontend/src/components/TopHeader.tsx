@@ -132,7 +132,7 @@ export function TopHeader() {
       <Button
         variant="ghost"
         size="icon"
-        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+        className="h-9 w-9 rounded-md border border-border text-muted-foreground hover:text-foreground"
         onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
         data-testid="button-theme-toggle"
       >
