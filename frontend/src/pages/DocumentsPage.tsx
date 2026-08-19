@@ -1203,7 +1203,7 @@ export function DocumentsPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                   <span style={{ fontSize: 12, lineHeight: 1 }}>⚓</span>
                   <span className="vs-mono" style={{ fontSize: 11.5, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                    Voyage progress
+                    Document Tracking
                   </span>
                   <span style={{ fontSize: 11.5, color: BORDER }}>·</span>
                   <span className="vs-mono" style={{ fontSize: 12, fontWeight: 700, color: TEAL }}>
@@ -1217,23 +1217,6 @@ export function DocumentsPage() {
           })()}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => setShowOverview(value => !value)}
-              style={{
-                border: `1px solid ${BORDER}`,
-                borderRadius: 999,
-                backgroundColor: CARD_BG,
-                color: MUTED,
-                fontSize: 11.5,
-                fontWeight: 750,
-                padding: '6px 10px',
-                cursor: 'pointer',
-                boxShadow: 'var(--vs-shadow-card)',
-              }}
-            >
-              {showOverview ? 'Hide overview' : 'Show overview'}
-            </button>
             <FilterChips
               size="compact"
               chips={[
@@ -1248,7 +1231,7 @@ export function DocumentsPage() {
             <div style={{
               display: 'flex', alignItems: 'center', gap: 7,
               border: `1px solid ${BORDER}`, borderRadius: 8,
-              padding: '5px 10px', backgroundColor: CARD_BG,
+              padding: '0 10px', height: 30, boxSizing: 'border-box', backgroundColor: CARD_BG,
               flex: '0 1 280px', marginLeft: 'auto', position: 'relative', zIndex: 5,
             }}>
               <Search size={12} style={{ color: MUTED, flexShrink: 0 }} />
@@ -1289,6 +1272,27 @@ export function DocumentsPage() {
                 </div>
               )}
             </div>
+            <button
+              type="button"
+              onClick={() => setShowOverview(value => !value)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                border: `1px solid ${BORDER}`,
+                borderRadius: 8,
+                backgroundColor: CARD_BG,
+                color: MUTED,
+                fontSize: 11.5,
+                fontWeight: 750,
+                padding: '0 10px',
+                height: 30,
+                boxSizing: 'border-box',
+                cursor: 'pointer',
+                boxShadow: 'var(--vs-shadow-card)',
+              }}
+            >
+              {showOverview ? 'Hide overview' : 'Show overview'}
+            </button>
           </div>
           </div>{/* end sticky pane */}
 

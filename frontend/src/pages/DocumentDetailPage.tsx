@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useParams } from 'wouter';
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronUp, Circle, Clock3, Eye, FileText, Info, Loader2, Pencil, Plus, Ship, X } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronUp, Circle, Clock3, Eye, FileText, Info, Loader2, Pencil, Plus, Ship, Star, X } from 'lucide-react';
 import { documentApi } from '@/auth/api';
 import type { DocumentDetailRecord, JsonValue } from '@/types/backend';
 import { getDocConfig } from '@/config/docFieldConfig';
@@ -29,7 +29,7 @@ const UPLOAD_PROCESS_RETURN_PATH_KEY = 'ewms-upload-process-return-path';
 const BOL_REFERENCE_ACTION_FIELDS = new Set(['mblNumber', 'bookingReferenceNumber']);
 
 type PipelineStageState = 'done' | 'current' | 'current-spin' | 'future';
-type ExtractionFieldFilter = 'all' | 'issues' | 'edited' | `section:${string}` | `array:${string}` | 'additional';
+type ExtractionFieldFilter = 'all' | 'issues' | 'edited' | 'critical' | `section:${string}` | `array:${string}` | 'additional';
 
 type DraftFieldValue = {
   targetField: string;
@@ -894,6 +894,11 @@ function FieldCard({ field, rawData, comparison, isEdited = false, onSave, onDra
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {field.critical && (
+          <span title="Critical field" style={{ display: 'inline-flex', flexShrink: 0 }}>
+            <Star size={11} style={{ color: 'hsl(38 92% 40%)', fill: 'hsl(38 92% 40%)' }} />
+          </span>
+        )}
         <div style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {field.label}
         </div>
@@ -1361,7 +1366,7 @@ function BolContainerMappingModal({
               <table style={{ width: '100%', minWidth: 1280, borderCollapse: 'collapse' }}>
                 <thead><tr>{['', 'Container no', 'Product code', 'Description', 'Specification', 'TOTAL QTY IN PCS', 'Qty per bundle', 'Total bundle', 'Net weight (kg)', 'Gross weight (kg)'].map(label => <th key={label || 'split'} style={{ padding: 10, border: `1px solid ${BORDER}`, textAlign: 'left', fontSize: 11, color: MUTED, whiteSpace: 'nowrap' }}>{label}</th>)}</tr></thead>
                 <tbody>{rows.map((row, index) => (
-                  <tr key={row.lineItemId}>
+                  <tr key={row.lineItemId} style={row._splitRow ? { background: 'hsla(173,58%,39%,0.12)' } : undefined}>
                     <td style={{ padding: 6, border: `1px solid ${BORDER}`, width: 44 }}>
                       <button
                         type="button"
@@ -2192,9 +2197,11 @@ export function DocumentDetailPage() {
   ];
   const issueFieldCount = allDisplayableFields.filter((field) => fieldHasIssue(field, extraction?.rawData, cbpComparison?.fields?.[field.key])).length;
   const editedFieldCount = allDisplayableFields.filter((field) => editedExtractionFields.has(field.key)).length;
+  const criticalFieldCount = allDisplayableFields.filter((field) => field.critical).length;
   const filterExtractionFields = (fields: FieldDef[]) => fields.filter((field) => {
     if (extractionFieldFilter === 'issues') return fieldHasIssue(field, extraction?.rawData, cbpComparison?.fields?.[field.key]);
     if (extractionFieldFilter === 'edited') return editedExtractionFields.has(field.key);
+    if (extractionFieldFilter === 'critical') return Boolean(field.critical);
     return true;
   });
   const selectedConfiguredSection = extractionFieldFilter.startsWith('section:')
@@ -2293,6 +2300,7 @@ export function DocumentDetailPage() {
           {(() => {
             const filterChips = [
               { key: 'all' as const, label: 'All fields', count: allDisplayableFields.length },
+              { key: 'critical' as const, label: 'Critical fields', count: criticalFieldCount },
               { key: 'issues' as const, label: 'Issues only', count: issueFieldCount },
               { key: 'edited' as const, label: 'Edited fields', count: editedFieldCount },
             ];
@@ -2400,7 +2408,9 @@ export function DocumentDetailPage() {
                 ? 'No issue fields found.'
                 : extractionFieldFilter === 'edited'
                   ? 'No edited fields yet.'
-                  : 'No fields match this filter.'}
+                  : extractionFieldFilter === 'critical'
+                    ? 'No critical fields configured for this document type.'
+                    : 'No fields match this filter.'}
             </div>
           )}
 
