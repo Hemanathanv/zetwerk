@@ -3091,6 +3091,176 @@ model IsfManufacturer {
   @@map("isf_manufacturers")
 }
 
+
+
+// -----------------------------------------------------------------
+// TASK ENGINE - CONFIG / RUNTIME
+// -----------------------------------------------------------------
+
+model EscalationConfig {
+  id                String   @id
+  activityType      String   @map("activity_type")
+  activityName      String   @default("") @map("activity_name")
+  description       String   @default("")
+  scope             String   @default("")
+  baseDoc           String   @default("") @map("base_doc")
+  baseSlaHours      Float    @default(24) @map("base_sla_hours")
+  reminderPct       Int      @default(0) @map("reminder_pct")
+  warningPct        Int      @default(50) @map("warning_pct")
+  escalationPct     Int      @default(75) @map("escalation_pct")
+  blockerPct        Int      @default(100) @map("blocker_pct")
+  taskEnabled       Boolean  @default(true) @map("task_enabled")
+  triggerCategory   String?  @map("trigger_category")
+  triggerLogic      String?  @map("trigger_logic")
+  taskMessage       String?  @map("task_message")
+  reminderMessage   String?  @map("reminder_message")
+  warningMessage    String?  @map("warning_message")
+  escalationMessage String?  @map("escalation_message")
+  blockerMessage    String?  @map("blocker_message")
+  reminderTrigger   String?  @map("reminder_trigger")
+  warningTrigger    String?  @map("warning_trigger")
+  escalationTrigger String?  @map("escalation_trigger")
+  blockerTrigger    String?  @map("blocker_trigger")
+  channels          Json     @default("{}")
+  targets           Json     @default("{}")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([activityType], map: "idx_escalation_configs_activity_type")
+  @@index([scope], map: "idx_escalation_configs_scope")
+  @@schema("public")
+  @@map("escalation_configs")
+}
+
+model DocumentLinkRule {
+  id                   String   @id
+  triggerEvent         String   @default("document_reviewed") @map("trigger_event")
+  activityType         String   @default("upload_document") @map("activity_type")
+  baseDocType          String   @map("base_doc_type")
+  targetDocType        String   @map("target_doc_type")
+  matchKeyTypes        Json     @default("[]") @map("match_key_types")
+  requiredTargetStatus String   @default("ANY_ACTIVE") @map("required_target_status")
+  assignedRole         String?  @map("assigned_role")
+  escalationConfigId   String?  @map("escalation_config_id")
+  isActive             Boolean  @default(true) @map("is_active")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@index([triggerEvent, baseDocType, isActive], map: "idx_document_link_rules_trigger_base")
+  @@schema("public")
+  @@map("document_link_rules")
+}
+
+model TaskEngineEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  eventType   String    @map("event_type")
+  entityType  String    @map("entity_type")
+  entityId    String    @map("entity_id")
+  shipmentId  String?   @map("shipment_id") @db.Uuid
+  actorId     String?   @map("actor_id")
+  payload     Json      @default("{}")
+  status      String    @default("PROCESSED")
+  processedAt DateTime? @map("processed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([eventType, entityType, entityId], map: "idx_task_engine_events_entity")
+  @@index([shipmentId], map: "idx_task_engine_events_shipment")
+  @@schema("public")
+  @@map("task_engine_events")
+}
+
+model TaskInstance {
+  id              String    @id @default(uuid()) @db.Uuid
+  title           String
+  description     String?
+  category        String    @default("General")
+  activityCode    String    @default("TSK-001") @map("activity_code")
+  status          String    @default("ASSIGNED")
+  urgency         String    @default("NORMAL")
+  assignedRole    String?   @map("assigned_role")
+  assignedUserId  String?   @map("assigned_user_id")
+  shipmentId      String?   @map("shipment_id") @db.Uuid
+  entityType      String?   @map("entity_type")
+  entityId        String?   @map("entity_id")
+  parentTaskId    String?   @map("parent_task_id") @db.Uuid
+  slaDeadline     DateTime? @map("sla_deadline")
+  startedAt       DateTime? @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+  escalationLevel Int       @default(0) @map("escalation_level")
+  escalationType  String?   @map("escalation_type")
+  metadata        Json      @default("{}")
+  sourceKey       String?   @map("source_key")
+  createdBy       String?   @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([sourceKey], map: "idx_task_instances_source_key_prisma")
+  @@index([status, assignedRole, assignedUserId], map: "idx_task_instances_open")
+  @@index([shipmentId], map: "idx_task_instances_shipment")
+  @@schema("public")
+  @@map("task_instances")
+}
+
+model Notification {
+  id              String   @id @default(uuid()) @db.Uuid
+  type            String   @default("info")
+  title           String
+  message         String?
+  link            String?
+  read            Boolean  @default(false)
+  recipientUserId String?  @map("recipient_user_id")
+  recipientRole   String?  @map("recipient_role")
+  taskId          String?  @map("task_id") @db.Uuid
+  source          String   @default("task")
+  dedupeKey       String?  @unique @map("dedupe_key")
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([recipientUserId, recipientRole, read, createdAt], map: "idx_notifications_recipient")
+  @@index([taskId], map: "idx_notifications_task")
+  @@schema("public")
+  @@map("notifications")
+}
+
+model ActivityTaskEvent {
+  id             String    @id @default(uuid()) @db.Uuid
+  activityType   String    @map("activity_type")
+  title          String?
+  description    String?
+  category       String    @default("General")
+  urgency        String    @default("NORMAL")
+  assignedRole   String?   @map("assigned_role")
+  assignedUserId String?   @map("assigned_user_id")
+  shipmentId     String?   @map("shipment_id") @db.Uuid
+  entityType     String?   @map("entity_type")
+  entityId       String?   @map("entity_id")
+  scope          String?
+  metadata       Json      @default("{}")
+  sourceKey      String?   @unique @map("source_key")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  processedAt    DateTime? @map("processed_at")
+
+  @@index([activityType], map: "idx_activity_task_events_activity_type")
+  @@index([processedAt], map: "idx_activity_task_events_processed_at")
+  @@schema("public")
+  @@map("activity_task_events")
+}
+
+model TaskSlaEvent {
+  id            String   @id @default(uuid()) @db.Uuid
+  taskId        String   @map("task_id") @db.Uuid
+  thresholdType String   @map("threshold_type")
+  thresholdPct  Int      @map("threshold_pct")
+  notificationId String? @map("notification_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([taskId, thresholdType, thresholdPct], map: "task_sla_events_task_id_threshold_type_threshold_pct_key")
+  @@index([taskId], map: "idx_task_sla_events_task")
+  @@schema("public")
+  @@map("task_sla_events")
+}
+
 // -----------------------------------------------------------------
 // DASHBOARD - SHIPMENT 360 / SAFECUBE TRACKING
 // -----------------------------------------------------------------

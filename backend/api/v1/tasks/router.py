@@ -11,13 +11,13 @@ from pydantic import BaseModel
 from db import get_prisma
 from helpers.config import settings
 from helpers.dependencies import get_current_user
-from helpers.shipment_operational import ensure_operational_shipment_tables
+from task_engine import TaskEngine
+from task_engine.repository import ensure_task_engine_tables
 
 
 router = APIRouter(prefix=settings.API_SLUG, tags=["Tasks"])
 
 OPEN_STATUSES = ("PENDING", "ASSIGNED", "IN_PROGRESS", "ESCALATED")
-DEFAULT_ROLE_ID = "India Logistics"
 TASKS_READY = False
 ACTIVITY_CODE_TO_SLA_TYPE = {
     "documents.upload": "upload_document",
@@ -89,7 +89,13 @@ def _user_role(user: Any) -> str:
         return str(primary)
     role = getattr(user, "role", None)
     value = getattr(role, "value", None) or role
-    return str(value or DEFAULT_ROLE_ID)
+    return str(value or "")
+
+
+def _role_display_name(role_id: str | None) -> str | None:
+    if not role_id:
+        return None
+    return str(role_id).replace("_", " ").replace("-", " ").title()
 
 
 def _notification_type_for_task(task: dict[str, Any]) -> str:
@@ -102,11 +108,19 @@ def _notification_type_for_task(task: dict[str, Any]) -> str:
     return "info"
 
 
+def _role_key_sql(expr: str) -> str:
+    return f"LOWER(REGEXP_REPLACE(COALESCE({expr}, ''), '[^A-Za-z0-9]+', '_', 'g'))"
+
+
+def _role_matches_param_sql(expr: str, param_ref: str) -> str:
+    return f"{_role_key_sql(expr)} = {_role_key_sql(param_ref)}"
+
+
 def _notification_recipient_clause(alias: str = "n") -> str:
     prefix = f'{alias}.' if alias else ""
     return (
         f'({prefix}"recipient_user_id" = $1 '
-        f'OR ({prefix}"recipient_user_id" IS NULL AND {prefix}"recipient_role" = $2))'
+        f'OR ({prefix}"recipient_user_id" IS NULL AND {_role_matches_param_sql(f'{prefix}"recipient_role"', "$2")}))'
     )
 
 
@@ -123,195 +137,11 @@ async def _has_escalation_config_table(prisma) -> bool:
     return bool(rows and rows[0].get("table_name"))
 
 
-async def _has_table(prisma, qualified_name: str) -> bool:
-    rows = await _query_raw(
-        prisma,
-        "SELECT to_regclass($1)::text AS table_name",
-        qualified_name,
-    )
-    return bool(rows and rows[0].get("table_name"))
-
-
-async def _sla_config_for_activity(prisma, activity_type: str) -> dict[str, Any] | None:
-    if not await _has_escalation_config_table(prisma):
-        return None
-    rows = await _query_raw(
-        prisma,
-        """
-        SELECT
-          "id", "activity_type", "base_sla_hours", "reminder_pct",
-          "warning_pct", "escalation_pct", "blocker_pct", "task_enabled",
-          "task_message", "channels", "targets"
-        FROM "public"."escalation_configs"
-        WHERE LOWER("activity_type") = LOWER($1)
-          AND "base_sla_hours" > 0
-          AND COALESCE("task_enabled", TRUE) IS TRUE
-        ORDER BY
-          CASE WHEN COALESCE("scope", '') = '' THEN 1 ELSE 0 END,
-          "id" ASC
-        LIMIT 1
-        """,
-        activity_type,
-    )
-    return rows[0] if rows else None
-
-
-async def _validation_sla_config(prisma) -> dict[str, Any] | None:
-    if not await _has_escalation_config_table(prisma):
-        return None
-    rows = await _query_raw(
-        prisma,
-        """
-        SELECT
-          "id", "activity_type", "base_sla_hours", "reminder_pct",
-          "warning_pct", "escalation_pct", "blocker_pct", "task_enabled",
-          "task_message", "channels", "targets"
-        FROM "public"."escalation_configs"
-        WHERE LOWER("activity_type") = 'resolve_validation_failure'
-          AND "base_sla_hours" > 0
-          AND COALESCE("task_enabled", TRUE) IS TRUE
-          AND COALESCE(NULLIF(TRIM("base_doc"), ''), 'Doc names') <> 'Doc names'
-          AND LOWER(COALESCE(NULLIF(TRIM("scope"), ''), 'validation')) NOT IN ('validation', 'document', 'generated documents')
-        ORDER BY "id" ASC
-        LIMIT 1
-        """,
-    )
-    return rows[0] if rows else None
-
-
 async def _ensure_tables(prisma) -> None:
     global TASKS_READY
     if TASKS_READY:
         return
-    await ensure_operational_shipment_tables(prisma)
-    await _execute_raw(
-        prisma,
-        """
-        CREATE TABLE IF NOT EXISTS "public"."escalation_configs" (
-          "id" TEXT PRIMARY KEY,
-          "activity_type" TEXT NOT NULL,
-          "activity_name" TEXT NOT NULL,
-          "description" TEXT NOT NULL DEFAULT '',
-          "scope" TEXT NOT NULL DEFAULT '',
-          "base_doc" TEXT NOT NULL DEFAULT '',
-          "base_sla_hours" DOUBLE PRECISION NOT NULL DEFAULT 24,
-          "reminder_pct" INTEGER NOT NULL DEFAULT 0,
-          "warning_pct" INTEGER NOT NULL DEFAULT 50,
-          "escalation_pct" INTEGER NOT NULL DEFAULT 75,
-          "blocker_pct" INTEGER NOT NULL DEFAULT 100,
-          "task_enabled" BOOLEAN NOT NULL DEFAULT TRUE,
-          "trigger_category" TEXT,
-          "trigger_logic" TEXT,
-          "task_message" TEXT,
-          "reminder_message" TEXT,
-          "warning_message" TEXT,
-          "escalation_message" TEXT,
-          "blocker_message" TEXT,
-          "reminder_trigger" TEXT,
-          "warning_trigger" TEXT,
-          "escalation_trigger" TEXT,
-          "blocker_trigger" TEXT,
-          "channels" JSONB NOT NULL DEFAULT '{}'::jsonb,
-          "targets" JSONB NOT NULL DEFAULT '{}'::jsonb,
-          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """,
-    )
-    await _execute_raw(prisma, 'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "task_enabled" BOOLEAN NOT NULL DEFAULT TRUE')
-    await _execute_raw(prisma, 'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "trigger_category" TEXT')
-    await _execute_raw(prisma, 'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "trigger_logic" TEXT')
-    await _execute_raw(prisma, 'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "task_message" TEXT')
-    await _execute_raw(prisma, 'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "reminder_message" TEXT')
-    await _execute_raw(prisma, 'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "warning_message" TEXT')
-    await _execute_raw(prisma, 'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "escalation_message" TEXT')
-    await _execute_raw(prisma, 'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "blocker_message" TEXT')
-    await _execute_raw(prisma, 'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "reminder_trigger" TEXT')
-    await _execute_raw(prisma, 'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "warning_trigger" TEXT')
-    await _execute_raw(prisma, 'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "escalation_trigger" TEXT')
-    await _execute_raw(prisma, 'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "blocker_trigger" TEXT')
-    await _execute_raw(prisma, 'CREATE INDEX IF NOT EXISTS "idx_escalation_configs_activity_type" ON "public"."escalation_configs"("activity_type")')
-    await _execute_raw(
-        prisma,
-        """
-        CREATE TABLE IF NOT EXISTS "public"."task_instances" (
-          "id" UUID PRIMARY KEY,
-          "title" TEXT NOT NULL,
-          "description" TEXT,
-          "category" TEXT NOT NULL DEFAULT 'General',
-          "activity_code" TEXT NOT NULL DEFAULT 'TSK-001',
-          "status" TEXT NOT NULL DEFAULT 'ASSIGNED',
-          "urgency" TEXT NOT NULL DEFAULT 'NORMAL',
-          "assigned_role" TEXT,
-          "assigned_user_id" TEXT,
-          "shipment_id" UUID,
-          "entity_type" TEXT,
-          "entity_id" TEXT,
-          "parent_task_id" UUID,
-          "sla_deadline" TIMESTAMPTZ,
-          "started_at" TIMESTAMPTZ,
-          "completed_at" TIMESTAMPTZ,
-          "escalation_level" INTEGER NOT NULL DEFAULT 0,
-          "escalation_type" TEXT,
-          "metadata" JSONB NOT NULL DEFAULT '{}'::jsonb,
-          "source_key" TEXT,
-          "created_by" TEXT,
-          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """,
-    )
-    await _execute_raw(prisma, 'ALTER TABLE "public"."task_instances" ADD COLUMN IF NOT EXISTS "metadata" JSONB NOT NULL DEFAULT \'{}\'::jsonb')
-    await _execute_raw(prisma, 'ALTER TABLE "public"."task_instances" ADD COLUMN IF NOT EXISTS "escalation_level" INTEGER NOT NULL DEFAULT 0')
-    await _execute_raw(prisma, 'ALTER TABLE "public"."task_instances" ADD COLUMN IF NOT EXISTS "escalation_type" TEXT')
-    await _execute_raw(prisma, 'ALTER TABLE "public"."task_instances" ADD COLUMN IF NOT EXISTS "source_key" TEXT')
-    await _execute_raw(
-        prisma,
-        """
-        CREATE TABLE IF NOT EXISTS "public"."notifications" (
-          "id" UUID PRIMARY KEY,
-          "type" TEXT NOT NULL DEFAULT 'info',
-          "title" TEXT NOT NULL,
-          "message" TEXT,
-          "link" TEXT,
-          "read" BOOLEAN NOT NULL DEFAULT FALSE,
-          "recipient_user_id" TEXT,
-          "recipient_role" TEXT,
-          "task_id" UUID,
-          "source" TEXT NOT NULL DEFAULT 'task',
-          "dedupe_key" TEXT UNIQUE,
-          "metadata" JSONB NOT NULL DEFAULT '{}'::jsonb,
-          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """,
-    )
-    await _execute_raw(
-        prisma,
-        """
-        CREATE TABLE IF NOT EXISTS "public"."activity_task_events" (
-          "id" UUID PRIMARY KEY,
-          "activity_type" TEXT NOT NULL,
-          "title" TEXT,
-          "description" TEXT,
-          "category" TEXT NOT NULL DEFAULT 'General',
-          "urgency" TEXT NOT NULL DEFAULT 'NORMAL',
-          "assigned_role" TEXT,
-          "assigned_user_id" TEXT,
-          "shipment_id" UUID,
-          "entity_type" TEXT,
-          "entity_id" TEXT,
-          "scope" TEXT,
-          "metadata" JSONB NOT NULL DEFAULT '{}'::jsonb,
-          "source_key" TEXT UNIQUE,
-          "created_by" TEXT,
-          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          "processed_at" TIMESTAMPTZ
-        )
-        """,
-    )
-    await _execute_raw(prisma, 'CREATE INDEX IF NOT EXISTS "idx_task_instances_open" ON "public"."task_instances"("status", "assigned_role", "assigned_user_id")')
-    await _execute_raw(prisma, 'CREATE UNIQUE INDEX IF NOT EXISTS "idx_task_instances_source_key" ON "public"."task_instances"("source_key") WHERE "source_key" IS NOT NULL')
-    await _execute_raw(prisma, 'CREATE INDEX IF NOT EXISTS "idx_notifications_recipient" ON "public"."notifications"("recipient_user_id", "recipient_role", "read", "created_at")')
+    await ensure_task_engine_tables(prisma)
     TASKS_READY = True
 
 
@@ -398,549 +228,21 @@ async def _insert_notification(
     )
 
 
-async def _sync_ocr_validation_tasks(prisma) -> None:
-    table_rows = await _query_raw(
-        prisma,
-        "SELECT to_regclass('document_module.validation_tasks')::text AS table_name",
-    )
-    if not table_rows or not table_rows[0].get("table_name"):
-        return
-
-    sla_config = await _validation_sla_config(prisma)
-    if not sla_config:
-        return
-
-    await _execute_raw(
-        prisma,
-        """
-        INSERT INTO "public"."task_instances" (
-          "id", "title", "description", "category", "activity_code", "status", "urgency",
-          "assigned_role", "shipment_id", "entity_type", "entity_id", "sla_deadline",
-          "metadata", "source_key", "created_by", "created_at", "updated_at"
-        )
-        SELECT
-          (
-            substr(md5('ocr-validation-task:' || vt."id"), 1, 8) || '-' ||
-            substr(md5('ocr-validation-task:' || vt."id"), 9, 4) || '-' ||
-            substr(md5('ocr-validation-task:' || vt."id"), 13, 4) || '-' ||
-            substr(md5('ocr-validation-task:' || vt."id"), 17, 4) || '-' ||
-            substr(md5('ocr-validation-task:' || vt."id"), 21, 12)
-          )::uuid,
-          vt."title",
-          vt."description",
-          'Validation',
-          'resolve_validation_failure',
-          CASE WHEN vt."status" = 'RESOLVED' THEN 'COMPLETED' ELSE 'ASSIGNED' END,
-          CASE WHEN UPPER(vt."alert_level") = 'BLOCKER' THEN 'BLOCKER' ELSE 'WARNING' END,
-          COALESCE(NULLIF(vt."assigned_role", ''), $1),
-          CASE
-            WHEN vt."shipment_id" ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-            THEN vt."shipment_id"::uuid
-            ELSE NULL
-          END,
-          'validation_result',
-          COALESCE(vt."validation_result_id", vt."document_id"),
-          vt."created_at" + ($2::double precision * INTERVAL '1 hour'),
-          jsonb_build_object(
-            'module', 'documents',
-            'source', 'ocr_validation',
-            'ocrTaskId', vt."id",
-            'shipmentReference', vt."shipment_id",
-            'documentId', vt."document_id",
-            'validationResultId', vt."validation_result_id",
-            'ruleCode', vt."rule_code",
-            'alertLevel', vt."alert_level"
-          ),
-          'ocr-validation-task:' || vt."id",
-          vt."created_by",
-          vt."created_at",
-          vt."updated_at"
-        FROM "document_module"."validation_tasks" vt
-        ON CONFLICT ("source_key") WHERE "source_key" IS NOT NULL DO UPDATE SET
-          "title" = EXCLUDED."title",
-          "description" = EXCLUDED."description",
-          "activity_code" = EXCLUDED."activity_code",
-          "status" = EXCLUDED."status",
-          "urgency" = EXCLUDED."urgency",
-          "assigned_role" = EXCLUDED."assigned_role",
-          "shipment_id" = EXCLUDED."shipment_id",
-          "entity_id" = EXCLUDED."entity_id",
-          "sla_deadline" = EXCLUDED."sla_deadline",
-          "metadata" = EXCLUDED."metadata",
-          "updated_at" = EXCLUDED."updated_at"
-        """,
-        DEFAULT_ROLE_ID,
-        float(sla_config.get("base_sla_hours") or 0),
-    )
-    task_rows = await _query_raw(
-        prisma,
-        """
-        SELECT
-          t."id"::text AS id, t."title", t."description", t."status", t."urgency",
-          t."assigned_role", t."assigned_user_id", t."source_key"
-        FROM "public"."task_instances" t
-        WHERE t."source_key" LIKE 'ocr-validation-task:%'
-          AND t."status" = ANY($1::text[])
-        """,
-        list(OPEN_STATUSES),
-    )
-    for task in task_rows:
-        await _insert_notification(
-            prisma,
-            task=task,
-            title=f"OCR validation task: {task.get('title')}",
-            message=task.get("description") or "OCR validation found a mismatch that needs review.",
-            source="ocr_validation_task",
-            dedupe_key=f"notification:{task.get('source_key')}",
-        )
-
-
-async def _sync_document_status_tasks(
-    prisma,
-    *,
-    activity_type: str,
-    statuses: list[str],
-    title: str,
-    description: str,
-    category: str,
-) -> None:
-    if not statuses or not await _has_table(prisma, "public.documents"):
-        return
-    sla_config = await _sla_config_for_activity(prisma, activity_type)
-    if not sla_config:
-        return
-    source_prefix = f"document-status:{activity_type}:"
-    await _execute_raw(
-        prisma,
-        """
-        INSERT INTO "public"."task_instances" (
-          "id", "title", "description", "category", "activity_code", "status", "urgency",
-          "assigned_role", "entity_type", "entity_id", "sla_deadline",
-          "metadata", "source_key", "created_by", "created_at", "updated_at"
-        )
-        SELECT
-          (
-            substr(md5($1 || d."id"::text), 1, 8) || '-' ||
-            substr(md5($1 || d."id"::text), 9, 4) || '-' ||
-            substr(md5($1 || d."id"::text), 13, 4) || '-' ||
-            substr(md5($1 || d."id"::text), 17, 4) || '-' ||
-            substr(md5($1 || d."id"::text), 21, 12)
-          )::uuid,
-          $2 || ': ' || d."doc_type"::text,
-          $3,
-          $4,
-          $5,
-          'ASSIGNED',
-          'NORMAL',
-          $6,
-          'document',
-          d."id"::text,
-          d."updated_at" + ($7::double precision * INTERVAL '1 hour'),
-          jsonb_build_object(
-            'module', 'documents',
-            'source', 'document_status',
-            'documentId', d."id"::text,
-            'docType', d."doc_type"::text,
-            'documentStatus', d."status"::text
-          ),
-          $1 || d."id"::text,
-          COALESCE(d."uploaded_by", 'system'),
-          d."updated_at",
-          NOW()
-        FROM "public"."documents" d
-        WHERE d."is_deleted" IS FALSE
-          AND d."status"::text = ANY($8::text[])
-        ON CONFLICT ("source_key") WHERE "source_key" IS NOT NULL DO UPDATE SET
-          "title" = EXCLUDED."title",
-          "description" = EXCLUDED."description",
-          "sla_deadline" = EXCLUDED."sla_deadline",
-          "metadata" = EXCLUDED."metadata",
-          "updated_at" = NOW()
-        """,
-        source_prefix,
-        title,
-        description,
-        category,
-        activity_type,
-        DEFAULT_ROLE_ID,
-        float(sla_config.get("base_sla_hours") or 0),
-        statuses,
-    )
-    await _execute_raw(
-        prisma,
-        """
-        UPDATE "public"."task_instances" t
-        SET "status" = 'COMPLETED', "completed_at" = COALESCE(t."completed_at", NOW()), "updated_at" = NOW()
-        WHERE t."source_key" LIKE $1
-          AND t."status" = ANY($2::text[])
-          AND NOT EXISTS (
-            SELECT 1
-            FROM "public"."documents" d
-            WHERE d."id"::text = t."entity_id"
-              AND d."is_deleted" IS FALSE
-              AND d."status"::text = ANY($3::text[])
-          )
-        """,
-        f"{source_prefix}%",
-        list(OPEN_STATUSES),
-        statuses,
-    )
-
-
-async def _sync_missing_upload_tasks(prisma) -> None:
-    if not (
-        await _has_table(prisma, "public.shipment_gates")
-        and await _has_table(prisma, "public.gate_configs")
-        and await _has_table(prisma, "public.doc_type_gates")
-        and await _has_table(prisma, "public.documents")
-    ):
-        return
-    if not await _sla_config_for_activity(prisma, "upload_document"):
-        return
-    source_prefix = "missing-upload:"
-    try:
-        await _execute_raw(
-            prisma,
-            """
-            INSERT INTO "public"."task_instances" (
-              "id", "title", "description", "category", "activity_code", "status", "urgency",
-              "assigned_role", "shipment_id", "entity_type", "entity_id", "sla_deadline",
-              "metadata", "source_key", "created_by", "created_at", "updated_at"
-            )
-            SELECT
-              (
-                substr(md5($1 || sg."shipment_id"::text || ':' || dtg."doc_type"), 1, 8) || '-' ||
-                substr(md5($1 || sg."shipment_id"::text || ':' || dtg."doc_type"), 9, 4) || '-' ||
-                substr(md5($1 || sg."shipment_id"::text || ':' || dtg."doc_type"), 13, 4) || '-' ||
-                substr(md5($1 || sg."shipment_id"::text || ':' || dtg."doc_type"), 17, 4) || '-' ||
-                substr(md5($1 || sg."shipment_id"::text || ':' || dtg."doc_type"), 21, 12)
-              )::uuid,
-              'Upload document: ' || dtg."doc_type",
-              'Required shipment document has not been uploaded yet.',
-              'Documents',
-              'upload_document',
-              'ASSIGNED',
-              'NORMAL',
-              $2,
-              sg."shipment_id",
-              'shipment_document',
-              dtg."doc_type",
-              sg."updated_at" + (ec."base_sla_hours" * INTERVAL '1 hour'),
-              jsonb_build_object(
-                'module', 'documents',
-                'source', 'missing_upload',
-                'shipmentId', sg."shipment_id"::text,
-                'gateId', sg."id"::text,
-                'gateConfigId', sg."gate_config_id"::text,
-                'docType', dtg."doc_type",
-                'gateNumber', gc."gate_number"
-              ),
-              $1 || sg."shipment_id"::text || ':' || dtg."doc_type",
-              'system',
-              sg."updated_at",
-              NOW()
-            FROM "public"."shipment_gates" sg
-            JOIN "public"."gate_configs" gc ON gc."id" = sg."gate_config_id"
-            JOIN "public"."doc_type_gates" dtg ON dtg."gate_config_id" = gc."id"
-            JOIN LATERAL (
-              SELECT "base_sla_hours"
-              FROM "public"."escalation_configs" ec
-              WHERE LOWER(ec."activity_type") = 'upload_document'
-                AND ec."base_sla_hours" > 0
-                AND COALESCE(ec."task_enabled", TRUE) IS TRUE
-                AND (
-                  COALESCE(NULLIF(TRIM(ec."scope"), ''), '') = ''
-                  OR LOWER(ec."scope") = LOWER(dtg."doc_type")
-                  OR LOWER(ec."base_doc") = LOWER(dtg."doc_type")
-                )
-              ORDER BY
-                CASE
-                  WHEN LOWER(ec."scope") = LOWER(dtg."doc_type") OR LOWER(ec."base_doc") = LOWER(dtg."doc_type") THEN 0
-                  ELSE 1
-                END,
-                ec."id" ASC
-              LIMIT 1
-            ) ec ON TRUE
-            WHERE sg."status" = 'OPEN'
-              AND COALESCE(dtg."role_in_gate"::text, '') <> 'PARALLEL'
-              AND COALESCE(dtg."is_generated", false) IS FALSE
-              AND NOT EXISTS (
-                SELECT 1
-                FROM "public"."documents" d
-                WHERE d."shipment_id" = sg."shipment_id"
-                  AND COALESCE(d."is_deleted", false) IS FALSE
-                  AND (
-                    d."doc_type"::text = dtg."doc_type"
-                    OR COALESCE(d."document_type"::text, '') = dtg."doc_type"
-                  )
-              )
-            ON CONFLICT ("source_key") WHERE "source_key" IS NOT NULL DO UPDATE SET
-              "title" = EXCLUDED."title",
-              "description" = EXCLUDED."description",
-              "sla_deadline" = EXCLUDED."sla_deadline",
-              "metadata" = EXCLUDED."metadata",
-              "updated_at" = NOW()
-            """,
-            source_prefix,
-            DEFAULT_ROLE_ID,
-        )
-        await _execute_raw(
-            prisma,
-            """
-            UPDATE "public"."task_instances" t
-            SET "status" = 'COMPLETED', "completed_at" = COALESCE(t."completed_at", NOW()), "updated_at" = NOW()
-            WHERE t."source_key" LIKE $1
-              AND t."status" = ANY($2::text[])
-              AND EXISTS (
-                SELECT 1
-                FROM "public"."documents" d
-                WHERE d."shipment_id" = t."shipment_id"
-                  AND COALESCE(d."is_deleted", false) IS FALSE
-                  AND (
-                    d."doc_type"::text = t."entity_id"
-                    OR COALESCE(d."document_type"::text, '') = t."entity_id"
-                  )
-              )
-            """,
-            f"{source_prefix}%",
-            list(OPEN_STATUSES),
-        )
-    except Exception:
-        return
-
-
-async def _sync_docgen_review_tasks(prisma) -> None:
-    if not await _has_table(prisma, "docgen.drafts"):
-        return
-    activity_type = "approve_generated_document"
-    sla_config = await _sla_config_for_activity(prisma, activity_type)
-    if not sla_config:
-        return
-    source_prefix = "docgen-draft-review:"
-    await _execute_raw(
-        prisma,
-        """
-        INSERT INTO "public"."task_instances" (
-          "id", "title", "description", "category", "activity_code", "status", "urgency",
-          "assigned_role", "entity_type", "entity_id", "sla_deadline",
-          "metadata", "source_key", "created_by", "created_at", "updated_at"
-        )
-        SELECT
-          (
-            substr(md5($1 || d."id"::text), 1, 8) || '-' ||
-            substr(md5($1 || d."id"::text), 9, 4) || '-' ||
-            substr(md5($1 || d."id"::text), 13, 4) || '-' ||
-            substr(md5($1 || d."id"::text), 17, 4) || '-' ||
-            substr(md5($1 || d."id"::text), 21, 12)
-          )::uuid,
-          'Approve generated document: ' || d."generated_doc_type",
-          'Review and approve the generated document draft.',
-          'Documents',
-          $2,
-          'ASSIGNED',
-          'NORMAL',
-          $3,
-          'docgen_draft',
-          d."id"::text,
-          d."updated_at" + ($4::double precision * INTERVAL '1 hour'),
-          jsonb_build_object(
-            'module', 'documents',
-            'source', 'docgen_review',
-            'draftId', d."id"::text,
-            'generatedDocType', d."generated_doc_type",
-            'draftStatus', d."status"::text
-          ),
-          $1 || d."id"::text,
-          d."created_by",
-          d."updated_at",
-          NOW()
-        FROM "docgen"."drafts" d
-        WHERE d."status"::text = 'IN_REVIEW'
-        ON CONFLICT ("source_key") WHERE "source_key" IS NOT NULL DO UPDATE SET
-          "title" = EXCLUDED."title",
-          "description" = EXCLUDED."description",
-          "sla_deadline" = EXCLUDED."sla_deadline",
-          "metadata" = EXCLUDED."metadata",
-          "updated_at" = NOW()
-        """,
-        source_prefix,
-        activity_type,
-        DEFAULT_ROLE_ID,
-        float(sla_config.get("base_sla_hours") or 0),
-    )
-    await _execute_raw(
-        prisma,
-        """
-        UPDATE "public"."task_instances" t
-        SET "status" = 'COMPLETED', "completed_at" = COALESCE(t."completed_at", NOW()), "updated_at" = NOW()
-        WHERE t."source_key" LIKE $1
-          AND t."status" = ANY($2::text[])
-          AND NOT EXISTS (
-            SELECT 1
-            FROM "docgen"."drafts" d
-            WHERE d."id"::text = t."entity_id"
-              AND d."status"::text = 'IN_REVIEW'
-          )
-        """,
-        f"{source_prefix}%",
-        list(OPEN_STATUSES),
-    )
-
-
-async def _sync_activity_task_events(prisma) -> None:
-    if not await _has_table(prisma, "public.activity_task_events"):
-        return
-    await _execute_raw(
-        prisma,
-        """
-        INSERT INTO "public"."task_instances" (
-          "id", "title", "description", "category", "activity_code", "status", "urgency",
-          "assigned_role", "assigned_user_id", "shipment_id", "entity_type", "entity_id",
-          "sla_deadline", "metadata", "source_key", "created_by", "created_at", "updated_at"
-        )
-        SELECT
-          (
-            substr(md5('activity-task-event:' || e."id"::text), 1, 8) || '-' ||
-            substr(md5('activity-task-event:' || e."id"::text), 9, 4) || '-' ||
-            substr(md5('activity-task-event:' || e."id"::text), 13, 4) || '-' ||
-            substr(md5('activity-task-event:' || e."id"::text), 17, 4) || '-' ||
-            substr(md5('activity-task-event:' || e."id"::text), 21, 12)
-          )::uuid,
-          COALESCE(NULLIF(e."title", ''), COALESCE(NULLIF(ec."task_message", ''), ec."activity_name")),
-          e."description",
-          e."category",
-          e."activity_type",
-          'ASSIGNED',
-          e."urgency",
-          COALESCE(NULLIF(e."assigned_role", ''), $1),
-          e."assigned_user_id",
-          e."shipment_id",
-          e."entity_type",
-          e."entity_id",
-          e."created_at" + (ec."base_sla_hours" * INTERVAL '1 hour'),
-          jsonb_build_object('module', 'sla', 'source', 'activity_task_event', 'eventId', e."id"::text)
-            || COALESCE(e."metadata", '{}'::jsonb),
-          COALESCE(e."source_key", 'activity-task-event:' || e."id"::text),
-          COALESCE(e."created_by", 'system'),
-          e."created_at",
-          NOW()
-        FROM "public"."activity_task_events" e
-        JOIN LATERAL (
-          SELECT "activity_name", "base_sla_hours", "task_message"
-          FROM "public"."escalation_configs" ec
-          WHERE LOWER(ec."activity_type") = LOWER(e."activity_type")
-            AND ec."base_sla_hours" > 0
-            AND COALESCE(ec."task_enabled", TRUE) IS TRUE
-            AND (
-              COALESCE(NULLIF(TRIM(e."scope"), ''), '') = ''
-              OR COALESCE(NULLIF(TRIM(ec."scope"), ''), '') = ''
-              OR LOWER(ec."scope") = LOWER(e."scope")
-            )
-          ORDER BY
-            CASE WHEN COALESCE(ec."scope", '') = COALESCE(e."scope", '') THEN 0 ELSE 1 END,
-            ec."id" ASC
-          LIMIT 1
-        ) ec ON TRUE
-        WHERE e."processed_at" IS NULL
-        ON CONFLICT ("source_key") WHERE "source_key" IS NOT NULL DO NOTHING
-        """,
-        DEFAULT_ROLE_ID,
-    )
-    await _execute_raw(
-        prisma,
-        """
-        UPDATE "public"."activity_task_events" e
-        SET "processed_at" = NOW()
-        WHERE e."processed_at" IS NULL
-          AND EXISTS (
-            SELECT 1
-            FROM "public"."escalation_configs" ec
-            WHERE LOWER(ec."activity_type") = LOWER(e."activity_type")
-              AND ec."base_sla_hours" > 0
-              AND COALESCE(ec."task_enabled", TRUE) IS TRUE
-          )
-        """,
-    )
-
-
-async def _sync_configured_activity_tasks(prisma) -> None:
-    await _sync_missing_upload_tasks(prisma)
-    await _sync_document_status_tasks(
-        prisma,
-        activity_type="fill_manual_fields",
-        statuses=["EXTRACTED"],
-        title="Fill manual fields",
-        description="Review extracted document fields and complete any manual inputs.",
-        category="Documents",
-    )
-    await _sync_document_status_tasks(
-        prisma,
-        activity_type="re_upload_document",
-        statuses=["REJECTED"],
-        title="Re-upload document",
-        description="The uploaded document was rejected and needs to be uploaded again.",
-        category="Documents",
-    )
-    await _sync_docgen_review_tasks(prisma)
-    await _sync_activity_task_events(prisma)
-
-
 async def _sync_task_reminders(prisma) -> None:
     await _ensure_tables(prisma)
-    await _sync_ocr_validation_tasks(prisma)
-    await _sync_configured_activity_tasks(prisma)
-    if not await _has_escalation_config_table(prisma):
-        return
-    rows = await _query_raw(
-        prisma,
-        """
-        SELECT
-          t."id"::text AS id, t."title", t."description", t."status", t."urgency",
-          t."assigned_role", t."assigned_user_id", t."created_at", t."sla_deadline",
-          COALESCE(ec."reminder_pct", 0) AS reminder_pct
-        FROM "public"."task_instances" t
-        JOIN LATERAL (
-          SELECT "reminder_pct"
-          FROM "public"."escalation_configs" ec
-          WHERE LOWER(ec."activity_type") = LOWER(t."activity_code")
-            AND ec."base_sla_hours" > 0
-            AND COALESCE(ec."task_enabled", TRUE) IS TRUE
-            AND (
-              LOWER(t."activity_code") <> 'resolve_validation_failure'
-              OR (
-                COALESCE(NULLIF(TRIM(ec."base_doc"), ''), 'Doc names') <> 'Doc names'
-                AND LOWER(COALESCE(NULLIF(TRIM(ec."scope"), ''), 'validation')) NOT IN ('validation', 'document', 'generated documents')
-              )
-            )
-          ORDER BY
-            CASE WHEN COALESCE(ec."scope", '') = '' THEN 1 ELSE 0 END,
-            ec."id" ASC
-          LIMIT 1
-        ) ec ON TRUE
-        WHERE t."status" = ANY($1::text[])
-          AND t."sla_deadline" IS NOT NULL
-          AND COALESCE(ec."reminder_pct", 0) > 0
-          AND NOW() >= (
-            t."created_at" + ((t."sla_deadline" - t."created_at") * (COALESCE(ec."reminder_pct", 0)::double precision / 100.0))
-          )
-        """,
-        list(OPEN_STATUSES),
-    )
-    for task in rows:
-        pct = int(task.get("reminder_pct") or 0)
-        await _insert_notification(
-            prisma,
-            task=task,
-            title=f"Task reminder: {task.get('title')}",
-            message="This task has reached its configured SLA reminder threshold.",
-            source="task_reminder",
-            dedupe_key=f"task-reminder:{task['id']}:{pct}",
-        )
+    try:
+        await TaskEngine(prisma).sync_runtime()
+    except Exception as exc:
+        print(f"[task-engine] warning: task engine sync failed: {exc}", flush=True)
 
 
 def _task_row(row: dict[str, Any]) -> dict[str, Any]:
     metadata = _json(row.get("metadata"), {}) or {}
+    bol_number = row.get("bol_number")
     shipment_number = row.get("shipment_number")
+    shipment_ref = bol_number or shipment_number
+    assigned_role = row.get("assigned_role")
+    assigned_role_name = row.get("assigned_role_name") or _role_display_name(assigned_role)
     return {
         "id": str(row.get("id")),
         "title": row.get("title") or "",
@@ -949,11 +251,19 @@ def _task_row(row: dict[str, Any]) -> dict[str, Any]:
         "activityCode": row.get("activity_code") or "TSK-001",
         "status": row.get("status") or "ASSIGNED",
         "urgency": row.get("urgency") or "NORMAL",
-        "assignedRole": row.get("assigned_role"),
+        "assignedRole": assigned_role,
+        "assignedRoleName": assigned_role_name,
         "assignedUserId": row.get("assigned_user_id"),
         "assignedUser": None,
         "shipmentId": str(row.get("shipment_id")) if row.get("shipment_id") else None,
-        "shipment": {"shipmentNumber": shipment_number, "currentStageName": row.get("current_stage_name")} if shipment_number else None,
+        "shipmentRef": shipment_ref,
+        "bolNumber": bol_number,
+        "shipment": {
+            "shipmentNumber": shipment_ref,
+            "bolNumber": bol_number,
+            "systemShipmentNumber": shipment_number,
+            "currentStageName": row.get("current_stage_name"),
+        } if shipment_ref else None,
         "entityType": row.get("entity_type"),
         "entityId": row.get("entity_id"),
         "parentTaskId": str(row.get("parent_task_id")) if row.get("parent_task_id") else None,
@@ -985,7 +295,9 @@ def _notification_row(row: dict[str, Any]) -> dict[str, Any]:
         "createdAt": created,
         "timestamp": created,
         "taskId": str(row.get("task_id")) if row.get("task_id") else None,
-        "shipmentId": row.get("shipment_number") or "",
+        "shipmentId": row.get("bol_number") or row.get("shipment_number") or "",
+        "shipmentRef": row.get("bol_number") or row.get("shipment_number") or "",
+        "bolNumber": row.get("bol_number"),
         "metadata": _json(row.get("metadata"), {}) or {},
     }
 
@@ -1018,15 +330,16 @@ async def _task_rows(prisma, where: str = "", *params, limit: int = 500, offset:
         SELECT
           t.*, t."id"::text AS id, t."shipment_id"::text AS shipment_id,
           t."parent_task_id"::text AS parent_task_id,
-          s."shipment_number", s."current_stage_name",
+          s."shipment_number", s."bol_number", s."current_stage_name",
+          NULL::text AS assigned_role_name,
           p."title" AS parent_title
         FROM "public"."task_instances" t
         LEFT JOIN "public"."shipments" s ON s."id" = t."shipment_id"
         LEFT JOIN "public"."task_instances" p ON p."id" = t."parent_task_id"
         {effective_where}
         ORDER BY
-          CASE t."urgency" WHEN 'BLOCKER' THEN 0 WHEN 'WARNING' THEN 1 ELSE 2 END,
-          t."created_at" DESC
+          t."created_at" DESC,
+          CASE t."urgency" WHEN 'BLOCKER' THEN 0 WHEN 'WARNING' THEN 1 ELSE 2 END
         LIMIT {safe_limit}
         OFFSET {safe_offset}
         """,
@@ -1055,13 +368,14 @@ def _current_scope_where(scope: str, user: Any, base: list[str], params: list[An
         return
     if scope == "team":
         params.append(_user_role(user))
-        base.append(f't."assigned_role" = ${len(params)}')
+        base.append(_role_matches_param_sql('t."assigned_role"', f'${len(params)}'))
         return
     params.append(_user_id(user))
     user_idx = len(params)
     params.append(_user_role(user))
     role_idx = len(params)
-    base.append(f'(t."assigned_user_id" = ${user_idx} OR (t."assigned_user_id" IS NULL AND t."assigned_role" = ${role_idx}))')
+    role_clause = _role_matches_param_sql('t."assigned_role"', f'${role_idx}')
+    base.append(f'(t."assigned_user_id" = ${user_idx} OR (t."assigned_user_id" IS NULL AND {role_clause}))')
 
 
 @router.get("/tasks")
@@ -1097,6 +411,7 @@ async def list_tasks(
               OR LOWER(COALESCE(t."description", '')) LIKE ${len(params)}
               OR LOWER(COALESCE(t."activity_code", '')) LIKE ${len(params)}
               OR LOWER(COALESCE(s."shipment_number", '')) LIKE ${len(params)}
+              OR LOWER(COALESCE(s."bol_number", '')) LIKE ${len(params)}
             )"""
         )
     if shipmentId:
@@ -1104,7 +419,7 @@ async def list_tasks(
         clauses.append(f't."shipment_id" = ${len(params)}::uuid')
     if assignedRoleId:
         params.append(assignedRoleId)
-        clauses.append(f't."assigned_role" = ${len(params)}')
+        clauses.append(_role_matches_param_sql('t."assigned_role"', f'${len(params)}'))
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     safe_page, safe_page_size, offset = _pagination(page, pageSize)
     total = await _task_total(prisma, where, *params)
@@ -1192,7 +507,7 @@ async def task_count(user=Depends(get_current_user)):
         FROM "public"."task_instances"
         WHERE "status" = ANY($1::text[])
           AND {_sla_task_clause("")}
-          AND ("assigned_user_id" = $2 OR ("assigned_user_id" IS NULL AND "assigned_role" = $3))
+          AND ("assigned_user_id" = $2 OR ("assigned_user_id" IS NULL AND LOWER(REGEXP_REPLACE(COALESCE("assigned_role", ''), '[^A-Za-z0-9]+', '_', 'g')) = LOWER(REGEXP_REPLACE(COALESCE($3, ''), '[^A-Za-z0-9]+', '_', 'g'))))
         """,
         list(OPEN_STATUSES),
         user_id,
@@ -1217,8 +532,8 @@ async def task_summary(user=Depends(get_current_user)):
           COUNT(*) FILTER (WHERE "urgency" = 'WARNING') AS warnings,
           COUNT(*) FILTER (WHERE "urgency" = 'NORMAL') AS normal,
           COUNT(*) FILTER (WHERE "status" = 'ESCALATED') AS escalated,
-          COUNT(*) FILTER (WHERE "assigned_user_id" = $2 OR ("assigned_user_id" IS NULL AND "assigned_role" = $3)) AS my_count,
-          COUNT(*) FILTER (WHERE "assigned_role" = $3) AS team_count
+          COUNT(*) FILTER (WHERE "assigned_user_id" = $2 OR ("assigned_user_id" IS NULL AND LOWER(REGEXP_REPLACE(COALESCE("assigned_role", ''), '[^A-Za-z0-9]+', '_', 'g')) = LOWER(REGEXP_REPLACE(COALESCE($3, ''), '[^A-Za-z0-9]+', '_', 'g')))) AS my_count,
+          COUNT(*) FILTER (WHERE LOWER(REGEXP_REPLACE(COALESCE("assigned_role", ''), '[^A-Za-z0-9]+', '_', 'g')) = LOWER(REGEXP_REPLACE(COALESCE($3, ''), '[^A-Za-z0-9]+', '_', 'g'))) AS team_count
         FROM "public"."task_instances"
         WHERE "status" = ANY($1::text[])
           AND {_sla_task_clause("")}
@@ -1242,9 +557,27 @@ async def task_summary(user=Depends(get_current_user)):
 @router.get("/tasks/roles")
 async def task_roles(_user=Depends(get_current_user), minLevel: int | None = None):
     prisma = await get_prisma()
-    rows = await _query_raw(prisma, 'SELECT "id", "name", "system_role"::text AS role FROM "auth"."users" WHERE "is_active" = TRUE ORDER BY "name"')
-    roles = sorted({DEFAULT_ROLE_ID, *[str(row.get("role") or "") for row in rows if row.get("role")]})
-    return {"ok": True, "data": [{"id": role, "name": role.replace("_", " ").title(), "roleCode": role, "roleName": role.replace("_", " ").title()} for role in roles]}
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT DISTINCT role
+        FROM (
+          SELECT NULLIF("targets"->>'assignedRole', '') AS role FROM "public"."escalation_configs"
+          UNION
+          SELECT NULLIF("targets"->>'assignedRoleId', '') AS role FROM "public"."escalation_configs"
+          UNION
+          SELECT NULLIF("targets"->>'roleId', '') AS role FROM "public"."escalation_configs"
+          UNION
+          SELECT NULLIF("targets"->>'role', '') AS role FROM "public"."escalation_configs"
+          UNION
+          SELECT NULLIF("system_role"::text, '') AS role FROM "auth"."users" WHERE "is_active" = TRUE
+        ) source
+        WHERE role IS NOT NULL
+        ORDER BY role
+        """,
+    )
+    roles = [str(row.get("role") or "").strip() for row in rows if str(row.get("role") or "").strip()]
+    return {"ok": True, "data": [{"id": role, "name": role.replace("_", " ").replace("-", " ").title(), "roleCode": role, "roleName": role.replace("_", " ").replace("-", " ").title()} for role in roles]}
 
 
 @router.get("/tasks/users")
@@ -1308,7 +641,7 @@ async def task_analytics(_user=Depends(get_current_user)):
         f"""
         SELECT
           t."shipment_id"::text AS shipment_id,
-          COALESCE(s."shipment_number", t."shipment_id"::text) AS shipment_number,
+          COALESCE(s."bol_number", s."shipment_number", t."shipment_id"::text) AS shipment_number,
           s."current_stage_name",
           COUNT(*) FILTER (WHERE t."urgency" = 'BLOCKER') AS blockers,
           COUNT(*) FILTER (WHERE t."urgency" = 'WARNING') AS warnings,
@@ -1317,7 +650,7 @@ async def task_analytics(_user=Depends(get_current_user)):
         LEFT JOIN "public"."shipments" s ON s."id" = t."shipment_id"
         WHERE t."status" = ANY($1::text[]) AND t."shipment_id" IS NOT NULL
           AND {_sla_task_clause("t")}
-        GROUP BY t."shipment_id", s."shipment_number", s."current_stage_name"
+        GROUP BY t."shipment_id", s."bol_number", s."shipment_number", s."current_stage_name"
         ORDER BY blockers DESC, oldest_task_age_days DESC
         LIMIT 20
         """,
@@ -1512,7 +845,7 @@ async def list_notifications(
     rows = await _query_raw(
         prisma,
         f"""
-        SELECT n.*, s."shipment_number"
+        SELECT n.*, s."shipment_number", s."bol_number"
         FROM "public"."notifications" n
         LEFT JOIN "public"."task_instances" t ON t."id" = n."task_id"
         LEFT JOIN "public"."shipments" s ON s."id" = t."shipment_id"
@@ -1614,7 +947,7 @@ async def navigation_badges(user=Depends(get_current_user)):
         FROM "public"."task_instances"
         WHERE "status" = ANY($1::text[])
           AND {_sla_task_clause("")}
-          AND ("assigned_user_id" = $2 OR ("assigned_user_id" IS NULL AND "assigned_role" = $3))
+          AND ("assigned_user_id" = $2 OR ("assigned_user_id" IS NULL AND LOWER(REGEXP_REPLACE(COALESCE("assigned_role", ''), '[^A-Za-z0-9]+', '_', 'g')) = LOWER(REGEXP_REPLACE(COALESCE($3, ''), '[^A-Za-z0-9]+', '_', 'g'))))
         """,
         list(OPEN_STATUSES),
         user_id,

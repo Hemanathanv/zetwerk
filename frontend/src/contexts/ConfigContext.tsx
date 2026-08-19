@@ -133,11 +133,31 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   const [state, setState] = useState<ConfigState>(initialState);
 
+  const normalizeTaskRole = (role: any): ConfigRole => ({
+    id: role.id || role.roleCode || role.name,
+    name: role.name || role.roleName || role.id,
+    description: role.description || '',
+    roleCategory: role.roleCategory || 'INTERNAL_SPECIALIST',
+    isSystemDefault: Boolean(role.isSystemDefault),
+    color: role.color || '#0d9488',
+    allowedLevels: role.allowedLevels || [],
+    defaultModules: role.defaultModules || [],
+    defaultDataScope: role.defaultDataScope || 'TEAM',
+    documentScope: role.documentScope || [],
+    docTypeScopes: role.docTypeScopes || {},
+    ...(role.systemCode ? { systemCode: role.systemCode } : {}),
+  } as ConfigRole);
+
   const refreshRoles = useCallback(async () => {
     try {
       const r = await apiGet<any>('/api/admin/roles');
       setState(s => ({ ...s, roles: r.data ?? [] }));
-    } catch { /* silent */ }
+    } catch {
+      try {
+        const r = await apiGet<any>('/api/tasks/roles');
+        setState(s => ({ ...s, roles: (r.data ?? []).map(normalizeTaskRole) }));
+      } catch { /* silent */ }
+    }
   }, []);
 
   const refreshOrganisations = useCallback(async () => {
@@ -189,7 +209,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const refreshAll = useCallback(async () => {
     setState(s => ({ ...s, loading: true, error: null }));
     const [
-      roles,
+      adminRoles,
+      taskRoles,
       organisations,
       teams,
       templates,
@@ -199,7 +220,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       modules,
       activities,
     ] = await Promise.all([
-      settleConfig<ConfigRole[]>(apiGet<any>('/api/admin/roles'), []),
+      settleConfig<any>(apiGet<any>('/api/admin/roles'), null),
+      settleConfig<any>(apiGet<any>('/api/tasks/roles'), []),
       settleConfig<ConfigOrg[]>(apiGet<any>('/api/admin/organisations'), []),
       settleConfig<ConfigTeam[]>(apiGet<any>('/api/admin/teams'), []),
       settleConfig<ConfigTemplate[]>(apiGet<any>('/api/admin/templates'), []),
@@ -209,6 +231,9 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       settleConfig<ConfigModule[]>(apiGet<any>('/api/admin/registries/modules'), []),
       settleConfig<ConfigActivity[]>(apiGet<any>('/api/admin/activities'), []),
     ]);
+    const roles = Array.isArray(adminRoles) && adminRoles.length > 0
+      ? adminRoles
+      : (Array.isArray(taskRoles) ? taskRoles.map(normalizeTaskRole) : []);
     setState({
       roles,
       organisations,
@@ -233,7 +258,17 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     refreshAll();
   }, [isAuthenticated, refreshAll]);
 
-  const getRoleById = useCallback((id: string) => state.roles.find(r => r.id === id), [state.roles]);
+  const normalizeRoleKey = useCallback((value: string | undefined) => (value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''), []);
+  const getRoleById = useCallback((id: string) => {
+    const key = normalizeRoleKey(id);
+    return state.roles.find(r =>
+      r.id === id ||
+      r.name === id ||
+      normalizeRoleKey(r.id) === key ||
+      normalizeRoleKey(r.name) === key ||
+      normalizeRoleKey((r as any).systemCode) === key
+    );
+  }, [normalizeRoleKey, state.roles]);
   const getOrgById = useCallback((id: string) => state.organisations.find(o => o.id === id), [state.organisations]);
   const getDocTypeByCode = useCallback((code: string) => state.docTypes.find(d => d.typeCode === code), [state.docTypes]);
   const getTemplateById = useCallback((id: string) => state.templates.find(t => t.id === id), [state.templates]);

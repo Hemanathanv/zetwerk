@@ -1798,6 +1798,7 @@ def _activity_sla_from_request(request: RoleProfileRequest) -> list[dict[str, An
             "warningTrigger": item.warningTrigger or trigger_config.get("warningTrigger") or "",
             "escalationTrigger": item.escalationTrigger or trigger_config.get("escalationTrigger") or "",
             "blockerTrigger": item.blockerTrigger or trigger_config.get("blockerTrigger") or "",
+            "assignedRole": _canonical_role_name(request.name),
         })
     return rows
 
@@ -2335,69 +2336,55 @@ async def _list_warehouse_locations(prisma, *, active_only: bool = False) -> lis
 
 
 async def _ensure_escalation_config_table(prisma) -> None:
-    await _execute_raw(
+    required_columns = (
+        "id",
+        "activity_type",
+        "activity_name",
+        "description",
+        "scope",
+        "base_doc",
+        "base_sla_hours",
+        "reminder_pct",
+        "warning_pct",
+        "escalation_pct",
+        "blocker_pct",
+        "task_enabled",
+        "trigger_category",
+        "trigger_logic",
+        "task_message",
+        "reminder_message",
+        "warning_message",
+        "escalation_message",
+        "blocker_message",
+        "reminder_trigger",
+        "warning_trigger",
+        "escalation_trigger",
+        "blocker_trigger",
+        "channels",
+        "targets",
+    )
+    table_rows = await _query_raw(prisma, "SELECT to_regclass('public.escalation_configs')::text AS table_name")
+    if not table_rows or not table_rows[0].get("table_name"):
+        raise RuntimeError("Escalation config schema is missing: public.escalation_configs. Run Prisma migrations before using admin role SLA config.")
+    column_rows = await _query_raw(
         prisma,
         """
-        CREATE TABLE IF NOT EXISTS "public"."escalation_configs" (
-          "id" TEXT PRIMARY KEY,
-          "activity_type" TEXT NOT NULL,
-          "activity_name" TEXT NOT NULL,
-          "description" TEXT NOT NULL DEFAULT '',
-          "scope" TEXT NOT NULL DEFAULT '',
-          "base_doc" TEXT NOT NULL DEFAULT '',
-          "base_sla_hours" DOUBLE PRECISION NOT NULL DEFAULT 24,
-          "reminder_pct" INTEGER NOT NULL DEFAULT 0,
-          "warning_pct" INTEGER NOT NULL DEFAULT 50,
-          "escalation_pct" INTEGER NOT NULL DEFAULT 75,
-          "blocker_pct" INTEGER NOT NULL DEFAULT 100,
-          "task_enabled" BOOLEAN NOT NULL DEFAULT TRUE,
-          "trigger_category" TEXT NOT NULL DEFAULT '',
-          "trigger_logic" TEXT NOT NULL DEFAULT '',
-          "task_message" TEXT NOT NULL DEFAULT '',
-          "reminder_message" TEXT NOT NULL DEFAULT '',
-          "warning_message" TEXT NOT NULL DEFAULT '',
-          "escalation_message" TEXT NOT NULL DEFAULT '',
-          "blocker_message" TEXT NOT NULL DEFAULT '',
-          "reminder_trigger" TEXT NOT NULL DEFAULT '',
-          "warning_trigger" TEXT NOT NULL DEFAULT '',
-          "escalation_trigger" TEXT NOT NULL DEFAULT '',
-          "blocker_trigger" TEXT NOT NULL DEFAULT '',
-          "channels" JSONB NOT NULL DEFAULT '{}'::jsonb,
-          "targets" JSONB NOT NULL DEFAULT '{}'::jsonb,
-          "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        SELECT column_name
+        FROM UNNEST($1::text[]) AS required(column_name)
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns c
+          WHERE c.table_schema = 'public'
+            AND c.table_name = 'escalation_configs'
+            AND c.column_name = required.column_name
         )
+        ORDER BY column_name
         """,
+        list(required_columns),
     )
-    for ddl in [
-        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "task_enabled" BOOLEAN NOT NULL DEFAULT TRUE',
-        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "trigger_category" TEXT NOT NULL DEFAULT \'\'',
-        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "trigger_logic" TEXT NOT NULL DEFAULT \'\'',
-        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "task_message" TEXT NOT NULL DEFAULT \'\'',
-        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "reminder_message" TEXT NOT NULL DEFAULT \'\'',
-        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "warning_message" TEXT NOT NULL DEFAULT \'\'',
-        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "escalation_message" TEXT NOT NULL DEFAULT \'\'',
-        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "blocker_message" TEXT NOT NULL DEFAULT \'\'',
-        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "reminder_trigger" TEXT NOT NULL DEFAULT \'\'',
-        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "warning_trigger" TEXT NOT NULL DEFAULT \'\'',
-        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "escalation_trigger" TEXT NOT NULL DEFAULT \'\'',
-        'ALTER TABLE "public"."escalation_configs" ADD COLUMN IF NOT EXISTS "blocker_trigger" TEXT NOT NULL DEFAULT \'\'',
-    ]:
-        await _execute_raw(prisma, ddl)
-    await _execute_raw(
-        prisma,
-        """
-        CREATE INDEX IF NOT EXISTS "idx_escalation_configs_activity_type"
-        ON "public"."escalation_configs" ("activity_type")
-        """,
-    )
-    await _execute_raw(
-        prisma,
-        """
-        CREATE INDEX IF NOT EXISTS "idx_escalation_configs_scope"
-        ON "public"."escalation_configs" ("scope")
-        """,
-    )
+    if column_rows:
+        missing = ", ".join(str(row.get("column_name")) for row in column_rows)
+        raise RuntimeError(f"Escalation config schema is missing columns: {missing}. Run Prisma migrations before using admin role SLA config.")
 
 
 async def _seed_default_escalation_configs(prisma) -> None:
@@ -2578,7 +2565,10 @@ async def _upsert_activity_sla_configs(prisma, activity_sla: list[dict[str, Any]
             "escalationTrigger": item.get("escalationTrigger") or (existing or {}).get("escalationTrigger") or "",
             "blockerTrigger": item.get("blockerTrigger") or (existing or {}).get("blockerTrigger") or "",
             "channels": (existing or {}).get("channels") or DEFAULT_ESCALATION_CHANNELS,
-            "targets": (existing or {}).get("targets") or {},
+            "targets": {
+                **((existing or {}).get("targets") or {}),
+                "assignedRole": item.get("assignedRole") or ((existing or {}).get("targets") or {}).get("assignedRole"),
+            },
         }
         await _execute_raw(
             prisma,

@@ -17,6 +17,7 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         curl \
+        libatomic1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir uv

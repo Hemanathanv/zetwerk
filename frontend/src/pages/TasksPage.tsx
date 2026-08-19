@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/contexts/PermissionContext';
+import { usePageMeta } from '@/contexts/PageMetaContext';
 import { RequireActivity } from '@/components/PermissionGate';
 import { RoleBadge } from '@/components/RoleBadge';
 import { getAuthToken } from '@/lib/api';
@@ -15,7 +16,7 @@ import {
 } from '@/hooks/useOperationalData';
 import {
   ClipboardList, AlertTriangle, Ban, Clock, ChevronUp, ChevronDown,
-  X, ArrowUpRight, RotateCcw, CheckCircle, SlidersHorizontal,
+  X, ArrowUpRight, RotateCcw, CheckCircle, SlidersHorizontal, Search,
   RefreshCw, UserPlus, Loader2, Plus, Users, Play, Send, UserCheck,
   ArrowRight, Package, BarChart2,
 } from 'lucide-react';
@@ -145,6 +146,19 @@ function formatSlaChip(task: any): { label: string; color: string; bg: string } 
     return { label: `${timeStr} left`, color: BLUE, bg: 'hsla(221,83%,53%,0.1)' };
   }
   return null;
+}
+
+
+function TaskRoleLabel({ task }: { task: any }) {
+  if (!task.assignedRole) return <span style={{ fontSize: 12, color: MUTED }}>—</span>;
+  if (task.assignedRoleName && task.assignedRoleName !== task.assignedRole) {
+    return <span style={{ fontSize: 12.5, fontWeight: 600, color: FG }}>{task.assignedRoleName}</span>;
+  }
+  return <RoleBadge roleId={task.assignedRole} size="sm" />;
+}
+
+function taskShipmentRef(task: any): string {
+  return task.bolNumber || task.shipment?.bolNumber || task.shipmentRef || task.shipment?.shipmentNumber || '';
 }
 
 function computeSlaBar(task: any) {
@@ -806,7 +820,7 @@ function TaskCreationDrawer({ onClose, onCreated }: {
             {selectedShipment ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', backgroundColor: `${TEAL}10`, border: `1px solid ${TEAL}30`, borderRadius: 7 }}>
                 <Package size={13} color={TEAL} />
-                <span className="vs-mono" style={{ fontSize: 13, fontWeight: 600, color: TEAL }}>{selectedShipment.shipmentNumber}</span>
+                <span className="vs-mono" style={{ fontSize: 13, fontWeight: 600, color: TEAL }}>{selectedShipment.bolNumber || selectedShipment.shipmentNumber}</span>
                 <button onClick={() => { setSelectedShipment(null); setShipmentSearch(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: MUTED, marginLeft: 'auto' }}><X size={12} /></button>
               </div>
             ) : (
@@ -822,12 +836,12 @@ function TaskCreationDrawer({ onClose, onCreated }: {
                     {shipments.map((s: any) => (
                       <div
                         key={s.id}
-                        onClick={() => { setSelectedShipment(s); setShipmentSearch(s.shipmentNumber); setShipments([]); }}
+                        onClick={() => { setSelectedShipment(s); setShipmentSearch(s.bolNumber || s.shipmentNumber); setShipments([]); }}
                         style={{ padding: '8px 10px', cursor: 'pointer', borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', gap: 6 }}
                         onMouseEnter={e => (e.currentTarget.style.backgroundColor = 'hsl(var(--muted)/0.3)')}
                         onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
                       >
-                        <span className="vs-mono" style={{ fontSize: 13, color: TEAL, fontWeight: 600 }}>{s.shipmentNumber}</span>
+                        <span className="vs-mono" style={{ fontSize: 13, color: TEAL, fontWeight: 600 }}>{s.bolNumber || s.shipmentNumber}</span>
                         {s.currentStageName && <span style={{ fontSize: 12, color: MUTED }}>— {s.currentStageName}</span>}
                       </div>
                     ))}
@@ -1048,13 +1062,13 @@ function TaskRow({
 
       {/* Shipment # */}
       <div style={{ flexShrink: 0, width: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {task.shipment?.shipmentNumber ? (
+        {taskShipmentRef(task) ? (
           <button
             onClick={(e) => { e.stopPropagation(); navigate(`/shipments/${task.shipmentId}`); }}
             className="vs-mono"
             style={{ fontSize: 12.5, color: TEAL, background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontWeight: 500 }}
           >
-            {task.shipment.shipmentNumber}
+            {taskShipmentRef(task)}
           </button>
         ) : (
           <span style={{ fontSize: 12, color: MUTED }}>—</span>
@@ -1108,8 +1122,8 @@ function TaskRow({
       </div>
 
       {/* Role badge */}
-      <div style={{ flexShrink: 0, width: 86, overflow: 'hidden' }}>
-        {task.assignedRole && <RoleBadge roleId={task.assignedRole} size="sm" />}
+      <div style={{ flexShrink: 0, width: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <TaskRoleLabel task={task} />
       </div>
 
       {/* Action: Open */}
@@ -1141,11 +1155,8 @@ function FilterSidebar({
   statusFilter: string[];
   setStatusFilter: (v: string[]) => void;
 }) {
-  const statusOptions: { value: string; label: string }[] = [
-    { value: 'PENDING',     label: 'Pending' },
-    { value: 'IN_PROGRESS', label: 'In Progress' },
-    { value: 'ESCALATED',   label: 'Escalated' },
-  ];
+  const statusOptions = ['ASSIGNED', 'ESCALATED', 'IN_PROGRESS', 'COMPLETED', 'PENDING', 'CANCELLED']
+    .map(value => ({ value, label: STATUS_LABEL[value] ?? value }));
   const urgencyOptions: { value: string; label: string; color: string }[] = [
     { value: '',        label: 'All',     color: MUTED },
     { value: 'BLOCKER', label: 'Blocker', color: RED },
@@ -1417,7 +1428,7 @@ function DetailPanel({
               </MetaRow>
               {task.assignedRole && (
                 <MetaRow label="Assigned role">
-                  <RoleBadge roleId={task.assignedRole} size="sm" />
+                  <TaskRoleLabel task={task} />
                 </MetaRow>
               )}
               {task.assignedUser && (
@@ -1432,7 +1443,7 @@ function DetailPanel({
                     className="vs-mono"
                     style={{ fontSize: 12.5, color: TEAL, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}
                   >
-                    {task.shipment.shipmentNumber}
+                    {taskShipmentRef(task)}
                   </button>
                 </MetaRow>
               )}
@@ -2040,6 +2051,7 @@ type SortField = 'urgency' | 'slaDeadline' | 'createdAt' | 'status' | 'title';
 export function TasksPage() {
   const { user } = useAuth();
   const { activities } = usePermissions();
+  const { setPageMeta } = usePageMeta();
   const [location] = useLocation();
   const queryClient = useQueryClient();
   const isExternal = !!(user?.role?.category?.includes('external'));
@@ -2059,7 +2071,7 @@ export function TasksPage() {
   const [search, setSearch]             = useState('');
   const [urgencyFilter, setUrgencyFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
-  const [sort, setSort]                 = useState<{ field: SortField; dir: 'asc' | 'desc' }>({ field: 'urgency', dir: 'asc' });
+  const [sort, setSort]                 = useState<{ field: SortField; dir: 'asc' | 'desc' }>({ field: 'createdAt', dir: 'desc' });
   const [refreshing, setRefreshing]     = useState(false);
   const [page, setPage]                 = useState(1);
   const pageSize = 20;
@@ -2118,7 +2130,18 @@ export function TasksPage() {
     }
   }, [location]);
 
-  // filter-by-role custom event: role bar click → switch to All Tasks with role pre-filtered
+  useEffect(() => {
+    const handleModuleSearch = (event: Event) => {
+      const detail = (event as CustomEvent<{ scope?: string; value?: string }>).detail;
+      if (detail.scope && detail.scope !== 'tasks' && detail.scope !== 'all') return;
+      setPage(1);
+      setSearch(detail.value ?? '');
+    };
+    window.addEventListener('ewms-module-search', handleModuleSearch);
+    return () => window.removeEventListener('ewms-module-search', handleModuleSearch);
+  }, []);
+
+  // filter-by-role custom event: role bar click -> switch to All Tasks with role pre-filtered
   useEffect(() => {
     function handleFilterByRole(e: Event) {
       const detail = (e as CustomEvent<{ roleCode: string; roleId: string }>).detail;
@@ -2218,110 +2241,26 @@ export function TasksPage() {
 
   const activeFilters = (urgencyFilter ? 1 : 0) + statusFilter.length + (search ? 1 : 0);
 
+  useEffect(() => {
+    setPageMeta({
+      title: 'Tasks',
+      subtitle: `${meta.total ?? tasks.length} task${(meta.total ?? tasks.length) === 1 ? '' : 's'} in view`,
+      badge: summary.blockers > 0 ? { label: `${summary.blockers} blocker${summary.blockers !== 1 ? 's' : ''}`, variant: 'gold' } : undefined,
+    });
+    return () => setPageMeta(null);
+  }, [meta.total, setPageMeta, summary.blockers, tasks.length]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', backgroundColor: PANEL }}>
 
-      {/* ── Header ── */}
+      {/* ── Scope Navigation ── */}
       <div style={{
-        padding: '14px 20px 0 20px',
+        padding: '6px 20px 0 20px',
         flexShrink: 0,
         borderBottom: `1px solid ${BORDER}`,
         backgroundColor: CARD,
       }}>
-        {/* Title row */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <ClipboardList size={18} style={{ color: TEAL }} />
-            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 700, letterSpacing: 0, color: FG }}>
-              Tasks
-            </h1>
-            {summary.blockers > 0 && (
-              <span style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                fontSize: 12, fontWeight: 700,
-                backgroundColor: `${RED}15`, color: RED, padding: '2px 8px', borderRadius: 999,
-                border: `1px solid ${RED}30`,
-              }}>
-                <Ban size={10} />
-                {summary.blockers} blocker{summary.blockers !== 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {/* Search */}
-            <div style={{ position: 'relative' }}>
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search tasks..."
-                style={{
-                  fontSize: 13,
-                  border: `1px solid ${BORDER}`,
-                  borderRadius: 7,
-                  padding: '5px 10px 5px 28px',
-                  width: 190,
-                  backgroundColor: 'hsl(var(--background))',
-                  color: FG,
-                  outline: 'none',
-                }}
-              />
-              <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: MUTED, pointerEvents: 'none' }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              </span>
-            </div>
-            {/* Filter sidebar toggle */}
-            <button
-              onClick={() => setSidebarOpen(v => !v)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 5,
-                fontSize: 13, fontWeight: sidebarOpen ? 600 : 400,
-                color: sidebarOpen ? BLUE : MUTED,
-                backgroundColor: sidebarOpen ? `${BLUE}10` : 'transparent',
-                border: `1px solid ${sidebarOpen ? `${BLUE}30` : BORDER}`,
-                borderRadius: 7, padding: '5px 10px', cursor: 'pointer',
-              }}
-            >
-              <SlidersHorizontal size={13} />
-              Filters
-              {activeFilters > 0 && (
-                <span style={{ fontSize: 11, fontWeight: 700, backgroundColor: BLUE, color: '#fff', borderRadius: 999, padding: '0 5px' }}>
-                  {activeFilters}
-                </span>
-              )}
-            </button>
-            {/* Refresh */}
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing || loading}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: 30, height: 30, borderRadius: 7,
-                backgroundColor: 'transparent', border: `1px solid ${BORDER}`, cursor: 'pointer',
-                color: MUTED,
-                opacity: (refreshing || loading) ? 0.5 : 1,
-              }}
-            >
-              <RefreshCw size={13} style={{ animation: (refreshing || loading) ? 'spin 1s linear infinite' : 'none' }} />
-            </button>
-            {/* New Task button (internal users with TSK-003 only) */}
-            {!isExternal && (
-              <RequireActivity code="TSK-003">
-                <button
-                  onClick={() => setShowCreationDrawer(true)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 5,
-                    fontSize: 13, fontWeight: 600, color: '#fff',
-                    backgroundColor: TEAL, border: 'none',
-                    borderRadius: 7, padding: '6px 12px', cursor: 'pointer',
-                  }}
-                >
-                  <Plus size={13} /> New Task
-                </button>
-              </RequireActivity>
-            )}
-          </div>
-        </div>
-
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         {/* Scope tabs (hidden for external users) */}
         {!isExternal && (
           <div style={{ display: 'flex', gap: 0 }}>
@@ -2385,6 +2324,75 @@ export function TasksPage() {
             ))}
           </div>
         )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto', paddingBottom: 6, flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: MUTED, pointerEvents: 'none' }} />
+            <input
+              value={search}
+              onChange={e => { setPage(1); setSearch(e.target.value); }}
+              placeholder="Search tasks..."
+              style={{
+                fontSize: 13,
+                border: `1px solid ${BORDER}`,
+                borderRadius: 7,
+                padding: '6px 10px 6px 28px',
+                width: 210,
+                backgroundColor: 'hsl(var(--background))',
+                color: FG,
+                outline: 'none',
+              }}
+            />
+          </div>
+          <button
+            onClick={() => setSidebarOpen(v => !v)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              fontSize: 13, fontWeight: sidebarOpen ? 600 : 400,
+              color: sidebarOpen ? BLUE : MUTED,
+              backgroundColor: sidebarOpen ? `${BLUE}10` : 'transparent',
+              border: `1px solid ${sidebarOpen ? `${BLUE}30` : BORDER}`,
+              borderRadius: 7, padding: '6px 10px', cursor: 'pointer',
+            }}
+          >
+            <SlidersHorizontal size={13} />
+            Filters
+            {activeFilters > 0 && (
+              <span style={{ fontSize: 11, fontWeight: 700, backgroundColor: BLUE, color: '#fff', borderRadius: 999, padding: '0 5px' }}>
+                {activeFilters}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing || loading}
+            title="Refresh tasks"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 32, height: 32, borderRadius: 7,
+              backgroundColor: 'transparent', border: `1px solid ${BORDER}`, cursor: 'pointer',
+              color: MUTED,
+              opacity: (refreshing || loading) ? 0.5 : 1,
+            }}
+          >
+            <RefreshCw size={13} style={{ animation: (refreshing || loading) ? 'spin 1s linear infinite' : 'none' }} />
+          </button>
+          {/* {!isExternal && (
+            <RequireActivity code="TSK-003">
+              <button
+                onClick={() => setShowCreationDrawer(true)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  fontSize: 13, fontWeight: 600, color: '#fff',
+                  backgroundColor: TEAL, border: 'none',
+                  borderRadius: 7, padding: '7px 12px', cursor: 'pointer',
+                }}
+              >
+                <Plus size={13} /> New Task
+              </button>
+            </RequireActivity>
+          )} */}
+        </div>
+        </div>
       </div>
 
       {/* ── Stat strip (hidden when overview is active) ── */}
@@ -2489,7 +2497,7 @@ export function TasksPage() {
             <SortHeader label="Shipment" field="shipment" sort={sort} onSort={handleSort} width={110} />
             <SortHeader label="Status" field="status" sort={sort} onSort={handleSort} width={100} />
             <SortHeader label="SLA" field="slaDeadline" sort={sort} onSort={handleSort} width={108} />
-            <div style={{ flexShrink: 0, width: 86, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED }}>Role</div>
+            <div style={{ flexShrink: 0, width: 120, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED }}>Role</div>
             <div style={{ flexShrink: 0, width: 60 }} />
           </div>
 

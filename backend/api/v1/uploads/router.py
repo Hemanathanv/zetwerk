@@ -54,6 +54,7 @@ from helpers.shipment_operational import (
     link_documents_to_shipment_by_keys,
     sync_reviewed_bols_as_shipments,
 )
+from task_engine import TaskEngine
 from objectstore import (
     DEFAULT_BUCKET,
     S3_ENDPOINT,
@@ -4169,6 +4170,12 @@ async def auto_review_and_validate_document(
         await _apply_shipment_links_for_approved_document(prisma, document_id)
     except Exception as exc:
         print(f"[shipments] warning: could not apply shipment links after validation {document_id}: {exc}", flush=True)
+    await _run_document_reviewed_task_engine(
+        prisma,
+        document_id=document_id,
+        doc_type=doc_type,
+        user_id=user_id,
+    )
     return validation
 
 
@@ -4216,6 +4223,43 @@ async def _apply_shipment_links_for_approved_document(prisma, document_id: str) 
         shipment_id = row.get("id")
         if shipment_id:
             await link_documents_to_shipment_by_keys(prisma, str(shipment_id))
+
+
+async def _run_document_reviewed_task_engine(
+    prisma,
+    *,
+    document_id: str,
+    doc_type: str,
+    user_id: str,
+) -> None:
+    try:
+        rows = await _query_raw(
+            prisma,
+            """
+            SELECT "shipment_id"::text AS shipment_id, "document_number"
+            FROM "public"."documents"
+            WHERE "id"::text = $1::text
+            LIMIT 1
+            """,
+            document_id,
+        )
+        row = rows[0] if rows else {}
+        await TaskEngine.handle_event(
+            prisma,
+            {
+                "event_type": "document_reviewed",
+                "entity_type": "document",
+                "entity_id": document_id,
+                "shipment_id": row.get("shipment_id"),
+                "actor_id": user_id,
+                "payload": {
+                    "doc_type": doc_type,
+                    "document_number": row.get("document_number"),
+                },
+            },
+        )
+    except Exception as exc:
+        print(f"[task-engine] warning: document_reviewed event failed for {document_id}: {exc}", flush=True)
 
 
 @router.post("/documents/{document_id}/approve", response_model=ApproveDocumentResponse)
@@ -4329,6 +4373,12 @@ async def approve_document_extraction(
             await sync_reviewed_bols_as_shipments(prisma, limit=100)
         except Exception as exc:
             print(f"[shipments] warning: could not sync document link keys after approval {document_id}: {exc}", flush=True)
+    await _run_document_reviewed_task_engine(
+        prisma,
+        document_id=document_id,
+        doc_type=doc_type,
+        user_id=str(user.id),
+    )
 
     return ApproveDocumentResponse(
         status="success",

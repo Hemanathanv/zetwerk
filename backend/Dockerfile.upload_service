@@ -17,6 +17,7 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         curl \
+        libatomic1 \
         libglib2.0-0 \
         libgl1 \
         poppler-utils \

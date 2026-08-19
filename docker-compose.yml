@@ -6,6 +6,7 @@ x-backend-env: &backend-env
     DATABASE_URL: ${DATABASE_URL:-postgresql://ewms-postgres:ewms%40%232026%21@postgres:5432/ewms-db}
     REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     KEYCLOAK_URL: http://ewms-keycloak:8080/keycloak
+    TASK_ENGINE_DEBUG: ${TASK_ENGINE_DEBUG:-false}
 
 x-backend-image: &backend-image
   build:
@@ -50,6 +51,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://ewms-postgres:ewms%40%232026%21@postgres:5432/ewms-db}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       KEYCLOAK_URL: http://ewms-keycloak:8080/keycloak
+      TASK_ENGINE_DEBUG: ${TASK_ENGINE_DEBUG:-false}
       DRIVE_DOC_TYPE: ${DRIVE_DOC_TYPE:-SALES_INVOICE}
       DRIVE_SOURCE_FOLDER_ID: ${DRIVE_SOURCE_FOLDER_ID:-1IRjTYGPde8LBD1jJVfDUzRmO62cnu3G3}
       DRIVE_PROCESSED_FOLDER_ID: ${DRIVE_PROCESSED_FOLDER_ID:-}
