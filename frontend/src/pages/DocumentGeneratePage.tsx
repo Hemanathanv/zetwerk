@@ -538,13 +538,14 @@ function FieldCard({ mapping, value, sourceDocs, onChange }: {
 
 // ─── FieldGrid ────────────────────────────────────────────────────────────────
 
-function FieldGrid({ section, fields, sourceDocs, manualValues, onManualChange, computedFields }: {
+function FieldGrid({ section, fields, sourceDocs, manualValues, onManualChange, computedFields, readOnly = false }: {
   section:         GenSection;
   fields:          Record<string, string>;
   sourceDocs:      { docType: string; label: string }[];
   manualValues:    Record<string, string>;
   onManualChange:  (key: string, v: string) => void;
   computedFields:  Record<string, string>;
+  readOnly?:       boolean;
 }) {
   const sectionName = section.sectionLabel.trim().toLowerCase();
   const isTotalsSection = sectionName === 'totals' || sectionName === 'duties and fees';
@@ -552,7 +553,7 @@ function FieldGrid({ section, fields, sourceDocs, manualValues, onManualChange, 
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px 20px' }}>
       {section.mappings.map(m => {
         const isDerived = m.mappingType === 'derived';
-        const isEditable = !isTotalsSection;
+        const isEditable = !readOnly && !isTotalsSection;
         const baseValue = isDerived
           ? (computedFields[m.targetField] ?? fields[m.targetField] ?? '')
           : (fields[m.targetField] ?? '');
@@ -575,7 +576,7 @@ function FieldGrid({ section, fields, sourceDocs, manualValues, onManualChange, 
 
 // ─── LineItemTable ────────────────────────────────────────────────────────────
 
-function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onManualChange, computedRows, packageTypes = [], onPackageTypeChange, onAddRow, onRemoveRow, splitIssues = [] }: {
+function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onManualChange, computedRows, packageTypes = [], onPackageTypeChange, onAddRow, onRemoveRow, splitIssues = [], readOnly = false }: {
   docType:        string;
   section:        GenSection;
   rows:           Record<string, string>[];
@@ -588,6 +589,7 @@ function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onMan
   onAddRow?: (rowIndex: number) => void;
   onRemoveRow?: (rowIndex: number) => void;
   splitIssues?: string[];
+  readOnly?: boolean;
 }) {
   void sourceDocs;
   void packageTypes;
@@ -650,7 +652,7 @@ function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onMan
                 const baseVal = isDerived
                   ? (computedRows[ri]?.[col.targetField] ?? row[col.targetField] ?? '')
                   : (row[col.targetField] ?? '');
-                const isEditable = !isTotalsSection && (
+                const isEditable = !readOnly && !isTotalsSection && (
                   isPackingListLineItems
                     ? isPackingListEditableLineField(col.targetField, row, rows)
                     : !forceCalculated
@@ -814,10 +816,11 @@ function SourceLegendTooltip({ schema }: { schema: DocGenSchema }) {
 
 // ─── ActionRequiredCard ───────────────────────────────────────────────────────
 
-function ActionRequiredCard({ schema, manualValues, onManualChange }: {
+function ActionRequiredCard({ schema, manualValues, onManualChange, readOnly = false }: {
   schema:          DocGenSchema;
   manualValues:    Record<string, string>;
   onManualChange:  (key: string, v: string) => void;
+  readOnly?:       boolean;
 }) {
   const scalarManual = schema.sections
     .filter(s => s.renderAs === 'fields')
@@ -882,7 +885,7 @@ function ActionRequiredCard({ schema, manualValues, onManualChange }: {
                   mapping={m}
                   value={manualValues[m.targetField] ?? ''}
                   sourceDocs={schema.sourceDocs}
-                  onChange={v => onManualChange(m.targetField, v)}
+                  onChange={readOnly ? undefined : v => onManualChange(m.targetField, v)}
                 />
               ))}
             </div>
@@ -910,7 +913,7 @@ function ActionRequiredCard({ schema, manualValues, onManualChange }: {
 // ─── CollapsibleSectionBlock ──────────────────────────────────────────────────
 
 function CollapsibleSectionBlock({
-  section, schema, manualValues, onManualChange, packageTypes, onPackageTypeChange, onAddLineItemRow, onRemoveLineItemRow, allowLineItemSplit = true, computedFields, computedRowMap, defaultExpanded,
+  section, schema, manualValues, onManualChange, packageTypes, onPackageTypeChange, onAddLineItemRow, onRemoveLineItemRow, allowLineItemSplit = true, readOnly = false, computedFields, computedRowMap, defaultExpanded,
 }: {
   section:         GenSection;
   schema:          DocGenSchema;
@@ -921,6 +924,7 @@ function CollapsibleSectionBlock({
   onAddLineItemRow?: (sectionLabel: string, rowIndex: number) => void;
   onRemoveLineItemRow?: (sectionLabel: string, rowIndex: number) => void;
   allowLineItemSplit?: boolean;
+  readOnly?: boolean;
   computedFields:  Record<string, string>;
   computedRowMap:  Record<string, Record<string, string>[]>;
   defaultExpanded: boolean;
@@ -930,7 +934,7 @@ function CollapsibleSectionBlock({
   const tableRows    = schema.mockData.tables[section.sectionLabel] ?? [];
   const computedRows = computedRowMap[section.sectionLabel] ?? [];
   const splitIssues = packingListSplitIssues(schema, manualValues, computedRowMap);
-  const canAddSplitRows = allowLineItemSplit && schema.docType === 'packing-list' && section.sectionLabel === 'Line Items';
+  const canAddSplitRows = !readOnly && allowLineItemSplit && schema.docType === 'packing-list' && section.sectionLabel === 'Line Items';
 
   const sectionMappings = section.mappings.filter(m => m.isLineItem !== false);
   const manualCount = section.renderAs === 'fields'
@@ -990,8 +994,8 @@ function CollapsibleSectionBlock({
             </div>
           )}
           {section.renderAs === 'fields'
-            ? <FieldGrid section={section} fields={fieldValues} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} computedFields={computedFields} />
-            : <LineItemTable docType={schema.docType} section={section} rows={tableRows} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} packageTypes={packageTypes} onPackageTypeChange={onPackageTypeChange} onAddRow={canAddSplitRows ? (rowIndex) => onAddLineItemRow?.(section.sectionLabel, rowIndex) : undefined} onRemoveRow={canAddSplitRows ? (rowIndex) => onRemoveLineItemRow?.(section.sectionLabel, rowIndex) : undefined} splitIssues={canAddSplitRows ? splitIssues : []} computedRows={computedRows} />
+            ? <FieldGrid section={section} fields={fieldValues} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} computedFields={computedFields} readOnly={readOnly} />
+            : <LineItemTable docType={schema.docType} section={section} rows={tableRows} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} packageTypes={packageTypes} onPackageTypeChange={onPackageTypeChange} onAddRow={canAddSplitRows ? (rowIndex) => onAddLineItemRow?.(section.sectionLabel, rowIndex) : undefined} onRemoveRow={canAddSplitRows ? (rowIndex) => onRemoveLineItemRow?.(section.sectionLabel, rowIndex) : undefined} splitIssues={canAddSplitRows ? splitIssues : []} computedRows={computedRows} readOnly={readOnly} />
           }
         </div>
       )}
@@ -2125,7 +2129,7 @@ function DocReviewModal({
                     </span>
                   </div>
 
-                  <ActionRequiredCard schema={schema} manualValues={manualValues} onManualChange={onManualChange} />
+                  <ActionRequiredCard schema={schema} manualValues={manualValues} onManualChange={onManualChange} readOnly={isApproved} />
 
                   {schema.sections.map(section => {
                     const hasManual = section.mappings.some(m => m.mappingType === 'manual' || m.mappingType === 'conditional');
@@ -2141,6 +2145,7 @@ function DocReviewModal({
                         onAddLineItemRow={onAddLineItemRow}
                         onRemoveLineItemRow={onRemoveLineItemRow}
                         allowLineItemSplit={!isApproved}
+                        readOnly={isApproved}
                         computedFields={computedDerivations.fields}
                         computedRowMap={computedDerivations.rowMap}
                         defaultExpanded={hasManual}
@@ -2639,6 +2644,7 @@ export function DocumentGeneratePage() {
   }
 
   function handleManualChange(key: string, v: string) {
+    if (isApproved) return;
     setManualValues(prev => ({ ...prev, [key]: v }));
   }
 
@@ -2826,7 +2832,7 @@ export function DocumentGeneratePage() {
       if (!baseSchema) throw new Error(`Unsupported document generation type: ${routeType ?? 'packing-list'}`);
 
       let drafts = await apiGet<DraftPayload[]>(`/doc-generation/drafts?generatedDocType=${generatedDocType}`);
-      if (drafts.length === 0) {
+      if (drafts.length === 0 && generatedDocType === 'PACKING_LIST') {
         drafts = [await apiPost<DraftPayload>('/doc-generation/drafts', {
           generatedDocType,
           sourceDocumentIds: {},

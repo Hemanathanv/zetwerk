@@ -45,11 +45,12 @@ const QUEUE_PAGE_SIZE = 20;
 const QUEUE_SECTION_BY_CHIP = [
   'all',
   'needs-approval',
-  'needs-approval',
+  'needs-reapproval',
   'processing',
   'cross-validating',
   'draft-review',
   'done',
+  'waiting-for-bol',
 ] as const;
 
 function normalizeQueueDocTypeFilter(value: string | null | undefined): string {
@@ -61,7 +62,7 @@ function queueDocTypeFilterFromLocation(location: string): string {
   return normalizeQueueDocTypeFilter(new URLSearchParams(query).get('docType'));
 }
 
-type StatusCategory = 'needs-approval' | 'needs-reapproval' | 'processing' | 'cross-validating' | 'draft-review' | 'done';
+type StatusCategory = 'needs-approval' | 'needs-reapproval' | 'processing' | 'cross-validating' | 'draft-review' | 'done' | 'waiting-for-bol';
 
 type WaitingDoc = {
   id: string;
@@ -2218,7 +2219,7 @@ export function UploadProcessPage() {
       const response = await documentApi.list({ page: queuePage, pageSize: QUEUE_PAGE_SIZE, section: queueSection, docType: queueDocTypeFilter === 'all' ? undefined : queueDocTypeFilter });
       return response.data;
     },
-    enabled: activeChip !== WAITING_FOR_BOL_CHIP_INDEX && (!routedDetail || !routedDetail.isGenerated),
+    enabled: !routedDetail || !routedDetail.isGenerated,
     placeholderData: (previousData) => previousData,
     staleTime: 30_000,
     refetchInterval: (query) => {
@@ -2238,18 +2239,30 @@ export function UploadProcessPage() {
       const card = apiDocToQueueCard(doc);
       const docType = String(doc.documentType ?? doc.docType ?? '').toUpperCase();
       const isBol = docType === 'BILL_OF_LADING' || docType === 'BOL' || docType === 'BL';
-      if (isBol && card.docId) {
+      const waitingForBolCard = queueSection === 'waiting-for-bol'
+        ? {
+            ...card,
+            headerColor: AMBER,
+            statusCategory: 'waiting-for-bol' as StatusCategory,
+            status: 'Waiting for BOL',
+            statusVariant: 'warning' as QueueCard['statusVariant'],
+            dots: ['done', 'done', 'current', 'future', 'future'] as DotState[],
+            detail: 'No linked Bill of Lading shipment yet',
+            action: { label: 'Open document →' },
+          }
+        : card;
+      if (isBol && waitingForBolCard.docId) {
         return {
-          ...card,
-          containerMappingAction: () => openContainerMapping(card.docId!),
-          dndInputsAction: () => openDndInputs(card.docId!, card.dndInputsContext),
+          ...waitingForBolCard,
+          containerMappingAction: () => openContainerMapping(waitingForBolCard.docId!),
+          dndInputsAction: () => openDndInputs(waitingForBolCard.docId!, waitingForBolCard.dndInputsContext),
           canUseContainerMapping: activities.includes('documents.map_container_to_sku'),
           canUseDndInputs: activities.includes('documents.dnd_inputs'),
         };
       }
-      return card;
+      return waitingForBolCard;
     }),
-    [activities, documentsQuery.data],
+    [activities, documentsQuery.data, queueSection],
   );
   const queuePagination = documentsQuery.data?.pagination ?? null;
   const queueLoading = documentsQuery.isLoading || (documentsQuery.isFetching && !documentsQuery.data);
@@ -2332,17 +2345,9 @@ export function UploadProcessPage() {
     }
   }, [navigate, routedDetail, routedDetailCard, routedQueueItemQuery.data, routedQueueItemQuery.error, routedQueueItemQuery.isError, toast]);
 
-  const fetchWaitingList = useCallback(() => {
-    setWaitingDocs([]);
-  }, []);
-
   const fetchBolInboxDocs = useCallback(() => {
     setBolInboxDocs([]);
   }, []);
-
-  useEffect(() => {
-    fetchWaitingList();
-  }, [fetchWaitingList]);
 
   useEffect(() => {
     fetchBolInboxDocs();
@@ -2750,21 +2755,22 @@ export function UploadProcessPage() {
 
   const visibleCards: QueueCard[] = QUEUE_CARDS;
 
-  const backendCounts = documentsQuery.data?.counts;
-  const statsCount = {
-    total:           backendCounts?.total ?? visibleCards.length,
-    needsApproval:   backendCounts?.needsApproval ?? visibleCards.filter((c) => c.statusCategory === 'needs-approval').length,
+  const categoryCounts = useMemo(() => ({
+    total: visibleCards.length,
+    needsApproval: visibleCards.filter((c) => c.statusCategory === 'needs-approval').length,
     needsReapproval: visibleCards.filter((c) => c.statusCategory === 'needs-reapproval').length,
-    processing:      backendCounts?.processing ?? visibleCards.filter((c) => c.statusCategory === 'processing').length,
-    crossValidating: backendCounts?.crossValidating ?? visibleCards.filter((c) => c.statusCategory === 'cross-validating').length,
-    draftReview:     backendCounts?.draftReview ?? visibleCards.filter((c) => c.statusCategory === 'draft-review').length,
-    done:            backendCounts?.done ?? visibleCards.filter((c) => c.statusCategory === 'done').length,
-  };
+    processing: visibleCards.filter((c) => c.statusCategory === 'processing').length,
+    crossValidating: visibleCards.filter((c) => c.statusCategory === 'cross-validating').length,
+    draftReview: visibleCards.filter((c) => c.statusCategory === 'draft-review').length,
+    done: visibleCards.filter((c) => c.statusCategory === 'done').length,
+    waitingForBol: visibleCards.filter((c) => c.statusCategory === 'waiting-for-bol').length,
+  }), [visibleCards]);
+  const statsCount = categoryCounts;
 
-  const liveUnattachedCount = waitingDocs.length;
+  const liveUnattachedCount = statsCount.waitingForBol;
   const reviewActionCount = statsCount.needsApproval + statsCount.needsReapproval;
 
-  const CHIP_CATEGORIES: (StatusCategory | null)[] = [null, 'needs-approval', 'needs-reapproval', 'processing', 'cross-validating', 'draft-review', 'done'];
+  const CHIP_CATEGORIES: (StatusCategory | null)[] = [null, 'needs-approval', 'needs-reapproval', 'processing', 'cross-validating', 'draft-review', 'done', 'waiting-for-bol'];
   const queueDocTypeKey = (card: QueueCard) => (
     card.documentTypeCode || card.docType || card.docCode
   ).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -2814,9 +2820,7 @@ export function UploadProcessPage() {
 
   const filteredCards = activeChip === 0
     ? docTypeFilteredCards
-    : activeChip === WAITING_FOR_BOL_CHIP_INDEX
-      ? []
-      : docTypeFilteredCards.filter((c) => c.statusCategory === CHIP_CATEGORIES[activeChip]);
+    : docTypeFilteredCards.filter((c) => c.statusCategory === CHIP_CATEGORIES[activeChip]);
 
   const queueSearchOptions = queueSearch.trim() ? filteredCards.slice(0, 8) : [];
 
@@ -3349,7 +3353,7 @@ export function UploadProcessPage() {
                 { label: 'Cross-validating', count: statsCount.crossValidating },
                 { label: 'Draft review',     count: statsCount.draftReview },
                 { label: 'Done',             count: statsCount.done },
-                { label: 'Waiting for BOL',  count: waitingDocs.length },
+                { label: 'Waiting for BOL',  count: statsCount.waitingForBol },
               ]}
               activeIndex={activeChip}
               onSelect={setActiveChip}
@@ -3366,23 +3370,8 @@ export function UploadProcessPage() {
             </div>
           ) : queueError ? (
             <div style={{ padding: 24, border: `1px solid ${RED}40`, borderRadius: 8, color: RED }}>{queueError}</div>
-          ) : activeChip !== WAITING_FOR_BOL_CHIP_INDEX && filteredCards.length === 0 ? (
+          ) : filteredCards.length === 0 ? (
             <div style={{ padding: 32, textAlign: 'center', color: MUTED }}>No database documents found for this section.</div>
-          ) : activeChip === WAITING_FOR_BOL_CHIP_INDEX ? (
-            <>
-              {bolInboxDocs.length > 0 && (
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 14.5, fontWeight: 600, color: AMBER, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: AMBER, display: 'inline-block' }} />
-                    {bolInboxDocs.length} BOL{bolInboxDocs.length === 1 ? '' : 's'} awaiting template selection
-                  </div>
-                  {bolInboxDocs.map(d => (
-                    <BolWaitingCard key={d.id} doc={d} now={now} onResolved={fetchBolInboxDocs} />
-                  ))}
-                </div>
-              )}
-              <WaitingListView docs={waitingDocs} now={now} />
-            </>
           ) : false ? (
             /* Sectioned view: All + row mode — grouped by category */
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -3452,7 +3441,7 @@ export function UploadProcessPage() {
             </div>
           )}
 
-          {activeChip !== WAITING_FOR_BOL_CHIP_INDEX && queuePagination && queueTotalPages > 1 && (
+          {queuePagination && queueTotalPages > 1 && (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, padding: '14px 0 2px', flexWrap: 'wrap' }}>
               <button
                 onClick={() => goToQueuePage((queuePagination.page ?? queuePage) - 1)}

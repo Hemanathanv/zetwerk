@@ -9,7 +9,7 @@ from project.service import sync_project_for_shipment, sync_projects_from_shipme
 
 DEFAULT_GATE_CONFIGS: tuple[tuple[str, int, str, str, list[str]], ...] = (
     ("11111111-1111-4111-8111-111111111111", 1, "SHIPMENT_INITIATION", "Shipment Initiation", ["SALES_INVOICE", "PACKING_LIST", "SHIPPING_BILL"]),
-    ("22222222-2222-4222-8222-222222222222", 2, "INDIA_PORT_EXIT", "India Port Exit", ["BILL_OF_LADING", "ENTRY_SUMMARY", "DRAFT_CBP_FORM_7501_BROKER"]),
+    ("22222222-2222-4222-8222-222222222222", 2, "INDIA_PORT_EXIT", "India Port Exit", ["BILL_OF_LADING", "DRAFT_CBP_FORM_7501_BROKER", "ENTRY_SUMMARY"]),
     ("33333333-3333-4333-8333-333333333333", 3, "US_PORT_ENTRY", "US Port Entry", ["ISF", "ENTRY_SUMMARY", "US_CARGO_RELEASE_ORDER", "US_CUSTOMS_RELEASE_ORDER"]),
     ("44444444-4444-4444-8444-444444444444", 4, "WAREHOUSE_ENTRY", "3PL Warehouse Entry", ["US_DELIVERY_ORDER", "GRN_INBOUND"]),
     ("55555555-5555-4555-8555-555555555555", 5, "CUSTOMER_DELIVERY", "Customer Delivery", ["US_SALES_INVOICE", "US_PACKING_LIST", "OUTWARD_GRN"]),
@@ -22,8 +22,8 @@ DEFAULT_DOC_TYPE_GATES: tuple[tuple[str, str, str, str, bool], ...] = (
     ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3", "11111111-1111-4111-8111-111111111111", "SHIPPING_BILL", "PRIMARY", False),
     ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4", "11111111-1111-4111-8111-111111111111", "CHA_BILL", "PARALLEL", False),
     ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5", "22222222-2222-4222-8222-222222222222", "BILL_OF_LADING", "PRIMARY", False),
-    ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6", "22222222-2222-4222-8222-222222222222", "ENTRY_SUMMARY", "PRIMARY", True),
     ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa7", "22222222-2222-4222-8222-222222222222", "DRAFT_CBP_FORM_7501_BROKER", "PRIMARY", False),
+    ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6", "22222222-2222-4222-8222-222222222222", "ENTRY_SUMMARY", "PRIMARY", True),
     ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa8", "22222222-2222-4222-8222-222222222222", "FREIGHT_FORWARDER_BILL", "PARALLEL", False),
     ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa9", "33333333-3333-4333-8333-333333333333", "ISF", "PRIMARY", False),
     ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa10", "33333333-3333-4333-8333-333333333333", "ENTRY_SUMMARY", "PRIMARY", False),

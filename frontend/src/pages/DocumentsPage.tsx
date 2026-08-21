@@ -47,6 +47,7 @@ interface DocEntry {
   genType?: string;
   isGenerated?: boolean;
   isParallel?: boolean;
+  slotKey?: string;
 }
 
 interface GateCol {
@@ -103,10 +104,10 @@ const GATE_DEFS = DOCUMENT_GATE_DEFS.map(gate => ({
   label: gate.label,
   required: gate.docs
     .filter(doc => doc.role !== 'PARALLEL')
-    .map(doc => ({ code: doc.code, label: doc.label })),
+    .map(doc => ({ docType: doc.docType, code: doc.code, label: doc.label, isGenerated: Boolean(doc.isGenerated) })),
   parallel: gate.docs
     .filter(doc => doc.role === 'PARALLEL')
-    .map(doc => ({ code: doc.code, label: doc.label })),
+    .map(doc => ({ docType: doc.docType, code: doc.code, label: doc.label, isGenerated: Boolean(doc.isGenerated) })),
 }));
 
 // ─── Gate view — API mapping ─────────────────────────────────────────────────
@@ -379,9 +380,14 @@ function shipmentToLane(
 
     const g = docTypeToGate(d.documentType);
     if (!g) continue;
-    gateNum = d.gateNumber && d.gateNumber >= 1 && d.gateNumber <= gateCount ? d.gateNumber : g.gate;
-    code    = d.gateCode || g.code;
-    label   = g.label;
+    const normalizedDocType = d.documentType.toUpperCase();
+    const isGeneratedEntrySummary = normalizedDocType === 'ENTRY_SUMMARY' && (d.isGenerated || Number(d.gateNumber) === 2 || d.gateCode === 'BOE-D');
+    gateNum = isGeneratedEntrySummary ? 2 : d.gateNumber && d.gateNumber >= 1 && d.gateNumber <= gateCount ? d.gateNumber : g.gate;
+    code    = isGeneratedEntrySummary ? 'CB' : d.gateCode || g.code;
+    label   = isGeneratedEntrySummary ? 'Draft CBP FORM 7501' : g.label;
+    const configuredSlot = GATE_DEFS[gateNum - 1]?.required.find(r => r.code === code && !r.isGenerated)?.docType
+      ?? GATE_DEFS[gateNum - 1]?.parallel.find(r => r.code === code)?.docType;
+    const slotKey = isGeneratedEntrySummary ? 'ENTRY_SUMMARY_DRAFT' : configuredSlot ?? normalizedDocType;
 
     let entry: DocEntry = {
       code, label,
@@ -391,6 +397,7 @@ function shipmentToLane(
       genType: d.isGenerated ? d.documentType : undefined,
       isGenerated: d.isGenerated,
       isParallel: !!d.isParallel || !!g.isParallel,
+      slotKey,
     };
     if (entry.status === 'failed-block') {
       entry = { ...entry, ruleCode: 'Cross validation blocked', docNumber: undefined };
@@ -416,18 +423,20 @@ function shipmentToLane(
   const gates: GateCol[] = activeDefs.map((def, i) => {
     const gateNum   = i + 1;
     const realDocs  = collapseDuplicateDocs(gateDocsMap.get(gateNum) ?? []);
-    const seenCodes = new Set(realDocs.map(d => d.code));
+    const seenSlots = new Set(realDocs.map(d => d.slotKey ?? d.code));
     const merged: DocEntry[] = [
       ...realDocs,
-      ...def.required.filter(r => !seenCodes.has(r.code)).map(r => ({ code: r.code, label: r.label, status: 'expected' as DocStatus })),
-      ...def.parallel.filter(r => !seenCodes.has(r.code)).map(r => ({ code: r.code, label: r.label, status: 'expected' as DocStatus, isParallel: true })),
+      ...def.required.filter(r => !seenSlots.has(r.docType)).map(r => ({ code: r.code, label: r.label, status: 'expected' as DocStatus, isGenerated: r.isGenerated, slotKey: r.docType })),
+      ...def.parallel.filter(r => !seenSlots.has(r.docType)).map(r => ({ code: r.code, label: r.label, status: 'expected' as DocStatus, isGenerated: r.isGenerated, isParallel: true, slotKey: r.docType })),
     ];
     // Gate completion is based on required document types, not the raw number
     // of files. Multiple invoices therefore count once toward the SI slot.
-    const closedRequired = def.required.filter(required =>
+    const countableRequired = def.required.filter(required => !required.isGenerated);
+    const closedRequired = countableRequired.filter(required =>
       realDocs.some(document =>
         !document.isParallel
-        && document.code === required.code
+        && !document.isGenerated
+        && (document.slotKey ?? document.code) === required.docType
         && (document.status === 'closed' || document.status === 'gen-closed'),
       ),
     ).length;
@@ -435,20 +444,33 @@ function shipmentToLane(
       name: `Gate ${gateNum}`,
       label: def.label,
       status: 'future',
-      docCount: `${closedRequired}/${def.required.length}`,
+      docCount: `${closedRequired}/${countableRequired.length}`,
       docs: merged,
     };
   });
 
-  // Strict gate progression: only the first incomplete gate can be active.
-  // Documents uploaded for later gates remain visible, but cannot advance or
-  // pass those gates until every preceding required slot is approved.
+  // Strict gate progression: backend pass/skip status wins, then document
+  // counts are used as a fallback for shipments without gate state.
+  const apiStatusByGateNumber = new Map<number, string>(
+    (s.shipmentGates ?? []).map(gate => [
+      Number(gate.gateConfig?.gateNumber ?? 0),
+      String(gate.status ?? '').toUpperCase(),
+    ]),
+  );
   let precedingGatesComplete = true;
   let activeGateAssigned = false;
   gates.forEach((gate, index) => {
+    const gateNumber = index + 1;
+    const apiStatus = apiStatusByGateNumber.get(gateNumber);
     const [closed, required] = gate.docCount.split('/').map(Number);
     const complete = required > 0 && closed === required;
-    if (precedingGatesComplete && complete) {
+    if (apiStatus === 'BLOCKED' || apiStatus === 'FAILED') {
+      gate.status = 'blocked';
+      precedingGatesComplete = false;
+      activeGateAssigned = true;
+      return;
+    }
+    if (apiStatus === 'PASSED' || apiStatus === 'SKIPPED' || (precedingGatesComplete && complete)) {
       gate.status = 'passed';
       return;
     }

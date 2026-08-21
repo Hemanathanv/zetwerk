@@ -140,10 +140,12 @@ export type DocumentRecord = {
 export type DocumentListCounts = {
   total: number;
   needsApproval: number;
+  needsReapproval?: number;
   processing: number;
   crossValidating: number;
   draftReview: number;
   done: number;
+  waitingForBol?: number;
 };
 
 export type DocumentListPagination = {

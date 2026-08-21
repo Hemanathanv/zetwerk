@@ -1232,6 +1232,7 @@ function normalizedDocType(dt: string | null | undefined): string {
 }
 
 function docTypeMatches(actual: string | null | undefined, expected: string): boolean {
+  if (normalizedDocType(expected) === 'ENTRY_SUMMARY_DRAFT') return false;
   const a = normalizedDocType(actual);
   const e = normalizedDocType(expected);
   if (a === e) return true;
@@ -1259,11 +1260,33 @@ function docTypeMatches(actual: string | null | undefined, expected: string): bo
   return false;
 }
 
+
+function isGeneratedEntrySummaryDoc(doc: any): boolean {
+  if (normalizedDocType(doc?.documentType) !== 'ENTRY_SUMMARY') return false;
+  const labelText = `${doc?.fileName ?? ''} ${doc?.documentNumber ?? ''} ${doc?.gateCode ?? ''}`.toUpperCase();
+  return Boolean(doc?.isGenerated)
+    || Number(doc?.gateNumber) === 2
+    || labelText.includes('DRAFT_CBP')
+    || labelText.includes('DRAFT CBP')
+    || labelText.includes('BOE-D');
+}
+
+function docMatchesSlot(doc: any, expectedDocType: string, gateNumber?: number): boolean {
+  const expected = normalizedDocType(expectedDocType);
+  if (expected === 'ENTRY_SUMMARY_DRAFT') {
+    return isGeneratedEntrySummaryDoc(doc) && (gateNumber == null || Number(gateNumber) === 2);
+  }
+  if (expected === 'ENTRY_SUMMARY' && isGeneratedEntrySummaryDoc(doc)) {
+    return false;
+  }
+  return docTypeMatches(doc?.documentType, expectedDocType)
+    && (gateNumber == null || doc?.gateNumber == null || Number(doc.gateNumber) === gateNumber);
+}
+
 function findDocForSlot(documents: any[], docType: string, usedDocIds?: Set<string>, gateNumber?: number): any | null {
   const doc = documents.find(d =>
     !usedDocIds?.has(d.id)
-    && docTypeMatches(d.documentType, docType)
-    && (gateNumber == null || d.gateNumber == null || Number(d.gateNumber) === gateNumber)
+    && docMatchesSlot(d, docType, gateNumber)
   );
   if (doc && usedDocIds) usedDocIds.add(doc.id);
   return doc ?? null;
@@ -1272,8 +1295,7 @@ function findDocForSlot(documents: any[], docType: string, usedDocIds?: Set<stri
 function findDocsForSlot(documents: any[], docType: string, usedDocIds?: Set<string>, gateNumber?: number): any[] {
   const docs = documents.filter(d =>
     !usedDocIds?.has(d.id)
-    && docTypeMatches(d.documentType, docType)
-    && (gateNumber == null || d.gateNumber == null || Number(d.gateNumber) === gateNumber)
+    && docMatchesSlot(d, docType, gateNumber)
   );
   if (usedDocIds) docs.forEach(doc => usedDocIds.add(doc.id));
   return docs;
@@ -1543,6 +1565,8 @@ function buildShipmentGateProgressRows(gates: ApiGate[], documents: any[]): Ship
       status = 'blocked';
       precedingGatesComplete = false;
       activeGateAssigned = true;
+    } else if (row.apiStatus === 'passed') {
+      status = 'passed';
     } else if (precedingGatesComplete && complete) {
       status = 'passed';
     } else if (precedingGatesComplete && !activeGateAssigned) {

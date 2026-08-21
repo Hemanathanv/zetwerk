@@ -188,10 +188,12 @@ class DocumentListPagination(BaseModel):
 class DocumentListCounts(BaseModel):
     total: int = 0
     needsApproval: int = 0
+    needsReapproval: int = 0
     processing: int = 0
     crossValidating: int = 0
     draftReview: int = 0
     done: int = 0
+    waitingForBol: int = 0
 
 
 class DocumentListResponse(BaseModel):
@@ -1462,12 +1464,20 @@ async def upload_document(
 
 
 DOCUMENT_LIST_PAGE_SIZE = 20
+WAITING_FOR_BOL_DOC_TYPES: Final[set[str]] = {
+    "SALES_INVOICE",
+    "PACKING_LIST",
+    "US_PACKING_LIST",
+    "SHIPPING_BILL",
+}
 DOCUMENT_SECTION_STATUS_FILTERS: Final[dict[str, set[str]]] = {
     "needs-approval": {"EXTRACTED"},
+    "needs-reapproval": {"EXTRACTED"},
     "processing": {"QUEUED", "PROCESSING", "REPROCESSING"},
     "cross-validating": {"REVIEWED"},
     "draft-review": {"UPLOADED"},
     "done": {"ARCHIVED", "REVIEWED"},
+    "waiting-for-bol": set(),
 }
 _DOCUMENT_QUEUE_INDEXES_READY = False
 
@@ -1519,6 +1529,33 @@ def _validation_active_clause(document_alias: str = "d") -> str:
     """
 
 
+def _validation_history_clause(document_alias: str = "d") -> str:
+    return f"""
+        (
+          NULLIF(COALESCE({document_alias}."validation_status"::text, ''), '') IS NOT NULL
+          OR EXISTS (
+            SELECT 1
+            FROM "document_module"."document_validation_status" dvs
+            WHERE dvs."document_id" = {document_alias}."id"::text
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM "document_module"."validation_results" vr
+            WHERE vr."document_id" = {document_alias}."id"::text
+          )
+        )
+    """
+
+
+def _waiting_for_bol_clause(document_alias: str = "d") -> str:
+    return f"""
+        (
+          {document_alias}."shipment_id" IS NULL
+          AND {document_alias}."doc_type"::text = ANY(ARRAY[{", ".join(_sql_quote(doc_type) for doc_type in sorted(WAITING_FOR_BOL_DOC_TYPES))}]::text[])
+        )
+    """
+
+
 async def _document_count(*, prisma, user: Any, section: str) -> int:
     if has_role_document_scope(user):
         try:
@@ -1530,16 +1567,29 @@ async def _document_count(*, prisma, user: Any, section: str) -> int:
                 )
                 return int((rows[0] if rows else {}).get("count") or 0)
 
-            if section in {"cross-validating", "done"}:
+            if section in {"needs-approval", "needs-reapproval", "processing", "cross-validating", "draft-review", "done", "waiting-for-bol"}:
                 await _ensure_cross_validation_tables(prisma)
                 validation_active_clause = _validation_active_clause("d")
+                validation_history_clause = _validation_history_clause("d")
+                waiting_for_bol_clause = _waiting_for_bol_clause("d")
                 if section == "done":
                     section_clause = (
                         f"""(d."status"::text = 'ARCHIVED'
-                        OR (d."status"::text = 'REVIEWED' AND NOT {validation_active_clause}))"""
+                        OR (d."status"::text = 'REVIEWED' AND NOT {validation_active_clause}))
+                        AND NOT {waiting_for_bol_clause}"""
                     )
+                elif section == "needs-approval":
+                    section_clause = f"""d."status"::text = 'EXTRACTED' AND NOT {validation_history_clause} AND NOT {waiting_for_bol_clause}"""
+                elif section == "needs-reapproval":
+                    section_clause = f"""d."status"::text = 'EXTRACTED' AND {validation_history_clause} AND NOT {waiting_for_bol_clause}"""
+                elif section == "processing":
+                    section_clause = f"""d."status"::text IN ('QUEUED', 'PROCESSING', 'REPROCESSING') AND NOT {waiting_for_bol_clause}"""
+                elif section == "draft-review":
+                    section_clause = f"""d."status"::text = 'UPLOADED' AND NOT {waiting_for_bol_clause}"""
+                elif section == "waiting-for-bol":
+                    section_clause = waiting_for_bol_clause
                 else:
-                    section_clause = f"""d."status"::text = 'REVIEWED' AND {validation_active_clause}"""
+                    section_clause = f"""d."status"::text = 'REVIEWED' AND {validation_active_clause} AND NOT {waiting_for_bol_clause}"""
                 rows = await prisma.query_raw(
                     f'SELECT COUNT(*) AS count FROM "public"."documents" d WHERE {access_where} AND {section_clause}',
                     *access_params,
@@ -1562,8 +1612,10 @@ async def _document_count(*, prisma, user: Any, section: str) -> int:
             return 0
 
     current_user_id = user_id(user)
-    if section in {"cross-validating", "done"}:
+    if section in {"needs-approval", "needs-reapproval", "processing", "cross-validating", "draft-review", "done", "waiting-for-bol"}:
         validation_active_clause = _validation_active_clause("d")
+        validation_history_clause = _validation_history_clause("d")
+        waiting_for_bol_clause = _waiting_for_bol_clause("d")
         if section == "done":
             sql = f"""
                 SELECT COUNT(*) AS count
@@ -1574,6 +1626,53 @@ async def _document_count(*, prisma, user: Any, section: str) -> int:
                     d."status"::text = 'ARCHIVED'
                     OR (d."status"::text = 'REVIEWED' AND NOT {validation_active_clause})
                   )
+                  AND NOT {waiting_for_bol_clause}
+            """
+        elif section == "needs-approval":
+            sql = f"""
+                SELECT COUNT(*) AS count
+                FROM "public"."documents" d
+                WHERE d."uploaded_by"::text = $1::text
+                  AND d."is_deleted" = false
+                  AND d."status"::text = 'EXTRACTED'
+                  AND NOT {validation_history_clause}
+                  AND NOT {waiting_for_bol_clause}
+            """
+        elif section == "needs-reapproval":
+            sql = f"""
+                SELECT COUNT(*) AS count
+                FROM "public"."documents" d
+                WHERE d."uploaded_by"::text = $1::text
+                  AND d."is_deleted" = false
+                  AND d."status"::text = 'EXTRACTED'
+                  AND {validation_history_clause}
+                  AND NOT {waiting_for_bol_clause}
+            """
+        elif section == "processing":
+            sql = f"""
+                SELECT COUNT(*) AS count
+                FROM "public"."documents" d
+                WHERE d."uploaded_by"::text = $1::text
+                  AND d."is_deleted" = false
+                  AND d."status"::text IN ('QUEUED', 'PROCESSING', 'REPROCESSING')
+                  AND NOT {waiting_for_bol_clause}
+            """
+        elif section == "draft-review":
+            sql = f"""
+                SELECT COUNT(*) AS count
+                FROM "public"."documents" d
+                WHERE d."uploaded_by"::text = $1::text
+                  AND d."is_deleted" = false
+                  AND d."status"::text = 'UPLOADED'
+                  AND NOT {waiting_for_bol_clause}
+            """
+        elif section == "waiting-for-bol":
+            sql = f"""
+                SELECT COUNT(*) AS count
+                FROM "public"."documents" d
+                WHERE d."uploaded_by"::text = $1::text
+                  AND d."is_deleted" = false
+                  AND {waiting_for_bol_clause}
             """
         else:
             sql = f"""
@@ -1583,6 +1682,7 @@ async def _document_count(*, prisma, user: Any, section: str) -> int:
                   AND d."is_deleted" = false
                   AND d."status"::text = 'REVIEWED'
                   AND {validation_active_clause}
+                  AND NOT {waiting_for_bol_clause}
             """
         try:
             await _ensure_cross_validation_tables(prisma)
@@ -1601,23 +1701,43 @@ async def _document_counts(*, prisma, user: Any, doc_type_filter: str | None = N
         await _ensure_cross_validation_tables(prisma)
         access_where, access_params, next_param = document_sql_where("d", user)
         validation_active_clause = _validation_active_clause("d")
+        validation_history_clause = _validation_history_clause("d")
+        waiting_for_bol_clause = _waiting_for_bol_clause("d")
         doc_type_clause = f' AND d."doc_type"::text = ${next_param}::text' if doc_type_filter else ''
         doc_type_params = [doc_type_filter] if doc_type_filter else []
         rows = await prisma.query_raw(
             f"""
             SELECT
               COUNT(*) AS total,
-              COUNT(*) FILTER (WHERE d."status"::text = 'EXTRACTED') AS needs_approval,
-              COUNT(*) FILTER (WHERE d."status"::text IN ('QUEUED', 'PROCESSING', 'REPROCESSING')) AS processing,
+              COUNT(*) FILTER (
+                WHERE d."status"::text = 'EXTRACTED'
+                  AND NOT {validation_history_clause}
+                  AND NOT {waiting_for_bol_clause}
+              ) AS needs_approval,
+              COUNT(*) FILTER (
+                WHERE d."status"::text = 'EXTRACTED'
+                  AND {validation_history_clause}
+                  AND NOT {waiting_for_bol_clause}
+              ) AS needs_reapproval,
+              COUNT(*) FILTER (
+                WHERE d."status"::text IN ('QUEUED', 'PROCESSING', 'REPROCESSING')
+                  AND NOT {waiting_for_bol_clause}
+              ) AS processing,
               COUNT(*) FILTER (
                 WHERE d."status"::text = 'REVIEWED'
                   AND {validation_active_clause}
+                  AND NOT {waiting_for_bol_clause}
               ) AS cross_validating,
-              COUNT(*) FILTER (WHERE d."status"::text = 'UPLOADED') AS draft_review,
               COUNT(*) FILTER (
-                WHERE d."status"::text = 'ARCHIVED'
-                   OR (d."status"::text = 'REVIEWED' AND NOT {validation_active_clause})
-              ) AS done
+                WHERE d."status"::text = 'UPLOADED'
+                  AND NOT {waiting_for_bol_clause}
+              ) AS draft_review,
+              COUNT(*) FILTER (
+                WHERE (d."status"::text = 'ARCHIVED'
+                   OR (d."status"::text = 'REVIEWED' AND NOT {validation_active_clause}))
+                  AND NOT {waiting_for_bol_clause}
+              ) AS done,
+              COUNT(*) FILTER (WHERE {waiting_for_bol_clause}) AS waiting_for_bol
             FROM "public"."documents" d
             WHERE {access_where}{doc_type_clause}
             """,
@@ -1628,19 +1748,23 @@ async def _document_counts(*, prisma, user: Any, doc_type_filter: str | None = N
         return DocumentListCounts(
             total=int(row.get("total") or 0),
             needsApproval=int(row.get("needs_approval") or 0),
+            needsReapproval=int(row.get("needs_reapproval") or 0),
             processing=int(row.get("processing") or 0),
             crossValidating=int(row.get("cross_validating") or 0),
             draftReview=int(row.get("draft_review") or 0),
             done=int(row.get("done") or 0),
+            waitingForBol=int(row.get("waiting_for_bol") or 0),
         )
     except Exception:
         return DocumentListCounts(
             total=await _document_count(prisma=prisma, user=user, section="all"),
             needsApproval=await _document_count(prisma=prisma, user=user, section="needs-approval"),
+            needsReapproval=await _document_count(prisma=prisma, user=user, section="needs-reapproval"),
             processing=await _document_count(prisma=prisma, user=user, section="processing"),
             crossValidating=await _document_count(prisma=prisma, user=user, section="cross-validating"),
             draftReview=await _document_count(prisma=prisma, user=user, section="draft-review"),
             done=await _document_count(prisma=prisma, user=user, section="done"),
+            waitingForBol=await _document_count(prisma=prisma, user=user, section="waiting-for-bol"),
         )
 
 
@@ -1656,7 +1780,15 @@ async def _document_page_rows(
     page_size: int,
     doc_type_filter: str | None = None,
 ) -> list[Any]:
-    if section not in {"cross-validating", "done"}:
+    if section in {"needs-approval", "needs-reapproval", "processing", "draft-review"}:
+        return await prisma.document.find_many(
+            where=where,
+            order={"createdAt": "desc"},
+            skip=skip,
+            take=page_size,
+        )
+
+    if section not in {"cross-validating", "done", "waiting-for-bol"}:
         return await prisma.document.find_many(
             where=where,
             order={"createdAt": "desc"},
@@ -1673,48 +1805,78 @@ async def _document_page_rows(
         query_params.append(doc_type_filter)
         next_param += 1
     validation_active_clause = _validation_active_clause("d")
+    validation_history_clause = _validation_history_clause("d")
+    waiting_for_bol_clause = _waiting_for_bol_clause("d")
     if section == "done":
         section_clause = f'''
           (
             d."status"::text = 'ARCHIVED'
             OR (d."status"::text = 'REVIEWED' AND NOT {validation_active_clause})
           )
+          AND NOT {waiting_for_bol_clause}
         '''
+    elif section == "needs-approval":
+        section_clause = f'''d."status"::text = 'EXTRACTED' AND NOT {validation_history_clause} AND NOT {waiting_for_bol_clause}'''
+    elif section == "needs-reapproval":
+        section_clause = f'''d."status"::text = 'EXTRACTED' AND {validation_history_clause} AND NOT {waiting_for_bol_clause}'''
+    elif section == "processing":
+        section_clause = f'''d."status"::text IN ('QUEUED', 'PROCESSING', 'REPROCESSING') AND NOT {waiting_for_bol_clause}'''
+    elif section == "draft-review":
+        section_clause = f'''d."status"::text = 'UPLOADED' AND NOT {waiting_for_bol_clause}'''
+    elif section == "waiting-for-bol":
+        section_clause = waiting_for_bol_clause
     else:
-        section_clause = f'''d."status"::text = 'REVIEWED' AND {validation_active_clause}'''
+        section_clause = f'''d."status"::text = 'REVIEWED' AND {validation_active_clause} AND NOT {waiting_for_bol_clause}'''
 
-    rows = await prisma.query_raw(
-        f'''
-        SELECT
-          d."id"::text AS "id",
-          d."doc_type"::text AS "docType",
-          d."status"::text AS "status",
-          d."validation_status"::text AS "validationStatus",
-          d."bucket" AS "bucket",
-          d."object_key" AS "objectKey",
-          d."file_name" AS "fileName",
-          d."content_type" AS "contentType",
-          d."size_bytes" AS "sizeBytes",
-          d."total_pages" AS "totalPages",
-          d."created_at" AS "createdAt",
-          d."updated_at" AS "updatedAt"
-        FROM "public"."documents" d
-        WHERE {access_where}
-          AND {section_clause}{doc_type_clause}
-        ORDER BY d."created_at" DESC
-        OFFSET ${next_param}
-        LIMIT ${next_param + 1}
-        ''',
-        *query_params,
-        skip,
-        page_size,
-    )
-    return [SimpleNamespace(**dict(row)) for row in rows]
+    try:
+        rows = await prisma.query_raw(
+            f'''
+            SELECT
+              d."id"::text AS "id",
+              d."doc_type"::text AS "docType",
+              d."status"::text AS "status",
+              d."validation_status"::text AS "validationStatus",
+              d."bucket" AS "bucket",
+              d."object_key" AS "objectKey",
+              d."file_name" AS "fileName",
+              d."content_type" AS "contentType",
+              d."size_bytes" AS "sizeBytes",
+              d."total_pages" AS "totalPages",
+              d."created_at" AS "createdAt",
+              d."updated_at" AS "updatedAt"
+            FROM "public"."documents" d
+            WHERE {access_where}
+              AND {section_clause}{doc_type_clause}
+            ORDER BY d."created_at" DESC
+            OFFSET ${next_param}
+            LIMIT ${next_param + 1}
+            ''',
+            *query_params,
+            skip,
+            page_size,
+        )
+        return [SimpleNamespace(**dict(row)) for row in rows]
+    except Exception as exc:
+        print(f"[uploads] warning: raw queue section {section!r} failed, falling back: {exc}", flush=True)
+        if section == "waiting-for-bol":
+            return []
+        return await prisma.document.find_many(
+            where=where,
+            order={"createdAt": "desc"},
+            skip=skip,
+            take=page_size,
+        )
 
 
 
 
-def _document_matches_section(status: str, validation_status: str | None, section: str) -> bool:
+def _document_matches_section(
+    status: str,
+    validation_status: str | None,
+    section: str,
+    *,
+    has_validation_history: bool = False,
+) -> bool:
     normalized_status = str(status or "").upper()
     normalized_validation = str(validation_status or "").upper()
     validation_active = normalized_validation in {"BLOCKED", "WAITING"}
@@ -1724,6 +1886,12 @@ def _document_matches_section(status: str, validation_status: str | None, sectio
         return normalized_status == "ARCHIVED" or (normalized_status == "REVIEWED" and not validation_active)
     if section == "cross-validating":
         return normalized_status == "REVIEWED" and validation_active
+    if section == "needs-approval":
+        return normalized_status == "EXTRACTED" and not has_validation_history
+    if section == "needs-reapproval":
+        return normalized_status == "EXTRACTED" and has_validation_history
+    if section in {"processing", "draft-review", "waiting-for-bol"}:
+        return True
     statuses = DOCUMENT_SECTION_STATUS_FILTERS.get(section)
     return normalized_status in (statuses or set())
 
@@ -1858,16 +2026,19 @@ async def list_documents(
         raise HTTPException(status_code=400, detail=f"Unsupported document section: {section!r}")
 
     try:
+        await ensure_operational_shipment_tables(prisma)
         await _ensure_document_queue_indexes(prisma)
         where = _document_section_where(user=user, section=normalized_section, doc_type_filter=normalized_doc_type)
         counts = await _document_counts(prisma=prisma, user=user, doc_type_filter=normalized_doc_type)
         total = {
             "all": counts.total,
             "needs-approval": counts.needsApproval,
+            "needs-reapproval": counts.needsReapproval,
             "processing": counts.processing,
             "cross-validating": counts.crossValidating,
             "draft-review": counts.draftReview,
             "done": counts.done,
+            "waiting-for-bol": counts.waitingForBol,
         }.get(normalized_section, counts.total)
         total_pages = max(1, (total + page_size - 1) // page_size)
         safe_page = min(page, total_pages)
@@ -1887,40 +2058,56 @@ async def list_documents(
         )
         documents: list[DocumentListItem] = []
         for row in rows:
-            status = await _status_from_db_with_stale_recovery(prisma=prisma, row=row)
-            validation_snapshot = validation_snapshots.get(str(row.id), {})
-            validation_status = validation_snapshot.get("status") or getattr(row, "validationStatus", None)
-            if not _document_matches_section(status, validation_status, normalized_section):
-                continue
-            extraction = await _fetch_extraction_direct(
-                prisma=prisma,
-                doc_type=str(row.docType),
-                document_id=str(row.id),
-            )
-            documents.append(
-                DocumentListItem(
-                    id=row.id,
-                    docType=str(row.docType),
-                    issuerName=_extract_display_issuer(extraction),
-                    sourceName=_extract_display_issuer(extraction),
-                    filePath=_storage_path(row.bucket, row.objectKey),
-                    fileName=row.fileName,
-                    bucket=row.bucket,
-                    objectKey=row.objectKey,
-                    contentType=row.contentType,
-                    sizeBytes=int(row.sizeBytes),
-                    createdAt=row.createdAt.isoformat() if row.createdAt else "",
-                    updatedAt=row.updatedAt.isoformat() if row.updatedAt else "",
-                    validationStatus=validation_status,
-                    validationSummary=validation_snapshot.get("summary"),
-                    validationResults=validation_snapshot.get("results") or [],
-                    status=status,
-                    pageCount=row.totalPages,
-                    isPDF=row.contentType == "application/pdf" or row.fileName.lower().endswith(".pdf"),
-                    previewUrl=_safe_download_url(row.bucket, row.objectKey),
-                    ocrConfidence=_extract_ocr_confidence(extraction),
+            try:
+                status = await _status_from_db_with_stale_recovery(prisma=prisma, row=row)
+                validation_snapshot = validation_snapshots.get(str(row.id), {})
+                validation_status = validation_snapshot.get("status") or getattr(row, "validationStatus", None)
+                validation_summary = validation_snapshot.get("summary") or {}
+                has_validation_history = bool(validation_status) or bool(validation_snapshot.get("results"))
+                if isinstance(validation_summary, dict):
+                    has_validation_history = has_validation_history or int(validation_summary.get("total") or 0) > 0
+                if not _document_matches_section(
+                    status,
+                    validation_status,
+                    normalized_section,
+                    has_validation_history=has_validation_history,
+                ):
+                    continue
+                extraction = await _fetch_extraction_direct(
+                    prisma=prisma,
+                    doc_type=str(row.docType),
+                    document_id=str(row.id),
                 )
-            )
+                documents.append(
+                    DocumentListItem(
+                        id=row.id,
+                        docType=str(row.docType),
+                        issuerName=_extract_display_issuer(extraction),
+                        sourceName=_extract_display_issuer(extraction),
+                        filePath=_storage_path(row.bucket, row.objectKey),
+                        fileName=row.fileName,
+                        bucket=row.bucket,
+                        objectKey=row.objectKey,
+                        contentType=row.contentType,
+                        sizeBytes=int(row.sizeBytes),
+                        createdAt=_to_iso(getattr(row, "createdAt", None)) or "",
+                        updatedAt=_to_iso(getattr(row, "updatedAt", None)) or "",
+                        validationStatus=validation_status,
+                        validationSummary=validation_snapshot.get("summary"),
+                        validationResults=validation_snapshot.get("results") or [],
+                        status=status,
+                        pageCount=row.totalPages,
+                        isPDF=row.contentType == "application/pdf" or row.fileName.lower().endswith(".pdf"),
+                        previewUrl=_safe_download_url(row.bucket, row.objectKey),
+                        ocrConfidence=_extract_ocr_confidence(extraction),
+                    )
+                )
+            except Exception as row_exc:
+                print(
+                    f"[uploads] warning: skipping queue document {getattr(row, 'id', '<unknown>')} "
+                    f"in section {normalized_section!r}: {row_exc}",
+                    flush=True,
+                )
         return DocumentListResponse(
             documents=documents,
             counts=counts,

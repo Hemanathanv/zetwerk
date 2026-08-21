@@ -158,7 +158,7 @@ function docTypeMatches(actual: string | null | undefined, expected: string): bo
   if (e === 'CHA_BILL') return a === 'CHA' || a.includes('CHA_BILL');
   if (e === 'BILL_OF_LADING') return a === 'BL' || a === 'BOL' || a.includes('BILL_OF_LADING');
   if (e === 'FREIGHT_FORWARDER_BILL') return a.includes('FREIGHT_FORWARDER');
-  if (e === 'ENTRY_SUMMARY_DRAFT') return a.includes('DRAFT') && (a.includes('ENTRY_SUMMARY') || a.includes('BOE') || a.includes('CBP'));
+  if (e === 'ENTRY_SUMMARY_DRAFT') return false;
   if (e === 'ENTRY_SUMMARY_TARIFF_LINES') return a.includes('ENTRY_SUMMARY_TARIFF') || a.includes('TARIFF_LINES');
   if (e === 'ENTRY_SUMMARY') return a === 'ENTRY_SUMMARY' || a=== 'BOE' || a.includes('BILL_OF_ENTRY') || a.includes('CBP_FORM_7501');
   if (e === 'US_CARGO_RELEASE_ORDER') return a.includes('CARGO_RELEASE');
@@ -180,6 +180,7 @@ function isGeneratedEntrySummaryDoc(doc: any): boolean {
   if (normalizedDocType(doc?.documentType) !== 'ENTRY_SUMMARY') return false;
   const labelText = `${doc?.fileName ?? ''} ${doc?.documentNumber ?? ''} ${doc?.gateCode ?? ''}`.toUpperCase();
   return Boolean(doc?.isGenerated)
+    || Number(doc?.gateNumber) === 2
     || labelText.includes('DRAFT_CBP')
     || labelText.includes('DRAFT CBP')
     || labelText.includes('BOE-D');
@@ -197,11 +198,22 @@ function docBelongsToGate(doc: any, gateNumber?: number): boolean {
   return Number(doc.gateNumber) === Number(gateNumber);
 }
 
+
+function docMatchesSlot(doc: any, expectedDocType: string, gateNumber?: number): boolean {
+  const expected = normalizedDocType(expectedDocType);
+  if (expected === 'ENTRY_SUMMARY_DRAFT') {
+    return isGeneratedEntrySummaryDoc(doc) && (gateNumber == null || Number(gateNumber) === 2);
+  }
+  if (expected === 'ENTRY_SUMMARY' && isGeneratedEntrySummaryDoc(doc)) {
+    return false;
+  }
+  return docTypeMatches(doc?.documentType, expectedDocType) && docBelongsToGate(doc, gateNumber);
+}
+
 function findDocForSlot(documents: any[], docType: string, usedDocIds?: Set<string>, gateNumber?: number): any | undefined {
   const doc = documents.find((d: any) =>
     !usedDocIds?.has(d.id)
-    && docTypeMatches(d.documentType, docType)
-    && docBelongsToGate(d, gateNumber)
+    && docMatchesSlot(d, docType, gateNumber)
   );
   if (doc && usedDocIds) usedDocIds.add(doc.id);
   return doc;
@@ -210,8 +222,7 @@ function findDocForSlot(documents: any[], docType: string, usedDocIds?: Set<stri
 function findDocsForSlot(documents: any[], docType: string, usedDocIds?: Set<string>, gateNumber?: number): any[] {
   const docs = documents.filter((d: any) =>
     !usedDocIds?.has(d.id)
-    && docTypeMatches(d.documentType, docType)
-    && (gateNumber == null || d.gateNumber == null || Number(d.gateNumber) === gateNumber)
+    && docMatchesSlot(d, docType, gateNumber)
   );
   if (usedDocIds) docs.forEach(doc => usedDocIds.add(doc.id));
   return docs;

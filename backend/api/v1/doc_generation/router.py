@@ -1648,6 +1648,12 @@ async def create_doc_generation_draft(
         await ensure_doc_generation_views(prisma)
         user_role = access_role(user)
         shared_sources = _has_shared_docgen_access(user)
+        if request.generatedDocType != "PACKING_LIST" and not request.sourceDocumentIds:
+            raise HTTPException(
+                status_code=400,
+                detail="Source document IDs are required for this generated document type",
+            )
+
         if request.generatedDocType == "PACKING_LIST":
             source_document_id = request.sourceDocumentIds.get("SALES_INVOICE")
             if not source_document_id:

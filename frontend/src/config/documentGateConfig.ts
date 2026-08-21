@@ -5,6 +5,7 @@ export interface DocumentGateDocDef {
   code: string;
   label: string;
   role: DocumentGateRole;
+  isGenerated?: boolean;
 }
 
 export interface DocumentGateDef {
@@ -30,6 +31,7 @@ export const DOCUMENT_GATE_DEFS: DocumentGateDef[] = [
     docs: [
       { docType: 'BILL_OF_LADING', code: 'BL', label: 'Bill of Lading', role: 'PRIMARY' },
       { docType: 'DRAFT_CBP_FORM_7501_BROKER', code: 'CB', label: 'Draft CBP FORM 7501 Broker', role: 'PRIMARY' },
+      { docType: 'ENTRY_SUMMARY_DRAFT', code: 'CB', label: 'Draft CBP FORM 7501', role: 'PRIMARY', isGenerated: true },
       { docType: 'FREIGHT_FORWARDER_BILL', code: 'FF', label: 'Freight Forwarder Bill', role: 'PARALLEL' },
     ],
   },
