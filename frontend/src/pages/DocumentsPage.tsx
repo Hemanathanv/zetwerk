@@ -22,8 +22,10 @@ import {
   Circle,
   Search,
   Clock,
+  Info,
 } from 'lucide-react';
 import { StatusPill, DocBadge, FilterChips } from '@/components/vs';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 function authHeaders(): Record<string, string> {
   const token = getAuthToken();
@@ -42,6 +44,10 @@ interface DocEntry {
   status: DocStatus;
   count?: number;
   docNumber?: string;
+  /** All document identities in a collapsed multi-doc slot (for info tooltip). */
+  docNumbers?: string[];
+  /** Clickable document targets shown in the identity popover. */
+  docLinks?: Array<{ id: string; label: string }>;
   ruleCode?: string;
   docId?: string;
   genType?: string;
@@ -114,6 +120,7 @@ const GATE_DEFS = DOCUMENT_GATE_DEFS.map(gate => ({
 
 interface ApiDoc {
   id: string; documentType: string; documentNumber?: string;
+  fileName?: string | null;
   status?: string | null;
   ocrStatus: string; validationStatus: string;
   approvedAt: string | null; isGenerated: boolean;
@@ -216,7 +223,6 @@ function strongestDocEntry(entries: DocEntry[]): DocEntry {
 function collapseDuplicateDocs(entries: DocEntry[]): DocEntry[] {
   const grouped = new Map<string, DocEntry[]>();
   const order: string[] = [];
-  const normalized = (value?: string) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 
   for (const entry of entries) {
     const key = `${entry.code}|${entry.isParallel ? 'parallel' : 'main'}|${entry.genType ?? ''}`;
@@ -227,36 +233,38 @@ function collapseDuplicateDocs(entries: DocEntry[]): DocEntry[] {
     grouped.get(key)!.push(entry);
   }
 
-  return order.map(key => {
+  return order.map((key) => {
     const rawGroup = grouped.get(key)!;
-    const duplicateGroups = new Map<string, DocEntry[]>();
-    const duplicateOrder: string[] = [];
-    for (const entry of rawGroup) {
-      const ref = normalized(entry.docNumber);
-      const duplicateKey = ref ? `ref:${entry.code}:${ref}` : entry.docId ? `id:${entry.docId}` : `row:${duplicateOrder.length}`;
-      if (!duplicateGroups.has(duplicateKey)) {
-        duplicateGroups.set(duplicateKey, []);
-        duplicateOrder.push(duplicateKey);
+    // Keep every distinct uploaded file (by docId), not only distinct invoice numbers.
+    const byId = new Map<string, DocEntry>();
+    rawGroup.forEach((entry, index) => {
+      const id = entry.docId ?? `row-${index}`;
+      const existing = byId.get(id);
+      if (!existing || DOC_STATUS_PRIORITY[entry.status] > DOC_STATUS_PRIORITY[existing.status]) {
+        byId.set(id, entry);
       }
-      duplicateGroups.get(duplicateKey)!.push(entry);
-    }
-    const group = duplicateOrder.map(duplicateKey => {
-      const duplicates = duplicateGroups.get(duplicateKey)!;
-      return strongestDocEntry(duplicates);
     });
-    if (group.length === 0) {
-      return strongestDocEntry(rawGroup);
+    const uniqueDocs = Array.from(byId.values());
+    if (uniqueDocs.length <= 1) {
+      return uniqueDocs[0] ?? strongestDocEntry(rawGroup);
     }
-    if (group.length === 1) return group[0];
 
-    const first = group[0];
+    const first = strongestDocEntry(uniqueDocs);
+    const docLinks = uniqueDocs
+      .filter((item) => item.docId)
+      .map((item) => ({
+        id: item.docId as string,
+        label: String(item.docNumber ?? item.label ?? 'Document').trim() || 'Document',
+      }));
     return {
       ...first,
-      status: strongestDocStatus(group),
-      count: group.length,
-      label: `${first.label} (${group.length})`,
-      docNumber: first.docNumber ?? `${group.length} documents`,
-      ruleCode: group.find(item => item.ruleCode)?.ruleCode,
+      status: strongestDocStatus(uniqueDocs),
+      count: uniqueDocs.length,
+      label: `${first.label.replace(/\s*\(\d+\)\s*$/, '')} (${uniqueDocs.length})`,
+      docNumber: docLinks[0]?.label ?? first.docNumber ?? `${uniqueDocs.length} documents`,
+      docNumbers: docLinks.map((link) => link.label),
+      docLinks,
+      ruleCode: uniqueDocs.find((item) => item.ruleCode)?.ruleCode,
     };
   });
 }
@@ -390,10 +398,15 @@ function shipmentToLane(
     const slotKey = isGeneratedEntrySummary ? 'ENTRY_SUMMARY_DRAFT' : configuredSlot ?? normalizedDocType;
 
     const status = apiDocStatus(d);
+    const identityLabel = d.isGenerated && status === 'expected'
+      ? undefined
+      : (d.documentNumber ?? d.fileName ?? undefined);
     let entry: DocEntry = {
       code, label,
       status,
-      docNumber: d.isGenerated && status === 'expected' ? undefined : d.documentNumber ?? undefined,
+      docNumber: identityLabel,
+      docNumbers: identityLabel ? [String(identityLabel)] : undefined,
+      docLinks: [{ id: d.id, label: String(identityLabel ?? label) }],
       docId: d.id,
       genType: d.isGenerated ? d.documentType : undefined,
       isGenerated: d.isGenerated,
@@ -401,9 +414,9 @@ function shipmentToLane(
       slotKey,
     };
     if (entry.status === 'failed-block') {
-      entry = { ...entry, ruleCode: 'Cross validation blocked', docNumber: undefined };
+      entry = { ...entry, ruleCode: 'Cross validation blocked', docNumber: undefined, docNumbers: undefined, docLinks: undefined };
     } else if (entry.status === 'failed-warn') {
-      entry = { ...entry, ruleCode: 'Cross validation pending', docNumber: undefined };
+      entry = { ...entry, ruleCode: 'Cross validation pending', docNumber: undefined, docNumbers: undefined, docLinks: undefined };
     }
 
     if (d.isGenerated) {
@@ -612,31 +625,129 @@ function docSubText(doc: DocEntry, isParallel?: boolean): { text: string; color:
   }
 }
 
+function DocIdentityInfoButton({
+  links,
+  onNavigate,
+}: {
+  links: Array<{ id: string; label: string }>;
+  onNavigate: (path: string) => void;
+}) {
+  if (links.length === 0) return null;
+  const scrollable = links.length > 10;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={links.length === 1 ? 'Open document' : `Show ${links.length} documents`}
+          onClick={(event) => {
+            event.stopPropagation();
+          }}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+          }}
+          style={{
+            width: 16,
+            height: 16,
+            flexShrink: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 4,
+            border: `1px solid ${BORDER}`,
+            background: 'hsl(var(--card))',
+            color: MUTED,
+            cursor: 'pointer',
+            padding: 0,
+          }}
+        >
+          <Info size={10} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="top"
+        className="w-64 p-2 z-[1200]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div style={{ fontSize: 11, fontWeight: 700, color: MUTED, marginBottom: 6, padding: '0 4px' }}>
+          {links.length === 1 ? 'Document' : `${links.length} documents`}
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            maxHeight: scrollable ? 280 : undefined,
+            overflowY: scrollable ? 'auto' : undefined,
+          }}
+        >
+          {links.map((link, index) => (
+            <button
+              key={link.id}
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onNavigate(`/documents/${link.id}`);
+              }}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                border: 'none',
+                background: 'transparent',
+                borderRadius: 6,
+                padding: '6px 8px',
+                cursor: 'pointer',
+                fontSize: 12,
+                color: FG,
+                lineHeight: 1.35,
+              }}
+              onMouseEnter={(event) => {
+                event.currentTarget.style.backgroundColor = 'hsl(var(--muted) / 0.45)';
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              {links.length > 1 ? `${index + 1}. ` : ''}{link.label}
+            </button>
+          ))}
+        </div>
+        {scrollable && (
+          <div style={{ fontSize: 10, color: MUTED, marginTop: 6, padding: '0 4px' }}>
+            Scroll to see all {links.length} documents
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function DocItem({ doc, isParallel, onNavigate }: {
   doc: DocEntry;
   isParallel?: boolean;
   onNavigate: (path: string) => void;
 }) {
   const sub = docSubText(doc, isParallel);
-  const clickable = doc.status !== 'na' && doc.status !== 'expected';
-  const path = doc.status === 'closed' && doc.docId
-    ? `/documents/${doc.docId}`
-    : (doc.status === 'gen-closed' || doc.status === 'gen-review') && doc.genType
-      ? (doc.genType === 'outward-pl' || doc.genType === 'us-packing-list' ? '/documents/generate/outward-grn' : `/documents/generate/${doc.genType}`)
-      : doc.status === 'expected' || doc.status === 'review' || doc.status === 'failed-warn' || doc.status === 'failed-block' || doc.status === 'processing'
-        ? '/documents/upload'
-        : undefined;
+  const identityLinks = (doc.docLinks?.length
+    ? doc.docLinks
+    : (doc.docId && doc.docNumber && !sub.italic
+      ? [{ id: doc.docId, label: doc.docNumber }]
+      : [])
+  ).filter((link) => link.id && String(link.label ?? '').trim());
+
+  const showStatusSub = Boolean(sub.text) && identityLinks.length === 0;
+  const reserveSubSpace = identityLinks.length > 0 || Boolean(sub.text);
 
   return (
     <div
-      onClick={path ? () => onNavigate(path) : undefined}
       style={{
         display: 'flex', alignItems: 'flex-start', gap: 5, padding: '2px 0',
-        cursor: clickable && path ? 'pointer' : 'default',
-        borderRadius: 4, transition: 'background-color 0.1s',
+        borderRadius: 4,
       }}
-      onMouseEnter={e => { if (path) (e.currentTarget as HTMLDivElement).style.backgroundColor = 'hsla(0,0%,0%,0.03)'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent'; }}
     >
       <DocBadge code={doc.code} size="sm" />
       <div style={{ minWidth: 0, flex: 1 }}>
@@ -645,7 +756,10 @@ function DocItem({ doc, isParallel, onNavigate }: {
             fontSize: 12, fontWeight: 600, color: MUTED,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             minWidth: 0, flex: 1,
-          }}>{doc.label}</span>
+          }}>
+            {doc.label}
+          </span>
+          <DocIdentityInfoButton links={identityLinks} onNavigate={onNavigate} />
           {doc.isParallel && (
             <span style={{
               fontSize: 9, fontWeight: 700, lineHeight: 1,
@@ -657,15 +771,27 @@ function DocItem({ doc, isParallel, onNavigate }: {
           )}
           <DocStatusIcon status={doc.status} isParallel={isParallel || doc.isParallel} />
         </div>
-        <span style={{
-          fontSize: 11.5, color: sub.color,
-          fontStyle: sub.italic ? 'italic' : 'normal',
-          fontFamily: sub.mono ? 'var(--font-mono, monospace)' : 'inherit',
-          display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          maxWidth: 90,
-        }}>
-          {sub.text}
-        </span>
+        {reserveSubSpace && (
+          <span
+            aria-hidden={!showStatusSub}
+            style={{
+              fontSize: 11.5,
+              color: showStatusSub ? sub.color : 'transparent',
+              fontStyle: showStatusSub && sub.italic ? 'italic' : 'normal',
+              fontFamily: showStatusSub && sub.mono ? 'var(--font-mono, monospace)' : 'inherit',
+              display: 'block',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: 90,
+              minHeight: '1.25em',
+              lineHeight: 1.25,
+              userSelect: showStatusSub ? 'auto' : 'none',
+            }}
+          >
+            {showStatusSub ? sub.text : '\u00A0'}
+          </span>
+        )}
       </div>
     </div>
   );

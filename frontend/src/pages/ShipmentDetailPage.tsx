@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useRef, Fragment, useMemo, type React
 import { useAuth } from '@/contexts/AuthContext';
 import { useUpload } from '@/contexts/UploadContext';
 import { StatusPill } from '@/components/vs';
+import { TruncatedTextWithInfo } from '@/components/TruncatedTextWithInfo';
 import { apiGet, apiPost, apiPut, getAuthToken } from '@/lib/api';
 import { documentApi } from '@/auth/api';
 import { useShipmentDocuments, useAccountingTickets } from '@/hooks/useOperationalData';
@@ -1485,15 +1486,29 @@ function DocRow360({ docType, docs, isLast }: { docType: string; docs: any[]; is
   const pill = docGroupStatusPill(docs);
   const label = docLabel(docType);
   const href = `/documents/upload/queue?docType=${encodeURIComponent(uploadQueueDocTypeFilter(docType))}`;
+  const primary = docs[0];
+  const identity = String(
+    primary?.documentNumber
+    ?? primary?.invoiceNumber
+    ?? primary?.fileName
+    ?? ''
+  ).trim();
   return (
     <Link href={href} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 13px', borderBottom: isLast ? 'none' : `1px solid ${BDR}`, textDecoration: 'none', color: 'inherit' }}>
       <div style={{ width: 35, height: 35, borderRadius: 6, background: 'hsl(var(--muted)/0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: MUTED, flexShrink: 0, fontFamily: 'var(--app-font-sans)', letterSpacing: '0.02em' }}>
         {dtShort(docType)}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: FG, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {label}
-        </div>
+        <TruncatedTextWithInfo
+          text={label}
+          textStyle={{ fontSize: 12, fontWeight: 600, color: FG }}
+        />
+        {identity ? (
+          <TruncatedTextWithInfo
+            text={identity}
+            textStyle={{ fontSize: 11, color: MUTED, marginTop: 2 }}
+          />
+        ) : null}
       </div>
       <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 799, flexShrink: 0, background: pill.bg, color: pill.color }}>
         {pill.label}

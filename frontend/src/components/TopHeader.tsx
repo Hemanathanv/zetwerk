@@ -166,7 +166,7 @@ export function TopHeader() {
 
   return (
     <header
-      className="sticky top-0 z-20 bg-background"
+      className="sticky top-0 z-[100] bg-background"
       data-testid="top-header"
     >
       {hasBreadcrumb ? (

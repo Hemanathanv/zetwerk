@@ -65,7 +65,7 @@ export function NotificationCenter() {
 
       {open && (
         <div
-          className="absolute right-0 top-10 w-[420px] bg-card border rounded-lg shadow-xl z-50 overflow-hidden"
+          className="absolute right-0 top-10 w-[420px] bg-card border rounded-lg shadow-xl z-[1100] overflow-hidden"
           style={{ borderColor: 'hsl(var(--border))' }}
         >
           <div className="flex items-center justify-between px-4 py-3.5 border-b" style={{ borderColor: 'hsl(var(--border))' }}>

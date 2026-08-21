@@ -1324,10 +1324,10 @@ function DetailPanel({
           padding: '14px 16px',
           borderBottom: `1px solid ${BORDER}`,
           flexShrink: 0,
-          backgroundColor: 'hsl(var(--muted)/0.2)',
+          backgroundColor: CARD,
           position: 'sticky',
           top: 0,
-          zIndex: 2,
+          zIndex: 5,
         }}>
           <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: MUTED, lineHeight: 1 }}>
             Task Detail
@@ -1552,7 +1552,7 @@ function DetailPanel({
                 </RequireActivity>
               )}
 
-              {/* Escalate — IN_PROGRESS or ASSIGNED tasks only */}
+              {/* Temporarily hidden — Escalate / Reassign / Delegate (keep code for restore)
               {['IN_PROGRESS', 'ASSIGNED'].includes(task.status) && (
                 <RequireActivity code="TSK-004">
                   <button
@@ -1570,7 +1570,6 @@ function DetailPanel({
                 </RequireActivity>
               )}
 
-              {/* Reassign — IN_PROGRESS or ASSIGNED tasks */}
               {['IN_PROGRESS', 'ASSIGNED'].includes(task.status) && (
                 <RequireActivity code="TSK-003">
                   <button
@@ -1588,7 +1587,6 @@ function DetailPanel({
                 </RequireActivity>
               )}
 
-              {/* Delegate — IN_PROGRESS or ASSIGNED tasks (TSK-007) */}
               {['IN_PROGRESS', 'ASSIGNED'].includes(task.status) && (
                 <RequireActivity code="TSK-007">
                   <button
@@ -1605,6 +1603,7 @@ function DetailPanel({
                   </button>
                 </RequireActivity>
               )}
+              */}
             </div>
           </div>
         )}
@@ -2289,7 +2288,7 @@ export function TasksPage() {
             )}
             {([
               { key: 'mine',  label: 'Mine',  count: summary.myCount },
-              { key: 'team',  label: 'Team',  count: summary.teamCount },
+              // { key: 'team',  label: 'Team',  count: summary.teamCount },
               { key: 'all',   label: 'All',   count: null },
             ] as const).map(tab => (
               <button
