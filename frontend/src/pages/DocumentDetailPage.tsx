@@ -1997,7 +1997,13 @@ export function DocumentDetailPage() {
       const { data } = await documentApi.getById(documentDetail.id);
       setDocumentDetail(data);
     } catch (err) {
-      toast({ title: 'Re-extraction failed', description: err instanceof Error ? err.message : 'Unable to queue OCR retry.', variant: 'destructive' });
+      const message = getApiErrorMessage(err, 'Unable to queue OCR retry.');
+      const alreadyReExtracted = /already re-?extracted|already been used/i.test(message);
+      toast({
+        title: alreadyReExtracted ? 'Document already re-extracted' : 'Re-extraction failed',
+        description: alreadyReExtracted ? 'This document is already re-extracted. Re-extraction is allowed only once.' : message,
+        variant: 'destructive',
+      });
     } finally {
       setActionLoading(null);
     }

@@ -3288,6 +3288,42 @@ async def retry_document_ocr(
 
     _require_doc_type_action(user, "reprocess_ocr", str(document.docType))
 
+    current_status = str(document.status or "").upper()
+    is_extracted_reprocess = current_status in {"EXTRACTED", "REVIEWED", "REJECTED", "ARCHIVED"}
+    if current_status in {"QUEUED", "PROCESSING", "REPROCESSING"}:
+        raise HTTPException(
+            status_code=409,
+            detail="This document is already queued for OCR processing.",
+        )
+    if is_extracted_reprocess:
+        retry_rows = await _query_raw(
+            prisma,
+            """
+            SELECT COUNT(*)::int AS count
+            FROM "aiextraction"."extraction_logs"
+            WHERE "document_id"::text = $1::text
+              AND "retry_count" > 0
+              AND "model" = 'manual-re-extraction'
+            """,
+            document_id,
+        )
+        retry_count = int((retry_rows[0] if retry_rows else {}).get("count") or 0)
+        if retry_count > 0:
+            raise HTTPException(
+                status_code=409,
+                detail="This document is already re-extracted. Re-extraction is allowed only once.",
+            )
+
+    accessor = DOC_TYPE_TO_EXTRACTION_ACCESSOR.get(str(document.docType))
+    model_accessor = getattr(prisma, accessor, None) if accessor else None
+    if model_accessor is not None:
+        existing_extraction = await model_accessor.find_unique(where={"documentId": document_id})
+        if existing_extraction:
+            await model_accessor.update(
+                where={"documentId": document_id},
+                data={"reviewedBy": None, "reviewedAt": None},
+            )
+
     await prisma.document.update(
         where={"id": document_id},
         data={"status": "REPROCESSING"},
@@ -3300,6 +3336,30 @@ async def retry_document_ocr(
         module=_bucket_slug_from_doc_type(str(document.docType)),
         force_reprocess=True,
     )
+
+    if is_extracted_reprocess:
+        await _execute_raw(
+            prisma,
+            """
+            UPDATE "aiextraction"."extraction_logs"
+            SET "is_latest" = false
+            WHERE "document_id"::text = $1::text
+              AND "is_latest" = true
+            """,
+            document_id,
+        )
+        await _execute_raw(
+            prisma,
+            """
+            INSERT INTO "aiextraction"."extraction_logs" (
+              "id", "document_id", "model", "status", "retry_count", "is_latest", "triggered_by", "created_at"
+            )
+            VALUES ($1::text, $2::text, 'manual-re-extraction', 'QUEUED', 1, true, $3::text, NOW())
+            """,
+            str(uuid4()),
+            document_id,
+            str(user.id),
+        )
 
     return RetryOcrResponse(
         status="success",

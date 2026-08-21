@@ -115,7 +115,7 @@ class TaskEngine:
               t."created_at", t."sla_deadline", t."status", t."urgency", t."metadata",
               ec."reminder_pct", ec."warning_pct", ec."escalation_pct", ec."blocker_pct",
               ec."reminder_message", ec."warning_message", ec."escalation_message", ec."blocker_message",
-              ec."channels"
+              ec."channels", ec."targets"
             FROM "public"."task_instances" t
             JOIN LATERAL (
               SELECT ec.*
@@ -566,9 +566,18 @@ class TaskEngine:
             ON CONFLICT ("source_key") WHERE "source_key" IS NOT NULL DO UPDATE SET
               "title" = EXCLUDED."title",
               "description" = EXCLUDED."description",
-              "assigned_role" = EXCLUDED."assigned_role",
-              "sla_deadline" = EXCLUDED."sla_deadline",
-              "metadata" = EXCLUDED."metadata",
+              "assigned_role" = CASE
+                WHEN "task_instances"."status" = 'ESCALATED' THEN "task_instances"."assigned_role"
+                ELSE EXCLUDED."assigned_role"
+              END,
+              "sla_deadline" = CASE
+                WHEN "task_instances"."status" = 'ESCALATED' THEN "task_instances"."sla_deadline"
+                ELSE EXCLUDED."sla_deadline"
+              END,
+              "metadata" = CASE
+                WHEN "task_instances"."status" = 'ESCALATED' THEN EXCLUDED."metadata" || "task_instances"."metadata"
+                ELSE EXCLUDED."metadata"
+              END,
               "updated_at" = NOW()
             RETURNING "id"::text AS id
             """,
@@ -658,15 +667,79 @@ class TaskEngine:
             rendered = rendered.replace("{" + key + "}", str(value or ""))
         return rendered
 
+    def _as_dict(self, value: Any) -> dict[str, Any]:
+        raw = value
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                return {}
+        return raw if isinstance(raw, dict) else {}
+
+    def _additional_roles_for_threshold(self, targets: Any, threshold: str) -> list[str]:
+        level_cfg = self._as_dict(targets).get(threshold)
+        if not isinstance(level_cfg, dict):
+            return []
+        roles = level_cfg.get("additionalRoles") or []
+        if not isinstance(roles, list):
+            return []
+        out: list[str] = []
+        seen: set[str] = set()
+        for role in roles:
+            text = str(role or "").strip()
+            if not text:
+                continue
+            key = text.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(text)
+        return out
+
+    async def _notify_sla_recipient(
+        self,
+        *,
+        task: dict[str, Any],
+        threshold: str,
+        threshold_pct: int,
+        notification_type: str,
+        title: str,
+        message: str,
+        recipient_role: str | None,
+        recipient_user_id: str | None,
+        dedupe_suffix: str,
+        notification_metadata: dict[str, Any],
+    ) -> str:
+        notification_id = await insert_notification(
+            self.prisma,
+            task_id=str(task["task_id"]),
+            notification_type=notification_type,
+            title=title,
+            message=message,
+            recipient_role=recipient_role,
+            recipient_user_id=recipient_user_id,
+            source=f"task_sla_{threshold}",
+            dedupe_key=f"task-sla:{task['task_id']}:{threshold}:{threshold_pct}:{dedupe_suffix}",
+            metadata=notification_metadata,
+        )
+        await dispatch_notification_channels(
+            self.prisma,
+            channels=task.get("channels"),
+            notification_id=notification_id,
+            task_id=str(task["task_id"]),
+            level=threshold,
+            title=title,
+            message=message,
+            recipient_role=recipient_role,
+            recipient_user_id=recipient_user_id,
+            metadata=notification_metadata,
+        )
+        return notification_id
+
     async def _mark_sla_event(self, task: dict[str, Any], threshold: str, threshold_pct: int, message_template: str | None) -> bool:
         notification_type = "escalation" if threshold == "escalation" else ("blocker" if threshold == "blocker" else threshold)
         title = f"Task {threshold}: {task.get('title')}"
-        metadata = task.get("metadata") or {}
-        if isinstance(metadata, str):
-            try:
-                metadata = json.loads(metadata)
-            except json.JSONDecodeError:
-                metadata = {}
+        metadata = self._as_dict(task.get("metadata"))
         existing_events = await query_raw(
             self.prisma,
             """
@@ -683,6 +756,20 @@ class TaskEngine:
         )
         if existing_events:
             return False
+
+        previous_role = str(task.get("assigned_role") or "").strip() or None
+        previous_user_id = str(task.get("assigned_user_id") or "").strip() or None
+        additional_roles = self._additional_roles_for_threshold(task.get("targets"), threshold)
+        next_role: str | None = None
+        cc_roles: list[str] = []
+        if threshold in {"warning", "escalation", "blocker"} and additional_roles:
+            candidate = additional_roles[0]
+            if previous_role and candidate.lower() == previous_role.lower():
+                cc_roles = additional_roles[1:]
+            else:
+                next_role = candidate
+                cc_roles = additional_roles[1:]
+
         message = self._render_template(
             message_template,
             {
@@ -694,18 +781,24 @@ class TaskEngine:
                 "Shipment No": str(metadata.get("shipmentId") or ""),
             },
         ) or f"This task has reached its {threshold} SLA threshold."
-        notification_metadata = {"threshold": threshold, "thresholdPct": threshold_pct}
-        notification_id = await insert_notification(
-            self.prisma,
-            task_id=str(task["task_id"]),
+        notification_metadata = {
+            "threshold": threshold,
+            "thresholdPct": threshold_pct,
+            "previousAssignedRole": previous_role,
+            "escalatedToRole": next_role,
+        }
+
+        notification_id = await self._notify_sla_recipient(
+            task=task,
+            threshold=threshold,
+            threshold_pct=threshold_pct,
             notification_type=notification_type,
             title=title,
             message=message,
-            recipient_role=task.get("assigned_role"),
-            recipient_user_id=task.get("assigned_user_id"),
-            source=f"task_sla_{threshold}",
-            dedupe_key=f"task-sla:{task['task_id']}:{threshold}:{threshold_pct}",
-            metadata=notification_metadata,
+            recipient_role=previous_role,
+            recipient_user_id=previous_user_id,
+            dedupe_suffix="assignee",
+            notification_metadata=notification_metadata,
         )
         _debug(
             "sla.notification.saved",
@@ -713,6 +806,8 @@ class TaskEngine:
             threshold=threshold,
             threshold_pct=threshold_pct,
             notification_id=notification_id,
+            previous_role=previous_role,
+            next_role=next_role,
         )
         rows = await query_raw(
             self.prisma,
@@ -730,22 +825,64 @@ class TaskEngine:
         )
         if not rows:
             return False
-        await dispatch_notification_channels(
-            self.prisma,
-            channels=task.get("channels"),
-            notification_id=notification_id,
-            task_id=str(task["task_id"]),
-            level=threshold,
-            title=title,
-            message=message,
-            recipient_role=task.get("assigned_role"),
-            recipient_user_id=task.get("assigned_user_id"),
-            metadata=notification_metadata,
-        )
+
+        if next_role:
+            await self._notify_sla_recipient(
+                task=task,
+                threshold=threshold,
+                threshold_pct=threshold_pct,
+                notification_type=notification_type,
+                title=title,
+                message=message,
+                recipient_role=next_role,
+                recipient_user_id=None,
+                dedupe_suffix=f"role:{next_role}",
+                notification_metadata=notification_metadata,
+            )
+        for cc_role in cc_roles:
+            if previous_role and cc_role.lower() == previous_role.lower():
+                continue
+            if next_role and cc_role.lower() == next_role.lower():
+                continue
+            await self._notify_sla_recipient(
+                task=task,
+                threshold=threshold,
+                threshold_pct=threshold_pct,
+                notification_type=notification_type,
+                title=title,
+                message=message,
+                recipient_role=cc_role,
+                recipient_user_id=None,
+                dedupe_suffix=f"cc:{cc_role}",
+                notification_metadata=notification_metadata,
+            )
+
+        metadata["previousAssignedRole"] = previous_role
+        metadata["escalatedToRole"] = next_role
+        metadata["slaThreshold"] = threshold
+        metadata["slaThresholdPct"] = threshold_pct
+        task["metadata"] = metadata
+
+        set_parts = ['"metadata" = $2::jsonb', '"updated_at" = NOW()']
+        params: list[Any] = [str(task["task_id"]), json_param(metadata)]
+        if next_role:
+            params.append(next_role)
+            set_parts.append(f'"assigned_role" = ${len(params)}')
+            set_parts.append('"assigned_user_id" = NULL')
+            task["assigned_role"] = next_role
+            task["assigned_user_id"] = None
         if threshold == "warning":
-            await execute_raw(self.prisma, 'UPDATE "public"."task_instances" SET "urgency" = \'WARNING\', "updated_at" = NOW() WHERE "id" = $1::uuid', str(task["task_id"]))
+            set_parts.append("\"urgency\" = 'WARNING'")
         if threshold == "escalation":
-            await execute_raw(self.prisma, 'UPDATE "public"."task_instances" SET "status" = \'ESCALATED\', "escalation_level" = "escalation_level" + 1, "escalation_type" = \'SLA\', "updated_at" = NOW() WHERE "id" = $1::uuid', str(task["task_id"]))
+            set_parts.append("\"status\" = 'ESCALATED'")
+            set_parts.append('"escalation_level" = "escalation_level" + 1')
+            set_parts.append("\"escalation_type\" = 'SLA'")
         if threshold == "blocker":
-            await execute_raw(self.prisma, 'UPDATE "public"."task_instances" SET "urgency" = \'BLOCKER\', "updated_at" = NOW() WHERE "id" = $1::uuid', str(task["task_id"]))
+            set_parts.append("\"urgency\" = 'BLOCKER'")
+
+        await execute_raw(
+            self.prisma,
+            f'UPDATE "public"."task_instances" SET {", ".join(set_parts)} WHERE "id" = $1::uuid',
+            *params,
+        )
         return True

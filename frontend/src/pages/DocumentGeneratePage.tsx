@@ -154,7 +154,10 @@ function sourceDocLabel(sourceDoc: string, sourceDocs: { docType: string; label:
 function sourceTagContent(m: FieldMapping, sourceDocs: { docType: string; label: string }[]) {
   const label = sourceDocLabel(m.sourceDoc, sourceDocs);
   if (m.mappingType === 'manual')      return { text: 'Manual input required' };
-  if (m.mappingType === 'derived')     return { text: `Calculated · ${m.transformation ?? label}` };
+  if (m.mappingType === 'derived') {
+    const formula = String(m.transformation ?? '').trim();
+    return { text: formula && formula.toLowerCase() !== label.toLowerCase() ? `Calculated · ${formula}` : 'Calculated' };
+  }
   if (m.mappingType === 'conditional') return { text: `Conditional · ${m.transformation ?? ''}` };
   return { text: `From ${label}` };
 }
@@ -2763,9 +2766,35 @@ export function DocumentGeneratePage() {
   function handleRemoveLineItemRow(sectionLabel: string, rowIndex: number) {
     if (!liveReviewingItem || !schema || schema.docType !== 'packing-list') return;
     const rows = schema.mockData.tables[sectionLabel] ?? [];
-    if (rows[rowIndex]?._splitRow !== 'true') return;
+    const removedRow = rows[rowIndex];
+    if (removedRow?._splitRow !== 'true') return;
+
+    const sourceLineKey = lineSourceKey(removedRow, rowIndex);
     const nextRows = rows.filter((_, index) => index !== rowIndex);
+    const originalRowIndex = nextRows.findIndex((row, index) => (
+      row._splitRow !== 'true' && lineSourceKey(row, index) === sourceLineKey
+    ));
+    const hasRemainingSplitForSource = nextRows.some((row, index) => (
+      row._splitRow === 'true' && lineSourceKey(row, index) === sourceLineKey
+    ));
+    const restoreOriginalValues = originalRowIndex >= 0 && !hasRemainingSplitForSource;
+
     shiftManualRowsForRemove(sectionLabel, rowIndex);
+    if (restoreOriginalValues) {
+      const originalRow = nextRows[originalRowIndex];
+      const restoredValues = Object.fromEntries(PACKING_LIST_SPLIT_FIELDS.map(field => [
+        field.key,
+        String(originalRow[field.sourceKey] ?? originalRow[field.key] ?? ''),
+      ]));
+      setManualValues((current) => {
+        const next = { ...current };
+        for (const [field, value] of Object.entries(restoredValues)) {
+          next[`${sectionLabel}.${originalRowIndex}.${field}`] = value;
+        }
+        delete next[`${sectionLabel}.${originalRowIndex}.qtyPerBundle`];
+        return next;
+      });
+    }
     setDraftSchemas((current) => ({
       ...current,
       [liveReviewingItem.id]: {
