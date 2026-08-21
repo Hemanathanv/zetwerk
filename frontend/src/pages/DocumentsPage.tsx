@@ -1548,7 +1548,7 @@ export function DocumentsPage() {
           </div>
           </div>{/* end sticky pane */}
 
-          {gateFilter === 2 && waitingBolLanes.length > 0 && (
+          {/* {gateFilter === 2 && waitingBolLanes.length > 0 && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
               margin: '10px 0 12px', padding: '10px 12px',
@@ -1587,7 +1587,7 @@ export function DocumentsPage() {
                 </span>
               )}
             </div>
-          )}
+          )} */}
 
           <div style={{ marginTop: 12 }}>
           {loading ? (
