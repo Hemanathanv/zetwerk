@@ -2702,153 +2702,186 @@ export function DocumentDetailPage() {
       )}
 
       {!documentOverviewCollapsed && (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
-        <DocBadge code={docCode(documentDetail.docType)} size="md" />
-        <span style={{ fontSize: 12, color: MUTED, fontWeight: 650, overflowWrap: 'anywhere' }}>{documentDetail.fileName}</span>
-        {extraction?.extractedAt && (
-          <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${GREEN}18`, color: GREEN }}>
-            Extracted {formatDateTime(extraction.extractedAt)}
-          </span>
-        )}
-        {extraction?.reviewedAt && (
-          <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${BLUE}14`, color: BLUE }}>
-            Reviewed {formatDateTime(extraction.reviewedAt)}
-          </span>
-        )}
-        {(hasBolReferenceActionFields || documentDetail.docType === 'BILL_OF_LADING') && extraction && (
-          <div style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {hasBolReferenceActionFields && (
-              <Button type="button" variant="outline" size="sm" onClick={() => setSafeCubeInputsOpen(true)} className="h-9">
-                MBL/BR 
-              </Button>
-            )}
-            {canUseDndInputs && (
-              <Button type="button" variant="outline" size="sm" onClick={() => setDndInputsOpen(true)} className="h-9">
-                D&D Inputs
-              </Button>
-            )}
-            {canUseContainerMapping && (
-              <Button type="button" size="sm" onClick={() => void openContainerMapping()} className="h-9">
-                {containerMappingApproved ? 'Mapping approved' : 'Container Mapping'}
-              </Button>
-            )}
-          </div>
-        )}
-        {documentDetail.docType === 'US_CARGO_RELEASE_ORDER' && extraction && (
-          <button
-            onClick={() => void openWarehouseMapping()}
-            style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: TEAL, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
-          >
-            Warehouse Mapping
-          </button>
-        )}
-        {isApprovalRoute && canApproveCurrentExtraction && !documentDetail.shipmentId && (
-          <Button type="button" variant="outline" size="sm" disabled={actionLoading !== null} onClick={() => void openShipmentAssignment()} className="h-9">
-            <Ship size={14} />
-            Assign shipment
-          </Button>
-        )}
-        {!isApprovalRoute && !isExtractionApproved && canApproveCurrentExtraction && (
-          <button
-            onClick={() => {
-              sessionStorage.setItem(UPLOAD_PROCESS_RETURN_PATH_KEY, PROCESSING_QUEUE_ROUTE);
-              navigate(`/documents/upload/${documentDetail.id}/approve`);
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 18,
+          minWidth: 0,
+          width: '100%',
+          flexWrap: 'nowrap',
+          overflowX: 'auto',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: '1 1 auto' }}>
+          <DocBadge code={docCode(documentDetail.docType)} size="md" />
+          <span
+            title={documentDetail.fileName}
+            style={{
+              fontSize: 12,
+              color: MUTED,
+              fontWeight: 650,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              minWidth: 0,
+              flex: '1 1 auto',
             }}
-            style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 800 }}
           >
-            <CheckCircle2 size={14} />
-            Approve
-          </button>
-        )}
-        {!isApprovalRoute && isExtractionApproved && (
-          <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {documentDetail.fileName}
+          </span>
+          {extraction?.extractedAt && (
+            <span className="hidden md:inline-flex shrink-0">
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${GREEN}18`, color: GREEN, whiteSpace: 'nowrap' }}>
+                Extracted {formatDateTime(extraction.extractedAt)}
+              </span>
+            </span>
+          )}
+          {extraction?.reviewedAt && (
+            <span className="hidden lg:inline-flex shrink-0">
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${BLUE}14`, color: BLUE, whiteSpace: 'nowrap' }}>
+                Reviewed {formatDateTime(extraction.reviewedAt)}
+              </span>
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'nowrap', marginLeft: 'auto' }}>
+          {(hasBolReferenceActionFields || documentDetail.docType === 'BILL_OF_LADING') && extraction && (
+            <>
+              {hasBolReferenceActionFields && (
+                <Button type="button" variant="outline" size="sm" onClick={() => setSafeCubeInputsOpen(true)} className="h-9 shrink-0 whitespace-nowrap">
+                  MBL/BR 
+                </Button>
+              )}
+              {canUseDndInputs && (
+                <Button type="button" variant="outline" size="sm" onClick={() => setDndInputsOpen(true)} className="h-9 shrink-0 whitespace-nowrap">
+                  D&D Inputs
+                </Button>
+              )}
+              {canUseContainerMapping && (
+                <Button type="button" size="sm" onClick={() => void openContainerMapping()} className="h-9 shrink-0 whitespace-nowrap">
+                  {containerMappingApproved ? 'Mapping approved' : 'Container Mapping'}
+                </Button>
+              )}
+            </>
+          )}
+          {documentDetail.docType === 'US_CARGO_RELEASE_ORDER' && extraction && (
             <button
-              type="button"
-              disabled
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'not-allowed', fontSize: 12, fontWeight: 800, opacity: 0.95 }}
+              onClick={() => void openWarehouseMapping()}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: TEAL, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}
+            >
+              Warehouse Mapping
+            </button>
+          )}
+          {isApprovalRoute && canApproveCurrentExtraction && !documentDetail.shipmentId && (
+            <Button type="button" variant="outline" size="sm" disabled={actionLoading !== null} onClick={() => void openShipmentAssignment()} className="h-9 shrink-0 whitespace-nowrap">
+              <Ship size={14} />
+              Assign shipment
+            </Button>
+          )}
+          {!isApprovalRoute && !isExtractionApproved && canApproveCurrentExtraction && (
+            <button
+              onClick={() => {
+                sessionStorage.setItem(UPLOAD_PROCESS_RETURN_PATH_KEY, PROCESSING_QUEUE_ROUTE);
+                navigate(`/documents/upload/${documentDetail.id}/approve`);
+              }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', flexShrink: 0 }}
             >
               <CheckCircle2 size={14} />
-              Approved
+              Approve
             </button>
-            <Tooltip>
-              <TooltipTrigger asChild>
+          )}
+          {!isApprovalRoute && isExtractionApproved && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <button
+                type="button"
+                disabled
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'not-allowed', fontSize: 12, fontWeight: 800, opacity: 0.95, whiteSpace: 'nowrap' }}
+              >
+                <CheckCircle2 size={14} />
+                Approved
+              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Approved details"
+                    style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: MUTED, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'help' }}
+                  >
+                    <Info size={14} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs text-[12px] leading-relaxed">
+                  {extraction?.reviewedAt
+                    ? `This extraction was approved on ${formatDateTime(extraction.reviewedAt)}. Fields are read-only.`
+                    : 'This extraction is approved. Fields are read-only.'}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          )}
+          {isApprovalRoute && (
+            <>
+              {canReprocessCurrentDoc && (
                 <button
-                  type="button"
-                  aria-label="Approved details"
-                  style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: MUTED, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'help' }}
+                  onClick={flagForReExtraction}
+                  disabled={actionLoading !== null}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: FG, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: actionLoading ? 0.65 : 1, whiteSpace: 'nowrap', flexShrink: 0 }}
                 >
-                  <Info size={14} />
+                  {actionLoading === 'retry' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : null}
+                  Flag for re-extraction
                 </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs text-[12px] leading-relaxed">
-                {extraction?.reviewedAt
-                  ? `This extraction was approved on ${formatDateTime(extraction.reviewedAt)}. Fields are read-only.`
-                  : 'This extraction is approved. Fields are read-only.'}
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        )}
-        {isApprovalRoute && (
-          <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {canReprocessCurrentDoc && (
-              <button
-                onClick={flagForReExtraction}
-                disabled={actionLoading !== null}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: FG, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: actionLoading ? 0.65 : 1 }}
-              >
-                {actionLoading === 'retry' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : null}
-                Flag for re-extraction
-              </button>
-            )}
-             {isDraftCbpBrokerDocument && isExtractionApproved && canApproveCurrentExtraction && (
-              <button
-                onClick={() => void revertApprovalStatus()}
-                disabled={actionLoading !== null}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: FG, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: actionLoading ? 0.65 : 1 }}
-              >
-                {actionLoading === 'revert' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : null}
-                Revert approval
-              </button>
-            )}
-            {isExtractionApproved ? (
-              <>
+              )}
+              {isDraftCbpBrokerDocument && isExtractionApproved && canApproveCurrentExtraction && (
                 <button
-                  type="button"
-                  disabled
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'not-allowed', fontSize: 12, fontWeight: 800, opacity: 0.95 }}
+                  onClick={() => void revertApprovalStatus()}
+                  disabled={actionLoading !== null}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: FG, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: actionLoading ? 0.65 : 1, whiteSpace: 'nowrap', flexShrink: 0 }}
                 >
-                  <CheckCircle2 size={14} />
-                  Approved
+                  {actionLoading === 'revert' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : null}
+                  Revert approval
                 </button>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label="Approved details"
-                      style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: MUTED, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'help' }}
-                    >
-                      <Info size={14} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="max-w-xs text-[12px] leading-relaxed">
-                    {extraction?.reviewedAt
-                      ? `This extraction was approved on ${formatDateTime(extraction.reviewedAt)}. Fields are read-only.`
-                      : 'This extraction is approved. Fields are read-only.'}
-                  </TooltipContent>
-                </Tooltip>
-              </>
-            ) : canApproveCurrentExtraction ? (
-              <button
-                onClick={approveAllFields}
-                disabled={!extraction || actionLoading !== null}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: !extraction || actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 800, opacity: !extraction || actionLoading ? 0.65 : 1 }}
-              >
-                {actionLoading === 'approve' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : <CheckCircle2 size={14} />}
-                Approve all fields
-              </button>
-            ) : null}
-          </div>
-        )}
+              )}
+              {isExtractionApproved ? (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    disabled
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'not-allowed', fontSize: 12, fontWeight: 800, opacity: 0.95, whiteSpace: 'nowrap' }}
+                  >
+                    <CheckCircle2 size={14} />
+                    Approved
+                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="Approved details"
+                        style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: MUTED, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'help' }}
+                      >
+                        <Info size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-xs text-[12px] leading-relaxed">
+                      {extraction?.reviewedAt
+                        ? `This extraction was approved on ${formatDateTime(extraction.reviewedAt)}. Fields are read-only.`
+                        : 'This extraction is approved. Fields are read-only.'}
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              ) : canApproveCurrentExtraction ? (
+                <button
+                  onClick={approveAllFields}
+                  disabled={!extraction || actionLoading !== null}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: !extraction || actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 800, opacity: !extraction || actionLoading ? 0.65 : 1, whiteSpace: 'nowrap', flexShrink: 0 }}
+                >
+                  {actionLoading === 'approve' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : <CheckCircle2 size={14} />}
+                  Approve all fields
+                </button>
+              ) : null}
+            </>
+          )}
+        </div>
       </div>
       )}
 

@@ -104,13 +104,14 @@ function invalidateTaskQueries(queryClient: ReturnType<typeof useQueryClient>) {
 function getTaskEntityLink(task: any): string {
   switch (task.entityType) {
     case 'document':           return `/documents/${task.entityId}`;
-    case 'accounting_ticket':  return '/accounting';
-    case 'gate':
-    case 'validation_result':
-    case 'generation_trigger':
-    case 'shipment_milestone': return task.shipmentId ? `/shipments/${task.shipmentId}` : '/tasks';
+    // case 'accounting_ticket':  return '/accounting';
+    // case 'gate':
+    // case 'validation_result':
+    // case 'generation_trigger':
+    // case 'shipment_milestone': return task.shipmentId ? `/shipments/${task.shipmentId}` : '/tasks';
     case 'shipment':           return `/shipments/${task.entityId || task.shipmentId}`;
-    default:                   return task.shipmentId ? `/shipments/${task.shipmentId}` : '/tasks';
+    // default:                   return task.shipmentId ? `/shipments/${task.shipmentId}` : '/tasks';
+    default:                   return 'null';
   }
 }
 
@@ -1484,6 +1485,7 @@ function DetailPanel({
             {/* Action buttons */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 4 }}>
               {/* Open entity link */}
+              {getTaskEntityLink(task)!='null'? 
               <button
                 onClick={() => navigate(getTaskEntityLink(task))}
                 style={{
@@ -1495,6 +1497,7 @@ function DetailPanel({
               >
                 Open linked item <ArrowUpRight size={13} />
               </button>
+:''}
 
               {/* Start Working — PENDING or ASSIGNED tasks */}
               {['PENDING', 'ASSIGNED'].includes(task.status) && (
