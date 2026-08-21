@@ -36,14 +36,11 @@ const BLUE   = 'hsl(221 83% 53%)';
 const INFO   = 'hsl(201 96% 32%)';
 const GOLD   = 'hsl(43 96% 56%)';
 const GOLD_BG = 'hsla(43,96%,56%,0.10)';
-// Data columns (Document/Issuer/Pipeline/Conf/Status/Action) are minmax(0, Nfr) — the
-// `0` floor overrides the grid's default content-based minimum, so columns actually
-// shrink to fit the container instead of forcing it wider (which caused the 100%-zoom
-// overflow + clipped action column). The Nfr weights are proportional percentages
-// (26/30/10/7/13/14 = 100) of the space left after the two small fixed decorative
-// columns (accent strip + doc badge).
-const QUEUE_ROW_GRID = '3px 32px minmax(0, 26fr) minmax(0, 30fr) minmax(0, 10fr) minmax(0, 7fr) minmax(0, 13fr) minmax(0, 14fr)';
+// Data columns use minmax(0, Nfr) so they shrink instead of overflowing.
+// Action column keeps minmax(88px, …) so Review/Details never collide with Status.
+const QUEUE_ROW_GRID = '3px 32px minmax(0, 24fr) minmax(0, 28fr) minmax(0, 10fr) minmax(0, 7fr) minmax(0, 12fr) minmax(88px, 14fr)';
 const QUEUE_ROW_GAP = 14;
+const QUEUE_ROW_ESTIMATE_H = 72;
 const QUEUE_PAGE_SIZE = 20;
 const QUEUE_SECTION_BY_CHIP = [
   'all',
@@ -970,28 +967,31 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
         display: 'grid',
         gridTemplateColumns: QUEUE_ROW_GRID,
         columnGap: QUEUE_ROW_GAP,
-        alignItems: 'center',
-        padding: '10px 20px', minHeight: 60,
+        alignItems: 'start',
+        padding: '10px 20px',
+        minHeight: QUEUE_ROW_ESTIMATE_H,
         backgroundColor: hovered ? 'hsl(var(--muted) / 0.4)' : 'transparent',
         borderBottom: `1px solid ${BORDER}`,
         borderLeft: slaInfo?.level === 'blocker' || slaInfo?.level === 'escalation' ? `3px solid ${RED}` : slaInfo?.level === 'warning' ? `3px solid ${AMBER}` : '3px solid transparent',
         transition: 'background-color 0.1s',
         cursor: onRowClick ? 'pointer' : 'default',
         boxSizing: 'border-box',
+        width: '100%',
+        overflow: 'hidden',
         ...style,
       }}
     >
       {/* Left accent strip */}
-      <div style={{ width: 3, height: 36, borderRadius: 2, backgroundColor: card.headerColor, flexShrink: 0 }} />
+      <div style={{ width: 3, height: 36, borderRadius: 2, backgroundColor: card.headerColor, flexShrink: 0, marginTop: 2 }} />
 
       {/* DocBadge */}
-      <div style={{ display: 'flex', justifyContent: 'center', minWidth: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'center', minWidth: 0, paddingTop: 2 }}>
         <DocBadge code={card.docCode} size="sm" />
       </div>
 
       {/* Doc type + number */}
-      <div style={{ minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      <div style={{ minWidth: 0, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
           <span style={{ fontSize: 14, fontWeight: 600, color: FG, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {card.docType}
           </span>
@@ -1002,33 +1002,42 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
         </span>
       </div>
 
-      {/* Issuer */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      {/* Issuer / provenance + field detail — must stay a real grid cell (no div-inside-span) */}
+      <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4, overflow: 'hidden' }}>
         {card.isGenerated && card.provenanceLabel ? (
-          card.issuer ? (
+          card.sourceDocId ? (
             <button
+              type="button"
+              title={card.provenanceLabel}
               onClick={(e) => { e.stopPropagation(); navigate(`/documents/${card.sourceDocId}`); }}
               style={{
-                display: 'inline-flex', alignItems: 'center', gap: 3,
+                display: 'flex', alignItems: 'center', gap: 3, alignSelf: 'flex-start',
                 fontSize: 10, color: GOLD, fontWeight: 500,
                 background: GOLD_BG, border: `1px solid ${GOLD}40`,
                 borderRadius: 999, padding: '1px 7px', cursor: 'pointer',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%',
               }}
             >
-              <Sparkles size={8} />
-              {card.provenanceLabel} →
+              <Sparkles size={8} style={{ flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {card.provenanceLabel} →
+              </span>
             </button>
           ) : (
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: 3,
-              fontSize: 10, color: GOLD, fontWeight: 500,
-              background: GOLD_BG, border: `1px solid ${GOLD}40`,
-              borderRadius: 999, padding: '1px 7px',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%',
-            }}>
-              <Sparkles size={8} />
-              {card.context}
+            <span
+              title={card.provenanceLabel}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 3, alignSelf: 'flex-start',
+                fontSize: 10, color: GOLD, fontWeight: 500,
+                background: GOLD_BG, border: `1px solid ${GOLD}40`,
+                borderRadius: 999, padding: '1px 7px',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%',
+              }}
+            >
+              <Sparkles size={8} style={{ flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {card.provenanceLabel}
+              </span>
             </span>
           )
         ) : (
@@ -1036,18 +1045,18 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
             {card.issuer}
           </span>
         )}
-        <span title={card.context} className="vs-mono" style={{ fontSize: 7, color: MUTED, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: 0.7 }}>
+        <div style={{ minWidth: 0, overflow: 'hidden', color: MUTED, opacity: 0.9, fontSize: 12, lineHeight: 1.35 }}>
           {card.detail}
-        </span>
+        </div>
       </div>
 
       {/* Mini pipeline */}
-      <div style={{ display: 'flex', justifyContent: 'center', minWidth: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'center', minWidth: 0, paddingTop: 10 }}>
         <MiniPipeline dots={card.dots} gold={card.goldDots} />
       </div>
 
       {/* Confidence pill */}
-      <div style={{ minWidth: 0, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+      <div style={{ minWidth: 0, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, paddingTop: 4 }}>
         <span style={{
           fontSize: 14, fontWeight: 700, padding: '2px 6px', borderRadius: 999,
           backgroundColor: `${confColor}15`, color: confColor,
@@ -1057,21 +1066,21 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
       </div>
 
       {/* Status pill */}
-      <div style={{ minWidth: 0, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+      <div style={{ minWidth: 0, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, overflow: 'hidden', paddingTop: 4 }}>
         {card.statusVariant === 'info' ? (
-          <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14, fontWeight: 500, padding: '2px 8px', borderRadius: 999, backgroundColor: 'hsla(221,83%,53%,0.12)', color: BLUE }}>
+          <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 500, padding: '2px 8px', borderRadius: 999, backgroundColor: 'hsla(221,83%,53%,0.12)', color: BLUE }}>
             {card.status}
           </span>
         ) : card.statusVariant === 'validated' ? (
-          <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14, fontWeight: 500, padding: '2px 8px', borderRadius: 999, backgroundColor: GOLD_BG, color: 'hsl(38 92% 30%)' }}>
+          <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 500, padding: '2px 8px', borderRadius: 999, backgroundColor: GOLD_BG, color: 'hsl(38 92% 30%)' }}>
             {card.status}
           </span>
         ) : card.statusVariant === 'danger' ? (
-          <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14, fontWeight: 500, padding: '2px 8px', borderRadius: 999, backgroundColor: 'hsla(0,84%,60%,0.12)', color: RED }}>
+          <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 500, padding: '2px 8px', borderRadius: 999, backgroundColor: 'hsla(0,84%,60%,0.12)', color: RED }}>
             {card.status}
           </span>
         ) : card.statusVariant === 'success' ? (
-          <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14, fontWeight: 500, padding: '2px 8px', borderRadius: 999, backgroundColor: `${GREEN}18`, color: GREEN }}>
+          <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 500, padding: '2px 8px', borderRadius: 999, backgroundColor: `${GREEN}18`, color: GREEN }}>
             {card.status}
           </span>
         ) : (
@@ -1079,36 +1088,36 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
         )}
         {overdueInfo && (
           <span style={{
-            fontSize: 14.5, fontWeight: 700,
+            fontSize: 11, fontWeight: 700,
             padding: '1px 5px', borderRadius: 999,
             backgroundColor: overdueInfo.isBreached ? 'hsla(0,84%,60%,0.12)' : 'hsla(38,92%,50%,0.12)',
             color: overdueInfo.isBreached ? RED : AMBER,
             border: `1px solid ${overdueInfo.isBreached ? 'hsla(0,84%,60%,0.25)' : 'hsla(38,92%,50%,0.25)'}`,
-            whiteSpace: 'nowrap',
+            whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
             {overdueInfo.timeStr} {overdueInfo.isBreached ? 'SLA breached' : 'overdue'}
           </span>
         )}
         {remainingInfo && (
           <span style={{
-            fontSize: 14.5, fontWeight: 700,
+            fontSize: 11, fontWeight: 700,
             padding: '1px 5px', borderRadius: 999,
             backgroundColor: 'hsla(43,96%,56%,0.13)',
             color: 'hsl(38 85% 32%)',
             border: '1px solid hsla(43,96%,56%,0.35)',
-            whiteSpace: 'nowrap',
+            whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
             {remainingInfo.timeStr} remaining
           </span>
         )}
         {slaInfo && (
           <span style={{
-            fontSize: 14.5, fontWeight: 700,
+            fontSize: 11, fontWeight: 700,
             padding: '1px 5px', borderRadius: 999,
             backgroundColor: slaInfo.bg,
             color: slaInfo.color,
             border: `1px solid ${slaInfo.border}`,
-            whiteSpace: 'nowrap',
+            whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis',
           }}>
             {slaInfo.label}
           </span>
@@ -1116,14 +1125,14 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
       </div>
 
       {/* Action button */}
-      <div style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+      <div style={{ minWidth: 0, display: 'flex', justifyContent: 'flex-end', gap: 6, overflow: 'hidden', paddingTop: 2 }}>
         {onStopClick && (
           <Button
             type="button"
             variant="outline"
             size="sm"
             onClick={(event) => { event.stopPropagation(); onStopClick(); }}
-            className="h-8 whitespace-nowrap border-red-300 text-red-600 hover:text-red-700"
+            className="h-8 shrink-0 whitespace-nowrap border-red-300 text-red-600 hover:text-red-700"
           >
             Stop
           </Button>
@@ -1133,7 +1142,7 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
             type="button"
             size="sm"
             onClick={(event) => { event.stopPropagation(); onRetryClick(); }}
-            className="h-8 whitespace-nowrap"
+            className="h-8 shrink-0 whitespace-nowrap"
           >
             Retry
           </Button>
@@ -1144,7 +1153,7 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
               type="button"
               size="sm"
               onClick={(e) => { e.stopPropagation(); (onApproveClick ?? card.action?.onClick)?.(); }}
-              className="h-8 whitespace-nowrap"
+              className="h-8 shrink-0 whitespace-nowrap"
             >
               Approve
             </Button>
@@ -1153,7 +1162,7 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
               type="button"
               size="sm"
               onClick={(e) => { e.stopPropagation(); card.action?.href ? navigate(card.action.href) : card.action?.onClick?.(); }}
-              className="h-8 gap-1 whitespace-nowrap"
+              className="h-8 shrink-0 gap-1 whitespace-nowrap"
             >
               <Sparkles size={9} /> Review
             </Button>
@@ -1163,7 +1172,7 @@ function QueueRowEl({ card, onApproveClick, onStopClick, onRetryClick, onRowClic
               variant="outline"
               size="sm"
               onClick={(e) => { e.stopPropagation(); onDetailsClick?.(); }}
-              className="h-8 gap-1 whitespace-nowrap"
+              className="h-8 shrink-0 gap-1 whitespace-nowrap"
             >
               Details <ArrowRight size={10} />
             </Button>
@@ -1405,6 +1414,30 @@ function ValidationDetailSheet({ card, open, onOpenChange, onReupload }: {
             )}
             <span style={{ fontSize: 14.5, color: MUTED, marginLeft: 'auto' }}>{card.timestamp}</span>
           </div>
+          {card.statusCategory === 'done' && (
+            <div
+              style={{
+                marginTop: 14,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 12,
+                padding: '12px 14px',
+                borderRadius: 8,
+                border: `1px solid ${TEAL}55`,
+                background: `${TEAL}12`,
+              }}
+            >
+              <CheckCircle2 size={18} style={{ color: TEAL, flexShrink: 0, marginTop: 1 }} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: TEAL }}>
+                  {String(card.status ?? '').toLowerCase().includes('validated') ? card.status : 'Approved'}
+                </div>
+                <div style={{ marginTop: 2, fontSize: 13, color: MUTED, lineHeight: 1.45 }}>
+                  This record is already approved. Editing is locked — open the document to view fields in read-only mode.
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={{ padding: '14px 22px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
@@ -1478,12 +1511,24 @@ function ValidationDetailSheet({ card, open, onOpenChange, onReupload }: {
               Edit generated
             </button>
           )}
-          {card.docId && (
+          {card.docId && needsReviewApproval(card) && (
+            <button
+              onClick={() => {
+                onOpenChange(false);
+                sessionStorage.setItem(UPLOAD_PROCESS_RETURN_PATH_KEY, PROCESSING_QUEUE_ROUTE);
+                navigate(`/documents/upload/${card.docId}/approve`);
+              }}
+              style={{ marginLeft: 'auto', fontSize: 14.5, fontWeight: 700, color: '#fff', backgroundColor: GREEN, border: 'none', borderRadius: 7, padding: '8px 14px', cursor: 'pointer' }}
+            >
+              Approve
+            </button>
+          )}
+          {card.docId && !needsReviewApproval(card) && (
             <button
               onClick={() => { onOpenChange(false); navigate(card.isGenerated && card.action?.href ? card.action.href : `/documents/upload/${card.docId}`); }}
               style={{ marginLeft: 'auto', fontSize: 14.5, fontWeight: 700, color: TEAL, backgroundColor: 'transparent', border: 'none', padding: '8px 0', cursor: 'pointer' }}
             >
-              Open document →
+              {card.statusCategory === 'done' ? 'View document →' : 'Open document →'}
             </button>
           )}
         </div>
@@ -1509,13 +1554,15 @@ function VirtualList({
   onDetailsClick: (card: QueueCard) => void;
   escalationConfigs: EscalationConfig[];
 }) {
-  const ROW_H = 60;
   const scrollEl = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: cards.length,
     getScrollElement: () => scrollEl.current,
-    estimateSize: () => ROW_H,
+    estimateSize: () => QUEUE_ROW_ESTIMATE_H,
     overscan: 8,
+    // Measure real row height so provenance chips / SLA badges / wrapped
+    // field counts don't overlap neighboring absolutely-positioned rows.
+    measureElement: (el) => el.getBoundingClientRect().height,
   });
 
   const totalHeight = virtualizer.getTotalSize();
@@ -1523,28 +1570,34 @@ function VirtualList({
   return (
     <div
       ref={scrollEl}
-      style={{ height: Math.min(totalHeight, ROW_H * 12), overflowY: 'auto', overflowX: 'hidden' }}
+      style={{ height: Math.min(totalHeight, QUEUE_ROW_ESTIMATE_H * 12), overflowY: 'auto', overflowX: 'hidden' }}
     >
-      <div style={{ height: totalHeight, position: 'relative' }}>
+      <div style={{ height: totalHeight, position: 'relative', width: '100%' }}>
         {virtualizer.getVirtualItems().map((vItem) => {
           const card = cards[vItem.index];
           return (
-            <QueueRowEl
+            <div
               key={card.id}
-              card={card}
-              onApproveClick={onApproveClick(card)}
-              onStopClick={onStopClick(card)}
-              onRetryClick={onRetryClick(card)}
-              onRowClick={() => onRowClick(card)}
-              onDetailsClick={() => onDetailsClick(card)}
-              slaConfig={escalationConfigForCard(card, escalationConfigs)}
+              data-index={vItem.index}
+              ref={virtualizer.measureElement}
               style={{
                 position: 'absolute',
-                top: vItem.start,
+                top: 0,
                 left: 0,
-                right: 0,
+                width: '100%',
+                transform: `translateY(${vItem.start}px)`,
               }}
-            />
+            >
+              <QueueRowEl
+                card={card}
+                onApproveClick={onApproveClick(card)}
+                onStopClick={onStopClick(card)}
+                onRetryClick={onRetryClick(card)}
+                onRowClick={() => onRowClick(card)}
+                onDetailsClick={() => onDetailsClick(card)}
+                slaConfig={escalationConfigForCard(card, escalationConfigs)}
+              />
+            </div>
           );
         })}
       </div>
@@ -1848,29 +1901,29 @@ function apiGeneratedDocToQueueCard(d: any): QueueCard {
   }
 
   const detail = totalFields > 0 ? (
-    <div style={{ fontSize: 14.5, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+    <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', lineHeight: 1.35 }}>
       <span>{totalFields} fields:</span>
       {fromSource > 0 && (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: GOLD, display: 'inline-block' }} />
+          <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: GOLD, display: 'inline-block', flexShrink: 0 }} />
           {fromSource} from source
         </span>
       )}
       {calculated > 0 && (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: BLUE, display: 'inline-block' }} />
+          <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: BLUE, display: 'inline-block', flexShrink: 0 }} />
           {calculated} calculated
         </span>
       )}
       {manual > 0 && (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: RED, display: 'inline-block' }} />
+          <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: RED, display: 'inline-block', flexShrink: 0 }} />
           {manual} need input
         </span>
       )}
     </div>
   ) : (
-    <span style={{ fontSize: 14.5, color: MUTED }}>awaiting extraction</span>
+    <span style={{ fontSize: 12, color: MUTED }}>awaiting extraction</span>
   );
 
   const ship = d.shipment?.shipmentNumber ?? '';
@@ -1956,14 +2009,14 @@ function apiDraftToQueueCard(d: DraftPayload, validation?: GeneratedDraftValidat
       ? ['done', 'done', 'done', 'current', 'future']
       : ['done', 'current-spin', 'future', 'future', 'future'];
   const detail = totalFields > 0 ? (
-    <div style={{ fontSize: 14.5, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+    <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', lineHeight: 1.35 }}>
       <span>{totalFields} fields:</span>
       {fromSource > 0 && <span>{fromSource} from source</span>}
       {calculated > 0 && <span>{calculated} calculated</span>}
       {manual > 0 && <span>{manual} need input</span>}
     </div>
   ) : (
-    <span style={{ fontSize: 14.5, color: MUTED }}>Draft ready for review</span>
+    <span style={{ fontSize: 12, color: MUTED }}>Draft ready for review</span>
   );
   const generatedDraftHref = d.generatedDocType === 'US_PACKING_LIST'
     ? '/documents/generate/outward-grn'

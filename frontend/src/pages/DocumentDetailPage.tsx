@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import type { ContainerMappingResponse, ContainerMappingRow } from '@/types/backend';
 import { apiGet, apiPatch, apiUrl, getAuthToken, readJsonResponse } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ShipmentDndInputsDialog } from '@/pages/ShipmentDetailPage';
 import { useDocTypePermissions, usePermissions } from '@/contexts/PermissionContext';
 import { usePageMeta } from '@/contexts/PageMetaContext';
@@ -606,6 +607,7 @@ function GeneratedDraftFieldStage({
   document,
   loading,
   saving,
+  readOnly = false,
   onFieldChange,
   onFieldSave,
   onRowChange,
@@ -618,6 +620,7 @@ function GeneratedDraftFieldStage({
   document: DocumentDetailRecord;
   loading: boolean;
   saving: boolean;
+  readOnly?: boolean;
   onFieldChange: (field: string, value: string) => void;
   onFieldSave: () => void;
   onRowChange: (sectionLabel: string, rowIndex: number, field: string, value: string) => void;
@@ -649,7 +652,8 @@ function GeneratedDraftFieldStage({
             {' · '}
             <strong>{schema.fieldCounts.auto + schema.fieldCounts.calculated}/{schema.fieldCounts.total}</strong> fields auto-populated
             {' · '}
-            <strong style={{ color: MUTED }}>{schema.fieldCounts.manual} manual fields</strong> need your input
+            <strong style={{ color: MUTED }}>{schema.fieldCounts.manual} manual fields</strong>
+            {readOnly ? ' (read-only)' : ' need your input'}
           </span>
           <span style={{ marginLeft: 'auto', fontSize: 11, color: MUTED, whiteSpace: 'nowrap' }}>
             {saving ? 'Saving...' : loading ? 'Loading draft...' : `Draft v1 · Created ${createdText}`}
@@ -659,8 +663,17 @@ function GeneratedDraftFieldStage({
         <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, background: 'hsl(var(--card))', padding: 14, marginBottom: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: FG, fontSize: 14, fontWeight: 800 }}>
-              <AlertTriangle size={16} style={{ color: RED }} />
-              {missingManual.length} input{missingManual.length === 1 ? '' : 's'} need your attention
+              {readOnly ? (
+                <>
+                  <CheckCircle2 size={16} style={{ color: GREEN }} />
+                  Approved — fields are read-only
+                </>
+              ) : (
+                <>
+                  <AlertTriangle size={16} style={{ color: RED }} />
+                  {missingManual.length} input{missingManual.length === 1 ? '' : 's'} need your attention
+                </>
+              )}
             </div>
             <div style={{ fontSize: 12, color: MUTED }}>{filledManual}/{manualMappings.length} filled</div>
           </div>
@@ -671,16 +684,18 @@ function GeneratedDraftFieldStage({
               return (
                 <div key={mapping.targetField}>
                   <div style={{ fontSize: 10.5, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>
-                    {mapping.targetLabel} {empty ? '*' : ''}
+                    {mapping.targetLabel} {empty && !readOnly ? '*' : ''}
                   </div>
                   <input
                     value={value}
                     onChange={(event) => onFieldChange(mapping.targetField, event.target.value)}
                     onBlur={onFieldSave}
                     placeholder="Enter value..."
-                    style={{ height: 40, width: '100%', padding: '0 12px', borderRadius: 6, border: `1px solid ${BORDER}`, background: 'hsl(var(--background))', color: FG, fontSize: 13, fontWeight: 600, outline: 'none' }}
+                    disabled={readOnly}
+                    readOnly={readOnly}
+                    style={{ height: 40, width: '100%', padding: '0 12px', borderRadius: 6, border: `1px solid ${BORDER}`, background: readOnly ? 'hsl(var(--muted))' : 'hsl(var(--background))', color: FG, fontSize: 13, fontWeight: 600, outline: 'none', cursor: readOnly ? 'default' : undefined, opacity: readOnly ? 0.85 : 1 }}
                   />
-                  {empty && <div style={{ marginTop: 4, fontSize: 10, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Manual input required</div>}
+                  {empty && !readOnly && <div style={{ marginTop: 4, fontSize: 10, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Manual input required</div>}
                 </div>
               );
             })}
@@ -698,7 +713,7 @@ function GeneratedDraftFieldStage({
                   const value = valueFor(mapping.targetField);
                   const empty = !String(value).trim();
                   return (
-                    <div key={mapping.targetField} style={{ border: `1px solid ${BORDER}`, borderRadius: 8, padding: '9px 11px', background: empty ? 'hsla(0,84%,60%,0.035)' : 'hsl(var(--card))' }}>
+                    <div key={mapping.targetField} style={{ border: `1px solid ${BORDER}`, borderRadius: 8, padding: '9px 11px', background: empty && !readOnly ? 'hsla(0,84%,60%,0.035)' : 'hsl(var(--card))' }}>
                       <div style={{ fontSize: 10, fontWeight: 800, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{mapping.targetLabel}</div>
                       <input
                         value={value}
@@ -706,9 +721,13 @@ function GeneratedDraftFieldStage({
                         onBlur={onFieldSave}
                         placeholder="Enter value..."
                         title={value || 'Field not in the file'}
-                        style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none', fontSize: 12.5, color: FG, fontWeight: 600, padding: 0 }}
+                        disabled={readOnly}
+                        readOnly={readOnly}
+                        style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none', fontSize: 12.5, color: FG, fontWeight: 600, padding: 0, cursor: readOnly ? 'default' : undefined }}
                       />
-                      <div style={{ marginTop: 6, fontSize: 10, color: MUTED }}>{mapping.mappingType === 'manual' ? 'Manual input required' : mapping.sourceLabel}</div>
+                      <div style={{ marginTop: 6, fontSize: 10, color: MUTED }}>
+                        {readOnly ? (mapping.sourceLabel || 'Approved') : mapping.mappingType === 'manual' ? 'Manual input required' : mapping.sourceLabel}
+                      </div>
                     </div>
                   );
                 })}
@@ -737,7 +756,9 @@ function GeneratedDraftFieldStage({
                                 onChange={(event) => onRowChange(section.sectionLabel, rowIndex, mapping.targetField, event.target.value)}
                                 onBlur={onRowSave}
                                 placeholder="Enter value..."
-                                style={{ width: '100%', minWidth: 110, border: 'none', background: 'transparent', outline: 'none', color: FG, fontSize: 12, fontWeight: 600 }}
+                                disabled={readOnly}
+                                readOnly={readOnly}
+                                style={{ width: '100%', minWidth: 110, border: 'none', background: 'transparent', outline: 'none', color: FG, fontSize: 12, fontWeight: 600, cursor: readOnly ? 'default' : undefined }}
                               />
                             </td>
                           );
@@ -1720,14 +1741,12 @@ export function DocumentDetailPage() {
     && Boolean(documentDetail?.docType)
     && canDoDocType(String(documentDetail?.docType ?? ''), 'reprocess_ocr')
   );
-  const canEditCurrentExtraction = Boolean(documentDetail?.docType) && (
-    isExtractionApproved
-      ? activities.includes('documents.override_approved_fields') && canDoDocType(String(documentDetail?.docType ?? ''), 'override_approved_fields')
-      : (
-          (activities.includes('documents.edit_extracted') && canDoDocType(String(documentDetail?.docType ?? ''), 'edit_extracted'))
-          || (activities.includes('documents.override_approved_fields') && canDoDocType(String(documentDetail?.docType ?? ''), 'override_approved_fields'))
-        )
-  );
+  const canEditCurrentExtraction = Boolean(documentDetail?.docType)
+    && !isExtractionApproved
+    && (
+      (activities.includes('documents.edit_extracted') && canDoDocType(String(documentDetail?.docType ?? ''), 'edit_extracted'))
+      || (activities.includes('documents.override_approved_fields') && canDoDocType(String(documentDetail?.docType ?? ''), 'override_approved_fields'))
+    );
   const canApproveCurrentExtraction = (
     activities.includes('documents.approve_draft')
     && Boolean(documentDetail?.docType)
@@ -2698,6 +2717,11 @@ export function DocumentDetailPage() {
         )}
         {(hasBolReferenceActionFields || documentDetail.docType === 'BILL_OF_LADING') && extraction && (
           <div style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {hasBolReferenceActionFields && (
+              <Button type="button" variant="outline" size="sm" onClick={() => setSafeCubeInputsOpen(true)} className="h-9">
+                SafeCube Inputs
+              </Button>
+            )}
             {canUseDndInputs && (
               <Button type="button" variant="outline" size="sm" onClick={() => setDndInputsOpen(true)} className="h-9">
                 D&D Inputs
@@ -2724,13 +2748,53 @@ export function DocumentDetailPage() {
             Assign shipment
           </Button>
         )}
+        {!isApprovalRoute && !isExtractionApproved && canApproveCurrentExtraction && (
+          <button
+            onClick={() => {
+              sessionStorage.setItem(UPLOAD_PROCESS_RETURN_PATH_KEY, PROCESSING_QUEUE_ROUTE);
+              navigate(`/documents/upload/${documentDetail.id}/approve`);
+            }}
+            style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 800 }}
+          >
+            <CheckCircle2 size={14} />
+            Approve
+          </button>
+        )}
+        {!isApprovalRoute && isExtractionApproved && (
+          <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <button
+              type="button"
+              disabled
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'not-allowed', fontSize: 12, fontWeight: 800, opacity: 0.95 }}
+            >
+              <CheckCircle2 size={14} />
+              Approved
+            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Approved details"
+                  style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: MUTED, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'help' }}
+                >
+                  <Info size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs text-[12px] leading-relaxed">
+                {extraction?.reviewedAt
+                  ? `This extraction was approved on ${formatDateTime(extraction.reviewedAt)}. Fields are read-only.`
+                  : 'This extraction is approved. Fields are read-only.'}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        )}
         {isApprovalRoute && (
-          <>
+          <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {canReprocessCurrentDoc && (
               <button
                 onClick={flagForReExtraction}
                 disabled={actionLoading !== null}
-                style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, color: FG, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: actionLoading ? 0.65 : 1 }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: FG, background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: actionLoading ? 0.65 : 1 }}
               >
                 {actionLoading === 'retry' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : null}
                 Flag for re-extraction
@@ -2746,17 +2810,44 @@ export function DocumentDetailPage() {
                 Revert approval
               </button>
             )}
-            {canApproveCurrentExtraction && (
+            {isExtractionApproved ? (
+              <>
+                <button
+                  type="button"
+                  disabled
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'not-allowed', fontSize: 12, fontWeight: 800, opacity: 0.95 }}
+                >
+                  <CheckCircle2 size={14} />
+                  Approved
+                </button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Approved details"
+                      style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: MUTED, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'help' }}
+                    >
+                      <Info size={14} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs text-[12px] leading-relaxed">
+                    {extraction?.reviewedAt
+                      ? `This extraction was approved on ${formatDateTime(extraction.reviewedAt)}. Fields are read-only.`
+                      : 'This extraction is approved. Fields are read-only.'}
+                  </TooltipContent>
+                </Tooltip>
+              </>
+            ) : canApproveCurrentExtraction ? (
               <button
                 onClick={approveAllFields}
-                disabled={!extraction || isExtractionApproved || actionLoading !== null}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: isExtractionApproved ? TEAL : GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: !extraction || isExtractionApproved || actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 800, opacity: !extraction || actionLoading ? 0.65 : 1 }}
+                disabled={!extraction || actionLoading !== null}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: !extraction || actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 800, opacity: !extraction || actionLoading ? 0.65 : 1 }}
               >
                 {actionLoading === 'approve' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : <CheckCircle2 size={14} />}
-                {isExtractionApproved ? 'Approved' : 'Approve all fields'}
+                Approve all fields
               </button>
-            )}
-          </>
+            ) : null}
+          </div>
         )}
       </div>
       )}
@@ -2789,6 +2880,7 @@ export function DocumentDetailPage() {
                     document={documentDetail}
                     loading={cbpDraftLoading}
                     saving={cbpDraftSaving}
+                    readOnly={!canEditCurrentExtraction}
                     onFieldChange={updateGeneratedDraftField}
                     onFieldSave={() => void saveGeneratedDraftFromDetail()}
                     onRowChange={updateGeneratedDraftRow}

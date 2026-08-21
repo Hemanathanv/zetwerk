@@ -63,7 +63,11 @@ async function refreshAccessToken(): Promise<string | null> {
   return refreshPromise;
 }
 
+let clearingExpiredSession = false;
+
 function clearExpiredSession() {
+  if (clearingExpiredSession) return;
+  clearingExpiredSession = true;
   clearAuthToken();
   window.localStorage.removeItem(SESSION_TOKEN_KEY);
   window.localStorage.removeItem(REFRESH_TOKEN_KEY);
