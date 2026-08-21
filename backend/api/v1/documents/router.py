@@ -1017,18 +1017,7 @@ async def _merge_document_module_gate_docs(prisma, shipments: list[dict[str, Any
             prisma,
             """
             SELECT
-              COALESCE(
-                v."shipment_id"::text,
-                (
-                  SELECT refs.raw_ref
-                  FROM unnest($1::text[], $2::text[]) AS refs(raw_ref, normalized_ref)
-                  WHERE length(refs.normalized_ref) >= 5
-                    AND position(
-                      refs.normalized_ref in LOWER(REGEXP_REPLACE(COALESCE(v."extracted_data"::text, ''), '[^A-Za-z0-9]+', '', 'g'))
-                    ) > 0
-                  LIMIT 1
-                )
-              ) AS mapped_shipment_ref,
+              v."shipment_id"::text AS mapped_shipment_ref,
               v."document_id"::text AS id,
               v."doc_type" AS document_type,
               COALESCE(v."document_number", d."document_number", v."file_name") AS document_number,
@@ -1043,17 +1032,8 @@ async def _merge_document_module_gate_docs(prisma, shipments: list[dict[str, Any
             FROM "document_module"."v_shipment_gate_documents" v
             JOIN "public"."documents" d ON d."id"::text = v."document_id"::text
             WHERE v."shipment_id"::text = ANY($1::text[])
-               OR EXISTS (
-                 SELECT 1
-                 FROM unnest($2::text[]) AS refs(normalized_ref)
-                 WHERE length(refs.normalized_ref) >= 5
-                   AND position(
-                     refs.normalized_ref in LOWER(REGEXP_REPLACE(COALESCE(v."extracted_data"::text, ''), '[^A-Za-z0-9]+', '', 'g'))
-                   ) > 0
-               )
             """,
             shipment_refs,
-            normalized_shipment_refs,
         )
     except Exception as exc:
         print(f"[shipments] warning: could not merge document-module gate docs: {exc}", flush=True)

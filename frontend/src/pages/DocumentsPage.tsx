@@ -1212,6 +1212,71 @@ function ShipmentGateStrip({ lane }: { lane: ShipmentLane }) {
   );
 }
 
+function waitingBolDocToLane(doc: any): ShipmentLane {
+  const docType = String(doc.documentType ?? doc.docType ?? '').toUpperCase();
+  const mapped = docTypeToGate(docType);
+  const gateNum = 1;
+  const code = mapped?.code ?? (docType.slice(0, 3) || 'DOC');
+  const label = mapped?.label ?? docType.replaceAll('_', ' ');
+  const docNumber = doc.documentNumber ?? doc.fileName ?? doc.file_name ?? doc.id;
+  const gates: GateCol[] = GATE_DEFS.map((def, index) => {
+    const currentGate = index + 1;
+    const docs: DocEntry[] = def.required.map(r => ({
+      code: r.code,
+      label: r.label,
+      status: 'expected' as DocStatus,
+      isGenerated: r.isGenerated,
+      slotKey: r.docType,
+    }));
+    if (currentGate === gateNum) {
+      const existingIndex = docs.findIndex(entry => entry.code === code || entry.slotKey === docType);
+      const entry: DocEntry = {
+        code,
+        label,
+        status: apiDocStatus({
+          id: String(doc.id),
+          documentType: docType,
+          status: doc.status,
+          ocrStatus: doc.ocrStatus ?? doc.ocr_status ?? doc.status ?? 'completed',
+          validationStatus: doc.validationStatus ?? doc.validation_status ?? 'WAITING',
+          approvedAt: doc.approvedAt ?? doc.approved_at ?? null,
+          isGenerated: Boolean(doc.isGenerated ?? doc.is_generated),
+        }),
+        docNumber: String(docNumber),
+        docNumbers: [String(docNumber)],
+        docLinks: [{ id: String(doc.id), label: String(docNumber) }],
+        docId: String(doc.id),
+        isGenerated: Boolean(doc.isGenerated ?? doc.is_generated),
+        isParallel: Boolean(doc.isParallel ?? doc.is_parallel),
+        slotKey: docType,
+      };
+      if (existingIndex >= 0) docs[existingIndex] = entry;
+      else docs.unshift(entry);
+    }
+    const closed = docs.filter(entry => entry.status === 'closed' || entry.status === 'gen-closed').length;
+    return {
+      name: `Gate ${currentGate}`,
+      label: def.label,
+      status: currentGate === 1 ? 'active' : 'future',
+      docCount: `${closed}/${docs.length}`,
+      docs,
+    };
+  });
+  return {
+    id: `waiting-bol-${doc.id}`,
+    isPending: true,
+    shipmentId: String(docNumber),
+    vessel: '',
+    meta: `${label} · Waiting for BOL mapping`,
+    gateStatuses: gates.map(gate => gate.status),
+    docSummary: '1/1',
+    statusLabel: 'Waiting for BOL',
+    statusVariant: 'pending',
+    gates,
+    parallel: [],
+  };
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function DocumentsPage() {
@@ -1221,6 +1286,7 @@ export function DocumentsPage() {
 
   // ── Gate view state ────────────────────────────────────────────────────────
   const [rawShipments,  setRawShipments]  = useState<ApiShipment[]>([]);
+  const [waitingBolDocs, setWaitingBolDocs] = useState<any[]>([]);
   const [openLanes,     setOpenLanes]     = useState<Set<string>>(new Set());
   const [focusedLaneId, setFocusedLaneId] = useState<string | undefined>();
   const [gateFilter,    setGateFilter]    = useState(0);
@@ -1230,27 +1296,46 @@ export function DocumentsPage() {
   const [loadError,     setLoadError]     = useState<string | null>(null);
 
   // Derive lanes whenever raw shipment data or config changes (config loads async)
-  const lanes = useMemo<ShipmentLane[]>(
+  const shipmentLanes = useMemo<ShipmentLane[]>(
     () => rawShipments.map(s => shipmentToLane(s, templates, docTypes)),
     [rawShipments, templates, docTypes],
+  );
+  const waitingBolLanes = useMemo<ShipmentLane[]>(
+    () => waitingBolDocs.map(waitingBolDocToLane),
+    [waitingBolDocs],
+  );
+  const lanes = useMemo<ShipmentLane[]>(
+    () => [...shipmentLanes, ...waitingBolLanes],
+    [shipmentLanes, waitingBolLanes],
   );
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setLoadError(null);
-    fetch(`${API_BASE}/api/v1/shipments?limit=100`, {
-      headers: authHeaders(),
-      signal: controller.signal,
-      cache: 'no-store',
-    })
-      .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(json => {
-        const raw = json.data ?? [];
+    Promise.all([
+      fetch(`${API_BASE}/api/v1/shipments?limit=100`, {
+        headers: authHeaders(),
+        signal: controller.signal,
+        cache: 'no-store',
+      }).then(r => r.ok ? r.json() : Promise.reject(r.status)),
+      fetch(`${API_BASE}/api/v1/uploads/documents?section=waiting-for-bol&page=1&pageSize=100`, {
+        headers: authHeaders(),
+        signal: controller.signal,
+        cache: 'no-store',
+      })
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .catch(() => ({ data: { documents: [] } })),
+    ])
+      .then(([shipmentsJson, waitingJson]) => {
+        const raw = shipmentsJson.data ?? [];
+        const waiting = waitingJson.data?.documents ?? [];
         setRawShipments(raw);
-        if (raw.length > 0) {
-          setOpenLanes(new Set([raw[0].id]));
-          setFocusedLaneId(raw[0].id);
+        setWaitingBolDocs(waiting);
+        const firstLaneId = raw[0]?.id ?? (waiting[0]?.id ? `waiting-bol-${waiting[0].id}` : undefined);
+        if (firstLaneId) {
+          setOpenLanes(new Set([firstLaneId]));
+          setFocusedLaneId(firstLaneId);
         }
       })
       .catch(error => {
@@ -1290,7 +1375,7 @@ export function DocumentsPage() {
     switch (gateFilter) {
       case 1: result = lanes.filter(l => !l.isPending && l.gates.some(g => g.status === 'active' || g.status === 'blocked')); break;
       case 2: result = lanes.filter(l => !!l.isPending); break;
-      case 3: result = lanes.filter(l => l.gateStatuses.every(s => s === 'passed')); break;
+      case 3: result = lanes.filter(l => !l.isPending && l.gateStatuses.every(s => s === 'passed')); break;
     }
     const q = gateSearch.toLowerCase().trim();
     return q
@@ -1375,8 +1460,8 @@ export function DocumentsPage() {
               chips={[
                 { label: 'All shipments',  count: lanes.length },
                 { label: 'Active gate',    count: lanes.filter(l => !l.isPending && l.gates.some(g => g.status === 'active' || g.status === 'blocked')).length },
-                // { label: 'Pending BOL',    count: lanes.filter(l => !!l.isPending).length },
-                { label: 'Complete',       count: lanes.filter(l => l.gateStatuses.every(s => s === 'passed')).length },
+                { label: 'Waiting for BOL', count: waitingBolLanes.length },
+                { label: 'Complete',       count: lanes.filter(l => !l.isPending && l.gateStatuses.every(s => s === 'passed')).length },
               ]}
               activeIndex={gateFilter}
               onSelect={setGateFilter}

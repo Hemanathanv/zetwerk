@@ -43,6 +43,15 @@ function cargoKindForShipment(shipment: any): GateHealthCargoKey {
   return raw.includes('break') || raw.includes('bulk') || raw.includes('roro') ? 'breakBulk' : 'container';
 }
 
+function dashboardGateClass(status: any): string {
+  const normalized = String(status ?? '').toUpperCase();
+  if (normalized === 'PASSED') return 'bg-primary text-primary-foreground';
+  if (normalized === 'ACTIVE') return 'bg-primary/20 text-primary ring-2 ring-primary';
+  if (normalized === 'BLOCKED') return 'bg-destructive text-destructive-foreground animate-pulse';
+  if (normalized === 'SKIPPED') return 'bg-muted text-muted-foreground';
+  return 'bg-muted/50 text-muted-foreground';
+}
+
 function GateHealthCard({ gateNumber, data }: { gateNumber: string; data: GateHealthStats }) {
   const rows: Array<{ key: GateHealthCargoKey; label: string; Icon: ElementType }> = [
     { key: 'container', label: 'Container', Icon: Boxes },
@@ -454,7 +463,7 @@ export function DashboardPage() {
           <div className="space-y-2">
             {filteredShipments.map(shipment => {
               const visibleGates = (shipment.shipmentGates ?? [])
-                .filter((g: any) => permittedGateNumbers.has(g.gateConfig?.gateNumber))
+                .filter((g: any) => permittedGateNumbers.size === 0 || permittedGateNumbers.has(g.gateConfig?.gateNumber))
                 .sort((a: any, b: any) =>
                   (a.gateConfig?.gateNumber ?? 0) - (b.gateConfig?.gateNumber ?? 0),
                 );
@@ -496,13 +505,7 @@ export function DashboardPage() {
                           key={gate.id}
                           title={`${gate.gateConfig?.gateName ?? `G${gNum}`}: ${gate.status}`}
                         >
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[12px] font-bold ${
-                            gate.status === 'PASSED'  ? 'bg-primary text-primary-foreground' :
-                            gate.status === 'ACTIVE'  ? 'bg-primary/20 text-primary ring-2 ring-primary' :
-                            gate.status === 'BLOCKED' ? 'bg-destructive text-destructive-foreground animate-pulse' :
-                            gate.status === 'SKIPPED' ? 'bg-muted text-muted-foreground' :
-                            'bg-muted/50 text-muted-foreground'
-                          }`}>
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[12px] font-bold ${dashboardGateClass(gate.status)}`}>
                             {gNum}
                           </div>
                         </div>
