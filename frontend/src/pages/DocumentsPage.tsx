@@ -4,6 +4,7 @@ import { useConfig } from '@/contexts/ConfigContext';
 import { usePageMeta } from '@/contexts/PageMetaContext';
 import type { ConfigTemplate, ConfigDocType } from '@/contexts/ConfigContext';
 import { getAuthToken } from '@/lib/api';
+import { documentApi } from '@/auth/api';
 import { BACKEND_API_BASE as API_BASE } from '@/lib/apiBase';
 import {
   DOCUMENT_GATE_DEFS,
@@ -74,6 +75,9 @@ interface ShipmentLane {
   docSummary: string;
   statusLabel: string;
   statusVariant: 'pending' | 'cleared' | 'danger' | 'info';
+  pendingDocType?: string;
+  pendingDocName?: string;
+  pendingDocFileName?: string;
   gates: GateCol[];
   parallel: DocEntry[];
   // SafeCube timing + port labels for voyage strip override
@@ -898,12 +902,18 @@ function ShipmentAccordion({ lane, open, onToggle }: {
             ) : (
               <DocBadge code="BL" size="sm" />
             )}
+            {lane.isPending && lane.pendingDocType && (
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: AMBER }}>
+                {lane.pendingDocType}
+              </span>
+            )}
             <span className="vs-mono" style={{
               fontSize: 12.5, fontWeight: 700,
-              color: lane.isPending ? AMBER : FG,
-              fontStyle: lane.isPending ? 'italic' : 'normal',
+              color: FG,
+              fontStyle: 'normal',
+              minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>
-              {lane.shipmentId}
+              {lane.isPending ? (lane.pendingDocName ?? lane.shipmentId) : lane.shipmentId}
             </span>
             {!lane.isPending && lane.vessel && (
               <span style={{ fontSize: 12.5, color: MUTED }}>{lane.vessel}</span>
@@ -1218,7 +1228,9 @@ function waitingBolDocToLane(doc: any): ShipmentLane {
   const gateNum = 1;
   const code = mapped?.code ?? (docType.slice(0, 3) || 'DOC');
   const label = mapped?.label ?? docType.replaceAll('_', ' ');
-  const docNumber = doc.documentNumber ?? doc.fileName ?? doc.file_name ?? doc.id;
+  const fileName = String(doc.fileName ?? doc.file_name ?? '').trim();
+  const docNumber = doc.documentNumber ?? doc.document_number ?? (fileName || doc.id);
+  const displayName = fileName || String(docNumber);
   const gates: GateCol[] = GATE_DEFS.map((def, index) => {
     const currentGate = index + 1;
     const docs: DocEntry[] = def.required.map(r => ({
@@ -1272,6 +1284,9 @@ function waitingBolDocToLane(doc: any): ShipmentLane {
     docSummary: '1/1',
     statusLabel: 'Waiting for BOL',
     statusVariant: 'pending',
+    pendingDocType: label,
+    pendingDocName: displayName,
+    pendingDocFileName: fileName || undefined,
     gates,
     parallel: [],
   };
@@ -1287,6 +1302,7 @@ export function DocumentsPage() {
   // ── Gate view state ────────────────────────────────────────────────────────
   const [rawShipments,  setRawShipments]  = useState<ApiShipment[]>([]);
   const [waitingBolDocs, setWaitingBolDocs] = useState<any[]>([]);
+  const [waitingBolCount, setWaitingBolCount] = useState(0);
   const [openLanes,     setOpenLanes]     = useState<Set<string>>(new Set());
   const [focusedLaneId, setFocusedLaneId] = useState<string | undefined>();
   const [gateFilter,    setGateFilter]    = useState(0);
@@ -1319,19 +1335,17 @@ export function DocumentsPage() {
         signal: controller.signal,
         cache: 'no-store',
       }).then(r => r.ok ? r.json() : Promise.reject(r.status)),
-      fetch(`${API_BASE}/api/v1/uploads/documents?section=waiting-for-bol&page=1&pageSize=100`, {
-        headers: authHeaders(),
-        signal: controller.signal,
-        cache: 'no-store',
-      })
-        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      documentApi.list({ section: 'waiting-for-bol', page: 1, pageSize: 20 })
         .catch(() => ({ data: { documents: [] } })),
+      documentApi.list({ section: 'all', page: 1, pageSize: 1 })
+        .catch(() => ({ data: { counts: undefined } })),
     ])
-      .then(([shipmentsJson, waitingJson]) => {
+      .then(([shipmentsJson, waitingJson, countsJson]) => {
         const raw = shipmentsJson.data ?? [];
         const waiting = waitingJson.data?.documents ?? [];
         setRawShipments(raw);
         setWaitingBolDocs(waiting);
+        setWaitingBolCount(countsJson.data?.counts?.waitingForBol ?? waiting.length);
         const firstLaneId = raw[0]?.id ?? (waiting[0]?.id ? `waiting-bol-${waiting[0].id}` : undefined);
         if (firstLaneId) {
           setOpenLanes(new Set([firstLaneId]));
@@ -1371,17 +1385,17 @@ export function DocumentsPage() {
   }
 
   const filteredLanes = useMemo(() => {
-    let result = lanes;
+    let result = shipmentLanes;
     switch (gateFilter) {
-      case 1: result = lanes.filter(l => !l.isPending && l.gates.some(g => g.status === 'active' || g.status === 'blocked')); break;
+      case 1: result = shipmentLanes.filter(l => !l.isPending && l.gates.some(g => g.status === 'active' || g.status === 'blocked')); break;
       case 2: result = lanes.filter(l => !!l.isPending); break;
-      case 3: result = lanes.filter(l => !l.isPending && l.gateStatuses.every(s => s === 'passed')); break;
+      case 3: result = shipmentLanes.filter(l => !l.isPending && l.gateStatuses.every(s => s === 'passed')); break;
     }
     const q = gateSearch.toLowerCase().trim();
     return q
       ? result.filter(l => l.shipmentId.toLowerCase().includes(q) || l.vessel.toLowerCase().includes(q) || l.meta.toLowerCase().includes(q))
       : result;
-  }, [lanes, gateFilter, gateSearch]);
+  }, [lanes, shipmentLanes, gateFilter, gateSearch]);
 
   const gateSearchOptions = useMemo(
     () => gateSearch.trim() ? filteredLanes.slice(0, 8) : [],
@@ -1458,10 +1472,10 @@ export function DocumentsPage() {
             <FilterChips
               size="compact"
               chips={[
-                { label: 'All shipments',  count: lanes.length },
-                { label: 'Active gate',    count: lanes.filter(l => !l.isPending && l.gates.some(g => g.status === 'active' || g.status === 'blocked')).length },
-                { label: 'Waiting for BOL', count: waitingBolLanes.length },
-                { label: 'Complete',       count: lanes.filter(l => !l.isPending && l.gateStatuses.every(s => s === 'passed')).length },
+                { label: 'All shipments',  count: shipmentLanes.length },
+                { label: 'Active gate',    count: shipmentLanes.filter(l => !l.isPending && l.gates.some(g => g.status === 'active' || g.status === 'blocked')).length },
+                { label: 'Waiting for BOL', count: waitingBolCount },
+                { label: 'Complete',       count: shipmentLanes.filter(l => !l.isPending && l.gateStatuses.every(s => s === 'passed')).length },
               ]}
               activeIndex={gateFilter}
               onSelect={setGateFilter}
@@ -1533,6 +1547,47 @@ export function DocumentsPage() {
             </button>
           </div>
           </div>{/* end sticky pane */}
+
+          {gateFilter === 2 && waitingBolLanes.length > 0 && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+              margin: '10px 0 12px', padding: '10px 12px',
+              border: '1px solid ' + BORDER, borderRadius: 8, backgroundColor: CARD_BG,
+            }}>
+              <span style={{ fontSize: 12.5, fontWeight: 750, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Waiting documents
+              </span>
+              {waitingBolLanes.map(lane => (
+                <button
+                  key={lane.id}
+                  type="button"
+                  onClick={() => {
+                    setOpenLanes(prev => new Set(prev).add(lane.id));
+                    setFocusedLaneId(lane.id);
+                  }}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    maxWidth: 260, height: 28, padding: '0 9px',
+                    border: '1px solid ' + AMBER + '40', borderRadius: 999,
+                    backgroundColor: AMBER + '10', color: FG, cursor: 'pointer',
+                    fontSize: 12.5, fontWeight: 650, overflow: 'hidden',
+                  }}
+                  // title={[lane.pendingDocType, lane.pendingDocName, lane.meta].filter(Boolean).join(' · ')}
+                >
+                  <Clock size={12} style={{ color: AMBER, flexShrink: 0 }} />
+                  <span style={{ color: AMBER, flexShrink: 0 }}>{lane.pendingDocType ?? lane.meta.split(' · ')[0]}</span>
+                  <span className="vs-mono" style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {lane.pendingDocName ?? lane.shipmentId}
+                  </span>
+                </button>
+              ))}
+              {waitingBolCount > waitingBolLanes.length && (
+                <span style={{ fontSize: 12.5, color: MUTED }}>
+                  Showing {waitingBolLanes.length} of {waitingBolCount}
+                </span>
+              )}
+            </div>
+          )}
 
           <div style={{ marginTop: 12 }}>
           {loading ? (
