@@ -2736,10 +2736,10 @@ export function ShipmentDetailPage() {
           setTrackingMessage(null);
           scRefetch();
         } else {
-          setTrackingMessage(j.error ?? j.detail ?? 'SafeCube tracking is not linked yet');
+          setTrackingMessage('Tracking not available right now');
         }
       })
-      .catch(() => setTrackingMessage('SafeCube tracking is not reachable'));
+      .catch(() => setTrackingMessage('Tracking not available right now'));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scLoading]);
 
@@ -3003,7 +3003,7 @@ export function ShipmentDetailPage() {
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 208, borderRadius: 6, background: '#071e32', border: '1px solid rgba(255,255,255,0.05)' }}>
               <p style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.38)' }}>
-                {trackingMessage ?? 'Waiting for SafeCube tracking from MBL or booking reference'}
+                {trackingMessage ?? 'Waiting for tracking from MBL or booking reference'}
               </p>
             </div>
           )}
