@@ -444,7 +444,7 @@ export function DashboardPage() {
             <div className="w-[80px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground @max-[750px]:hidden">Docs</div>
             <div className="w-[72px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right @max-[1150px]:hidden">ETA</div>
             <div className="flex-1 min-w-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Exporter / Buyer</div>
-            <div className="w-[88px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right @max-[950px]:hidden">Counts</div>
+            <div className="w-[88px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right @max-[950px]:hidden">Doc Review Status</div>
             <div className="w-[72px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right">Added</div>
           </div>
         )}

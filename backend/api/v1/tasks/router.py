@@ -240,7 +240,11 @@ def _task_row(row: dict[str, Any]) -> dict[str, Any]:
     metadata = _json(row.get("metadata"), {}) or {}
     bol_number = row.get("bol_number")
     shipment_number = row.get("shipment_number")
-    shipment_ref = bol_number or shipment_number
+    hbl_number = row.get("hbl_number")
+    is_generated_shipment_number = str(shipment_number or "").upper().startswith("ZTW")
+    shipment_ref = None
+    if row.get("shipment_id"):
+        shipment_ref = hbl_number or (None if is_generated_shipment_number else shipment_number)
     assigned_role = row.get("assigned_role")
     assigned_role_name = row.get("assigned_role_name") or _role_display_name(assigned_role)
     return {
@@ -258,9 +262,11 @@ def _task_row(row: dict[str, Any]) -> dict[str, Any]:
         "shipmentId": str(row.get("shipment_id")) if row.get("shipment_id") else None,
         "shipmentRef": shipment_ref,
         "bolNumber": bol_number,
+        "hblNumber": hbl_number,
         "shipment": {
             "shipmentNumber": shipment_ref,
             "bolNumber": bol_number,
+            "hblNumber": hbl_number,
             "systemShipmentNumber": shipment_number,
             "currentStageName": row.get("current_stage_name"),
         } if shipment_ref else None,
@@ -331,10 +337,26 @@ async def _task_rows(prisma, where: str = "", *params, limit: int = 500, offset:
           t.*, t."id"::text AS id, t."shipment_id"::text AS shipment_id,
           t."parent_task_id"::text AS parent_task_id,
           s."shipment_number", s."bol_number", s."current_stage_name",
+          NULLIF(COALESCE(
+            bol_ref."raw_data"->>'hblNumber',
+            bol_ref."raw_data"->>'hbl_number',
+            bol_ref."raw_data"->>'houseBlNumber',
+            bol_ref."raw_data"->>'house_bl_number',
+            bol_ref."shipment_reference_number"
+          ), '') AS hbl_number,
           NULL::text AS assigned_role_name,
           p."title" AS parent_title
         FROM "public"."task_instances" t
         LEFT JOIN "public"."shipments" s ON s."id" = t."shipment_id"
+        LEFT JOIN LATERAL (
+          SELECT bol."raw_data", bol."shipment_reference_number"
+          FROM "public"."documents" bol_doc
+          JOIN "aiextraction"."bills_of_lading" bol ON bol."document_id" = bol_doc."id"
+          WHERE bol_doc."shipment_id" = t."shipment_id"
+            AND bol_doc."is_deleted" = FALSE
+          ORDER BY bol_doc."updated_at" DESC
+          LIMIT 1
+        ) bol_ref ON TRUE
         LEFT JOIN "public"."task_instances" p ON p."id" = t."parent_task_id"
         {effective_where}
         ORDER BY

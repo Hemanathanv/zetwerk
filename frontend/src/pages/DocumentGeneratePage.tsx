@@ -659,19 +659,34 @@ function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onMan
                 );
                 const val = isEditable ? (manualValues[manualKey] ?? baseVal) : baseVal;
                 const hasValue = String(val ?? '').trim() !== '';
-                const highlightState = isPackingListLineItems && isEditable
-                  ? (hasValue ? 'complete' : 'missing')
+                const netWeight = isPackingListLineItems
+                  ? numericDraftValue(rowVisibleValue(section.sectionLabel, ri, 'netWeightKgs', row, manualValues, { [section.sectionLabel]: computedRows }))
                   : null;
-                const cellBackground = highlightState === 'complete'
-                  ? 'hsla(152,69%,31%,0.12)'
-                  : highlightState === 'missing'
-                    ? 'hsla(0,84%,60%,0.12)'
-                    : 'hsl(var(--muted) / 0.42)';
-                const cellOutline = highlightState === 'complete'
-                  ? '1px solid hsla(152,69%,31%,0.46)'
-                  : highlightState === 'missing'
-                    ? '1px solid hsla(0,84%,60%,0.46)'
-                    : `1px solid ${BORDER}`;
+                const grossWeight = isPackingListLineItems
+                  ? numericDraftValue(rowVisibleValue(section.sectionLabel, ri, 'grossWeightKgs', row, manualValues, { [section.sectionLabel]: computedRows }))
+                  : null;
+                const hasWeightOrderError = netWeight !== null && grossWeight !== null && grossWeight <= netWeight;
+                const isWeightErrorCell = hasWeightOrderError && (col.targetField === 'netWeightKgs' || col.targetField === 'grossWeightKgs');
+                const highlightState = isWeightErrorCell
+                  ? 'invalid'
+                  : isPackingListLineItems && isEditable
+                    ? (hasValue ? 'complete' : 'missing')
+                    : null;
+                const cellBackground = highlightState === 'invalid'
+                  ? 'hsla(0,84%,60%,0.14)'
+                  : highlightState === 'complete'
+                    ? 'hsla(152,69%,31%,0.12)'
+                    : highlightState === 'missing'
+                      ? 'hsla(0,84%,60%,0.12)'
+                      : 'hsl(var(--muted) / 0.42)';
+                const cellOutline = highlightState === 'invalid'
+                  ? '1px solid hsla(0,84%,60%,0.72)'
+                  : highlightState === 'complete'
+                    ? '1px solid hsla(152,69%,31%,0.46)'
+                    : highlightState === 'missing'
+                      ? '1px solid hsla(0,84%,60%,0.46)'
+                      : `1px solid ${BORDER}`;
+                const textColor = isWeightErrorCell ? RED : FG;
                 const isAutoDerived = !isTotalsSection && isDerived && forceCalculated && String(computedRows[ri]?.[col.targetField] ?? '').trim() !== '';
                 const qtyBundleHint = forceCalculated && String(computedRows[ri]?.[col.targetField] ?? '').trim()
                   ? `${rowVisibleValue(section.sectionLabel, ri, 'totalQtyInPcs', row, manualValues, { [section.sectionLabel]: computedRows }) || 'Qty'} / ${rowVisibleValue(section.sectionLabel, ri, 'noOfBundles', row, manualValues, { [section.sectionLabel]: computedRows }) || 'Bundles'} = ${computedRows[ri]?.[col.targetField]}`
@@ -694,14 +709,14 @@ function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onMan
                           placeholder="Enter..."
                           style={{
                             border: 'none', background: 'transparent', outline: 'none',
-                            padding: '7px 10px', fontSize: 12, fontWeight: 700, color: FG,
+                            padding: '7px 10px', fontSize: 12, fontWeight: 700, color: textColor,
                             width: '100%', minWidth: 90,
                             ...(col.mono ? MONO : {}),
                           }}
                         />
                       </div>
                     ) : (
-                      <span style={{ display: 'block', padding: isAutoDerived ? '7px 42px 3px 10px' : '7px 10px', position: 'relative' }}>
+                      <span style={{ display: 'block', padding: isAutoDerived ? '7px 42px 3px 10px' : '7px 10px', position: 'relative', color: textColor, fontWeight: isWeightErrorCell ? 800 : undefined }}>
                         {val || '—'}
                         {isAutoDerived && (
                           <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 9, fontWeight: 800, color: TEAL, background: 'hsla(173,58%,39%,0.10)', borderRadius: 999, padding: '1px 6px', pointerEvents: 'none' }}>
@@ -709,6 +724,11 @@ function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onMan
                           </span>
                         )}
                       </span>
+                    )}
+                    {isWeightErrorCell && col.targetField === 'grossWeightKgs' && (
+                      <div style={{ padding: '0 10px 6px', fontSize: 10.5, color: RED, fontWeight: 800, whiteSpace: 'nowrap' }}>
+                        Must be &gt; net
+                      </div>
                     )}
                     {qtyBundleHint && (
                       <div style={{ padding: '0 10px 6px', fontSize: 10.5, color: MUTED, fontWeight: 650, whiteSpace: 'nowrap' }}>
@@ -3041,7 +3061,6 @@ export function DocumentGeneratePage() {
             const [a, b] = sf.split(' − ');
             const av = getNum(ri, resolve(a)), bv = getNum(ri, resolve(b));
             if (!isNaN(av) && !isNaN(bv)) computedRows[ri][col.targetField] = fmtNum(av - bv, 2);
-            else if (!isNaN(av) && av > 0) computedRows[ri][col.targetField] = fmtNum(av * 0.94, 2);
           }
         }
       }

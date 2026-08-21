@@ -159,7 +159,7 @@ function TaskRoleLabel({ task }: { task: any }) {
 }
 
 function taskShipmentRef(task: any): string {
-  return task.bolNumber || task.shipment?.bolNumber || task.shipmentRef || task.shipment?.shipmentNumber || '';
+  return task.shipmentId && task.shipment?.shipmentNumber ? String(task.shipment.shipmentNumber) : '';
 }
 
 function computeSlaBar(task: any) {
@@ -1071,9 +1071,7 @@ function TaskRow({
           >
             {taskShipmentRef(task)}
           </button>
-        ) : (
-          <span style={{ fontSize: 12, color: MUTED }}>—</span>
-        )}
+        ) : null}
         {task.shipment?.currentStageName && (
           <div style={{ fontSize: 11, color: MUTED, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {task.shipment.currentStageName}
@@ -2047,6 +2045,7 @@ function TaskAnalyticsPanel() {
 // ─── TasksPage ────────────────────────────────────────────────────────────────
 
 type SortField = 'urgency' | 'slaDeadline' | 'createdAt' | 'status' | 'title';
+const REMINDER_OPEN_STATUSES = ['PENDING', 'ASSIGNED', 'IN_PROGRESS'];
 
 export function TasksPage() {
   const { user } = useAuth();
@@ -2239,7 +2238,11 @@ export function TasksPage() {
     return list;
   }, [tasks, sort]);
 
-  const activeFilters = (urgencyFilter ? 1 : 0) + statusFilter.length + (search ? 1 : 0);
+  const reminderCount = Math.max(0, summary.total - summary.blockers - summary.warnings - summary.escalated);
+  const isReminderFilter = urgencyFilter === 'NORMAL'
+    && statusFilter.length === REMINDER_OPEN_STATUSES.length
+    && REMINDER_OPEN_STATUSES.every(status => statusFilter.includes(status));
+  const activeFilters = (urgencyFilter ? 1 : 0) + (statusFilter.length ? 1 : 0) + (search ? 1 : 0);
 
   useEffect(() => {
     setPageMeta({
@@ -2408,9 +2411,11 @@ export function TasksPage() {
             { label: 'Blockers',  count: summary.blockers },
             { label: 'Warnings',  count: summary.warnings },
             { label: 'Escalated', count: summary.escalated },
+            { label: 'Reminder',  count: reminderCount },
           ]}
           activeIndex={
             statusFilter.length === 1 && statusFilter[0] === 'ESCALATED' ? 3
+            : isReminderFilter ? 4
             : urgencyFilter === 'BLOCKER' ? 1
             : urgencyFilter === 'WARNING' ? 2
             : urgencyFilter === '' && statusFilter.length === 0 ? 0
@@ -2422,6 +2427,7 @@ export function TasksPage() {
             else if (i === 1) { setUrgencyFilter('BLOCKER'); setStatusFilter([]); }
             else if (i === 2) { setUrgencyFilter('WARNING'); setStatusFilter([]); }
             else if (i === 3) { setUrgencyFilter(''); setStatusFilter(['ESCALATED']); }
+            else if (i === 4) { setUrgencyFilter('NORMAL'); setStatusFilter(REMINDER_OPEN_STATUSES); }
           }}
         />
       </div>}

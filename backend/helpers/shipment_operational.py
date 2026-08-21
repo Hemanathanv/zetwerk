@@ -611,74 +611,6 @@ async def _link_packing_lists_from_bol_container_mapping(prisma: Any, shipment_i
     return int(rows[0].get("linked_count") or 0) if rows else 0
 
 
-async def _link_reviewed_documents_from_validation(prisma: Any, shipment_id: str) -> int:
-    rows = await _query_raw(
-        prisma,
-        """
-        WITH validation_docs AS (
-          SELECT DISTINCT cvd."document_id" AS document_id
-          FROM "document_ocr"."cross_validation_details" cvd
-          WHERE cvd."shipment_id"::text = $1::text
-            AND cvd."document_id" ~* '^[0-9a-f-]{36}$'
-          UNION
-          SELECT DISTINCT cvd."target_document_id" AS document_id
-          FROM "document_ocr"."cross_validation_details" cvd
-          WHERE cvd."shipment_id"::text = $1::text
-            AND cvd."target_document_id" ~* '^[0-9a-f-]{36}$'
-          UNION
-          SELECT DISTINCT vr."document_id" AS document_id
-          FROM "document_module"."validation_results" vr
-          JOIN "public"."documents" target_doc
-            ON target_doc."id"::text = vr."target_document_id"::text
-          WHERE target_doc."shipment_id" = $1::uuid
-            AND vr."document_id" ~* '^[0-9a-f-]{36}$'
-          UNION
-          SELECT DISTINCT vr."target_document_id" AS document_id
-          FROM "document_module"."validation_results" vr
-          JOIN "public"."documents" source_doc
-            ON source_doc."id"::text = vr."document_id"::text
-          WHERE source_doc."shipment_id" = $1::uuid
-            AND vr."target_document_id" ~* '^[0-9a-f-]{36}$'
-          UNION
-          SELECT DISTINCT cvd."document_id" AS document_id
-          FROM "document_ocr"."cross_validation_details" cvd
-          JOIN "public"."documents" target_doc
-            ON target_doc."id"::text = cvd."target_document_id"::text
-          WHERE target_doc."shipment_id" = $1::uuid
-            AND cvd."document_id" ~* '^[0-9a-f-]{36}$'
-          UNION
-          SELECT DISTINCT cvd."target_document_id" AS document_id
-          FROM "document_ocr"."cross_validation_details" cvd
-          JOIN "public"."documents" source_doc
-            ON source_doc."id"::text = cvd."document_id"::text
-          WHERE source_doc."shipment_id" = $1::uuid
-            AND cvd."target_document_id" ~* '^[0-9a-f-]{36}$'
-        ),
-        updated AS (
-          UPDATE "public"."documents" d
-          SET
-            "shipment_id" = $1::uuid,
-            "document_type" = COALESCE(d."document_type", d."doc_type"::text),
-            "ocr_status" = CASE
-              WHEN d."status"::text IN ('REVIEWED', 'ARCHIVED') THEN 'completed'
-              ELSE COALESCE(d."ocr_status", lower(d."status"::text))
-            END,
-            "validation_status" = COALESCE(d."validation_status", 'WAITING'),
-            "approved_at" = COALESCE(d."approved_at", CASE WHEN d."status"::text IN ('REVIEWED', 'ARCHIVED') THEN NOW() ELSE NULL END),
-            "updated_at" = NOW()
-          FROM validation_docs vd
-          WHERE d."id"::text = vd.document_id::text
-            AND d."is_deleted" = FALSE
-            AND d."status"::text IN ('REVIEWED', 'ARCHIVED')
-            AND (d."shipment_id" IS NULL OR d."shipment_id" = $1::uuid)
-          RETURNING d."id"
-        )
-        SELECT COUNT(*)::int AS linked_count FROM updated
-        """,
-        shipment_id,
-    )
-    return int(rows[0].get("linked_count") or 0) if rows else 0
-
 
 async def link_documents_to_shipment_by_keys(prisma: Any, shipment_id: str) -> int:
     """Attach documents to a shipment using the Sheet3 document link keys.
@@ -769,10 +701,6 @@ async def link_documents_to_shipment_by_keys(prisma: Any, shipment_id: str) -> i
             await _shipment_document_link_keys(prisma, shipment_id),
         )
         pass_count = 0
-        try:
-            pass_count += await _link_reviewed_documents_from_validation(prisma, shipment_id)
-        except Exception:
-            pass
         pass_count += await _link_packing_lists_from_bol_container_mapping(prisma, shipment_id)
         pass_count += await link("sales_invoice_extractions", ("SALES_INVOICE",), ("invoice_no", "shipping_bill_no"), ("invoice", "shipping_bill"))
         pass_count += await link("packing_list_extractions", ("PACKING_LIST",), ("invoice_no",), ("invoice", "shipping_bill"))

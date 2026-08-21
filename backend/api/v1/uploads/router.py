@@ -40,7 +40,9 @@ from documents_ocr.Bill_of_lading.container_mapping import (
 from helpers.config import settings
 from helpers.dependencies import get_current_user
 from helpers.rbac_data_access import (
+    access_role,
     can_do_doc_type_action,
+    can_generate_document_type,
     document_module_sql_where,
     document_prisma_where,
     document_sql_where,
@@ -1466,10 +1468,15 @@ async def upload_document(
 DOCUMENT_LIST_PAGE_SIZE = 20
 WAITING_FOR_BOL_DOC_TYPES: Final[set[str]] = {
     "SALES_INVOICE",
+    "SI",
     "PACKING_LIST",
+    "PL",
     "US_PACKING_LIST",
     "SHIPPING_BILL",
+    "SB",
 }
+GENERATED_DRAFT_QUEUE_TYPES: Final[tuple[str, ...]] = ("PACKING_LIST", "US_PACKING_LIST", "ENTRY_SUMMARY")
+SHARED_DOCGEN_SOURCE_ROLES: Final[set[str]] = {"SUPER_ADMIN", "ADMIN", "OPS_MANAGER", "INDIA_LOGISTICS"}
 DOCUMENT_SECTION_STATUS_FILTERS: Final[dict[str, set[str]]] = {
     "needs-approval": {"EXTRACTED"},
     "needs-reapproval": {"EXTRACTED"},
@@ -1566,6 +1573,51 @@ def _waiting_for_bol_clause(document_alias: str = "d") -> str:
     """
 
 
+def _has_shared_docgen_access(user: Any) -> bool:
+    return access_role(user).upper().replace("-", "_").replace(" ", "_") in SHARED_DOCGEN_SOURCE_ROLES
+
+
+async def _generated_draft_review_count(
+    prisma,
+    *,
+    user: Any,
+    doc_type_filter: str | None = None,
+) -> int:
+    generated_types = [
+        doc_type
+        for doc_type in GENERATED_DRAFT_QUEUE_TYPES
+        if (doc_type_filter is None or doc_type == doc_type_filter)
+        and can_generate_document_type(user, doc_type)
+    ]
+    if not generated_types:
+        return 0
+
+    try:
+        await ensure_doc_generation_views(prisma)
+        rows = await prisma.query_raw(
+            """
+            SELECT COUNT(*) AS count
+            FROM docgen.drafts draft
+            WHERE draft.generated_doc_type = ANY($1::text[])
+              AND ($3::boolean OR draft.created_by::text = $2::text)
+              AND (draft.generated_doc_type <> 'ENTRY_SUMMARY' OR draft.schema_version >= 2)
+              AND (
+                (draft.generated_doc_type = 'PACKING_LIST' AND draft.source_document_ids ->> 'SALES_INVOICE' IS NOT NULL)
+                OR (draft.generated_doc_type = 'US_PACKING_LIST' AND draft.source_document_ids ->> 'PACKING_LIST' IS NOT NULL)
+                OR (draft.generated_doc_type = 'ENTRY_SUMMARY' AND draft.source_document_ids ->> 'BILL_OF_LADING' IS NOT NULL)
+              )
+              AND UPPER(COALESCE(NULLIF(draft.rendered_payload ->> 'status', ''), draft.status::text))
+                IN ('DRAFT', 'IN_REVIEW')
+            """,
+            generated_types,
+            str(user.id),
+            _has_shared_docgen_access(user),
+        )
+        return int((rows[0] if rows else {}).get("count") or 0)
+    except Exception:
+        return 0
+
+
 async def _document_count(*, prisma, user: Any, section: str) -> int:
     if has_role_document_scope(user):
         try:
@@ -1595,7 +1647,12 @@ async def _document_count(*, prisma, user: Any, section: str) -> int:
                 elif section == "processing":
                     section_clause = f"""d."status"::text IN ('QUEUED', 'PROCESSING', 'REPROCESSING') AND NOT {waiting_for_bol_clause}"""
                 elif section == "draft-review":
-                    section_clause = f"""d."status"::text = 'UPLOADED' AND NOT {waiting_for_bol_clause}"""
+                    document_draft_count_clause = f"""d."status"::text = 'UPLOADED' AND NOT {waiting_for_bol_clause}"""
+                    rows = await prisma.query_raw(
+                        f'SELECT COUNT(*) AS count FROM "public"."documents" d WHERE {access_where} AND {document_draft_count_clause}',
+                        *access_params,
+                    )
+                    return int((rows[0] if rows else {}).get("count") or 0) + await _generated_draft_review_count(prisma, user=user)
                 elif section == "waiting-for-bol":
                     section_clause = waiting_for_bol_clause
                 else:
@@ -1697,7 +1754,10 @@ async def _document_count(*, prisma, user: Any, section: str) -> int:
         try:
             await _ensure_cross_validation_tables(prisma)
             rows = await prisma.query_raw(sql, current_user_id)
-            return int((rows[0] if rows else {}).get("count") or 0)
+            count = int((rows[0] if rows else {}).get("count") or 0)
+            if section == "draft-review":
+                count += await _generated_draft_review_count(prisma, user=user)
+            return count
         except Exception:
             return 0
     try:
@@ -1755,13 +1815,18 @@ async def _document_counts(*, prisma, user: Any, doc_type_filter: str | None = N
             *doc_type_params,
         )
         row = rows[0] if rows else {}
+        generated_draft_review_count = await _generated_draft_review_count(
+            prisma,
+            user=user,
+            doc_type_filter=doc_type_filter,
+        )
         return DocumentListCounts(
             total=int(row.get("total") or 0),
             needsApproval=int(row.get("needs_approval") or 0),
             needsReapproval=int(row.get("needs_reapproval") or 0),
             processing=int(row.get("processing") or 0),
             crossValidating=int(row.get("cross_validating") or 0),
-            draftReview=int(row.get("draft_review") or 0),
+            draftReview=int(row.get("draft_review") or 0) + generated_draft_review_count,
             done=int(row.get("done") or 0),
             waitingForBol=int(row.get("waiting_for_bol") or 0),
         )

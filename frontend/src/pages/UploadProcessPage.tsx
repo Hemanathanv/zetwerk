@@ -2213,10 +2213,25 @@ export function UploadProcessPage() {
     if (corridors.length === 1) setCorridorVal(corridors[0]);
   }, [corridors]);
 
-  const documentsQuery = useQuery({
-    queryKey: ['upload-process', 'documents', queueSection, queuePage, QUEUE_PAGE_SIZE, queueDocTypeFilter],
+  const queueDocTypeParam = queueDocTypeFilter === 'all' ? undefined : queueDocTypeFilter;
+
+  const documentCountsQuery = useQuery({
+    queryKey: ['upload-process', 'document-counts', queueDocTypeParam ?? 'all'],
     queryFn: async () => {
-      const response = await documentApi.list({ page: queuePage, pageSize: QUEUE_PAGE_SIZE, section: queueSection, docType: queueDocTypeFilter === 'all' ? undefined : queueDocTypeFilter });
+      const response = await documentApi.list({ page: 1, pageSize: 1, section: 'all', docType: queueDocTypeParam });
+      return response.data.counts;
+    },
+    enabled: !routedDetail || !routedDetail.isGenerated,
+    placeholderData: (previousData) => previousData,
+    staleTime: 15_000,
+    refetchInterval: () => (document.visibilityState === 'visible' ? 15_000 : false),
+    refetchOnWindowFocus: true,
+  });
+
+  const documentsQuery = useQuery({
+    queryKey: ['upload-process', 'documents', queueSection, queuePage, QUEUE_PAGE_SIZE, queueDocTypeParam ?? 'all'],
+    queryFn: async () => {
+      const response = await documentApi.list({ page: queuePage, pageSize: QUEUE_PAGE_SIZE, section: queueSection, docType: queueDocTypeParam });
       return response.data;
     },
     enabled: !routedDetail || !routedDetail.isGenerated,
@@ -2477,19 +2492,28 @@ export function UploadProcessPage() {
   const uploadDocumentMutation = useMutation({
     mutationFn: (form: FormData) => documentApi.upload(form),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['upload-process', 'documents'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['upload-process', 'documents'] }),
+        queryClient.invalidateQueries({ queryKey: ['upload-process', 'document-counts'] }),
+      ]);
     },
   });
   const stopDocumentMutation = useMutation({
     mutationFn: (documentId: string) => documentApi.stop(documentId),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['upload-process', 'documents'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['upload-process', 'documents'] }),
+        queryClient.invalidateQueries({ queryKey: ['upload-process', 'document-counts'] }),
+      ]);
     },
   });
   const retryDocumentMutation = useMutation({
     mutationFn: (documentId: string) => documentApi.retry(documentId),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['upload-process', 'documents'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['upload-process', 'documents'] }),
+        queryClient.invalidateQueries({ queryKey: ['upload-process', 'document-counts'] }),
+      ]);
     },
   });
   const reuploadDocumentMutation = useMutation({
@@ -2497,6 +2521,7 @@ export function UploadProcessPage() {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['upload-process', 'documents'] }),
+        queryClient.invalidateQueries({ queryKey: ['upload-process', 'document-counts'] }),
         queryClient.invalidateQueries({ queryKey: ['upload-process', 'generated-drafts'] }),
       ]);
     },
@@ -2755,17 +2780,17 @@ export function UploadProcessPage() {
 
   const visibleCards: QueueCard[] = QUEUE_CARDS;
 
-  const categoryCounts = useMemo(() => ({
-    total: visibleCards.length,
-    needsApproval: visibleCards.filter((c) => c.statusCategory === 'needs-approval').length,
-    needsReapproval: visibleCards.filter((c) => c.statusCategory === 'needs-reapproval').length,
-    processing: visibleCards.filter((c) => c.statusCategory === 'processing').length,
-    crossValidating: visibleCards.filter((c) => c.statusCategory === 'cross-validating').length,
-    draftReview: visibleCards.filter((c) => c.statusCategory === 'draft-review').length,
-    done: visibleCards.filter((c) => c.statusCategory === 'done').length,
-    waitingForBol: visibleCards.filter((c) => c.statusCategory === 'waiting-for-bol').length,
-  }), [visibleCards]);
-  const statsCount = categoryCounts;
+  const backendCounts = documentCountsQuery.data ?? documentsQuery.data?.counts;
+  const statsCount = {
+    total: backendCounts?.total ?? 0,
+    needsApproval: backendCounts?.needsApproval ?? 0,
+    needsReapproval: backendCounts?.needsReapproval ?? 0,
+    processing: backendCounts?.processing ?? 0,
+    crossValidating: backendCounts?.crossValidating ?? 0,
+    draftReview: backendCounts?.draftReview ?? 0,
+    done: backendCounts?.done ?? 0,
+    waitingForBol: backendCounts?.waitingForBol ?? 0,
+  };
 
   const liveUnattachedCount = statsCount.waitingForBol;
   const reviewActionCount = statsCount.needsApproval + statsCount.needsReapproval;
