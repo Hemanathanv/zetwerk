@@ -633,7 +633,7 @@ function DocIdentityInfoButton({
   onNavigate: (path: string) => void;
 }) {
   if (links.length === 0) return null;
-  const scrollable = links.length > 10;
+  const scrollable = links.length > 4;
 
   return (
     <Popover>
@@ -667,8 +667,11 @@ function DocIdentityInfoButton({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        side="top"
-        className="w-64 p-2 z-[1200]"
+        side="bottom"
+        sideOffset={6}
+        collisionPadding={12}
+        avoidCollisions
+        className="w-72 p-2 z-[1200]"
         onClick={(event) => event.stopPropagation()}
       >
         <div style={{ fontSize: 11, fontWeight: 700, color: MUTED, marginBottom: 6, padding: '0 4px' }}>
@@ -679,8 +682,8 @@ function DocIdentityInfoButton({
             display: 'flex',
             flexDirection: 'column',
             gap: 2,
-            maxHeight: scrollable ? 280 : undefined,
-            overflowY: scrollable ? 'auto' : undefined,
+            maxHeight: 220,
+            overflowY: 'auto',
           }}
         >
           {links.map((link, index) => (
@@ -704,6 +707,8 @@ function DocIdentityInfoButton({
                 fontSize: 12,
                 color: FG,
                 lineHeight: 1.35,
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
               }}
               onMouseEnter={(event) => {
                 event.currentTarget.style.backgroundColor = 'hsl(var(--muted) / 0.45)';
