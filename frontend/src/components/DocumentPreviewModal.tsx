@@ -220,21 +220,25 @@ function PackingListDoc({ schema, resolve, resolveRow }: {
 }) {
   const mockRows = (schema.mockData.tables as Record<string, unknown[]>)['Line Items'] ?? [];
   const lineItemCols = [
-    { key: 'hsnCode',        label: 'HSN Code',    mono: true, width: '10%' },
-    { key: 'productCode',    label: 'Product Code', mono: true, width: '12%' },
-    { key: 'productDesc',    label: 'Description',  width: '26%' },
-    { key: 'totalQtyInPcs', label: 'Qty (PCS)',    align: 'right' as const, mono: true, width: '8%' },
-    { key: 'kindOfPkg',      label: 'Pkg Type',     width: '8%' },
-    { key: 'noOfBundles',    label: 'Bundles',      align: 'right' as const, mono: true, width: '8%' },
-    { key: 'qtyPerBundle',   label: 'Qty/Bundle',   align: 'right' as const, mono: true, width: '9%' },
-    { key: 'netWeightKgs',   label: 'Net Wt (kg)',  align: 'right' as const, mono: true, width: '9%' },
-    { key: 'grossWeightKgs', label: 'Gross Wt (kg)', align: 'right' as const, mono: true, width: '10%' },
+    { key: 'hsnCode',        label: 'HSN Code',       mono: true, width: '7%' },
+    { key: 'productCode',    label: 'Product Code',   mono: true, width: '8%' },
+    { key: 'productDesc',    label: 'Description',    width: '15%' },
+    { key: 'productMarks',   label: 'Product Marks',  width: '10%' },
+    { key: 'boCode',         label: 'BO Code',         mono: true, width: '7%' },
+    { key: 'containerNo',    label: 'Container No',    mono: true, width: '8%' },
+    { key: 'sealNo',         label: 'Seal No',         mono: true, width: '7%' },
+    { key: 'kindOfPkg',      label: 'Package Type',    width: '8%' },
+    { key: 'totalQtyInPcs',  label: 'Qty (PCS)',       align: 'right' as const, mono: true, width: '7%' },
+    { key: 'qtyPerBundle',   label: 'Qty/Bundle',      align: 'right' as const, mono: true, width: '7%' },
+    { key: 'noOfBundles',    label: 'Bundles',         align: 'right' as const, mono: true, width: '6%' },
+    { key: 'netWeightKgs',   label: 'Net Wt (kg)',     align: 'right' as const, mono: true, width: '7%' },
+    { key: 'grossWeightKgs', label: 'Gross Wt (kg)',   align: 'right' as const, mono: true, width: '8%' },
   ];
   const lineRows = mockRows.map((_, ri) =>
     lineItemCols.map(c => resolveRow('Line Items', ri, c.key))
   );
   const totals = [
-    'TOTALS', '', '', resolve('totalQty'), '', resolve('totalBundles'), '',
+    'TOTALS', '', '', '', '', '', '', '', resolve('totalQty'), '', resolve('totalBundles'),
     resolve('totalNetWeightKgs'), resolve('totalGrossWeightKgs'),
   ];
 

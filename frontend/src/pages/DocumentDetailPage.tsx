@@ -842,6 +842,30 @@ function labelFromKey(key: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function isQuantityOrBundleExtractionField(key: string): boolean {
+  const normalized = key.toLowerCase();
+  if (normalized.includes('unit')) return false;
+  return normalized.includes('quantity') || normalized.includes('qty') || normalized.includes('bundle');
+}
+
+function isWeightExtractionField(key: string): boolean {
+  const normalized = key.toLowerCase();
+  if (normalized.includes('unit')) return false;
+  return normalized.includes('netweight') || normalized.includes('grossweight');
+}
+
+function canManuallyEditExtractionField(key: string): boolean {
+  return isQuantityOrBundleExtractionField(key) || isWeightExtractionField(key);
+}
+
+function canEditExtractionFieldNow(key: string, productBreakingDone: boolean): boolean {
+  return isWeightExtractionField(key) || (productBreakingDone && isQuantityOrBundleExtractionField(key));
+}
+
+function hasEnteredEditableValue(value: string): boolean {
+  return !['', 'Field not in the file', 'Enter value', '—'].includes(value.trim());
+}
+
 function FieldCard({ field, rawData, comparison, isEdited = false, onSave, onDraftChange }: {
   field: FieldDef;
   rawData: JsonValue | null | undefined;
@@ -870,6 +894,9 @@ function FieldCard({ field, rawData, comparison, isEdited = false, onSave, onDra
   const isMismatch = comparison?.status === 'mismatch';
   const isCompared = Boolean(comparison);
   const isMatched = comparison?.status === 'match';
+  const isEditableField = Boolean(onSave);
+  const editableIsFilled = hasEnteredEditableValue(displayValue);
+  const editableAccent = isEditableField ? (editableIsFilled ? GREEN : RED) : null;
 
   function startEdit() {
     setDraftValue(['Field not in the file', 'Enter value'].includes(displayValue) ? '' : displayValue);
@@ -886,10 +913,10 @@ function FieldCard({ field, rawData, comparison, isEdited = false, onSave, onDra
   return (
     <div
       style={{
-        border: `1px solid ${isMismatch ? 'hsla(0,84%,60%,0.42)' : isEmpty && !isOptionalEmpty ? 'hsla(0,84%,60%,0.20)' : isManualEmpty ? `${GREEN}55` : BORDER}`,
+        border: `1px solid ${editableAccent ? `${editableAccent}88` : isMismatch ? 'hsla(0,84%,60%,0.42)' : isEmpty && !isOptionalEmpty ? 'hsla(0,84%,60%,0.20)' : isManualEmpty ? `${GREEN}55` : BORDER}`,
         borderRadius: 8,
         padding: '9px 11px',
-        backgroundColor: isMismatch ? 'hsla(0,84%,60%,0.07)' : isEmpty && !isOptionalEmpty ? 'hsla(0,84%,60%,0.035)' : isManualEmpty ? `${GREEN}08` : 'hsl(var(--card))',
+        backgroundColor: editableAccent ? `${editableAccent}0F` : isMismatch ? 'hsla(0,84%,60%,0.07)' : isEmpty && !isOptionalEmpty ? 'hsla(0,84%,60%,0.035)' : isManualEmpty ? `${GREEN}08` : 'hsl(var(--card))',
         minWidth: 0,
       }}
     >
@@ -941,12 +968,12 @@ function FieldCard({ field, rawData, comparison, isEdited = false, onSave, onDra
             style={{
               flex: 1,
               minWidth: 0,
-              border: `1.5px solid ${BLUE}`,
+              border: `1.5px solid ${editableAccent ?? BLUE}`,
               borderRadius: 6,
               padding: '5px 8px',
               fontSize: 12.5,
               color: FG,
-              backgroundColor: 'hsl(var(--background))',
+              backgroundColor: editableAccent ? `${editableAccent}0A` : 'hsl(var(--background))',
               outline: 'none',
               fontFamily: field.mono ? 'var(--font-mono, monospace)' : undefined,
             }}
@@ -972,7 +999,7 @@ function FieldCard({ field, rawData, comparison, isEdited = false, onSave, onDra
           style={{
             marginTop: 4,
             fontSize: 12.5,
-            color: isMismatch || (isEmpty && !isOptionalEmpty) ? RED : isManualEmpty ? GREEN : isOptionalEmpty ? MUTED : FG,
+            color: editableAccent ?? (isMismatch || (isEmpty && !isOptionalEmpty) ? RED : isManualEmpty ? GREEN : isOptionalEmpty ? MUTED : FG),
             fontStyle: isEmpty || isManualEmpty ? 'italic' : 'normal',
             whiteSpace: 'normal',
             wordBreak: 'break-word',
@@ -1067,6 +1094,7 @@ function LineItemsTable({
   title = 'Line Items',
   comparisonRows,
   editable = true,
+  isColumnEditable = canManuallyEditExtractionField,
   onSave,
   onDraftChange,
 }: {
@@ -1074,6 +1102,7 @@ function LineItemsTable({
   title?: string;
   comparisonRows?: NonNullable<CbpComparisonResponse['tables']>[string]['rows'];
   editable?: boolean;
+  isColumnEditable?: (column: string) => boolean;
   onSave?: (rows: Array<Record<string, JsonValue>>) => Promise<void>;
   onDraftChange?: (rows: Array<Record<string, JsonValue>>) => void;
 }) {
@@ -1131,9 +1160,12 @@ function LineItemsTable({
                   const isEmpty = displayValue === 'Field not in the file';
                   const comparison = comparisonRows?.[index]?.fields?.[column];
                   const isMismatch = comparison?.status === 'mismatch';
+                  const canEditCell = editable && isColumnEditable(column);
+                  const editableIsFilled = hasEnteredEditableValue(displayValue);
+                  const editableAccent = canEditCell ? (editableIsFilled ? GREEN : RED) : null;
                   return (
-                    <td key={column} style={{ minWidth: column === 'itemIndex' ? 90 : 130, padding: '7px 8px', borderTop: index === 0 ? 'none' : `1px solid ${BORDER}`, borderLeft: `1px solid ${BORDER}`, fontSize: 12, color: isMismatch || isEmpty ? RED : FG, fontStyle: isEmpty ? 'italic' : 'normal', verticalAlign: 'top', background: isMismatch ? 'hsla(0,84%,60%,0.07)' : undefined }}>
-                      {editable ? (
+                    <td key={column} style={{ minWidth: column === 'itemIndex' ? 90 : 130, padding: '7px 8px', borderTop: index === 0 ? 'none' : `1px solid ${BORDER}`, borderLeft: `1px solid ${editableAccent ?? BORDER}`, fontSize: 12, color: editableAccent ?? (isMismatch || isEmpty ? RED : FG), fontStyle: isEmpty ? 'italic' : 'normal', verticalAlign: 'top', background: editableAccent ? `${editableAccent}0F` : isMismatch ? 'hsla(0,84%,60%,0.07)' : undefined }}>
+                      {canEditCell ? (
                         <textarea
                           ref={(el) => {
                             if (el) {
@@ -1161,9 +1193,9 @@ function LineItemsTable({
                           onBlur={() => void saveRows()}
                           style={{
                             width: '100%', minWidth: column === 'itemIndex' ? 60 : 110, minHeight: 46, resize: 'none', overflow: 'hidden',
-                            border: `1px solid ${isMismatch ? 'hsla(0,84%,60%,0.50)' : isEmpty ? `${RED}45` : BORDER}`,
+                            border: `1px solid ${editableAccent ?? (isMismatch ? 'hsla(0,84%,60%,0.50)' : isEmpty ? `${RED}45` : BORDER)}`,
                             borderRadius: 5, padding: '6px 7px', boxSizing: 'border-box',
-                            backgroundColor: 'hsl(var(--background))', color: FG,
+                            backgroundColor: editableAccent ? `${editableAccent}0A` : 'hsl(var(--background))', color: FG,
                             fontSize: 12, lineHeight: 1.35, whiteSpace: 'pre-wrap',
                           }}
                         />
@@ -1308,6 +1340,21 @@ function BolContainerMappingModal({
     netWeightKgs: rows.reduce((sum, row) => sum + numericValue(row.netWeightKgs), 0),
     grossWeightKgs: rows.reduce((sum, row) => sum + numericValue(row.grossWeightKgs), 0),
   };
+  const brokenSourceKeys = (() => {
+    const counts = new Map<string, number>();
+    rows.forEach((row, index) => {
+      const key = rowSourceKey(row, index);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    return new Set(Array.from(counts.entries()).filter(([, count]) => count > 1).map(([key]) => key));
+  })();
+  const isBrokenProductRow = (row: ContainerMappingRow, index: number) => brokenSourceKeys.has(rowSourceKey(row, index));
+  const canEditMappingValue = (row: ContainerMappingRow, index: number, key: keyof ContainerMappingRow) => {
+    if (approved) return false;
+    if (key === 'netWeightKgs' || key === 'grossWeightKgs') return true;
+    if (key === 'totalQtyInPcs' || key === 'totalBundles') return isBrokenProductRow(row, index);
+    return false;
+  };
   const formatTotal = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 3 });
   const pagination = mapping?.pagination;
 
@@ -1395,29 +1442,37 @@ function BolContainerMappingModal({
                       ['totalBundles', row.totalBundles],
                       ['netWeightKgs', row.netWeightKgs],
                       ['grossWeightKgs', row.grossWeightKgs],
-                    ] as Array<[keyof ContainerMappingRow, string | null]>).map(([key, value]) => (
-                      <td key={key} style={{ padding: 0, border: `1px solid ${BORDER}`, fontSize: 12, color: FG }}>
-                        {key === 'qtyPerBundle' ? (
-                          <div style={{ position: 'relative', padding: '7px 42px 3px 10px', minHeight: 34, fontWeight: 700 }}>
-                            {value || 'Auto'}
-                            {value && <span style={{ position: 'absolute', right: 8, top: 7, fontSize: 9, fontWeight: 800, color: TEAL, background: `${TEAL}18`, borderRadius: 999, padding: '1px 6px' }}>auto</span>}
-                            {row.totalQtyInPcs && row.totalBundles && (
-                              <div style={{ marginTop: 2, fontSize: 10.5, color: MUTED, fontWeight: 650, whiteSpace: 'nowrap' }}>
-                                {row.totalQtyInPcs} / {row.totalBundles} = {value || 'Auto'}
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <input
-                            value={formatInputValue(value)}
-                            disabled={approved}
-                            onChange={event => updateRowValue(index, key, event.target.value || null)}
-                            placeholder="Enter..."
-                            style={{ width: '100%', minWidth: 95, border: 'none', outline: 'none', background: 'transparent', color: FG, padding: '9px 10px', fontSize: 12, fontWeight: 700 }}
-                          />
-                        )}
-                      </td>
-                    ))}
+                    ] as Array<[keyof ContainerMappingRow, string | null]>).map(([key, value]) => {
+                      const canEditCell = canEditMappingValue(row, index, key);
+                      const cellHasValue = hasEnteredEditableValue(formatInputValue(value));
+                      const editableAccent = canEditCell ? (cellHasValue ? GREEN : RED) : null;
+                      return (
+                        <td key={key} style={{ padding: 0, border: `1px solid ${editableAccent ?? BORDER}`, fontSize: 12, color: editableAccent ?? FG, background: editableAccent ? `${editableAccent}0F` : undefined }}>
+                          {key === 'qtyPerBundle' ? (
+                            <div style={{ position: 'relative', padding: '7px 42px 3px 10px', minHeight: 34, fontWeight: 700 }}>
+                              {value || 'Auto'}
+                              {value && <span style={{ position: 'absolute', right: 8, top: 7, fontSize: 9, fontWeight: 800, color: TEAL, background: `${TEAL}18`, borderRadius: 999, padding: '1px 6px' }}>auto</span>}
+                              {row.totalQtyInPcs && row.totalBundles && (
+                                <div style={{ marginTop: 2, fontSize: 10.5, color: MUTED, fontWeight: 650, whiteSpace: 'nowrap' }}>
+                                  {row.totalQtyInPcs} / {row.totalBundles} = {value || 'Auto'}
+                                </div>
+                              )}
+                            </div>
+                          ) : canEditCell ? (
+                            <input
+                              value={formatInputValue(value)}
+                              onChange={event => updateRowValue(index, key, event.target.value || null)}
+                              placeholder="Enter..."
+                              style={{ width: '100%', minWidth: 95, border: 'none', outline: 'none', background: 'transparent', color: FG, padding: '9px 10px', fontSize: 12, fontWeight: 700 }}
+                            />
+                          ) : (
+                            <div style={{ minWidth: 95, padding: '9px 10px', fontSize: 12, fontWeight: 700, color: value ? FG : MUTED }}>
+                              {value || '—'}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}</tbody>
                 <tfoot>
@@ -1686,6 +1741,8 @@ export function DocumentDetailPage() {
     ? normalizedRawData.containerMappingRows.filter(isJsonRecord)
     : [];
   const containerMappingApproved = normalizedRawData.containerMappingApproved === true;
+  const productBreakingDone = approvedContainerMappingRows.some((row) => String(row._splitRow ?? '').toLowerCase() === 'true');
+  const canEditCurrentExtractionField = (key: string) => canEditExtractionFieldNow(key, productBreakingDone);
   const goodsDescriptionRows = extraction?.arrays?.goodsDescriptionItems ?? [];
   const hasStructuredGoodsDescription = (
     documentDetail?.docType === 'BILL_OF_LADING'
@@ -2396,7 +2453,7 @@ export function DocumentDetailPage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
                 {section.fields.map((field) => (
-                  <FieldCard key={field.key} field={field} rawData={extraction.rawData} comparison={cbpComparison?.fields?.[field.key]} isEdited={editedExtractionFields.has(field.key)} onSave={canEditCurrentExtraction ? saveFieldValue : undefined} onDraftChange={canEditCurrentExtraction ? rememberFieldDraft : undefined} />
+                  <FieldCard key={field.key} field={field} rawData={extraction.rawData} comparison={cbpComparison?.fields?.[field.key]} isEdited={editedExtractionFields.has(field.key)} onSave={canEditCurrentExtraction && canEditCurrentExtractionField(field.key) ? saveFieldValue : undefined} onDraftChange={canEditCurrentExtraction && canEditCurrentExtractionField(field.key) ? rememberFieldDraft : undefined} />
                 ))}
               </div>
             </div>
@@ -2427,7 +2484,7 @@ export function DocumentDetailPage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
                 {filteredAdditionalPrismaFields.map((field) => (
-                  <FieldCard key={field.key} field={field} rawData={extraction.rawData} comparison={cbpComparison?.fields?.[field.key]} isEdited={editedExtractionFields.has(field.key)} onSave={canEditCurrentExtraction ? saveFieldValue : undefined} onDraftChange={canEditCurrentExtraction ? rememberFieldDraft : undefined} />
+                  <FieldCard key={field.key} field={field} rawData={extraction.rawData} comparison={cbpComparison?.fields?.[field.key]} isEdited={editedExtractionFields.has(field.key)} onSave={canEditCurrentExtraction && canEditCurrentExtractionField(field.key) ? saveFieldValue : undefined} onDraftChange={canEditCurrentExtraction && canEditCurrentExtractionField(field.key) ? rememberFieldDraft : undefined} />
                 ))}
               </div>
             </div>
@@ -2443,6 +2500,7 @@ export function DocumentDetailPage() {
                       title={arrayName}
                       comparisonRows={cbpTableComparisonRows(cbpComparison, arrayName)}
                       editable={canEditCurrentExtraction}
+                      isColumnEditable={canEditCurrentExtractionField}
                       onSave={canEditCurrentExtraction ? (updatedRows) => saveArrayRows(arrayName, updatedRows) : undefined}
                       onDraftChange={canEditCurrentExtraction ? (updatedRows) => rememberArrayDraft(arrayName, updatedRows) : undefined}
                     />
@@ -2455,6 +2513,7 @@ export function DocumentDetailPage() {
                   rows={extraction.lineItems}
                   comparisonRows={cbpComparison?.tables?.lineItems?.rows}
                   editable={canEditCurrentExtraction}
+                  isColumnEditable={canEditCurrentExtractionField}
                   onSave={canEditCurrentExtraction ? (updatedRows) => saveArrayRows('lineItems', updatedRows) : undefined}
                   onDraftChange={canEditCurrentExtraction ? (updatedRows) => rememberArrayDraft('lineItems', updatedRows) : undefined}
                 />
@@ -2639,11 +2698,6 @@ export function DocumentDetailPage() {
         )}
         {(hasBolReferenceActionFields || documentDetail.docType === 'BILL_OF_LADING') && extraction && (
           <div style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {hasBolReferenceActionFields && (
-              <Button type="button" variant="outline" size="sm" onClick={() => setSafeCubeInputsOpen(true)} className="h-9">
-                SafeCube Inputs
-              </Button>
-            )}
             {canUseDndInputs && (
               <Button type="button" variant="outline" size="sm" onClick={() => setDndInputsOpen(true)} className="h-9">
                 D&D Inputs

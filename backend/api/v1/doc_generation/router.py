@@ -206,9 +206,15 @@ def _sum_bundle_values(items: list[dict[str, Any]]) -> tuple[Decimal, bool]:
     return total, found
 
 
+def _is_placeholder_value(value: Any) -> bool:
+    if value is None:
+        return True
+    return str(value).strip().upper() in {"", "-", "--", "—", "–", "TBD", "TBA", "NA", "N/A"}
+
+
 def _first_non_empty(*values: Any) -> str | None:
     for value in values:
-        if value is not None and str(value).strip() != "":
+        if not _is_placeholder_value(value):
             return str(value)
     return None
 
@@ -297,6 +303,19 @@ def _source_line_items(row: dict[str, Any]) -> list[dict[str, Any]]:
     return ordered
 
 
+def _raw_data_value(row: dict[str, Any], source_field: str) -> str | None:
+    raw_data = _coerce_json(row.get("raw_data"))
+    if not isinstance(raw_data, dict):
+        return None
+    snake_field = _camel_to_snake(source_field)
+    candidates: list[Any] = [raw_data.get(source_field), raw_data.get(snake_field)]
+    for section in ("shipment", "header", "shipping"):
+        nested = raw_data.get(section)
+        if isinstance(nested, dict):
+            candidates.extend([nested.get(source_field), nested.get(snake_field)])
+    return _first_non_empty(*candidates)
+
+
 def _row_value(row: dict[str, Any], source_field: str | None) -> str | None:
     if not source_field or source_field.startswith("lineItems"):
         return None
@@ -309,9 +328,11 @@ def _row_value(row: dict[str, Any], source_field: str | None) -> str | None:
         return "01"
     key = _camel_to_snake(source_field)
     value = row.get(key)
-    if value is None and source_field == "exporterAddress":
+    if _is_placeholder_value(value) and source_field == "exporterAddress":
         value = row.get("exporter_address")
-    if value is None:
+    if _is_placeholder_value(value):
+        value = _raw_data_value(row, source_field)
+    if _is_placeholder_value(value):
         return None
     return str(value)
 
@@ -506,6 +527,8 @@ def _build_packing_list_line_item(index: int, item: dict[str, Any]) -> dict[str,
         "productDesc": description,
         "productDescription": description,
         "productSpecification": _item_value(item, "productSpecification", "product_specification"),
+        "productMarks": _item_value(item, "productMarks", "product_marks", "marksAndNumbers", "marks_and_numbers"),
+        "boCode": _item_value(item, "boCode", "bo_code"),
         "totalQtyInPcs": quantity,
         "quantity": quantity,
         "noOfBundles": no_of_bundles,
@@ -513,10 +536,10 @@ def _build_packing_list_line_item(index: int, item: dict[str, Any]) -> dict[str,
         "kindOfPkg": kind_of_pkg,
         "containerNo": _item_value(item, "containerNo", "container_no", "containerNumber", "container_number", "container"),
         "sealNo": _item_value(item, "sealNo", "seal_no", "sealNumber", "seal_number", "seal"),
-        "grossWeight": _item_value(item, "grossWeight", "gross_weight", "grossWeightKgs", "gross_weight_kgs"),
-        "grossWeightKgs": _item_value(item, "grossWeightKgs", "gross_weight_kgs", "grossWeight", "gross_weight"),
-        "netWeight": _item_value(item, "netWeight", "net_weight", "netWeightKgs", "net_weight_kgs"),
-        "netWeightKgs": _item_value(item, "netWeightKgs", "net_weight_kgs", "netWeight", "net_weight"),
+        "grossWeight": _item_value(item, "grossWeight", "gross_weight", "grossWeightKgs", "gross_weight_kgs", "grossWeightKg", "gross_weight_kg"),
+        "grossWeightKgs": _item_value(item, "grossWeightKgs", "gross_weight_kgs", "grossWeight", "gross_weight", "grossWeightKg", "gross_weight_kg"),
+        "netWeight": _item_value(item, "netWeight", "net_weight", "netWeightKgs", "net_weight_kgs", "netWeightKg", "net_weight_kg"),
+        "netWeightKgs": _item_value(item, "netWeightKgs", "net_weight_kgs", "netWeight", "net_weight", "netWeightKg", "net_weight_kg"),
     }
 
 
@@ -526,6 +549,123 @@ def _has_user_value(value: Any) -> bool:
     if isinstance(value, str):
         return value.strip() not in {"", "-", "—", "–"}
     return True
+
+
+def _numeric_weight(value: Any) -> Decimal | None:
+    if value is None:
+        return None
+    raw = str(value).replace(",", "").strip()
+    if raw in {"", "-", "—", "–"}:
+        return None
+    try:
+        return Decimal(raw)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _item_weight(item: dict[str, Any], *keys: str) -> Decimal | None:
+    for key in keys:
+        value = _numeric_weight(item.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _require_packing_list_weight_rule(payload: dict[str, Any]) -> None:
+    if payload.get("generatedDocType") not in {"PACKING_LIST", "US_PACKING_LIST"}:
+        return
+    line_items = payload.get("lineItems")
+    if not isinstance(line_items, list):
+        return
+    violations: list[str] = []
+    for index, item in enumerate(line_items, start=1):
+        if not isinstance(item, dict):
+            continue
+        net_weight = _item_weight(item, "netWeightKgs", "netWeight", "net_weight_kgs", "net_weight")
+        gross_weight = _item_weight(item, "grossWeightKgs", "grossWeight", "gross_weight_kgs", "gross_weight")
+        if net_weight is None or gross_weight is None:
+            continue
+        if gross_weight <= net_weight:
+            label = str(
+                item.get("productCode")
+                or item.get("itemCode")
+                or item.get("productDesc")
+                or item.get("productDescription")
+                or f"line {index}"
+            )
+            violations.append(f"{label}: gross weight must be greater than net weight")
+    if violations:
+        raise HTTPException(status_code=422, detail=violations[0])
+
+
+PACKING_LIST_SOURCE_TOTAL_FIELDS = (
+    ("totalQtyInPcs", "_sourceTotalQtyInPcs", "quantity"),
+    ("noOfBundles", "_sourceNoOfBundles", "bundles"),
+    ("netWeightKgs", "_sourceNetWeightKgs", "net weight"),
+    ("grossWeightKgs", "_sourceGrossWeightKgs", "gross weight"),
+)
+
+
+def _packing_line_label(item: dict[str, Any], index: int) -> str:
+    return str(
+        item.get("productCode")
+        or item.get("itemCode")
+        or item.get("productDesc")
+        or item.get("productDescription")
+        or f"line {index + 1}"
+    )
+
+
+def _packing_source_number(source_row: dict[str, Any], field_key: str, source_key: str) -> Decimal | None:
+    return _numeric_weight(source_row.get(source_key) or source_row.get(field_key))
+
+
+def _require_packing_list_source_totals(
+    existing_line_items: Any,
+    next_line_items: list[dict[str, Any]] | None,
+) -> None:
+    if next_line_items is None:
+        return
+    existing = existing_line_items if isinstance(existing_line_items, list) else []
+    grouped: dict[str, list[tuple[int, dict[str, Any]]]] = {}
+    for index, item in enumerate(next_line_items):
+        if not isinstance(item, dict):
+            continue
+        source_key = str(item.get("_sourceLineKey") or "").strip()
+        group_key = f"source:{source_key}" if source_key else f"row:{index}"
+        grouped.setdefault(group_key, []).append((index, item))
+
+    for group_items in grouped.values():
+        first_index, first_item = group_items[0]
+        if str(first_item.get("_sourceLineKey") or "").strip():
+            source_row = next((row for _index, row in group_items if str(row.get("_splitRow") or "").lower() != "true"), first_item)
+        elif first_index < len(existing) and isinstance(existing[first_index], dict):
+            source_row = existing[first_index]
+        else:
+            source_row = first_item
+
+        label = _packing_line_label(source_row, first_index)
+        for field_key, source_key, field_label in PACKING_LIST_SOURCE_TOTAL_FIELDS:
+            source_value = _packing_source_number(source_row, field_key, source_key)
+            if source_value is None:
+                continue
+
+            if len(group_items) == 1:
+                visible_value = _numeric_weight(first_item.get(field_key))
+                if visible_value is None or abs(visible_value - source_value) > Decimal("0.01"):
+                    entered = str(first_item.get(field_key) or "blank")
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"{label}: {field_label} {entered} must match source {source_value}",
+                    )
+                continue
+
+            split_total = sum((_numeric_weight(row.get(field_key)) or Decimal("0")) for _index, row in group_items)
+            if abs(split_total - source_value) > Decimal("0.01"):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{label}: {field_label} split total {split_total} must equal source {source_value}",
+                )
 
 
 def _merge_packing_list_user_line_inputs(
@@ -1369,6 +1509,87 @@ async def reorder_existing_packing_list_drafts(prisma) -> dict[str, int]:
     return {"eligible": len(drafts), "updated": updated, "skipped": skipped}
 
 
+def _set_payload_field_value(payload: dict[str, Any], target_field: str, value: Any) -> None:
+    if _is_placeholder_value(value):
+        return
+    for section in payload.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        for field in section.get("fields") or []:
+            if isinstance(field, dict) and field.get("targetField") == target_field:
+                field["value"] = str(value)
+                field["validationStatus"] = _field_status(str(field.get("mappingType") or "direct"), str(value))
+                return
+
+
+async def _hydrate_packing_list_fields_from_sales_invoice(
+    prisma: Any,
+    payload: dict[str, Any],
+    *,
+    user_id: str,
+    shared_sources: bool,
+) -> None:
+    if payload.get("generatedDocType") != "PACKING_LIST":
+        return
+    source_ids = payload.get("sourceDocumentIds")
+    if not isinstance(source_ids, dict) or not source_ids.get("SALES_INVOICE"):
+        return
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT * FROM docgen.v_packing_list_source
+        WHERE source_document_id::text = $1::text
+          AND ($3::boolean OR uploaded_by::text = $2::text)
+        LIMIT 1
+        """,
+        str(source_ids["SALES_INVOICE"]),
+        user_id,
+        shared_sources,
+    )
+    if not rows:
+        return
+
+    # Direct Sales Invoice fields are not manually editable in Packing List.
+    # Always rehydrate them from the source row so old drafts cannot retain
+    # stale frontend mock/rendered values, and append fields added after a
+    # draft was originally created.
+    rebuilt_payload = _build_payload("PACKING_LIST", str(payload.get("draftId") or ""), rows[0])
+    existing_sections = payload.setdefault("sections", [])
+    if not isinstance(existing_sections, list):
+        existing_sections = []
+        payload["sections"] = existing_sections
+    sections_by_label = {
+        section.get("sectionLabel"): section
+        for section in existing_sections
+        if isinstance(section, dict)
+    }
+    for source_section in rebuilt_payload.model_dump().get("sections") or []:
+        section_label = source_section.get("sectionLabel")
+        target_section = sections_by_label.get(section_label)
+        if not isinstance(target_section, dict):
+            target_section = {"sectionLabel": section_label, "fields": []}
+            existing_sections.append(target_section)
+            sections_by_label[section_label] = target_section
+        fields = target_section.setdefault("fields", [])
+        if not isinstance(fields, list):
+            fields = []
+            target_section["fields"] = fields
+        fields_by_target = {
+            field.get("targetField"): field
+            for field in fields
+            if isinstance(field, dict)
+        }
+        for source_field in source_section.get("fields") or []:
+            target_field = source_field.get("targetField")
+            if not target_field:
+                continue
+            existing_field = fields_by_target.get(target_field)
+            if isinstance(existing_field, dict):
+                existing_field.update(source_field)
+            else:
+                fields.append(dict(source_field))
+
+
 def _build_payload(generated_doc_type: str, draft_id: str, row: dict[str, Any]) -> DraftPayload:
     schema = get_doc_gen_schema(generated_doc_type)
     if not schema:
@@ -1459,7 +1680,15 @@ async def create_doc_generation_draft(
             )
             if not rows:
                 raise HTTPException(status_code=404, detail="Packing List draft not found")
-            return DraftPayload.model_validate(_coerce_json(rows[0]["rendered_payload"]))
+            payload = _coerce_json(rows[0]["rendered_payload"])
+            if isinstance(payload, dict):
+                await _hydrate_packing_list_fields_from_sales_invoice(
+                    prisma,
+                    payload,
+                    user_id=str(user.id),
+                    shared_sources=shared_sources,
+                )
+            return DraftPayload.model_validate(payload)
 
         row = await _select_source_row(
             prisma=prisma,
@@ -1542,6 +1771,13 @@ async def list_doc_generation_drafts(
                 if broker_document_id:
                     source_ids["DRAFT_CBP_FORM_7501_BROKER"] = broker_document_id
             await _hydrate_entry_summary_broker_payload(prisma, payload)
+        elif generatedDocType == "PACKING_LIST":
+            await _hydrate_packing_list_fields_from_sales_invoice(
+                prisma,
+                payload,
+                user_id=str(user.id),
+                shared_sources=shared_sources,
+            )
         payload["createdAt"] = str(row.get("created_at")) if row.get("created_at") else None
         payload["updatedAt"] = str(row.get("updated_at")) if row.get("updated_at") else None
         drafts.append(DraftPayload.model_validate(payload))
@@ -1592,6 +1828,12 @@ async def get_doc_generation_draft(
         if broker_document_id:
             source_ids["DRAFT_CBP_FORM_7501_BROKER"] = broker_document_id
     await _hydrate_entry_summary_broker_payload(prisma, payload)
+    await _hydrate_packing_list_fields_from_sales_invoice(
+        prisma,
+        payload,
+        user_id=str(user.id),
+        shared_sources=shared_sources,
+    )
 
     payload["createdAt"] = str(rows[0].get("created_at")) if rows[0].get("created_at") else None
     payload["updatedAt"] = str(rows[0].get("updated_at")) if rows[0].get("updated_at") else None
@@ -1720,9 +1962,19 @@ async def update_doc_generation_draft(
                 field["value"] = request.fields[target]
                 field["validationStatus"] = "valid" if request.fields[target] not in (None, "") else "missing"
 
+    if request.status in {"CONFIRMED", "GENERATED"} and payload.get("generatedDocType") == "PACKING_LIST":
+        _require_packing_list_source_totals(payload.get("lineItems"), request.lineItems)
     if request.lineItems is not None:
         payload["lineItems"] = request.lineItems
     payload["status"] = request.status
+    if request.status in {"CONFIRMED", "GENERATED"}:
+        _require_packing_list_weight_rule(payload)
+    await _hydrate_packing_list_fields_from_sales_invoice(
+        prisma,
+        payload,
+        user_id=str(user.id),
+        shared_sources=shared_sources,
+    )
 
     updated_count = await _execute_raw(
         prisma,

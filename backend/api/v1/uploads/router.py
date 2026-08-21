@@ -289,6 +289,48 @@ class UpdateExtractionRequest(BaseModel):
     arrays: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
 
 
+def _is_quantity_or_bundle_extraction_edit_field(field_name: str) -> bool:
+    normalized = field_name.lower()
+    if "unit" in normalized:
+        return False
+    return "quantity" in normalized or "qty" in normalized or "bundle" in normalized
+
+
+def _is_weight_extraction_edit_field(field_name: str) -> bool:
+    normalized = field_name.lower()
+    if "unit" in normalized:
+        return False
+    return "netweight" in normalized or "grossweight" in normalized
+
+
+def _is_manual_extraction_edit_field(field_name: str) -> bool:
+    return (
+        _is_quantity_or_bundle_extraction_edit_field(field_name)
+        or _is_weight_extraction_edit_field(field_name)
+    )
+
+
+def _has_product_breaking_done(extraction: Any) -> bool:
+    raw_data = _parse_json(getattr(extraction, "rawData", None)) if extraction is not None else None
+    if not isinstance(raw_data, dict):
+        return False
+    rows = raw_data.get("containerMappingRows")
+    if not isinstance(rows, list):
+        return False
+    return any(
+        isinstance(row, dict) and str(row.get("_splitRow") or "").lower() == "true"
+        for row in rows
+    )
+
+
+def _manual_extraction_value(value: Any) -> str | None:
+    return None if value in ("", None) else str(value)
+
+
+def _manual_extraction_values_equal(left: Any, right: Any) -> bool:
+    return _manual_extraction_value(left) == _manual_extraction_value(right)
+
+
 class ContainerAssignment(BaseModel):
     lineItemId: str
     containerNo: str | None = None
@@ -2505,20 +2547,95 @@ async def update_document_extraction(
             },
         )
 
+    blocked_fields = sorted(
+        field_name
+        for field_name in payload.fields
+        if not _is_manual_extraction_edit_field(field_name)
+    )
+    if blocked_fields:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "message": "Only quantity, bundles, net weight, and gross weight fields can be edited manually",
+                "fields": blocked_fields,
+            },
+        )
+
+    current_extraction = await _fetch_extraction_direct(
+        prisma=prisma,
+        doc_type=doc_type,
+        document_id=document_id,
+    )
+    product_breaking_done = _has_product_breaking_done(current_extraction)
+    blocked_before_break_fields = sorted(
+        field_name
+        for field_name in payload.fields
+        if _is_quantity_or_bundle_extraction_edit_field(field_name) and not product_breaking_done
+    )
+    if blocked_before_break_fields:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "message": "Quantity and bundles can be edited only after product breaking is done",
+                "fields": blocked_before_break_fields,
+            },
+        )
+    current_arrays = await _fetch_extraction_child_arrays(
+        prisma=prisma,
+        doc_type=doc_type,
+        extraction=current_extraction,
+    )
+
     extraction_data: dict[str, Any] = {
-        key: (None if value in ("", None) else str(value))
+        key: _manual_extraction_value(value)
         for key, value in payload.fields.items()
     }
+    blocked_array_fields: list[str] = []
     for array_name, rows in payload.arrays.items():
         allowed = set(schema.array_item_fields.get(array_name, []))
-        extraction_data[array_name] = [
-            {
-                key: (None if value in ("", None) else str(value))
-                for key, value in row.items()
-                if key in allowed
-            }
-            for row in rows
-        ]
+        editable = {
+            field_name
+            for field_name in allowed
+            if _is_weight_extraction_edit_field(field_name)
+            or (product_breaking_done and _is_quantity_or_bundle_extraction_edit_field(field_name))
+        }
+        current_rows = current_arrays.get(array_name, [])
+        if current_rows and len(rows) != len(current_rows):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "message": "Manual extraction edits cannot add or remove table rows",
+                    "arrays": [array_name],
+                },
+            )
+
+        merged_rows: list[dict[str, Any]] = []
+        for index, row in enumerate(rows):
+            current_row = dict(current_rows[index]) if index < len(current_rows) else {}
+            for key, value in row.items():
+                if key not in allowed or key in editable:
+                    continue
+                if current_row:
+                    changed = not _manual_extraction_values_equal(value, current_row.get(key))
+                else:
+                    changed = _manual_extraction_value(value) is not None
+                if changed:
+                    blocked_array_fields.append(f"{array_name}.{key}")
+            merged_row = dict(current_row)
+            for key, value in row.items():
+                if key in editable:
+                    merged_row[key] = _manual_extraction_value(value)
+            merged_rows.append(merged_row)
+        extraction_data[array_name] = merged_rows
+
+    if blocked_array_fields:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "message": "Only quantity, bundles, net weight, and gross weight fields can be edited manually",
+                "fields": sorted(set(blocked_array_fields)),
+            },
+        )
 
     extraction = await upsert_extraction_with_children(
         prisma=prisma,

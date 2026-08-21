@@ -44,6 +44,7 @@ SELECT
         'productSpecification', li.product_specification,
         'packageDescription', li.package_description,
         'productMarks', li.product_marks,
+        'boCode', li.bo_code,
         'quantity', li.quantity,
         'quantityTotal', li.quantity_total,
         'noOfPackages', li.no_of_packages,

@@ -53,6 +53,27 @@ const SEMANTIC_SURFACE = {
 
 const MONO = { fontFamily: 'var(--app-font-sans)' } as const;
 
+const PACKING_LIST_WEIGHT_EDIT_FIELDS = new Set(['netWeightKgs', 'grossWeightKgs']);
+const PACKING_LIST_SPLIT_ONLY_EDIT_FIELDS = new Set(['totalQtyInPcs', 'noOfBundles']);
+
+function isPackingListEditableLineField(
+  targetField: string,
+  row: Record<string, string>,
+  rows: Record<string, string>[],
+): boolean {
+  if (PACKING_LIST_WEIGHT_EDIT_FIELDS.has(targetField)) return true;
+  if (!PACKING_LIST_SPLIT_ONLY_EDIT_FIELDS.has(targetField)) return false;
+  if (row._splitRow === 'true') return true;
+
+  const sourceKey = String(row._sourceLineKey ?? '').trim();
+  if (!sourceKey) return false;
+  return rows.some(other => (
+    other !== row &&
+    other._splitRow === 'true' &&
+    String(other._sourceLineKey ?? '').trim() === sourceKey
+  ));
+}
+
 // ─── Queue data types ──────────────────────────────────────────────────────────
 
 interface Prerequisite {
@@ -554,7 +575,8 @@ function FieldGrid({ section, fields, sourceDocs, manualValues, onManualChange, 
 
 // ─── LineItemTable ────────────────────────────────────────────────────────────
 
-function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange, computedRows, packageTypes = [], onPackageTypeChange, onAddRow, splitIssues = [] }: {
+function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onManualChange, computedRows, packageTypes = [], onPackageTypeChange, onAddRow, onRemoveRow, splitIssues = [] }: {
+  docType:        string;
   section:        GenSection;
   rows:           Record<string, string>[];
   sourceDocs:     { docType: string; label: string }[];
@@ -564,16 +586,14 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
   packageTypes?: string[];
   onPackageTypeChange?: (rowIndex: number, value: string, customTypes: string[]) => void;
   onAddRow?: (rowIndex: number) => void;
+  onRemoveRow?: (rowIndex: number) => void;
   splitIssues?: string[];
 }) {
   void sourceDocs;
+  void packageTypes;
+  void onPackageTypeChange;
   const cols = section.mappings.filter(m => m.isLineItem !== false);
-  const packageTypeValues = Array.from(new Set(
-    [...packageTypes, ...rows.map((row, ri) => manualValues[`${section.sectionLabel}.${ri}.kindOfPkg`] ?? row.kindOfPkg)]
-      .filter((value): value is string => Boolean(value))
-      .map(value => value.trim())
-      .filter(value => !['PKGS', 'BUNDLE'].includes(value.toUpperCase()))
-  ));
+  const isPackingListLineItems = docType === 'packing-list' && section.sectionLabel === 'Line Items';
   const isTotalsSection = section.sectionLabel.trim().toLowerCase() === 'totals';
   if (cols.length === 0) return null;
 
@@ -582,7 +602,7 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
       <table style={{ minWidth: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
         <thead>
           <tr style={{ background: 'hsl(var(--muted))', borderBottom: `1px solid ${BORDER}` }}>
-            {onAddRow && (
+            {(onAddRow || onRemoveRow) && (
               <th style={{ width: 44, padding: '7px 8px', borderRight: `1px solid ${BORDER}` }} />
             )}
             {cols.map(col => (
@@ -598,101 +618,100 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
         <tbody>
           {rows.map((row, ri) => (
             <tr key={ri} style={{ borderBottom: `1px solid ${BORDER}` }}>
-              {onAddRow && (
+              {(onAddRow || onRemoveRow) && (
                 <td style={{ padding: 0, backgroundColor: 'hsl(var(--muted) / 0.42)', verticalAlign: 'middle', outline: `1px solid ${BORDER}`, outlineOffset: -1 }}>
-                  <button
-                    type="button"
-                    onClick={() => onAddRow(ri)}
-                    title="Add split row"
-                    aria-label="Add split row"
-                    style={{ width: 32, height: 32, margin: 4, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: TEAL, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                  >
-                    <Plus size={14} />
-                  </button>
+                  {row._splitRow === 'true' ? (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveRow?.(ri)}
+                      title="Remove split row"
+                      aria-label="Remove split row"
+                      style={{ width: 32, height: 32, margin: 4, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: RED, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <X size={14} />
+                    </button>
+                  ) : onAddRow ? (
+                    <button
+                      type="button"
+                      onClick={() => onAddRow(ri)}
+                      title="Add split row"
+                      aria-label="Add split row"
+                      style={{ width: 32, height: 32, margin: 4, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: TEAL, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <Plus size={14} />
+                    </button>
+                  ) : null}
                 </td>
               )}
               {cols.map(col => {
                 const isDerived = col.mappingType === 'derived';
-                const isEditable = !isTotalsSection;
                 const manualKey = `${section.sectionLabel}.${ri}.${col.targetField}`;
                 const forceCalculated = col.targetField === 'qtyPerBundle';
                 const baseVal = isDerived
                   ? (computedRows[ri]?.[col.targetField] ?? row[col.targetField] ?? '')
                   : (row[col.targetField] ?? '');
-                const val = isEditable ? (forceCalculated ? baseVal : (manualValues[manualKey] ?? baseVal)) : baseVal;
-                const isAutoDerived = isEditable && isDerived && (forceCalculated || manualValues[manualKey] === undefined) && String(computedRows[ri]?.[col.targetField] ?? '').trim() !== '';
+                const isEditable = !isTotalsSection && (
+                  isPackingListLineItems
+                    ? isPackingListEditableLineField(col.targetField, row, rows)
+                    : !forceCalculated
+                );
+                const val = isEditable ? (manualValues[manualKey] ?? baseVal) : baseVal;
+                const hasValue = String(val ?? '').trim() !== '';
+                const highlightState = isPackingListLineItems && isEditable
+                  ? (hasValue ? 'complete' : 'missing')
+                  : null;
+                const cellBackground = highlightState === 'complete'
+                  ? 'hsla(152,69%,31%,0.12)'
+                  : highlightState === 'missing'
+                    ? 'hsla(0,84%,60%,0.12)'
+                    : 'hsl(var(--muted) / 0.42)';
+                const cellOutline = highlightState === 'complete'
+                  ? '1px solid hsla(152,69%,31%,0.46)'
+                  : highlightState === 'missing'
+                    ? '1px solid hsla(0,84%,60%,0.46)'
+                    : `1px solid ${BORDER}`;
+                const isAutoDerived = !isTotalsSection && isDerived && forceCalculated && String(computedRows[ri]?.[col.targetField] ?? '').trim() !== '';
                 const qtyBundleHint = forceCalculated && String(computedRows[ri]?.[col.targetField] ?? '').trim()
                   ? `${rowVisibleValue(section.sectionLabel, ri, 'totalQtyInPcs', row, manualValues, { [section.sectionLabel]: computedRows }) || 'Qty'} / ${rowVisibleValue(section.sectionLabel, ri, 'noOfBundles', row, manualValues, { [section.sectionLabel]: computedRows }) || 'Bundles'} = ${computedRows[ri]?.[col.targetField]}`
                   : '';
                 return (
                   <td key={col.targetField} style={{
                     padding: 0,
-                    backgroundColor: 'hsl(var(--muted) / 0.42)',
+                    backgroundColor: cellBackground,
                     verticalAlign: 'middle',
                     ...(col.mono ? MONO : {}), fontSize: 12,
                     whiteSpace: 'nowrap',
-                    outline: `1px solid ${BORDER}`,
+                    outline: cellOutline,
                     outlineOffset: -1,
                   }}>
-                    {isEditable && col.targetField === 'kindOfPkg' ? (
-                      <select
-                        value={val}
-                        onChange={e => {
-                          let next = e.target.value;
-                          let customTypes = packageTypeValues;
-                          if (next === '__ADD_TYPE__') {
-                            const added = window.prompt('Enter a new package type')?.trim();
-                            if (!added) return;
-                            next = added.toUpperCase();
-                            customTypes = Array.from(new Set([...packageTypeValues, next]));
-                          }
-                          onManualChange(manualKey, next);
-                          onPackageTypeChange?.(ri, next, customTypes);
-                        }}
-                        style={{
-                          border: 'none', background: 'transparent', outline: 'none',
-                          padding: '7px 10px', fontSize: 12, fontWeight: 600, color: FG,
-                          width: '100%', minWidth: 120, cursor: 'pointer',
-                        }}
-                      >
-                        <option value="PKGS">PKGS</option>
-                        <option value="BUNDLE">BUNDLE</option>
-                        {packageTypeValues.map(type => <option key={type} value={type}>{type}</option>)}
-                        <option value="__ADD_TYPE__">+ Add type</option>
-                      </select>
-                    ) : isEditable ? (
+                    {isEditable ? (
                       <div style={{ position: 'relative' }}>
                         <input
                           value={val}
-                          readOnly={forceCalculated}
-                          onChange={e => {
-                            if (!forceCalculated) onManualChange(manualKey, e.target.value);
-                          }}
-                          placeholder={isDerived ? 'Auto' : 'Enter...'}
-                          title={isDerived ? `${col.targetLabel} is calculated from ${col.sourceField}` : undefined}
+                          onChange={e => onManualChange(manualKey, e.target.value)}
+                          placeholder="Enter..."
                           style={{
                             border: 'none', background: 'transparent', outline: 'none',
-                            padding: isAutoDerived ? '7px 42px 3px 10px' : '7px 10px', fontSize: 12, fontWeight: 600, color: FG,
+                            padding: '7px 10px', fontSize: 12, fontWeight: 700, color: FG,
                             width: '100%', minWidth: 90,
-                            cursor: forceCalculated ? 'default' : undefined,
                             ...(col.mono ? MONO : {}),
                           }}
                         />
+                      </div>
+                    ) : (
+                      <span style={{ display: 'block', padding: isAutoDerived ? '7px 42px 3px 10px' : '7px 10px', position: 'relative' }}>
+                        {val || '—'}
                         {isAutoDerived && (
                           <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 9, fontWeight: 800, color: TEAL, background: 'hsla(173,58%,39%,0.10)', borderRadius: 999, padding: '1px 6px', pointerEvents: 'none' }}>
                             auto
                           </span>
                         )}
-                        {qtyBundleHint && (
-                          <div style={{ padding: '0 10px 6px', fontSize: 10.5, color: MUTED, fontWeight: 650, whiteSpace: 'nowrap' }}>
-                            {qtyBundleHint}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <span style={{ display: 'block', padding: '7px 10px' }}>
-                        {val || '—'}
                       </span>
+                    )}
+                    {qtyBundleHint && (
+                      <div style={{ padding: '0 10px 6px', fontSize: 10.5, color: MUTED, fontWeight: 650, whiteSpace: 'nowrap' }}>
+                        {qtyBundleHint}
+                      </div>
                     )}
                   </td>
                 );
@@ -700,7 +719,7 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
             </tr>
           ))}
           <tr style={{ background: 'hsl(var(--muted) / 0.65)', borderTop: `2px solid ${BORDER}`, fontWeight: 700 }}>
-            {onAddRow && <td style={{ padding: '7px 8px' }} />}
+            {(onAddRow || onRemoveRow) && <td style={{ padding: '7px 8px' }} />}
             {cols.map((col, ci) => (
               <td key={col.targetField} style={{
                 padding: '7px 10px', fontSize: 12,
@@ -716,7 +735,7 @@ function LineItemTable({ section, rows, sourceDocs, manualValues, onManualChange
       {splitIssues.length > 0 && (
         <div style={{ padding: '9px 10px', borderTop: `1px solid ${BORDER}`, background: 'hsla(0,84%,60%,0.06)', color: RED, fontSize: 11.5, lineHeight: 1.45 }}>
           {splitIssues.slice(0, 3).map(issue => <div key={issue}>{issue}</div>)}
-          {splitIssues.length > 3 && <div>{splitIssues.length - 3} more split issue{splitIssues.length - 3 === 1 ? '' : 's'}.</div>}
+          {splitIssues.length > 3 && <div>{splitIssues.length - 3} more packing list issue{splitIssues.length - 3 === 1 ? '' : 's'}.</div>}
         </div>
       )}
     </div>
@@ -891,7 +910,7 @@ function ActionRequiredCard({ schema, manualValues, onManualChange }: {
 // ─── CollapsibleSectionBlock ──────────────────────────────────────────────────
 
 function CollapsibleSectionBlock({
-  section, schema, manualValues, onManualChange, packageTypes, onPackageTypeChange, onAddLineItemRow, allowLineItemSplit = true, computedFields, computedRowMap, defaultExpanded,
+  section, schema, manualValues, onManualChange, packageTypes, onPackageTypeChange, onAddLineItemRow, onRemoveLineItemRow, allowLineItemSplit = true, computedFields, computedRowMap, defaultExpanded,
 }: {
   section:         GenSection;
   schema:          DocGenSchema;
@@ -900,6 +919,7 @@ function CollapsibleSectionBlock({
   packageTypes?: string[];
   onPackageTypeChange?: (rowIndex: number, value: string, customTypes: string[]) => void;
   onAddLineItemRow?: (sectionLabel: string, rowIndex: number) => void;
+  onRemoveLineItemRow?: (sectionLabel: string, rowIndex: number) => void;
   allowLineItemSplit?: boolean;
   computedFields:  Record<string, string>;
   computedRowMap:  Record<string, Record<string, string>[]>;
@@ -971,7 +991,7 @@ function CollapsibleSectionBlock({
           )}
           {section.renderAs === 'fields'
             ? <FieldGrid section={section} fields={fieldValues} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} computedFields={computedFields} />
-            : <LineItemTable section={section} rows={tableRows} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} packageTypes={packageTypes} onPackageTypeChange={onPackageTypeChange} onAddRow={canAddSplitRows ? (rowIndex) => onAddLineItemRow?.(section.sectionLabel, rowIndex) : undefined} splitIssues={canAddSplitRows ? splitIssues : []} computedRows={computedRows} />
+            : <LineItemTable docType={schema.docType} section={section} rows={tableRows} sourceDocs={schema.sourceDocs} manualValues={manualValues} onManualChange={onManualChange} packageTypes={packageTypes} onPackageTypeChange={onPackageTypeChange} onAddRow={canAddSplitRows ? (rowIndex) => onAddLineItemRow?.(section.sectionLabel, rowIndex) : undefined} onRemoveRow={canAddSplitRows ? (rowIndex) => onRemoveLineItemRow?.(section.sectionLabel, rowIndex) : undefined} splitIssues={canAddSplitRows ? splitIssues : []} computedRows={computedRows} />
           }
         </div>
       )}
@@ -1805,7 +1825,7 @@ function StickyReviewFooter({ schema, manualValues, computedFields, computedRowM
           <span style={{ fontSize: 10.5, color: RED }}>({critFailing} critical)</span>
         )}
         {splitIssues.length > 0 && (
-          <span style={{ fontSize: 10.5, color: RED }}>({splitIssues.length} split mismatch{splitIssues.length === 1 ? '' : 'es'})</span>
+          <span style={{ fontSize: 10.5, color: RED }}>({splitIssues.length} packing list issue{splitIssues.length === 1 ? '' : 's'})</span>
         )}
       </div>
 
@@ -1922,7 +1942,7 @@ function DocReviewModal({
   computedDerivations, splitIssues, packageTypes, sourcePanelOpen, approving, showPreview,
   bolDocument, bolDocumentLoading, brokerDocument, brokerDocumentLoading,
   brokerSourceExtractedData,
-  onClose, onManualChange, onPackageTypeChange, onAddLineItemRow, onApprove, onPreview,
+  onClose, onManualChange, onPackageTypeChange, onAddLineItemRow, onRemoveLineItemRow, onApprove, onPreview,
   onToggleSourcePanel, onSetShowPreview,
 }: {
   item:                GenQueueItem;
@@ -1945,6 +1965,7 @@ function DocReviewModal({
   onManualChange:      (key: string, v: string) => void;
   onPackageTypeChange: (rowIndex: number, value: string, customTypes: string[]) => void;
   onAddLineItemRow:    (sectionLabel: string, rowIndex: number) => void;
+  onRemoveLineItemRow: (sectionLabel: string, rowIndex: number) => void;
   onApprove:           () => void;
   onPreview:           () => void;
   onToggleSourcePanel: () => void;
@@ -2118,6 +2139,7 @@ function DocReviewModal({
                         packageTypes={packageTypes}
                         onPackageTypeChange={onPackageTypeChange}
                         onAddLineItemRow={onAddLineItemRow}
+                        onRemoveLineItemRow={onRemoveLineItemRow}
                         allowLineItemSplit={!isApproved}
                         computedFields={computedDerivations.fields}
                         computedRowMap={computedDerivations.rowMap}
@@ -2292,13 +2314,30 @@ function packingListSplitIssues(
   });
 
   const issues: string[] = [];
+  rows.forEach((row, index) => {
+    const netWeight = numericDraftValue(rowVisibleValue(sectionLabel, index, 'netWeightKgs', row, manualValues, computedRowMap));
+    const grossWeight = numericDraftValue(rowVisibleValue(sectionLabel, index, 'grossWeightKgs', row, manualValues, computedRowMap));
+    if (netWeight === null || grossWeight === null) return;
+    if (grossWeight <= netWeight) {
+      const product = String(row.productCode || row.itemCode || row.productDesc || `line ${index + 1}`);
+      issues.push(`${product}: gross weight must be greater than net weight`);
+    }
+  });
   grouped.forEach((items) => {
-    if (items.length <= 1) return;
     const sourceRow = items.find(item => item.row._splitRow !== 'true')?.row ?? items[0].row;
     const product = String(sourceRow.productCode || sourceRow.itemCode || sourceRow.productDesc || 'line item');
     for (const field of PACKING_LIST_SPLIT_FIELDS) {
       const sourceTotal = splitSourceValue(sourceRow, field);
       if (sourceTotal === null) continue;
+      if (items.length <= 1) {
+        const item = items[0];
+        const visibleValue = numericDraftValue(rowVisibleValue(sectionLabel, item.index, field.key, item.row, manualValues, computedRowMap));
+        if (visibleValue === null) continue;
+        if (Math.abs(visibleValue - sourceTotal) > 0.01) {
+          issues.push(`${product}: ${field.label} ${visibleValue.toLocaleString('en-US')} must match source ${sourceTotal.toLocaleString('en-US')}`);
+        }
+        continue;
+      }
       const splitTotal = items.reduce((sum, item) => (
         sum + (numericDraftValue(rowVisibleValue(sectionLabel, item.index, field.key, item.row, manualValues, computedRowMap)) ?? 0)
       ), 0);
@@ -2627,6 +2666,31 @@ export function DocumentGeneratePage() {
     });
   }
 
+  function shiftManualRowsForRemove(sectionLabel: string, removedRowIndex: number) {
+    setManualValues((current) => {
+      const next: Record<string, string> = {};
+      const prefix = `${sectionLabel}.`;
+      for (const [key, value] of Object.entries(current)) {
+        if (!key.startsWith(prefix)) {
+          next[key] = value;
+          continue;
+        }
+        const rest = key.slice(prefix.length);
+        const dotIndex = rest.indexOf('.');
+        const rowIndex = Number(rest.slice(0, dotIndex));
+        if (!Number.isFinite(rowIndex) || dotIndex < 0) {
+          next[key] = value;
+          continue;
+        }
+        if (rowIndex === removedRowIndex) continue;
+        const field = rest.slice(dotIndex + 1);
+        const nextRowIndex = rowIndex > removedRowIndex ? rowIndex - 1 : rowIndex;
+        next[`${sectionLabel}.${nextRowIndex}.${field}`] = value;
+      }
+      return next;
+    });
+  }
+
   function handleAddLineItemRow(sectionLabel: string, rowIndex: number) {
     if (!liveReviewingItem || !schema || schema.docType !== 'packing-list') return;
     const rows = schema.mockData.tables[sectionLabel] ?? [];
@@ -2655,6 +2719,27 @@ export function DocumentGeneratePage() {
     const nextRows = rows.map((row, index) => index === rowIndex ? rowWithSource : row);
     nextRows.splice(rowIndex + 1, 0, splitRow);
     shiftManualRowsForInsert(sectionLabel, rowIndex);
+    setDraftSchemas((current) => ({
+      ...current,
+      [liveReviewingItem.id]: {
+        ...schema,
+        mockData: {
+          ...schema.mockData,
+          tables: {
+            ...schema.mockData.tables,
+            [sectionLabel]: nextRows,
+          },
+        },
+      },
+    }));
+  }
+
+  function handleRemoveLineItemRow(sectionLabel: string, rowIndex: number) {
+    if (!liveReviewingItem || !schema || schema.docType !== 'packing-list') return;
+    const rows = schema.mockData.tables[sectionLabel] ?? [];
+    if (rows[rowIndex]?._splitRow !== 'true') return;
+    const nextRows = rows.filter((_, index) => index !== rowIndex);
+    shiftManualRowsForRemove(sectionLabel, rowIndex);
     setDraftSchemas((current) => ({
       ...current,
       [liveReviewingItem.id]: {
@@ -3032,7 +3117,7 @@ export function DocumentGeneratePage() {
   async function handleApprove() {
     if (!liveReviewingItem || !schema || isBlocked || approving) return;
     if (splitIssues.length > 0) {
-      toast.error('Split totals must match the source line before approval');
+      toast.error(splitIssues[0] ?? 'Packing list validations must pass before approval');
       return;
     }
     setApproving(true);
@@ -3211,6 +3296,7 @@ export function DocumentGeneratePage() {
           onManualChange={handleManualChange}
           onPackageTypeChange={handlePackageTypeChange}
           onAddLineItemRow={handleAddLineItemRow}
+          onRemoveLineItemRow={handleRemoveLineItemRow}
           onApprove={handleApprove}
           onPreview={() => setShowPreview(true)}
           onToggleSourcePanel={toggleSourcePanel}
