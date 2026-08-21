@@ -2172,7 +2172,7 @@ export function UploadProcessPage() {
   const now = useNow();
   const routedDetail = useMemo(() => parseValidationDetailsRoute(location), [location]);
   const queueSection = activeChip === WAITING_FOR_BOL_CHIP_INDEX
-    ? 'all'
+    ? 'waiting-for-bol'
     : QUEUE_SECTION_BY_CHIP[activeChip] ?? 'all';
 
   useEffect(() => {

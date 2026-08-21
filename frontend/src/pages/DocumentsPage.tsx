@@ -175,11 +175,11 @@ function validationPending(status?: string | null): boolean {
 function apiDocStatus(d: ApiDoc): DocStatus {
   const ocrStatus = String(d.ocrStatus ?? '').toLowerCase();
   const recordStatus = String((d as ApiDoc & { status?: string | null }).status ?? '').toLowerCase();
-  const isReviewed = ['reviewed', 'archived', 'approved', 'completed', 'done'].includes(recordStatus);
-  const isCompleteOcr = ['reviewed', 'archived', 'approved', 'completed', 'complete', 'done', 'generated', 'confirmed'].includes(ocrStatus);
-  if (d.approvedAt || isReviewed || isCompleteOcr || validationDone(d.validationStatus)) return d.isGenerated ? 'gen-closed' : 'closed';
+  const isApproved = Boolean(d.approvedAt) || ['reviewed', 'archived', 'approved', 'completed', 'done'].includes(recordStatus);
   if (ocrStatus === 'failed' || validationFailed(d.validationStatus)) return 'failed-block';
-  if (ocrStatus === 'extracted') return d.isGenerated ? 'gen-review' : 'review';
+  if (isApproved) return d.isGenerated ? 'gen-closed' : 'closed';
+  if (d.isGenerated) return 'expected';
+  if (ocrStatus === 'extracted') return 'review';
   return 'processing';
 }
 
@@ -389,10 +389,11 @@ function shipmentToLane(
       ?? GATE_DEFS[gateNum - 1]?.parallel.find(r => r.code === code)?.docType;
     const slotKey = isGeneratedEntrySummary ? 'ENTRY_SUMMARY_DRAFT' : configuredSlot ?? normalizedDocType;
 
+    const status = apiDocStatus(d);
     let entry: DocEntry = {
       code, label,
-      status: apiDocStatus(d),
-      docNumber: d.documentNumber ?? undefined,
+      status,
+      docNumber: d.isGenerated && status === 'expected' ? undefined : d.documentNumber ?? undefined,
       docId: d.id,
       genType: d.isGenerated ? d.documentType : undefined,
       isGenerated: d.isGenerated,
@@ -431,11 +432,10 @@ function shipmentToLane(
     ];
     // Gate completion is based on required document types, not the raw number
     // of files. Multiple invoices therefore count once toward the SI slot.
-    const countableRequired = def.required.filter(required => !required.isGenerated);
+    const countableRequired = def.required;
     const closedRequired = countableRequired.filter(required =>
       realDocs.some(document =>
         !document.isParallel
-        && !document.isGenerated
         && (document.slotKey ?? document.code) === required.docType
         && (document.status === 'closed' || document.status === 'gen-closed'),
       ),
@@ -470,7 +470,7 @@ function shipmentToLane(
       activeGateAssigned = true;
       return;
     }
-    if (apiStatus === 'PASSED' || apiStatus === 'SKIPPED' || (precedingGatesComplete && complete)) {
+    if (precedingGatesComplete && complete) {
       gate.status = 'passed';
       return;
     }
@@ -584,7 +584,7 @@ function DocStatusIcon({ status, isParallel }: { status: DocStatus; isParallel?:
       return (
         <span style={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
           <Sparkles size={11} style={{ color: GOLD }} />
-          <Loader2 size={9} style={{ color: GOLD, animation: 'spin 0.9s linear infinite' }} />
+          <Clock size={10} style={{ color: GOLD }} />
         </span>
       );
     case 'failed-block':
@@ -602,7 +602,7 @@ function docSubText(doc: DocEntry, isParallel?: boolean): { text: string; color:
   switch (doc.status) {
     case 'closed':      return { text: doc.docNumber ?? '', color: MUTED, mono: true };
     case 'gen-closed':  return { text: doc.docNumber ?? 'Approved', color: MUTED, mono: true };
-    case 'gen-review':  return { text: doc.docNumber ?? 'Draft — review', color: GOLD };
+    case 'gen-review':  return { text: doc.docNumber ?? 'Validation pending', color: GOLD };
     case 'review':      return { text: doc.docNumber ?? 'Expected', color: MUTED, italic: !doc.docNumber };
     case 'processing':  return { text: doc.docNumber ?? 'Processing...', color: INFO };
     case 'failed-block': return { text: doc.ruleCode ?? 'Cross validation blocked', color: RED };

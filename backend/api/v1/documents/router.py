@@ -399,8 +399,6 @@ async def _gate_documents_for_types(
 
 
 def _validation_block_reason(status: str) -> str:
-    if status in {"WAITING", "RUNNING", "PENDING", "PROCESSING"}:
-        return "Cross validation has not finished yet."
     return "Blocking validation failed."
 
 
@@ -459,7 +457,7 @@ async def _gate_validation_blocks(
         for doc in approved_docs:
             doc_id = str(doc["id"])
             status = str((statuses.get(doc_id) or {}).get("status") or "WAITING").upper()
-            if status not in {"PASSED", "WARNING"}:
+            if status in {"BLOCKED", "FAILED", "FAIL"}:
                 blocks.append(
                     {
                         "documentId": doc_id,
@@ -1838,7 +1836,7 @@ async def pass_shipment_gate(shipment_id: str, user=Depends(get_current_user)):
             status_code=409,
             detail={
                 "message": reason,
-                "rule": "BLOCKED and WAITING stop gate pass; WARNING and PASSED allow gate pass.",
+                "rule": "All non-parallel required documents must be approved; only blocking cross-validation failures stop gate pass.",
                 "blocks": blocks,
             },
         )

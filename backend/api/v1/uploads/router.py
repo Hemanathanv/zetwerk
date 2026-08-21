@@ -1548,10 +1548,20 @@ def _validation_history_clause(document_alias: str = "d") -> str:
 
 
 def _waiting_for_bol_clause(document_alias: str = "d") -> str:
+    bol_doc_types = ("BILL_OF_LADING", "BOL", "BL")
     return f"""
         (
-          {document_alias}."shipment_id" IS NULL
-          AND {document_alias}."doc_type"::text = ANY(ARRAY[{", ".join(_sql_quote(doc_type) for doc_type in sorted(WAITING_FOR_BOL_DOC_TYPES))}]::text[])
+          {document_alias}."doc_type"::text = ANY(ARRAY[{", ".join(_sql_quote(doc_type) for doc_type in sorted(WAITING_FOR_BOL_DOC_TYPES))}]::text[])
+          AND (
+            {document_alias}."shipment_id" IS NULL
+            OR NOT EXISTS (
+              SELECT 1
+              FROM "public"."documents" bol_doc
+              WHERE bol_doc."shipment_id" = {document_alias}."shipment_id"
+                AND bol_doc."is_deleted" = FALSE
+                AND bol_doc."doc_type"::text = ANY(ARRAY[{", ".join(_sql_quote(doc_type) for doc_type in bol_doc_types)}]::text[])
+            )
+          )
         )
     """
 
@@ -1780,15 +1790,7 @@ async def _document_page_rows(
     page_size: int,
     doc_type_filter: str | None = None,
 ) -> list[Any]:
-    if section in {"needs-approval", "needs-reapproval", "processing", "draft-review"}:
-        return await prisma.document.find_many(
-            where=where,
-            order={"createdAt": "desc"},
-            skip=skip,
-            take=page_size,
-        )
-
-    if section not in {"cross-validating", "done", "waiting-for-bol"}:
+    if section not in {"needs-approval", "needs-reapproval", "processing", "cross-validating", "draft-review", "done", "waiting-for-bol"}:
         return await prisma.document.find_many(
             where=where,
             order={"createdAt": "desc"},

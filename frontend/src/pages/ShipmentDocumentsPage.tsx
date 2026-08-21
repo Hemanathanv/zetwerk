@@ -109,8 +109,8 @@ function fileIsImage(contentType?: string | null, _fileName?: string | null): bo
 function deriveDocStatus(doc: any): string {
   if (!doc) return 'MISSING';
   const validationStatus = String(doc.validationStatus ?? '').toUpperCase();
-  if (validationStatus === 'PASSED') return 'CLOSED';
   if (validationStatus === 'BLOCKED' || validationStatus === 'FAILED') return 'REJECTED';
+  if (doc.approvedAt) return 'CLOSED';
   if (validationStatus === 'WAITING' || validationStatus === 'WARNING') return 'EXTRACTED';
   if (doc.approvedAt) return 'REVIEWED';
   const s = (doc.ocrStatus ?? '').toUpperCase();

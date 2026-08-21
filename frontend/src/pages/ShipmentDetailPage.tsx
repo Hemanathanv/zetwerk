@@ -1359,12 +1359,15 @@ function isCrossValidationPassed(doc: any | null | undefined): boolean {
 function isDocumentAvailable(doc: any | null | undefined): boolean {
   if (!doc) return false;
   const status = String(doc.status ?? doc.ocrStatus ?? '').toUpperCase();
-  return Boolean(doc.approvedAt) || ['REVIEWED', 'ARCHIVED', 'EXTRACTED', 'COMPLETED', 'DONE'].includes(status);
+  const validationStatus = String(doc.validationStatus ?? '').toUpperCase();
+  const approved = Boolean(doc.approvedAt) || ['REVIEWED', 'ARCHIVED', 'APPROVED', 'COMPLETED', 'DONE'].includes(status);
+  return approved && !['BLOCKED', 'FAILED'].includes(validationStatus);
 }
 
 function docStatusPill(doc: any): { label: string; color: string; bg: string } {
   const validationStatus = String(doc.validationStatus ?? '').toUpperCase();
-  if (validationStatus === 'PASSED') return { label: 'Cross validated', color: 'hsl(142 71% 30%)', bg: 'hsla(142,71%,45%,0.10)' };
+  if (doc.approvedAt && validationStatus === 'PASSED') return { label: 'Cross validated', color: 'hsl(142 71% 30%)', bg: 'hsla(142,71%,45%,0.10)' };
+  if (doc.approvedAt && !['BLOCKED', 'FAILED'].includes(validationStatus)) return { label: 'Reviewed', color: MUTED, bg: 'hsl(var(--muted)/0.45)' };
   if (validationStatus === 'BLOCKED' || validationStatus === 'FAILED' || doc.ocrStatus === 'FAILED')
     return { label: 'Cross validation failed', color: 'hsl(var(--vs-danger))', bg: 'hsla(0,72%,51%,0.08)' };
   if (validationStatus === 'WAITING') return { label: 'Cross validation waiting', color: 'hsl(38 92% 38%)', bg: 'hsla(38,92%,50%,0.12)' };
@@ -1378,11 +1381,8 @@ function docGroupStatusPill(docs: any[]): { label: string; color: string; bg: st
   if (docs.some(doc => ['BLOCKED', 'FAILED'].includes(String(doc.validationStatus ?? '').toUpperCase()) || doc.ocrStatus === 'FAILED')) {
     return { label: 'Cross validation failed', color: 'hsl(var(--vs-danger))', bg: 'hsla(0,72%,51%,0.08)' };
   }
-  if (docs.length > 0 && docs.every(isCrossValidationPassed)) {
+  if (docs.length > 0 && docs.every(isDocumentAvailable)) {
     return { label: 'Cross validated', color: 'hsl(142 71% 30%)', bg: 'hsla(142,71%,45%,0.10)' };
-  }
-  if (docs.some(doc => ['WAITING', 'WARNING'].includes(String(doc.validationStatus ?? '').toUpperCase()))) {
-    return { label: 'Cross validation pending', color: 'hsl(38 92% 38%)', bg: 'hsla(38,92%,50%,0.12)' };
   }
   if (docs.some(isDocumentAvailable)) {
     return { label: 'Reviewed', color: MUTED, bg: 'hsl(var(--muted)/0.45)' };
@@ -1539,7 +1539,7 @@ function buildShipmentGateProgressRows(gates: ApiGate[], documents: any[]): Ship
   const sortedGates = [...gates].sort((a, b) => a.gateConfig.gateNumber - b.gateConfig.gateNumber);
   const rows = sortedGates.map(gate => {
     const gateNumber = Number(gate.gateConfig.gateNumber ?? 0);
-    const requiredDocs = docTypesForGate(gate, documents).filter(dt => !dt.isGenerated && dt.roleInGate !== 'PARALLEL');
+    const requiredDocs = docTypesForGate(gate, documents).filter(dt => dt.roleInGate !== 'PARALLEL');
     const usedDocIds = new Set<string>();
     const completed = requiredDocs.filter(dt => {
       const doc = findDocForSlot(documents, dt.docType, usedDocIds, gateNumber);
@@ -1565,8 +1565,6 @@ function buildShipmentGateProgressRows(gates: ApiGate[], documents: any[]): Ship
       status = 'blocked';
       precedingGatesComplete = false;
       activeGateAssigned = true;
-    } else if (row.apiStatus === 'passed') {
-      status = 'passed';
     } else if (precedingGatesComplete && complete) {
       status = 'passed';
     } else if (precedingGatesComplete && !activeGateAssigned) {
