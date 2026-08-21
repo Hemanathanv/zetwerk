@@ -445,150 +445,149 @@ export function DashboardPage() {
           </div>
         )}
 
-        {/* Column headers */}
+        {/* Column headers + rows — scroll horizontally when the viewport is tight */}
         {!loading && filteredShipments.length > 0 && (
-          <div className="flex items-center gap-5 px-5 pt-1 pb-2 mb-2 border-b border-border">
-            <div className="w-[200px] @max-[1150px]:w-[170px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Shipment</div>
-            <div className="w-[160px] @max-[1150px]:w-[130px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Gates</div>
-            <div className="w-[80px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground @max-[750px]:hidden">Docs</div>
-            <div className="w-[72px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right @max-[1150px]:hidden">ETA</div>
-            <div className="flex-1 min-w-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Exporter / Buyer</div>
-            <div className="w-auto shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right @max-[950px]:hidden">Doc Review Status</div>
-            <div className="w-[72px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right">Added</div>
+          <div className="overflow-x-auto -mx-1 px-1">
+            <div className="min-w-[920px]">
+              <div className="flex items-center gap-3 sm:gap-4 px-4 sm:px-5 pt-1 pb-2 mb-2 border-b border-border">
+                <div className="w-[160px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Shipment</div>
+                <div className="w-[148px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Gates</div>
+                <div className="w-[72px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground @max-[720px]:hidden">Docs</div>
+                <div className="w-[64px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right @max-[980px]:hidden">ETA</div>
+                <div className="flex-1 min-w-[140px] text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Exporter / Buyer</div>
+                <div className="w-[100px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right">Doc Review</div>
+                <div className="w-[64px] shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground text-right">Added</div>
+              </div>
+
+              <div className="space-y-2">
+                {filteredShipments.map(shipment => {
+                  const visibleGates = (shipment.shipmentGates ?? [])
+                    .filter((g: any) => permittedGateNumbers.size === 0 || permittedGateNumbers.has(g.gateConfig?.gateNumber))
+                    .sort((a: any, b: any) =>
+                      (a.gateConfig?.gateNumber ?? 0) - (b.gateConfig?.gateNumber ?? 0),
+                    );
+                  const shipmentRef = shipment.bolNumber ?? shipment.blNumber ?? shipment.hblNumber ?? shipment.mblNumber ?? shipment.shipmentNumber;
+
+                  return (
+                    <a
+                      key={shipment.id}
+                      href={`/shipments/${shipment.id}`}
+                      className="bg-background rounded-lg px-4 sm:px-5 py-4 flex items-center gap-3 sm:gap-4 hover:bg-muted/60 transition-colors cursor-pointer min-w-0"
+                    >
+                      {/* Shipment ID + status + project link */}
+                      <div className="w-[160px] shrink-0 min-w-0">
+                        <div className="data-mono-id truncate">
+                          {shipmentRef || (
+                            <span className="text-muted-foreground italic text-[13px] font-normal">Pending ID</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <StatusBadge status={shipment.status} size='sm' />
+                        </div>
+                        {(shipment as any).project && (
+                          <button
+                            type="button"
+                            onClick={e => { e.preventDefault(); e.stopPropagation(); window.location.href = `/projects/${(shipment as any).project.id}`; }}
+                            className="data-mono-id text-primary hover:underline mt-1 block truncate"
+                          >
+                            {(shipment as any).project.projectCode}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Gate progress dots */}
+                      <div className="flex items-center gap-1 w-[148px] shrink-0">
+                        {visibleGates.map((gate: any) => {
+                          const gNum = gate.gateConfig?.gateNumber;
+                          return (
+                            <div
+                              key={gate.id}
+                              title={`${gate.gateConfig?.gateName ?? `G${gNum}`}: ${gate.status}`}
+                              className={`w-5 h-5 sm:w-6 sm:h-6 rounded-full flex items-center justify-center text-[11px] sm:text-[12px] font-bold shrink-0 ${dashboardGateClass(gate.status)}`}
+                            >
+                              {gNum}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Doc completion mini-bar */}
+                      <div className="w-[72px] shrink-0 @max-[720px]:hidden">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <div className="h-2 rounded-full bg-muted/50 overflow-hidden flex-1 min-w-0">
+                            <div className="h-full rounded-full bg-primary" style={{ width: `${(shipment as any).docCompletionPct || 0}%` }} />
+                          </div>
+                          <span className="data-metric-value text-muted-foreground shrink-0 text-[11px]">{(shipment as any).docCompletionPct || 0}%</span>
+                        </div>
+                      </div>
+
+                      {/* ETA */}
+                      <div className="w-[64px] shrink-0 text-right @max-[980px]:hidden">
+                        {(shipment as any).etaPort ? (
+                          <div className="text-[12px]">
+                            <span className="text-muted-foreground">ETA</span>
+                            <div className="font-medium">{new Date((shipment as any).etaPort).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</div>
+                          </div>
+                        ) : (
+                          <span className="text-[12px] text-muted-foreground">—</span>
+                        )}
+                      </div>
+
+                      {/* Exporter + buyer */}
+                      <div className="flex-1 min-w-[140px]">
+                        <div className="text-[12px] truncate">{shipment.exporterName || '—'}</div>
+                        <div className="text-[12px] text-muted-foreground truncate mt-0.5">
+                          {shipment.buyerName || '—'}
+                        </div>
+                      </div>
+
+                      {/* Doc counts */}
+                      <div className="w-[100px] shrink-0 text-right">
+                        {(shipment._count?.documents ?? 0) > 0 ? (
+                          <>
+                            <div className="text-[12px] flex flex-wrap items-baseline justify-end gap-x-1">
+                              <span className="data-metric-value">{shipment._count.documentsApproved ?? 0}/{shipment._count.documents}</span>
+                              <span className="text-muted-foreground">docs</span>
+                            </div>
+                            {(shipment._count.documents - (shipment._count.documentsApproved ?? 0)) > 0 && (
+                              <div className="text-[11px] text-muted-foreground mt-0.5">
+                                {shipment._count.documents - (shipment._count.documentsApproved ?? 0)} awaiting
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-[12px] text-muted-foreground">—</span>
+                        )}
+                      </div>
+
+                      {/* Date */}
+                      <div className="w-[64px] shrink-0 text-right">
+                        <div className="text-[12px] text-muted-foreground">
+                          {shipment.createdAt && !Number.isNaN(new Date(shipment.createdAt).getTime())
+                            ? new Date(shipment.createdAt).toLocaleDateString('en-IN', {
+                                day: '2-digit',
+                                month: 'short',
+                              })
+                            : '—'}
+                        </div>
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
 
-        {/* Rows */}
-        {!loading && (
-          <div className="space-y-2">
-            {filteredShipments.map(shipment => {
-              const visibleGates = (shipment.shipmentGates ?? [])
-                .filter((g: any) => permittedGateNumbers.size === 0 || permittedGateNumbers.has(g.gateConfig?.gateNumber))
-                .sort((a: any, b: any) =>
-                  (a.gateConfig?.gateNumber ?? 0) - (b.gateConfig?.gateNumber ?? 0),
-                );
-              const shipmentRef = shipment.bolNumber ?? shipment.blNumber ?? shipment.hblNumber ?? shipment.mblNumber ?? shipment.shipmentNumber;
-
-              return (
-                <a
-                  key={shipment.id}
-                  href={`/shipments/${shipment.id}`}
-                  className="bg-background rounded-lg px-5 py-4 flex items-center gap-5 hover:bg-muted/60 transition-colors cursor-pointer"
-                >
-                  {/* Shipment ID + status + project link */}
-                  <div className="w-[200px] @max-[1150px]:w-[170px] shrink-0">
-                    <div className="data-mono-id">
-                      {shipmentRef || (
-                        <span className="text-muted-foreground italic text-[13px] font-normal">Pending ID</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-1.5">
-                      <StatusBadge status={shipment.status} size='sm' />
-                    </div>
-                    {(shipment as any).project && (
-                      <button
-                        type="button"
-                        onClick={e => { e.preventDefault(); e.stopPropagation(); window.location.href = `/projects/${(shipment as any).project.id}`; }}
-                        className="data-mono-id text-primary hover:underline mt-1 block"
-                      >
-                        {(shipment as any).project.projectCode}
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Gate progress dots */}
-                  <div className="flex items-center gap-1.5 w-[160px] @max-[1150px]:w-[130px] shrink-0 flex-row">
-                    {visibleGates.map((gate: any) => {
-                      const gNum = gate.gateConfig?.gateNumber;
-                      return (
-                        <div
-                          key={gate.id}
-                          title={`${gate.gateConfig?.gateName ?? `G${gNum}`}: ${gate.status}`}
-                        >
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[12px] font-bold ${dashboardGateClass(gate.status)}`}>
-                            {gNum}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Doc completion mini-bar */}
-                  <div className="w-[80px] shrink-0 @max-[750px]:hidden">
-                    <div className="flex items-center gap-2">
-                      <div className="h-2 rounded-full bg-muted/50 overflow-hidden flex-1">
-                        <div className="h-full rounded-full bg-primary" style={{ width: `${(shipment as any).docCompletionPct || 0}%` }} />
-                      </div>
-                      <span className="data-metric-value text-muted-foreground">{(shipment as any).docCompletionPct || 0}%</span>
-                    </div>
-                  </div>
-
-                  {/* ETA */}
-                  <div className="w-[72px] shrink-0 text-right @max-[1150px]:hidden">
-                    {(shipment as any).etaPort ? (
-                      <div className="text-[12px]">
-                        <span className="text-muted-foreground">ETA</span>
-                        <div className="font-medium">{new Date((shipment as any).etaPort).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</div>
-                      </div>
-                    ) : (
-                      <span className="text-[12px] text-muted-foreground">—</span>
-                    )}
-                  </div>
-
-                  {/* Exporter + buyer */}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[12px] truncate">{shipment.exporterName || '—'}</div>
-                    <div className="text-[12px] text-muted-foreground truncate mt-0.5">
-                      {shipment.buyerName || '—'}
-                    </div>
-                  </div>
-
-                  {/* Doc counts */}
-                  <div className="w-[88px] shrink-0 text-right @max-[950px]:hidden">
-                    {(shipment._count?.documents ?? 0) > 0 ? (
-                      <>
-                        <div className="text-[12px] flex flex-wrap items-baseline justify-end gap-x-1">
-                          <span className="data-metric-value">{shipment._count.documentsApproved ?? 0}/{shipment._count.documents}</span>
-                          <span className="text-muted-foreground">docs</span>
-                        </div>
-                        {(shipment._count.documents - (shipment._count.documentsApproved ?? 0)) > 0 && (
-                          <div className="text-[11px] text-muted-foreground mt-0.5">
-                            {shipment._count.documents - (shipment._count.documentsApproved ?? 0)} awaiting
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <span className="text-[12px] text-muted-foreground">—</span>
-                    )}
-                  </div>
-
-                  {/* Date */}
-                  <div className="w-[72px] shrink-0 text-right">
-                    <div className="text-[12px] text-muted-foreground">
-                      {shipment.createdAt && !Number.isNaN(new Date(shipment.createdAt).getTime())
-                        ? new Date(shipment.createdAt).toLocaleDateString('en-IN', {
-                            day: '2-digit',
-                            month: 'short',
-                          })
-                        : '—'}
-                    </div>
-                  </div>
-                </a>
-              );
-            })}
-
-            {/* Empty state */}
-            {filteredShipments.length === 0 && (
-              <div className="rounded-lg p-12 text-center">
-                <Ship className="w-10 h-10 mx-auto text-muted-foreground/40" />
-                <h3 className="text-sm font-semibold mt-3">No shipments found</h3>
-                <p className="text-[13px] text-muted-foreground mt-1">
-                  {search
-                    ? 'Try adjusting your search or filters'
-                    : 'Create your first shipment to get started'}
-                </p>
-              </div>
-            )}
+        {!loading && filteredShipments.length === 0 && (
+          <div className="rounded-lg p-12 text-center">
+            <Ship className="w-10 h-10 mx-auto text-muted-foreground/40" />
+            <h3 className="text-sm font-semibold mt-3">No shipments found</h3>
+            <p className="text-[13px] text-muted-foreground mt-1">
+              {search
+                ? 'Try adjusting your search or filters'
+                : 'Create your first shipment to get started'}
+            </p>
           </div>
         )}
       </div>

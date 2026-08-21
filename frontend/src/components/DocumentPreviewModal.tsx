@@ -126,64 +126,92 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 function DocTable({ cols, rows, totalsRow }: {
-  cols: { label: string; key: string; align?: 'left' | 'right' | 'center'; mono?: boolean; width?: string }[];
+  cols: { label: string; key: string; align?: 'left' | 'right' | 'center'; mono?: boolean; width?: string; wrap?: boolean; minWidth?: number }[];
   rows: string[][];
   totalsRow?: string[];
 }) {
-  const thStyle: React.CSSProperties = {
-    fontSize: 14.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
-    color: DOC_MUTED, padding: '6px 8px', borderBottom: `2px solid ${DOC_BORDER}`,
-    background: DOC_BG, textAlign: 'left', overflowWrap: 'anywhere', wordBreak: 'break-word',
-  };
-  const tdBase: React.CSSProperties = {
-    fontSize: 14.5, padding: '5px 8px', borderBottom: `1px solid ${DOC_BORDER}`, color: DOC_FG, verticalAlign: 'top',
-    overflowWrap: 'anywhere', wordBreak: 'break-word',
-  };
+  const thStyle = (c: (typeof cols)[number]): React.CSSProperties => ({
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    color: DOC_MUTED,
+    padding: '7px 6px',
+    borderBottom: `2px solid ${DOC_BORDER}`,
+    background: DOC_BG,
+    textAlign: c.align ?? 'left',
+    width: c.width,
+    minWidth: c.minWidth ?? (c.wrap ? 96 : 52),
+    whiteSpace: c.wrap ? 'normal' : 'nowrap',
+    overflowWrap: c.wrap ? 'break-word' : 'normal',
+    wordBreak: 'normal',
+    hyphens: 'manual',
+    lineHeight: 1.25,
+    verticalAlign: 'bottom',
+  });
+  const tdStyle = (c: (typeof cols)[number] | undefined, cell: string): React.CSSProperties => ({
+    fontSize: 10.5,
+    padding: '6px',
+    borderBottom: `1px solid ${DOC_BORDER}`,
+    color: cell === '—' ? DOC_MUTED : DOC_FG,
+    fontStyle: cell === '—' ? 'italic' : 'normal',
+    verticalAlign: 'top',
+    textAlign: c?.align ?? 'left',
+    fontFamily: c?.mono ? MONO_FONT : 'inherit',
+    width: c?.width,
+    minWidth: c?.minWidth ?? (c?.wrap ? 96 : 52),
+    whiteSpace: c?.wrap ? 'normal' : 'nowrap',
+    overflowWrap: c?.wrap ? 'break-word' : 'normal',
+    wordBreak: 'normal',
+    lineHeight: 1.35,
+  });
+
   return (
-    <table style={{ width: '100%', maxWidth: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 14.5, marginBottom: 8 }}>
-      <thead>
-        <tr>
-          {cols.map(c => (
-            <th key={c.key} style={{ ...thStyle, textAlign: c.align ?? 'left', width: c.width }}>
-              {c.label}
-            </th>
+    <div className="doc-table-scroll" style={{ width: '100%', overflowX: 'auto', marginBottom: 8 }}>
+      <table style={{
+        width: '100%',
+        minWidth: Math.max(640, cols.length * 64),
+        borderCollapse: 'collapse',
+        tableLayout: 'auto',
+        fontSize: 10.5,
+      }}>
+        <thead>
+          <tr>
+            {cols.map(c => (
+              <th key={c.key} style={thStyle(c)}>
+                {c.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, ri) => (
+            <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : DOC_BG }}>
+              {row.map((cell, ci) => (
+                <td key={ci} style={tdStyle(cols[ci], cell)}>
+                  {cell}
+                </td>
+              ))}
+            </tr>
           ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, ri) => (
-          <tr key={ri} style={{ background: ri % 2 === 0 ? '#fff' : DOC_BG }}>
-            {row.map((cell, ci) => (
-              <td key={ci} style={{
-                ...tdBase,
-                textAlign: cols[ci]?.align ?? 'left',
-                fontFamily: cols[ci]?.mono ? MONO_FONT : 'inherit',
-                color: cell === '—' ? DOC_MUTED : DOC_FG,
-                fontStyle: cell === '—' ? 'italic' : 'normal',
-              }}>
-                {cell}
-              </td>
-            ))}
-          </tr>
-        ))}
-        {totalsRow && (
-          <tr style={{ background: '#e5f3f2' }}>
-            {totalsRow.map((cell, ci) => (
-              <td key={ci} style={{
-                ...tdBase,
-                fontWeight: 700,
-                textAlign: cols[ci]?.align ?? 'left',
-                fontFamily: cols[ci]?.mono ? MONO_FONT : 'inherit',
-                borderTop: `1.5px solid ${DOC_TEAL}`,
-                color: DOC_FG,
-              }}>
-                {cell}
-              </td>
-            ))}
-          </tr>
-        )}
-      </tbody>
-    </table>
+          {totalsRow && (
+            <tr style={{ background: '#e5f3f2' }}>
+              {totalsRow.map((cell, ci) => (
+                <td key={ci} style={{
+                  ...tdStyle(cols[ci], cell),
+                  fontWeight: 700,
+                  borderTop: `1.5px solid ${DOC_TEAL}`,
+                  color: DOC_FG,
+                  fontStyle: 'normal',
+                }}>
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -220,19 +248,19 @@ function PackingListDoc({ schema, resolve, resolveRow }: {
 }) {
   const mockRows = (schema.mockData.tables as Record<string, unknown[]>)['Line Items'] ?? [];
   const lineItemCols = [
-    { key: 'hsnCode',        label: 'HSN Code',       mono: true, width: '7%' },
-    { key: 'productCode',    label: 'Product Code',   mono: true, width: '8%' },
-    { key: 'productDesc',    label: 'Description',    width: '15%' },
-    { key: 'productMarks',   label: 'Product Marks',  width: '10%' },
-    { key: 'boCode',         label: 'BO Code',         mono: true, width: '7%' },
-    { key: 'containerNo',    label: 'Container No',    mono: true, width: '8%' },
-    { key: 'sealNo',         label: 'Seal No',         mono: true, width: '7%' },
-    { key: 'kindOfPkg',      label: 'Package Type',    width: '8%' },
-    { key: 'totalQtyInPcs',  label: 'Qty (PCS)',       align: 'right' as const, mono: true, width: '7%' },
-    { key: 'qtyPerBundle',   label: 'Qty/Bundle',      align: 'right' as const, mono: true, width: '7%' },
-    { key: 'noOfBundles',    label: 'Bundles',         align: 'right' as const, mono: true, width: '6%' },
-    { key: 'netWeightKgs',   label: 'Net Wt (kg)',     align: 'right' as const, mono: true, width: '7%' },
-    { key: 'grossWeightKgs', label: 'Gross Wt (kg)',   align: 'right' as const, mono: true, width: '8%' },
+    { key: 'hsnCode',        label: 'HSN',            mono: true,  minWidth: 64 },
+    { key: 'productCode',    label: 'Product Code',   mono: true,  minWidth: 110, wrap: true },
+    { key: 'productDesc',    label: 'Description',    wrap: true,  minWidth: 140 },
+    { key: 'productMarks',   label: 'Marks',          wrap: true,  minWidth: 88 },
+    { key: 'boCode',         label: 'BO Code',        mono: true,  minWidth: 88 },
+    { key: 'containerNo',    label: 'Container',      mono: true,  minWidth: 88 },
+    { key: 'sealNo',         label: 'Seal',           mono: true,  minWidth: 72 },
+    { key: 'kindOfPkg',      label: 'Pkg Type',       minWidth: 64 },
+    { key: 'totalQtyInPcs',  label: 'Qty',            align: 'right' as const, mono: true, minWidth: 48 },
+    { key: 'qtyPerBundle',   label: 'Qty/Bdl',        align: 'right' as const, mono: true, minWidth: 52 },
+    { key: 'noOfBundles',    label: 'Bundles',        align: 'right' as const, mono: true, minWidth: 52 },
+    { key: 'netWeightKgs',   label: 'Net kg',         align: 'right' as const, mono: true, minWidth: 56 },
+    { key: 'grossWeightKgs', label: 'Gross kg',       align: 'right' as const, mono: true, minWidth: 60 },
   ];
   const lineRows = mockRows.map((_, ri) =>
     lineItemCols.map(c => resolveRow('Line Items', ri, c.key))
@@ -300,25 +328,25 @@ function OutwardGRNDoc({ schema, resolve, resolveRow }: {
   const mockLineItems  = (schema.mockData.tables as Record<string, unknown[]>)['Line Items'] ?? [];
 
   const containerCols = [
-    { key: 'containerNo',   label: 'Container No',   mono: true, width: '22%' },
-    { key: 'sealNumber',    label: 'Seal No',         mono: true, width: '20%' },
-    { key: 'containerType', label: 'Type',            width: '14%' },
-    { key: 'assignedItems', label: 'Items Assigned',  width: '30%' },
-    { key: 'containerWt',   label: 'Gross Wt (kg)',   align: 'right' as const, mono: true, width: '14%' },
+    { key: 'containerNo',   label: 'Container No',   mono: true, minWidth: 110 },
+    { key: 'sealNumber',    label: 'Seal No',         mono: true, minWidth: 96 },
+    { key: 'containerType', label: 'Type',            minWidth: 72 },
+    { key: 'assignedItems', label: 'Items Assigned',  wrap: true, minWidth: 140 },
+    { key: 'containerWt',   label: 'Gross Wt (kg)',   align: 'right' as const, mono: true, minWidth: 80 },
   ];
   const containerRows = mockContainers.map((_, ri) =>
     containerCols.map(c => resolveRow('Container Allocation', ri, c.key))
   );
 
   const lineItemCols = [
-    { key: 'hsnCode',        label: 'HSN Code',       mono: true, width: '10%' },
-    { key: 'productCode',    label: 'Product Code',   mono: true, width: '14%' },
-    { key: 'productDesc',    label: 'Description',    width: '28%' },
-    { key: 'totalQtyInPcs', label: 'Qty (PCS)',      align: 'right' as const, mono: true, width: '10%' },
-    { key: 'noOfBundles',    label: 'Bundles',        align: 'right' as const, mono: true, width: '8%' },
-    { key: 'netWeightKgs',   label: 'Net Wt (kg)',    align: 'right' as const, mono: true, width: '10%' },
-    { key: 'grossWeightKgs', label: 'Gross Wt (kg)',  align: 'right' as const, mono: true, width: '10%' },
-    { key: 'grossWeightLbs', label: 'Gross Wt (lbs)', align: 'right' as const, mono: true, width: '10%' },
+    { key: 'hsnCode',        label: 'HSN',            mono: true,  minWidth: 64 },
+    { key: 'productCode',    label: 'Product Code',   mono: true,  minWidth: 110, wrap: true },
+    { key: 'productDesc',    label: 'Description',    wrap: true,  minWidth: 160 },
+    { key: 'totalQtyInPcs',  label: 'Qty',            align: 'right' as const, mono: true, minWidth: 52 },
+    { key: 'noOfBundles',    label: 'Bundles',        align: 'right' as const, mono: true, minWidth: 56 },
+    { key: 'netWeightKgs',   label: 'Net kg',         align: 'right' as const, mono: true, minWidth: 60 },
+    { key: 'grossWeightKgs', label: 'Gross kg',       align: 'right' as const, mono: true, minWidth: 64 },
+    { key: 'grossWeightLbs', label: 'Gross lbs',      align: 'right' as const, mono: true, minWidth: 64 },
   ];
   const lineRows = mockLineItems.map((_, ri) =>
     lineItemCols.map(c => resolveRow('Line Items', ri, c.key))
@@ -388,14 +416,14 @@ function DraftBoEDoc({ schema, resolve, resolveRow }: {
   const mockTariffLines = (schema.mockData.tables as Record<string, unknown[]>)['Tariff Lines'] ?? [];
 
   const tariffCols = [
-    { key: 'lineNo',         label: 'Line',             mono: true, width: '6%' },
-    { key: 'lineHtsusNumber', label: 'HTSUS Code',     mono: true, width: '15%' },
-    { key: 'lineMerchandiseDescription', label: 'Description', width: '28%' },
-    { key: 'quantity',       label: 'Qty',              align: 'right' as const, mono: true, width: '8%' },
-    { key: 'quantityUnit',   label: 'Unit',             width: '6%' },
-    { key: 'enteredValue',   label: 'Entered Value',    align: 'right' as const, mono: true, width: '13%' },
-    { key: 'dutyRate',       label: 'Duty Rate',        align: 'right' as const, mono: true, width: '10%' },
-    { key: 'dutyAmount',     label: 'Duty Amount',      align: 'right' as const, mono: true, width: '10%' },
+    { key: 'lineNo',         label: 'Line',          mono: true, minWidth: 40 },
+    { key: 'lineHtsusNumber', label: 'HTSUS',        mono: true, minWidth: 88 },
+    { key: 'lineMerchandiseDescription', label: 'Description', wrap: true, minWidth: 160 },
+    { key: 'quantity',       label: 'Qty',           align: 'right' as const, mono: true, minWidth: 48 },
+    { key: 'quantityUnit',   label: 'Unit',          minWidth: 44 },
+    { key: 'enteredValue',   label: 'Value',         align: 'right' as const, mono: true, minWidth: 72 },
+    { key: 'dutyRate',       label: 'Duty %',        align: 'right' as const, mono: true, minWidth: 56 },
+    { key: 'dutyAmount',     label: 'Duty Amt',      align: 'right' as const, mono: true, minWidth: 72 },
   ];
   const tariffRows = mockTariffLines.map((_, ri) =>
     tariffCols.map(c => resolveRow('Tariff Lines', ri, c.key))
@@ -564,12 +592,17 @@ export function DocumentPreviewModal({
     }
   }
 
+  const isWideDoc = schema.docType === 'packing-list' || schema.docType === 'outward-pl' || schema.docType === 'draft-boe';
+
   return (
     <>
       {/* Print-only styles */}
       <style>{`
         @media print {
-          @page { size: A4 portrait; margin: 10mm; }
+          @page {
+            size: A4 ${isWideDoc ? 'landscape' : 'portrait'};
+            margin: 8mm;
+          }
           body * { visibility: hidden !important; }
           #doc-preview-root, #doc-preview-root * { visibility: visible !important; }
           html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
@@ -601,7 +634,16 @@ export function DocumentPreviewModal({
             margin: 0 !important;
             min-height: 0 !important;
             overflow: visible !important;
-            padding: 8mm !important;
+            padding: 4mm !important;
+            max-width: none !important;
+            width: 100% !important;
+          }
+          .doc-table-scroll {
+            overflow: visible !important;
+          }
+          .doc-table-scroll table {
+            min-width: 0 !important;
+            width: 100% !important;
           }
         }
       `}</style>
@@ -620,7 +662,7 @@ export function DocumentPreviewModal({
         <div
           className="doc-preview-modal"
           style={{
-            background: '#f0f0f0', borderRadius: 8, width: '100%', maxWidth: 900,
+            background: '#f0f0f0', borderRadius: 8, width: '100%', maxWidth: isWideDoc ? 1180 : 900,
             boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
             display: 'flex', flexDirection: 'column', minHeight: 0,
           }}
@@ -679,15 +721,16 @@ export function DocumentPreviewModal({
           </div>
 
           {/* Paper */}
-          <div style={{ overflowY: 'auto', padding: '24px', flex: 1 }}>
+          <div style={{ overflowY: 'auto', padding: isWideDoc ? '16px' : '24px', flex: 1 }}>
             <div
               className="doc-preview-paper"
               style={{
                 background: '#fff', borderRadius: 4,
                 boxShadow: '0 2px 12px rgba(0,0,0,0.12)',
-                padding: '40px 48px 48px',
-                position: 'relative', overflow: 'hidden',
+                padding: isWideDoc ? '28px 24px 36px' : '40px 48px 48px',
+                position: 'relative', overflow: 'visible',
                 minHeight: 900, margin: '0 auto',
+                maxWidth: isWideDoc ? '100%' : undefined,
               }}
             >
               <Watermark label={isApproved ? 'APPROVED' : 'DRAFT'} />
@@ -737,11 +780,14 @@ export function GeneratedDocumentPaper({
         background: '#fff',
         borderRadius: 4,
         boxShadow: '0 2px 12px rgba(0,0,0,0.12)',
-        padding: '40px 48px 48px',
+        padding: schema.docType === 'packing-list' || schema.docType === 'outward-pl' || schema.docType === 'draft-boe'
+          ? '28px 24px 36px'
+          : '40px 48px 48px',
         position: 'relative',
-        overflow: 'hidden',
+        overflow: 'visible',
         minHeight: 900,
         margin: '0 auto',
+        maxWidth: '100%',
       }}
     >
       <Watermark label={isApproved ? 'APPROVED' : 'DRAFT'} />

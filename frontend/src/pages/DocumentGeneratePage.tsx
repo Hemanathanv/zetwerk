@@ -151,15 +151,57 @@ function sourceDocLabel(sourceDoc: string, sourceDocs: { docType: string; label:
   return sourceDocs.find(s => s.docType === sourceDoc)?.label ?? sourceDoc;
 }
 
+type FieldProvenance = 'source' | 'calculated' | 'manual';
+
+function fieldProvenance(m: FieldMapping): FieldProvenance {
+  if (m.mappingType === 'manual' || m.mappingType === 'conditional' || m.sourceDoc === 'MANUAL') return 'manual';
+  if (m.mappingType === 'derived' || m.sourceDoc === 'CALCULATED') return 'calculated';
+  return 'source';
+}
+
+function provenanceColors(kind: FieldProvenance): {
+  accent: string;
+  text: string;
+  bg: string;
+  border: string;
+} {
+  if (kind === 'manual') {
+    return {
+      accent: RED,
+      text: RED,
+      bg: 'hsla(0,84%,60%,0.06)',
+      border: `1px solid hsla(0,84%,60%,0.35)`,
+    };
+  }
+  if (kind === 'calculated') {
+    return {
+      accent: BLUE,
+      text: BLUE,
+      bg: 'hsl(var(--vs-info) / 0.08)',
+      border: '1px solid hsl(var(--vs-info) / 0.30)',
+    };
+  }
+  return {
+    accent: AMBER,
+    text: AMBER,
+    bg: 'hsla(38,92%,50%,0.10)',
+    border: '1px solid hsla(38,92%,50%,0.35)',
+  };
+}
+
 function sourceTagContent(m: FieldMapping, sourceDocs: { docType: string; label: string }[]) {
   const label = sourceDocLabel(m.sourceDoc, sourceDocs);
-  if (m.mappingType === 'manual')      return { text: 'Manual input required' };
-  if (m.mappingType === 'derived') {
+  const kind = fieldProvenance(m);
+  if (m.mappingType === 'conditional') return { text: `Conditional · ${m.transformation ?? ''}`, kind };
+  if (kind === 'manual') return { text: 'Manual input required', kind };
+  if (kind === 'calculated') {
     const formula = String(m.transformation ?? '').trim();
-    return { text: formula && formula.toLowerCase() !== label.toLowerCase() ? `Calculated · ${formula}` : 'Calculated' };
+    return {
+      text: formula && formula.toLowerCase() !== label.toLowerCase() ? `Calculated · ${formula}` : 'Calculated',
+      kind,
+    };
   }
-  if (m.mappingType === 'conditional') return { text: `Conditional · ${m.transformation ?? ''}` };
-  return { text: `From ${label}` };
+  return { text: `From ${label}`, kind };
 }
 
 function prereqShortHint(prereqs: Prerequisite[]): string {
@@ -492,9 +534,10 @@ function FieldCard({ mapping, value, sourceDocs, onChange }: {
   sourceDocs: { docType: string; label: string }[];
   onChange?:  (v: string) => void;
 }) {
-  const { text } = sourceTagContent(mapping, sourceDocs);
+  const { text, kind } = sourceTagContent(mapping, sourceDocs);
+  const colors = provenanceColors(kind);
   const isEmpty  = !value;
-  const isManual = mapping.mappingType === 'manual' || mapping.mappingType === 'conditional';
+  const isManual = kind === 'manual';
   const isEditable = !!onChange;
 
   return (
@@ -502,14 +545,18 @@ function FieldCard({ mapping, value, sourceDocs, onChange }: {
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.045em', color: MUTED, fontWeight: 500, marginBottom: 5 }}>
         {mapping.targetLabel}
         {isManual && isEmpty && (
-          <span style={{ color: MUTED, fontWeight: 700, marginLeft: 4 }}>*</span>
+          <span style={{ color: RED, fontWeight: 700, marginLeft: 4 }}>*</span>
         )}
       </div>
       <div
         title={mapping.validation ?? undefined}
         style={{
-          backgroundColor: 'hsl(var(--muted) / 0.42)', border: `1px solid ${BORDER}`, borderRadius: 6,
+          backgroundColor: colors.bg,
+          border: colors.border,
+          borderLeft: `3px solid ${colors.accent}`,
+          borderRadius: 6,
           padding: isEditable ? '0 0 0 10px' : '7px 10px', fontSize: 13, fontWeight: 600,
+          color: kind === 'calculated' ? colors.text : FG,
           ...(mapping.mono ? MONO : {}),
           minHeight: 34, display: 'flex', alignItems: 'center',
         }}
@@ -521,7 +568,7 @@ function FieldCard({ mapping, value, sourceDocs, onChange }: {
             placeholder="Enter value..."
             style={{
               flex: 1, border: 'none', background: 'transparent', outline: 'none',
-              fontSize: 13, fontWeight: 600, color: FG, padding: '7px 10px 7px 0',
+              fontSize: 13, fontWeight: 600, color: kind === 'manual' ? RED : FG, padding: '7px 10px 7px 0',
               minHeight: 34, width: '100%',
               ...(mapping.mono ? MONO : {}),
             }}
@@ -531,7 +578,10 @@ function FieldCard({ mapping, value, sourceDocs, onChange }: {
         )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
-        <span style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.06em', color: MUTED, fontWeight: 500 }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: '50%', backgroundColor: colors.accent, flexShrink: 0,
+        }} />
+        <span style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.06em', color: colors.text, fontWeight: 700 }}>
           {text}
         </span>
       </div>
@@ -610,14 +660,21 @@ function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onMan
             {(onAddRow || onRemoveRow) && (
               <th style={{ width: 44, padding: '7px 8px', borderRight: `1px solid ${BORDER}` }} />
             )}
-            {cols.map(col => (
+            {cols.map(col => {
+              const kind = fieldProvenance(col);
+              const colors = provenanceColors(kind);
+              return (
                 <th key={col.targetField} style={{
                   padding: '7px 10px', textAlign: 'left', fontWeight: 600, fontSize: 11,
                   textTransform: 'uppercase', letterSpacing: '0.04em', color: FG, whiteSpace: 'nowrap',
                 }}>
-                  {col.targetLabel}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: colors.accent, flexShrink: 0 }} />
+                    {col.targetLabel}
+                  </span>
                 </th>
-              ))}
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -650,8 +707,10 @@ function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onMan
               )}
               {cols.map(col => {
                 const isDerived = col.mappingType === 'derived';
-                const manualKey = `${section.sectionLabel}.${ri}.${col.targetField}`;
+                const isSplitRow = row._splitRow === 'true';
                 const forceCalculated = col.targetField === 'qtyPerBundle';
+                const baseKind = fieldProvenance(col);
+                const manualKey = `${section.sectionLabel}.${ri}.${col.targetField}`;
                 const baseVal = isDerived
                   ? (computedRows[ri]?.[col.targetField] ?? row[col.targetField] ?? '')
                   : (row[col.targetField] ?? '');
@@ -660,8 +719,10 @@ function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onMan
                     ? isPackingListEditableLineField(col.targetField, row, rows)
                     : !forceCalculated
                 );
+                // Added split rows (+): user-entered cells render as manual (red).
+                const kind: FieldProvenance = (isSplitRow && isEditable) ? 'manual' : baseKind;
+                const colors = provenanceColors(kind);
                 const val = isEditable ? (manualValues[manualKey] ?? baseVal) : baseVal;
-                const hasValue = String(val ?? '').trim() !== '';
                 const netWeight = isPackingListLineItems
                   ? numericDraftValue(rowVisibleValue(section.sectionLabel, ri, 'netWeightKgs', row, manualValues, { [section.sectionLabel]: computedRows }))
                   : null;
@@ -670,28 +731,21 @@ function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onMan
                   : null;
                 const hasWeightOrderError = netWeight !== null && grossWeight !== null && grossWeight <= netWeight;
                 const isWeightErrorCell = hasWeightOrderError && (col.targetField === 'netWeightKgs' || col.targetField === 'grossWeightKgs');
-                const highlightState = isWeightErrorCell
-                  ? 'invalid'
-                  : isPackingListLineItems && isEditable
-                    ? (hasValue ? 'complete' : 'missing')
-                    : null;
-                const cellBackground = highlightState === 'invalid'
+                const cellBackground = isWeightErrorCell
                   ? 'hsla(0,84%,60%,0.14)'
-                  : highlightState === 'complete'
-                    ? 'hsla(152,69%,31%,0.12)'
-                    : highlightState === 'missing'
-                      ? 'hsla(0,84%,60%,0.12)'
-                      : 'hsl(var(--muted) / 0.42)';
-                const cellOutline = highlightState === 'invalid'
+                  : colors.bg;
+                const cellOutline = isWeightErrorCell
                   ? '1px solid hsla(0,84%,60%,0.72)'
-                  : highlightState === 'complete'
-                    ? '1px solid hsla(152,69%,31%,0.46)'
-                    : highlightState === 'missing'
-                      ? '1px solid hsla(0,84%,60%,0.46)'
-                      : `1px solid ${BORDER}`;
-                const textColor = isWeightErrorCell ? RED : FG;
-                const isAutoDerived = !isTotalsSection && isDerived && forceCalculated && String(computedRows[ri]?.[col.targetField] ?? '').trim() !== '';
-                const qtyBundleHint = forceCalculated && String(computedRows[ri]?.[col.targetField] ?? '').trim()
+                  : `1px solid ${colors.accent}66`;
+                const textColor = isWeightErrorCell
+                  ? RED
+                  : kind === 'calculated'
+                    ? colors.text
+                    : kind === 'manual'
+                      ? RED
+                      : FG;
+                const isAutoDerived = !isTotalsSection && !isEditable && (isDerived || forceCalculated) && String(computedRows[ri]?.[col.targetField] ?? val ?? '').trim() !== '';
+                const qtyBundleHint = forceCalculated && !isEditable && String(computedRows[ri]?.[col.targetField] ?? '').trim()
                   ? `${rowVisibleValue(section.sectionLabel, ri, 'totalQtyInPcs', row, manualValues, { [section.sectionLabel]: computedRows }) || 'Qty'} / ${rowVisibleValue(section.sectionLabel, ri, 'noOfBundles', row, manualValues, { [section.sectionLabel]: computedRows }) || 'Bundles'} = ${computedRows[ri]?.[col.targetField]}`
                   : '';
                 return (
@@ -703,6 +757,7 @@ function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onMan
                     whiteSpace: 'nowrap',
                     outline: cellOutline,
                     outlineOffset: -1,
+                    borderLeft: `3px solid ${isWeightErrorCell ? RED : colors.accent}`,
                   }}>
                     {isEditable ? (
                       <div style={{ position: 'relative' }}>
@@ -719,10 +774,10 @@ function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onMan
                         />
                       </div>
                     ) : (
-                      <span style={{ display: 'block', padding: isAutoDerived ? '7px 42px 3px 10px' : '7px 10px', position: 'relative', color: textColor, fontWeight: isWeightErrorCell ? 800 : undefined }}>
+                      <span style={{ display: 'block', padding: isAutoDerived ? '7px 42px 3px 10px' : '7px 10px', position: 'relative', color: textColor, fontWeight: kind === 'calculated' || isWeightErrorCell ? 800 : undefined }}>
                         {val || '—'}
                         {isAutoDerived && (
-                          <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 9, fontWeight: 800, color: TEAL, background: 'hsla(173,58%,39%,0.10)', borderRadius: 999, padding: '1px 6px', pointerEvents: 'none' }}>
+                          <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 9, fontWeight: 800, color: BLUE, background: 'hsl(var(--vs-info) / 0.12)', borderRadius: 999, padding: '1px 6px', pointerEvents: 'none' }}>
                             auto
                           </span>
                         )}
@@ -734,7 +789,7 @@ function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onMan
                       </div>
                     )}
                     {qtyBundleHint && (
-                      <div style={{ padding: '0 10px 6px', fontSize: 10.5, color: MUTED, fontWeight: 650, whiteSpace: 'nowrap' }}>
+                      <div style={{ padding: '0 10px 6px', fontSize: 10.5, color: BLUE, fontWeight: 650, whiteSpace: 'nowrap' }}>
                         {qtyBundleHint}
                       </div>
                     )}
@@ -745,15 +800,20 @@ function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onMan
           ))}
           <tr style={{ background: 'hsl(var(--muted) / 0.65)', borderTop: `2px solid ${BORDER}`, fontWeight: 700 }}>
             {(onAddRow || onRemoveRow) && <td style={{ padding: '7px 8px' }} />}
-            {cols.map((col, ci) => (
+            {cols.map((col, ci) => {
+              const kind = fieldProvenance(col);
+              const colors = provenanceColors(kind);
+              return (
               <td key={col.targetField} style={{
                 padding: '7px 10px', fontSize: 12,
-                color: MUTED,
+                color: kind === 'calculated' ? colors.text : MUTED,
+                fontWeight: kind === 'calculated' ? 700 : undefined,
                 ...(col.mono ? MONO : {}),
               }}>
                 {ci === 0 ? 'TOTAL' : col.mappingType === 'derived' ? `SUM(${col.targetLabel})` : ''}
               </td>
-            ))}
+              );
+            })}
           </tr>
         </tbody>
       </table>
@@ -818,17 +878,20 @@ function SourceLegendTooltip({ schema }: { schema: DocGenSchema }) {
             const cnt = allMappings.filter(m => m.sourceDoc === src && (m.mappingType === 'direct' || m.mappingType === 'contextual')).length;
             return (
               <div key={src} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5, fontSize: 11.5 }}>
-                <span style={{ flex: 1, color: FG }}>{sourceDocLabel(src, schema.sourceDocs)}</span>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: AMBER, flexShrink: 0 }} />
+                <span style={{ flex: 1, color: AMBER, fontWeight: 600 }}>{sourceDocLabel(src, schema.sourceDocs)}</span>
                 <span style={{ color: MUTED }}>{cnt}</span>
               </div>
             );
           })}
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5, fontSize: 11.5 }}>
-            <span style={{ flex: 1, color: FG }}>Calculated</span>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: BLUE, flexShrink: 0 }} />
+            <span style={{ flex: 1, color: BLUE, fontWeight: 600 }}>Calculated</span>
             <span style={{ color: MUTED }}>{calcCount}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5 }}>
-            <span style={{ flex: 1, color: FG }}>Manual input</span>
+            <span style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: RED, flexShrink: 0 }} />
+            <span style={{ flex: 1, color: RED, fontWeight: 600 }}>Manual input</span>
             <span style={{ color: MUTED }}>{manualCount}</span>
           </div>
         </div>
