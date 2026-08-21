@@ -2541,12 +2541,12 @@ export function ShipmentDndInputsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] w-[calc(100vw-48px)] max-w-4xl overflow-y-auto p-0">
-        <DialogHeader className="border-b border-border px-6 py-4">
+      <DialogContent className="fixed left-[50%] top-[4vh] z-[10001] flex max-h-[92vh] w-[calc(100vw-48px)] max-w-4xl translate-x-[-50%] translate-y-0 flex-col gap-0 overflow-hidden p-0 sm:rounded-lg">
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-4 pr-14">
           <DialogTitle className="text-[14px]">Shipment - BOL Upload</DialogTitle>
           <DialogDescription className="text-[11px]">Operations shipment console inputs for D&D applicability, free time and day-count rules.</DialogDescription>
         </DialogHeader>
-        <div className="space-y-5 bg-muted/20 px-6 py-5">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain bg-muted/20 px-6 py-5">
           <section className="rounded-md border border-border p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -2672,7 +2672,7 @@ export function ShipmentDndInputsDialog({
             {saveNote && <div className="mt-3 rounded-md border border-primary/20 bg-primary/5 p-3 text-[10px]">{saveNote}</div>}
           </section>
         </div>
-        <DialogFooter className="border-t border-border px-6 py-4">
+        <DialogFooter className="shrink-0 border-t border-border bg-background px-6 py-4">
           <Button type="button" variant="outline" onClick={() => setShowRules((value) => !value)} className="mr-auto gap-2"><FileText className="size-4" /> Rules & Logic</Button>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <DndInputsAccess>
