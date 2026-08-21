@@ -51,6 +51,7 @@ async def ensure_task_engine_tables(prisma) -> None:
         "public.task_engine_events",
         "public.task_instances",
         "public.notifications",
+        "public.notification_deliveries",
         "public.task_sla_events",
         "public.activity_task_events",
     )

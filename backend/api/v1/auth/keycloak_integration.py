@@ -244,6 +244,10 @@ def check_any_role(required_roles: List[str]):
         return True
     return role_checker
 
+def _safe_last_name(value: str | None) -> str:
+    return str(value or "").strip() or "-"
+
+
 async def create_keycloak_user(email: str, password: str, first_name: str, last_name: str, roles: List[str] = None):
     """
     Create a new user in Keycloak
@@ -265,7 +269,7 @@ async def create_keycloak_user(email: str, password: str, first_name: str, last_
         "username": email,
         "email": email,
         "firstName": first_name,
-        "lastName": last_name,
+        "lastName": _safe_last_name(last_name),
         "enabled": True,
         "credentials": [{
             "type": "password",

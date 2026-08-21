@@ -90,6 +90,21 @@ services:
     networks:
       - ewms-net
 
+  freshdesk-worker:
+    <<: [*backend-image, *backend-env, *backend-depends-api]
+    command: ["python", "-m", "freshdesk_worker.worker"]
+    environment:
+      RUN_OCR_WORKERS_IN_API: "false"
+      DATABASE_URL: ${DATABASE_URL:-postgresql://ewms-postgres:ewms%40%232026%21@postgres:5432/ewms-db}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      KEYCLOAK_URL: http://ewms-keycloak:8080/keycloak
+      TASK_ENGINE_DEBUG: ${TASK_ENGINE_DEBUG:-false}
+      FRESHDESK_WORKER_POLL_SECONDS: ${FRESHDESK_WORKER_POLL_SECONDS:-5}
+      FRESHDESK_WORKER_BATCH_SIZE: ${FRESHDESK_WORKER_BATCH_SIZE:-10}
+    restart: unless-stopped
+    networks:
+      - ewms-net
+
   frontend:
     build:
       context: ./frontend

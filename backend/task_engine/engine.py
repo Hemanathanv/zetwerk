@@ -9,7 +9,7 @@ from typing import Any
 from uuid import uuid4
 
 from .documents import display_doc_type, extraction_source, normalize_doc_type, normalize_key
-from .notifications import insert_notification
+from .notifications import dispatch_notification_channels, insert_notification
 from .repository import (
     ensure_task_engine_tables,
     execute_raw,
@@ -114,7 +114,8 @@ class TaskEngine:
               t."id"::text AS task_id, t."title", t."description", t."assigned_role", t."assigned_user_id",
               t."created_at", t."sla_deadline", t."status", t."urgency", t."metadata",
               ec."reminder_pct", ec."warning_pct", ec."escalation_pct", ec."blocker_pct",
-              ec."reminder_message", ec."warning_message", ec."escalation_message", ec."blocker_message"
+              ec."reminder_message", ec."warning_message", ec."escalation_message", ec."blocker_message",
+              ec."channels"
             FROM "public"."task_instances" t
             JOIN LATERAL (
               SELECT ec.*
@@ -666,6 +667,22 @@ class TaskEngine:
                 metadata = json.loads(metadata)
             except json.JSONDecodeError:
                 metadata = {}
+        existing_events = await query_raw(
+            self.prisma,
+            """
+            SELECT 1
+            FROM "public"."task_sla_events"
+            WHERE "task_id" = $1::uuid
+              AND "threshold_type" = $2
+              AND "threshold_pct" = $3
+            LIMIT 1
+            """,
+            str(task["task_id"]),
+            threshold,
+            threshold_pct,
+        )
+        if existing_events:
+            return False
         message = self._render_template(
             message_template,
             {
@@ -677,6 +694,7 @@ class TaskEngine:
                 "Shipment No": str(metadata.get("shipmentId") or ""),
             },
         ) or f"This task has reached its {threshold} SLA threshold."
+        notification_metadata = {"threshold": threshold, "thresholdPct": threshold_pct}
         notification_id = await insert_notification(
             self.prisma,
             task_id=str(task["task_id"]),
@@ -687,7 +705,7 @@ class TaskEngine:
             recipient_user_id=task.get("assigned_user_id"),
             source=f"task_sla_{threshold}",
             dedupe_key=f"task-sla:{task['task_id']}:{threshold}:{threshold_pct}",
-            metadata={"threshold": threshold, "thresholdPct": threshold_pct},
+            metadata=notification_metadata,
         )
         _debug(
             "sla.notification.saved",
@@ -712,6 +730,18 @@ class TaskEngine:
         )
         if not rows:
             return False
+        await dispatch_notification_channels(
+            self.prisma,
+            channels=task.get("channels"),
+            notification_id=notification_id,
+            task_id=str(task["task_id"]),
+            level=threshold,
+            title=title,
+            message=message,
+            recipient_role=task.get("assigned_role"),
+            recipient_user_id=task.get("assigned_user_id"),
+            metadata=notification_metadata,
+        )
         if threshold == "warning":
             await execute_raw(self.prisma, 'UPDATE "public"."task_instances" SET "urgency" = \'WARNING\', "updated_at" = NOW() WHERE "id" = $1::uuid', str(task["task_id"]))
         if threshold == "escalation":

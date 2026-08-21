@@ -3223,6 +3223,42 @@ model Notification {
   @@map("notifications")
 }
 
+model NotificationDelivery {
+  id                 String    @id @default(uuid()) @db.Uuid
+  channel            String
+  provider           String    @default("freshdesk")
+  status             String    @default("PENDING")
+  taskId             String?   @map("task_id") @db.Uuid
+  notificationId     String?   @map("notification_id") @db.Uuid
+  thresholdType      String?   @map("threshold_type")
+  thresholdPct       Int?      @map("threshold_pct")
+  providerThreadKey  String?   @map("provider_thread_key")
+  providerDeliveryId String?   @map("provider_delivery_id")
+  title              String
+  message            String?
+  recipientRole      String?   @map("recipient_role")
+  recipientUserId    String?   @map("recipient_user_id")
+  payload            Json      @default("{}")
+  attempts           Int       @default(0)
+  maxAttempts        Int       @default(5) @map("max_attempts")
+  nextAttemptAt      DateTime  @default(now()) @map("next_attempt_at")
+  lockedAt           DateTime? @map("locked_at")
+  lockedBy           String?   @map("locked_by")
+  sentAt             DateTime? @map("sent_at")
+  failedAt           DateTime? @map("failed_at")
+  lastError          String?   @map("last_error")
+  dedupeKey          String    @unique @map("dedupe_key")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([channel, status, nextAttemptAt], map: "idx_notification_deliveries_pending")
+  @@index([taskId], map: "idx_notification_deliveries_task")
+  @@index([notificationId], map: "idx_notification_deliveries_notification")
+  @@index([providerThreadKey], map: "idx_notification_deliveries_thread")
+  @@schema("public")
+  @@map("notification_deliveries")
+}
+
 model ActivityTaskEvent {
   id             String    @id @default(uuid()) @db.Uuid
   activityType   String    @map("activity_type")

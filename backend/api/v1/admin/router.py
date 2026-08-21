@@ -954,6 +954,7 @@ class RoleActivitySlaRequest(BaseModel):
     warningTrigger: str | None = None
     escalationTrigger: str | None = None
     blockerTrigger: str | None = None
+    channels: dict[str, Any] | None = None
 
 
 class RoleProfileRequest(BaseModel):
@@ -1108,6 +1109,31 @@ DEFAULT_ESCALATION_CHANNELS: dict[str, Any] = {
     "escalation": {"email": True, "freshdesk": False},
     "blocker": {"email": True, "freshdesk": True},
 }
+
+ESCALATION_LEVELS = ("reminder", "warning", "escalation", "blocker")
+ESCALATION_CHANNEL_KEYS = ("email", "freshdesk")
+
+
+def _normalize_escalation_channels(value: Any) -> dict[str, dict[str, bool]]:
+    raw = value
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    normalized: dict[str, dict[str, bool]] = {}
+    for level in ESCALATION_LEVELS:
+        level_raw = raw.get(level)
+        if not isinstance(level_raw, dict):
+            level_raw = {}
+        defaults = DEFAULT_ESCALATION_CHANNELS.get(level, {})
+        normalized[level] = {
+            key: bool(level_raw.get(key, defaults.get(key, False)))
+            for key in ESCALATION_CHANNEL_KEYS
+        }
+    return normalized
 
 GENERATED_DOCUMENT_SCOPE_DOCS = "Packing List, Draft CBP FORM 7501, Outward GRN"
 CONTAINER_MAPPING_SCOPE_DOCS = "Bill of Lading"
@@ -1559,7 +1585,7 @@ def _escalation_config_from_sla_row(index: int, scope: str, activity_name: str, 
         "warningTrigger": str(trigger_config.get("warningTrigger") or ""),
         "escalationTrigger": str(trigger_config.get("escalationTrigger") or ""),
         "blockerTrigger": str(trigger_config.get("blockerTrigger") or ""),
-        "channels": DEFAULT_ESCALATION_CHANNELS,
+        "channels": _normalize_escalation_channels(DEFAULT_ESCALATION_CHANNELS),
         "targets": {},
     }
 
@@ -1570,13 +1596,8 @@ DEFAULT_ESCALATION_CONFIGS: list[dict[str, Any]] = [
 ]
 
 def _escalation_row_to_config(row: dict[str, Any]) -> dict[str, Any]:
-    channels = row.get("channels")
+    channels = _normalize_escalation_channels(row.get("channels"))
     targets = row.get("targets")
-    if isinstance(channels, str):
-        try:
-            channels = json.loads(channels)
-        except Exception:
-            channels = {}
     if isinstance(targets, str):
         try:
             targets = json.loads(targets)
@@ -1606,7 +1627,7 @@ def _escalation_row_to_config(row: dict[str, Any]) -> dict[str, Any]:
         "warningTrigger": row.get("warning_trigger") or "",
         "escalationTrigger": row.get("escalation_trigger") or "",
         "blockerTrigger": row.get("blocker_trigger") or "",
-        "channels": channels or DEFAULT_ESCALATION_CHANNELS,
+        "channels": channels,
         "targets": targets or {},
     }
 
@@ -1848,6 +1869,7 @@ def _activity_sla_from_request(request: RoleProfileRequest) -> list[dict[str, An
             "warningTrigger": item.warningTrigger or trigger_config.get("warningTrigger") or "",
             "escalationTrigger": item.escalationTrigger or trigger_config.get("escalationTrigger") or "",
             "blockerTrigger": item.blockerTrigger or trigger_config.get("blockerTrigger") or "",
+            "channels": _normalize_escalation_channels(item.channels),
             "assignedRole": _canonical_role_name(request.name),
         })
     return rows
@@ -2559,8 +2581,27 @@ async def _next_escalation_config_id_db(prisma, activity_type: str, scope: str =
     return candidate
 
 
-async def _find_escalation_config_by_activity_scope(prisma, activity_type: str, scope: str) -> dict[str, Any] | None:
+async def _find_escalation_config_by_activity_scope(prisma, activity_type: str, scope: str, assigned_role: str | None = None) -> dict[str, Any] | None:
     await _seed_default_escalation_configs(prisma)
+    role = _canonical_role_name(assigned_role or "")
+    if role:
+        rows = await _query_raw(
+            prisma,
+            """
+            SELECT *
+            FROM "public"."escalation_configs"
+            WHERE LOWER("activity_type") = LOWER($1)
+              AND LOWER(COALESCE("scope", '')) = LOWER($2)
+              AND LOWER(COALESCE("targets"->>'assignedRole', '')) = LOWER($3)
+            ORDER BY "id" ASC
+            LIMIT 1
+            """,
+            activity_type,
+            scope,
+            role,
+        )
+        if rows:
+            return _escalation_row_to_config(rows[0])
     rows = await _query_raw(
         prisma,
         """
@@ -2568,6 +2609,7 @@ async def _find_escalation_config_by_activity_scope(prisma, activity_type: str, 
         FROM "public"."escalation_configs"
         WHERE LOWER("activity_type") = LOWER($1)
           AND LOWER(COALESCE("scope", '')) = LOWER($2)
+          AND COALESCE("targets"->>'assignedRole', '') = ''
         ORDER BY "id" ASC
         LIMIT 1
         """,
@@ -2588,8 +2630,9 @@ async def _upsert_activity_sla_configs(prisma, activity_sla: list[dict[str, Any]
         scope = str(item.get("scope") or "").strip()
         if not activity_type or not activity_name or not scope:
             continue
-        existing = await _find_escalation_config_by_activity_scope(prisma, activity_type, scope)
-        config_id = existing["id"] if existing else await _next_escalation_config_id_db(prisma, activity_type, scope)
+        assigned_role = _canonical_role_name(str(item.get("assignedRole") or ""))
+        existing = await _find_escalation_config_by_activity_scope(prisma, activity_type, scope, assigned_role)
+        config_id = existing["id"] if existing else await _next_escalation_config_id_db(prisma, activity_type, f"{scope} {assigned_role}" if assigned_role else scope)
         current = {
             "id": config_id,
             "activityType": activity_type,
@@ -2614,10 +2657,10 @@ async def _upsert_activity_sla_configs(prisma, activity_sla: list[dict[str, Any]
             "warningTrigger": item.get("warningTrigger") or (existing or {}).get("warningTrigger") or "",
             "escalationTrigger": item.get("escalationTrigger") or (existing or {}).get("escalationTrigger") or "",
             "blockerTrigger": item.get("blockerTrigger") or (existing or {}).get("blockerTrigger") or "",
-            "channels": (existing or {}).get("channels") or DEFAULT_ESCALATION_CHANNELS,
+            "channels": _normalize_escalation_channels(item.get("channels") or (existing or {}).get("channels") or DEFAULT_ESCALATION_CHANNELS),
             "targets": {
                 **((existing or {}).get("targets") or {}),
-                "assignedRole": item.get("assignedRole") or ((existing or {}).get("targets") or {}).get("assignedRole"),
+                "assignedRole": assigned_role or ((existing or {}).get("targets") or {}).get("assignedRole"),
             },
         }
         await _execute_raw(
@@ -3070,7 +3113,7 @@ async def create_admin_escalation(request: EscalationConfigRequest, _user=Depend
         "warningPct": data.get("warningPct") if data.get("warningPct") is not None else 50,
         "escalationPct": data.get("escalationPct") if data.get("escalationPct") is not None else 75,
         "blockerPct": data.get("blockerPct") if data.get("blockerPct") is not None else 100,
-        "channels": data.get("channels") or DEFAULT_ESCALATION_CHANNELS,
+        "channels": _normalize_escalation_channels(data.get("channels") or DEFAULT_ESCALATION_CHANNELS),
         "targets": data.get("targets") or {},
     }
     await _execute_raw(
@@ -3145,7 +3188,7 @@ async def update_admin_escalation(config_id: str, request: EscalationConfigReque
         int(current.get("warningPct") or 50),
         int(current.get("escalationPct") or 75),
         int(current.get("blockerPct") or 100),
-        json.dumps(current.get("channels") or DEFAULT_ESCALATION_CHANNELS),
+        json.dumps(_normalize_escalation_channels(current.get("channels") or DEFAULT_ESCALATION_CHANNELS)),
         json.dumps(current.get("targets") or {}),
     )
     return {"ok": True, "data": current}
@@ -3529,7 +3572,7 @@ async def _sync_local_user_from_keycloak(*, prisma, keycloak_user: dict, roles: 
         )
 
     first_name = str(keycloak_user.get("firstName") or "").strip() or None
-    last_name = str(keycloak_user.get("lastName") or "").strip() or None
+    last_name = _safe_last_name(str(keycloak_user.get("lastName") or ""))
     if first_name or last_name:
         await prisma.profile.upsert(
             where={"userId": user.id},
@@ -3637,9 +3680,13 @@ async def list_admin_users(_user=Depends(get_admin_user), _authz=Depends(require
         raise HTTPException(status_code=500, detail=f"Could not sync users from Keycloak: {exc}")
 
 
+def _safe_last_name(value: str | None) -> str:
+    return str(value or "").strip() or "-"
+
+
 def _split_full_name(full_name: str) -> tuple[str, str]:
     first_name, _, last_name = full_name.strip().partition(" ")
-    return first_name or full_name.strip(), last_name
+    return first_name or full_name.strip(), _safe_last_name(last_name)
 
 
 def _assign_primary_role(keycloak_admin, user_id: str, role_name: str) -> None:
@@ -3972,7 +4019,7 @@ async def invite_admin_user(request: InviteUserRequest, admin_user=Depends(get_a
     prisma = await get_prisma()
     keycloak_admin = get_keycloak_admin()
 
-    first_name, _, last_name = full_name.partition(" ")
+    first_name, last_name = _split_full_name(full_name)
     role_name = request.roleId.strip()
     if not role_name:
         return {"ok": False, "error": "Role is required."}
@@ -3989,7 +4036,7 @@ async def invite_admin_user(request: InviteUserRequest, admin_user=Depends(get_a
             "username": email,
             "email": email,
             "firstName": first_name or full_name,
-            "lastName": last_name or "",
+            "lastName": _safe_last_name(last_name),
             "enabled": True,
             "emailVerified": True,
         }
@@ -4058,7 +4105,7 @@ async def invite_admin_user(request: InviteUserRequest, admin_user=Depends(get_a
     return {
         "ok": True,
         "data": _keycloak_user_row(
-            {"id": user_id, "email": email, "username": email, "firstName": first_name, "lastName": last_name, "enabled": True},
+            {"id": user_id, "email": email, "username": email, "firstName": first_name, "lastName": _safe_last_name(last_name), "enabled": True},
             keycloak_admin.get_realm_roles_of_user(user_id),
         ),
     }
@@ -4439,7 +4486,7 @@ async def create_tenant_user(
             "username": user_data.username,
             "email": user_data.email,
             "firstName": user_data.firstName,
-            "lastName": user_data.lastName,
+            "lastName": _safe_last_name(user_data.lastName),
             "enabled": True,
             "credentials": [{
                 "type": "password",

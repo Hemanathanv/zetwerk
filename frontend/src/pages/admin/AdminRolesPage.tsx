@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   ChevronRight, ChevronDown, Check, Copy, Trash2, Pencil,
   FileText, Layers, Receipt, Loader2, AlertTriangle, ArrowLeft,
+  Bell, Mail, Headphones,
 } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminTable, type Column } from '@/components/admin/AdminTable';
@@ -69,6 +70,10 @@ interface RequiredSlaRow {
   taskEnabled?: boolean;
 }
 
+type SlaLevel = 'reminder' | 'warning' | 'escalation' | 'blocker';
+type NotificationChannelKey = 'email' | 'freshdesk';
+type ChannelConfig = Record<SlaLevel, Record<NotificationChannelKey, boolean>>;
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 const LEVELS = ['L1', 'L2', 'L3', 'L4'];
 
@@ -130,6 +135,25 @@ const SLA_LEVEL_COLORS = {
 };
 
 const ACTIVITY_SLA_GRID_COLUMNS = '230px 86px 145px 120px 145px repeat(4, 108px)';
+
+const SLA_LEVELS: { key: SlaLevel; label: string }[] = [
+  { key: 'reminder', label: 'Reminder' },
+  { key: 'warning', label: 'Warning' },
+  { key: 'escalation', label: 'Escalation' },
+  { key: 'blocker', label: 'Blocker' },
+];
+
+const NOTIFICATION_CHANNELS: { key: NotificationChannelKey; label: string; Icon: React.ElementType }[] = [
+  { key: 'email', label: 'Email', Icon: Mail },
+  { key: 'freshdesk', label: 'Ticket', Icon: Headphones },
+];
+
+const DEFAULT_CHANNELS: ChannelConfig = {
+  reminder: { email: false, freshdesk: false },
+  warning: { email: true, freshdesk: false },
+  escalation: { email: true, freshdesk: false },
+  blocker: { email: true, freshdesk: true },
+};
 
 const SLA_ACTIVITY_CONFIG: Record<string, { activityType: string; activityName: string; description: string; baseDoc: string }> = {
   'documents.upload': {
@@ -282,6 +306,19 @@ function escalationMatches(row: EscalationConfig, required: RequiredSlaRow) {
     && String(row.scope ?? '').trim().toLowerCase() === required.scopeLabel.trim().toLowerCase();
 }
 
+function normalizeChannelConfig(value: unknown): ChannelConfig {
+  const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const next = {} as ChannelConfig;
+  SLA_LEVELS.forEach(({ key }) => {
+    const levelRaw = raw[key] && typeof raw[key] === 'object' ? raw[key] as Record<string, unknown> : {};
+    next[key] = {
+      email: typeof levelRaw.email === 'boolean' ? levelRaw.email : DEFAULT_CHANNELS[key].email,
+      freshdesk: typeof levelRaw.freshdesk === 'boolean' ? levelRaw.freshdesk : DEFAULT_CHANNELS[key].freshdesk,
+    };
+  });
+  return next;
+}
+
 function activityScopeSummary(activity: Activity, selected: string[] | undefined, docTypes: DocType[]) {
   if (activity.scopeType !== 'docType') return activity.scope || '-';
   if (!selected?.length) return activity.scope || 'Doc names';
@@ -347,6 +384,92 @@ function ScopePanel({ title, children }: { title: string; children: React.ReactN
   );
 }
 
+function RoleChannelMatrix({
+  channels,
+  onChange,
+}: {
+  channels: ChannelConfig;
+  onChange: (level: SlaLevel, channel: NotificationChannelKey, enabled: boolean) => void;
+}) {
+  const headerStyle: React.CSSProperties = {
+    padding: '8px 12px',
+    fontSize: 14.5,
+    fontWeight: 700,
+    color: 'hsl(var(--muted-foreground))',
+    textAlign: 'center',
+    borderBottom: '1px solid hsl(var(--border))',
+    background: 'hsl(var(--muted) / 0.5)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+  };
+  const cellStyle: React.CSSProperties = {
+    padding: '11px 12px',
+    textAlign: 'center',
+    borderBottom: '1px solid hsl(var(--border))',
+  };
+  const levelSubtext: Record<SlaLevel, string> = {
+    reminder: 'Notification',
+    warning: 'Notification + supervisor',
+    escalation: 'Notification + manager',
+    blocker: 'Workflow stops',
+  };
+
+  return (
+    <div style={{ background: 'hsl(var(--card))', borderRadius: 8, border: '1px solid hsl(var(--border))', overflow: 'hidden' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th style={{ ...headerStyle, textAlign: 'left', width: 230 }}>Level</th>
+            <th style={headerStyle}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                <Bell size={13} /><span>In-app</span>
+              </div>
+            </th>
+            {NOTIFICATION_CHANNELS.map(({ key, label, Icon }) => (
+              <th key={key} style={headerStyle}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                  <Icon size={13} /><span>{label}</span>
+                </div>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {SLA_LEVELS.map(({ key, label }, rowIndex) => {
+            const isLast = rowIndex === SLA_LEVELS.length - 1;
+            return (
+              <tr key={key}>
+                <td style={{ ...cellStyle, textAlign: 'left', borderBottom: isLast ? 'none' : cellStyle.borderBottom }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: SLA_LEVEL_COLORS[key].dot, flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: 14.5, fontWeight: 600 }}>{label}</div>
+                      <div style={{ fontSize: 14.5, color: 'hsl(var(--muted-foreground))' }}>{levelSubtext[key]}</div>
+                    </div>
+                  </div>
+                </td>
+                <td style={{ ...cellStyle, borderBottom: isLast ? 'none' : cellStyle.borderBottom }}>
+                  <input type="checkbox" checked disabled style={{ accentColor: 'hsl(173 58% 39%)' }} />
+                </td>
+                {NOTIFICATION_CHANNELS.map(({ key: channel }) => (
+                  <td key={channel} style={{ ...cellStyle, borderBottom: isLast ? 'none' : cellStyle.borderBottom }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(channels[key]?.[channel])}
+                      onChange={(e) => onChange(key, channel, e.target.checked)}
+                      style={{ accentColor: SLA_LEVEL_COLORS[key].dot, cursor: 'pointer', width: 15, height: 15 }}
+                    />
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ─── Role Editor ──────────────────────────────────────────────────────────────
 interface EditorProps {
   roleId: string;
@@ -395,6 +518,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
     blockerPct: string;
   }>>({});
   const [slaTaskEnabledByKey, setSlaTaskEnabledByKey] = useState<Record<string, boolean>>({});
+  const [channels, setChannels] = useState<ChannelConfig>(DEFAULT_CHANNELS);
   const [editingSlaCell, setEditingSlaCell] = useState<{ rowKey: string; field: 'baseSlaHours' | 'reminderPct' | 'warningPct' | 'escalationPct' | 'blockerPct' } | null>(null);
   const [baseDocPickerRow, setBaseDocPickerRow] = useState<RequiredSlaRow | null>(null);
 
@@ -488,9 +612,11 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
             escalationPct: Number(item.escalationPct ?? 75),
             blockerPct: Number(item.blockerPct ?? 100),
             taskEnabled: item.taskEnabled !== false,
-            channels: null,
+            channels: item.channels ?? null,
             targets: null,
           }));
+        const savedChannels = roleSlaConfigs.find((config) => config.channels)?.channels;
+        setChannels(normalizeChannelConfig(savedChannels));
         setEscalationConfigs((prev) => {
           const next = [...prev];
           roleSlaConfigs.forEach((config) => {
@@ -661,6 +787,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
       });
       return next;
     });
+
   }, [requiredSlaRows, escalationConfigs]);
 
   const roleSaveBlockedReason = useMemo(() => {
@@ -746,6 +873,16 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
     });
   }
 
+  function handleChannelChange(level: SlaLevel, channel: NotificationChannelKey, enabled: boolean) {
+    setChannels((prev) => {
+      const current = normalizeChannelConfig(prev);
+      return {
+        ...current,
+        [level]: { ...current[level], [channel]: enabled },
+      };
+    });
+  }
+
   async function handleSave() {
     if (roleSaveBlockedReason) {
       toast({ title: roleSaveBlockedReason, variant: 'destructive' });
@@ -780,6 +917,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
         warningPct: Number(thresholds.warningPct),
         escalationPct: Number(thresholds.escalationPct),
         blockerPct: Number(thresholds.blockerPct),
+        channels: normalizeChannelConfig(channels),
       };
     });
     try {
@@ -1257,11 +1395,11 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
 
           </>
           ) : (
+          <>
           <AdminFormSection
             title="Activity SLA"
             description="Required SLA timers for the selected role activities and their scopes"
             defaultOpen
-            isLast
           >
             {requiredSlaRows.length === 0 ? (
               <div style={{
@@ -1275,6 +1413,7 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                 Select an SLA-enabled activity to configure timers.
               </div>
             ) : (
+              <>
               <div style={{ border: '1px solid hsl(var(--border))', borderRadius: 8, overflowX: 'auto', overflowY: 'hidden' }}>
                 <div style={{
                   display: 'grid',
@@ -1474,8 +1613,18 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
                   );
                 })}
               </div>
+              </>
             )}
           </AdminFormSection>
+
+          <AdminFormSection
+            title="Notification Channels"
+            description="Configure which channels are used at each escalation level"
+            isLast
+          >
+            <RoleChannelMatrix channels={channels} onChange={handleChannelChange} />
+          </AdminFormSection>
+          </>
           )}
         </div>
       </div>
