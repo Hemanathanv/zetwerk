@@ -2178,9 +2178,9 @@ export function DocumentDetailPage() {
       setDocumentDetail(data);
       await fetchCbpComparison();
       setSafeCubeInputsOpen(false);
-      toast({ title: 'SafeCube inputs saved' });
+      toast({ title: 'MBL/BR number saved' });
     } catch (err) {
-      toast({ title: 'Could not save SafeCube inputs', description: err instanceof Error ? err.message : 'Unable to save tracking references.', variant: 'destructive' });
+      toast({ title: 'Could not save MBL/BR number', description: err instanceof Error ? err.message : 'Unable to save tracking references.', variant: 'destructive' });
       throw err;
     } finally {
       setSafeCubeInputsSaving(false);
@@ -2719,7 +2719,7 @@ export function DocumentDetailPage() {
           <div style={{ marginLeft: isApprovalRoute ? 0 : 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {hasBolReferenceActionFields && (
               <Button type="button" variant="outline" size="sm" onClick={() => setSafeCubeInputsOpen(true)} className="h-9">
-                SafeCube Inputs
+                MBL/BR 
               </Button>
             )}
             {canUseDndInputs && (
