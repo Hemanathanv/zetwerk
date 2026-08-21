@@ -336,7 +336,7 @@ function DocumentLinksButton({
     .filter((doc) => doc?.id)
     .map((doc) => ({ id: String(doc.id), label: documentIdentityLabel(doc) }));
   if (links.length === 0) return null;
-  const scrollable = links.length > 10;
+  const scrollable = links.length > 4;
 
   return (
     <Popover>
@@ -366,8 +366,11 @@ function DocumentLinksButton({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        side="top"
-        className="w-64 p-2 z-[1200]"
+        side="bottom"
+        sideOffset={6}
+        collisionPadding={12}
+        avoidCollisions
+        className="w-72 p-2 z-[1200]"
         onClick={(event) => event.stopPropagation()}
       >
         <div style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--muted-foreground))', marginBottom: 6, padding: '0 4px' }}>
@@ -378,8 +381,8 @@ function DocumentLinksButton({
             display: 'flex',
             flexDirection: 'column',
             gap: 2,
-            maxHeight: scrollable ? 280 : undefined,
-            overflowY: scrollable ? 'auto' : undefined,
+            maxHeight: 220,
+            overflowY: 'auto',
           }}
         >
           {links.map((link, index) => (
@@ -403,6 +406,8 @@ function DocumentLinksButton({
                 fontSize: 12,
                 color: 'hsl(var(--foreground))',
                 lineHeight: 1.35,
+                overflowWrap: 'anywhere',
+                wordBreak: 'break-word',
               }}
               onMouseEnter={(event) => {
                 event.currentTarget.style.backgroundColor = 'hsl(var(--muted) / 0.45)';
