@@ -13,9 +13,11 @@ import {
 } from '@/config/documentGateConfig';
 import {
   Fingerprint, Sparkles, Calculator, CheckCircle, Circle,
-  AlertCircle, Camera, Clock, CheckCircle2,
+  AlertCircle, Camera, Clock, CheckCircle2, Info,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { TruncatedTextWithInfo } from '@/components/TruncatedTextWithInfo';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -314,17 +316,128 @@ function GateStatusBadge({ status }: { status: string }) {
 
 // ─── DocumentStatusCard (G-S10, G-S11) ───────────────────────────────────────
 
-function DocumentStatusCard({ dtInfo, assignment, document, documentCount = 0, validation, isAccountingTrigger, slaDeadline, gateNumber, onNavigate }: {
+function documentIdentityLabel(doc: any): string {
+  return String(
+    doc?.documentNumber
+    ?? doc?.invoiceNumber
+    ?? doc?.fileName
+    ?? 'Document'
+  ).trim() || 'Document';
+}
+
+function DocumentLinksButton({
+  documents,
+  onNavigate,
+}: {
+  documents: any[];
+  onNavigate: (path: string) => void;
+}) {
+  const links = documents
+    .filter((doc) => doc?.id)
+    .map((doc) => ({ id: String(doc.id), label: documentIdentityLabel(doc) }));
+  if (links.length === 0) return null;
+  const scrollable = links.length > 10;
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={links.length === 1 ? 'Open document' : `Show ${links.length} documents`}
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+          style={{
+            width: 16,
+            height: 16,
+            flexShrink: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 4,
+            border: '1px solid hsl(var(--border))',
+            background: 'hsl(var(--card))',
+            color: 'hsl(var(--muted-foreground))',
+            cursor: 'pointer',
+            padding: 0,
+          }}
+        >
+          <Info size={10} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="top"
+        className="w-64 p-2 z-[1200]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'hsl(var(--muted-foreground))', marginBottom: 6, padding: '0 4px' }}>
+          {links.length === 1 ? 'Document' : `${links.length} documents`}
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            maxHeight: scrollable ? 280 : undefined,
+            overflowY: scrollable ? 'auto' : undefined,
+          }}
+        >
+          {links.map((link, index) => (
+            <button
+              key={link.id}
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onNavigate(`/documents/${link.id}`);
+              }}
+              style={{
+                display: 'block',
+                width: '100%',
+                textAlign: 'left',
+                border: 'none',
+                background: 'transparent',
+                borderRadius: 6,
+                padding: '6px 8px',
+                cursor: 'pointer',
+                fontSize: 12,
+                color: 'hsl(var(--foreground))',
+                lineHeight: 1.35,
+              }}
+              onMouseEnter={(event) => {
+                event.currentTarget.style.backgroundColor = 'hsl(var(--muted) / 0.45)';
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              {links.length > 1 ? `${index + 1}. ` : ''}{link.label}
+            </button>
+          ))}
+        </div>
+        {scrollable && (
+          <div style={{ fontSize: 10, color: 'hsl(var(--muted-foreground))', marginTop: 6, padding: '0 4px' }}>
+            Scroll to see all {links.length} documents
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function DocumentStatusCard({ dtInfo, assignment, document, documents = [], validation, isAccountingTrigger, slaDeadline, gateNumber, onNavigate }: {
   dtInfo: any;
   assignment: ApiDocTypeGate;
   document: any | undefined;
-  documentCount?: number;
+  documents?: any[];
   validation: ValidationCount | null;
   isAccountingTrigger: boolean;
   slaDeadline?: Date | null;
   gateNumber?: number;
   onNavigate: (path: string) => void;
 }) {
+  const allDocuments = documents.length > 0 ? documents : (document ? [document] : []);
+  const documentCount = allDocuments.length;
   const geo = dtInfo?.geography ?? '';
   const geoBorderColor =
     geo === 'INDIA' ? 'hsl(25 95% 53%)' :
@@ -374,24 +487,16 @@ function DocumentStatusCard({ dtInfo, assignment, document, documentCount = 0, v
     isRejected   ? 'hsl(0 72% 45%)' :
     'hsl(var(--muted-foreground))';
 
-  function handleClick() {
-    if (document?.id) onNavigate(`/documents/${document.id}`);
-  }
-
   return (
     <div
-      onClick={handleClick}
       style={{
         borderRadius: 7, borderLeft: `3px solid ${geoBorderColor}`,
         padding: '7px 8px', backgroundColor: bgColor,
-        cursor: document ? 'pointer' : 'default',
-        transition: 'box-shadow 0.12s',
+        cursor: 'default',
         marginBottom: 4,
         overflow: 'hidden',
         minWidth: 0,
       }}
-      onMouseEnter={e => { if (document) (e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 4px hsla(0,0%,0%,0.12)'; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = 'none'; }}
     >
       {/* Row 1: shortCode badge + name + indicators */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 4 }}>
@@ -410,14 +515,16 @@ function DocumentStatusCard({ dtInfo, assignment, document, documentCount = 0, v
           }}>
             {shortCode}
           </span>
-          <div style={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+          <div style={{ minWidth: 0, flex: 1, overflow: 'hidden', display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{
               fontSize: 13, fontWeight: 600, color: 'hsl(var(--foreground))', lineHeight: 1.35,
-              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-              overflow: 'hidden', wordBreak: 'break-word', overflowWrap: 'anywhere',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1,
             }}>
               {displayLabel}
             </span>
+            {allDocuments.length > 0 && (
+              <DocumentLinksButton documents={allDocuments} onNavigate={onNavigate} />
+            )}
           </div>
         </div>
 
@@ -468,8 +575,22 @@ function DocumentStatusCard({ dtInfo, assignment, document, documentCount = 0, v
         </div>
       </div>
 
-      {/* Row 2: hint only when no document is available */}
-      {!document && (
+      {/* Row 2: keep card height; identity lives in the info popover when docs exist */}
+      {document ? (
+        <div
+          aria-hidden
+          style={{
+            marginTop: 3,
+            minHeight: '1.25em',
+            lineHeight: 1.25,
+            fontSize: 12,
+            color: 'transparent',
+            userSelect: 'none',
+          }}
+        >
+          &nbsp;
+        </div>
+      ) : (
         <div style={{ fontSize: 12, color: 'hsl(var(--muted-foreground) / 0.5)', marginTop: 3, fontStyle: 'italic' }}>
           {assignment.isGenerated ? 'Awaiting generation' : 'Expected'}
         </div>
@@ -602,9 +723,10 @@ function GateColumn({ gate, displayStatus, accessLevel, documents, validationMap
             {gc.gateNumber}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--foreground))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', letterSpacing: '0.03em', textTransform: 'uppercase' }}>
-              {SHIPMENT_GATE_LABELS[gc.gateNumber] ?? gc.gateName}
-            </div>
+            <TruncatedTextWithInfo
+              text={SHIPMENT_GATE_LABELS[gc.gateNumber] ?? gc.gateName}
+              textStyle={{ fontSize: 13, fontWeight: 700, color: 'hsl(var(--foreground))', letterSpacing: '0.03em', textTransform: 'uppercase' }}
+            />
           </div>
           {gc.isIdentityGate && (
             <Fingerprint size={11} style={{ color: 'hsl(173 58% 39%)', flexShrink: 0 }} />
@@ -615,8 +737,11 @@ function GateColumn({ gate, displayStatus, accessLevel, documents, validationMap
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             {gc.gateLabel && (
-              <div style={{ fontSize: 12, color: 'hsl(var(--muted-foreground))', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>
-                {gc.gateLabel}
+              <div style={{ marginBottom: 3 }}>
+                <TruncatedTextWithInfo
+                  text={gc.gateLabel}
+                  textStyle={{ fontSize: 12, color: 'hsl(var(--muted-foreground))' }}
+                />
               </div>
             )}
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -659,7 +784,7 @@ function GateColumn({ gate, displayStatus, accessLevel, documents, validationMap
                   dtInfo={dtInfo}
                   assignment={dtg}
                   document={actualDoc}
-                  documentCount={actualDocs.length}
+                  documents={actualDocs}
                   validation={validation}
                   isAccountingTrigger={isAccTrigger}
                   slaDeadline={slaDeadline}
