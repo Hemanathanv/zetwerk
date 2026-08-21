@@ -2712,15 +2712,15 @@ export function DocumentDetailPage() {
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          gap: 10,
+          rowGap: 10,
           marginBottom: 18,
           minWidth: 0,
           width: '100%',
-          flexWrap: 'nowrap',
-          overflowX: 'auto',
+          flexWrap: 'wrap',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: '1 1 auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: '1 1 180px', overflow: 'hidden' }}>
           <DocBadge code={docCode(documentDetail.docType)} size="md" />
           <span
             title={documentDetail.fileName}
@@ -2737,22 +2737,22 @@ export function DocumentDetailPage() {
           >
             {documentDetail.fileName}
           </span>
-          {extraction?.extractedAt && (
-            <span className="hidden md:inline-flex shrink-0">
+        </div>
+        {(extraction?.extractedAt || extraction?.reviewedAt) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap', maxWidth: '100%' }}>
+            {extraction?.extractedAt && (
               <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${GREEN}18`, color: GREEN, whiteSpace: 'nowrap' }}>
                 Extracted {formatDateTime(extraction.extractedAt)}
               </span>
-            </span>
-          )}
-          {extraction?.reviewedAt && (
-            <span className="hidden lg:inline-flex shrink-0">
+            )}
+            {extraction?.reviewedAt && (
               <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, backgroundColor: `${BLUE}14`, color: BLUE, whiteSpace: 'nowrap' }}>
                 Reviewed {formatDateTime(extraction.reviewedAt)}
               </span>
-            </span>
-          )}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'nowrap', marginLeft: 'auto' }}>
+            )}
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap', marginLeft: 'auto' }}>
           {(hasBolReferenceActionFields || documentDetail.docType === 'BILL_OF_LADING') && extraction && (
             <>
               {hasBolReferenceActionFields && (

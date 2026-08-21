@@ -29,6 +29,55 @@ const DOC_BG     = '#f9fafb';
 const DOC_TEAL   = '#0f766e';
 const MONO_FONT  = 'var(--app-font-sans)';
 
+/** A4 at CSS mm — screen preview matches print page size. */
+const A4_PORTRAIT = { width: '210mm', height: '297mm', orientation: 'portrait' as const };
+const A4_LANDSCAPE = { width: '297mm', height: '210mm', orientation: 'landscape' as const };
+const A4_PAGE_PAD = '10mm';
+
+function isWideDocType(docType: string): boolean {
+  return docType === 'packing-list' || docType === 'outward-pl' || docType === 'draft-boe';
+}
+
+function a4SheetForDoc(docType: string) {
+  return isWideDocType(docType) ? A4_LANDSCAPE : A4_PORTRAIT;
+}
+
+function A4PaperSheet({
+  docType,
+  isApproved,
+  children,
+}: {
+  docType: string;
+  isApproved: boolean;
+  children: React.ReactNode;
+}) {
+  const sheet = a4SheetForDoc(docType);
+  return (
+    <div
+      className="doc-preview-paper"
+      data-orientation={sheet.orientation}
+      style={{
+        background: '#fff',
+        width: sheet.width,
+        minHeight: sheet.height,
+        maxWidth: '100%',
+        margin: '0 auto',
+        padding: A4_PAGE_PAD,
+        boxSizing: 'border-box',
+        borderRadius: 2,
+        boxShadow: '0 4px 24px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06)',
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
+      <Watermark label={isApproved ? 'APPROVED' : 'DRAFT'} />
+      <div style={{ position: 'relative', zIndex: 1, width: '100%' }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function makeResolver(
@@ -170,7 +219,7 @@ function DocTable({ cols, rows, totalsRow }: {
     <div className="doc-table-scroll" style={{ width: '100%', overflowX: 'auto', marginBottom: 8 }}>
       <table style={{
         width: '100%',
-        minWidth: Math.max(640, cols.length * 64),
+        minWidth: Math.max(520, cols.reduce((sum, c) => sum + (c.minWidth ?? (c.wrap ? 88 : 48)), 0)),
         borderCollapse: 'collapse',
         tableLayout: 'auto',
         fontSize: 10.5,
@@ -248,19 +297,19 @@ function PackingListDoc({ schema, resolve, resolveRow }: {
 }) {
   const mockRows = (schema.mockData.tables as Record<string, unknown[]>)['Line Items'] ?? [];
   const lineItemCols = [
-    { key: 'hsnCode',        label: 'HSN',            mono: true,  minWidth: 64 },
-    { key: 'productCode',    label: 'Product Code',   mono: true,  minWidth: 110, wrap: true },
-    { key: 'productDesc',    label: 'Description',    wrap: true,  minWidth: 140 },
-    { key: 'productMarks',   label: 'Marks',          wrap: true,  minWidth: 88 },
-    { key: 'boCode',         label: 'BO Code',        mono: true,  minWidth: 88 },
-    { key: 'containerNo',    label: 'Container',      mono: true,  minWidth: 88 },
-    { key: 'sealNo',         label: 'Seal',           mono: true,  minWidth: 72 },
-    { key: 'kindOfPkg',      label: 'Pkg Type',       minWidth: 64 },
-    { key: 'totalQtyInPcs',  label: 'Qty',            align: 'right' as const, mono: true, minWidth: 48 },
-    { key: 'qtyPerBundle',   label: 'Qty/Bdl',        align: 'right' as const, mono: true, minWidth: 52 },
-    { key: 'noOfBundles',    label: 'Bundles',        align: 'right' as const, mono: true, minWidth: 52 },
-    { key: 'netWeightKgs',   label: 'Net kg',         align: 'right' as const, mono: true, minWidth: 56 },
-    { key: 'grossWeightKgs', label: 'Gross kg',       align: 'right' as const, mono: true, minWidth: 60 },
+    { key: 'hsnCode',        label: 'HSN',            mono: true,  minWidth: 56 },
+    { key: 'productCode',    label: 'Product Code',   mono: true,  minWidth: 96, wrap: true },
+    { key: 'productDesc',    label: 'Description',    wrap: true,  minWidth: 120 },
+    { key: 'productMarks',   label: 'Marks',          wrap: true,  minWidth: 72 },
+    { key: 'boCode',         label: 'BO Code',        mono: true,  minWidth: 72 },
+    { key: 'containerNo',    label: 'Container',      mono: true,  minWidth: 76 },
+    { key: 'sealNo',         label: 'Seal',           mono: true,  minWidth: 60 },
+    { key: 'kindOfPkg',      label: 'Pkg',            minWidth: 48 },
+    { key: 'totalQtyInPcs',  label: 'Qty',            align: 'right' as const, mono: true, minWidth: 40 },
+    { key: 'qtyPerBundle',   label: 'Qty/Bdl',        align: 'right' as const, mono: true, minWidth: 48 },
+    { key: 'noOfBundles',    label: 'Bdl',            align: 'right' as const, mono: true, minWidth: 40 },
+    { key: 'netWeightKgs',   label: 'Net kg',         align: 'right' as const, mono: true, minWidth: 52 },
+    { key: 'grossWeightKgs', label: 'Gross kg',       align: 'right' as const, mono: true, minWidth: 56 },
   ];
   const lineRows = mockRows.map((_, ri) =>
     lineItemCols.map(c => resolveRow('Line Items', ri, c.key))
@@ -592,16 +641,17 @@ export function DocumentPreviewModal({
     }
   }
 
-  const isWideDoc = schema.docType === 'packing-list' || schema.docType === 'outward-pl' || schema.docType === 'draft-boe';
+  const isWideDoc = isWideDocType(schema.docType);
+  const sheet = a4SheetForDoc(schema.docType);
 
   return (
     <>
-      {/* Print-only styles */}
+      {/* Print-only styles — same A4 sheet as on-screen preview */}
       <style>{`
         @media print {
           @page {
-            size: A4 ${isWideDoc ? 'landscape' : 'portrait'};
-            margin: 8mm;
+            size: A4 ${sheet.orientation};
+            margin: 0;
           }
           body * { visibility: hidden !important; }
           #doc-preview-root, #doc-preview-root * { visibility: visible !important; }
@@ -613,6 +663,7 @@ export function DocumentPreviewModal({
             height: auto !important;
             padding: 0 !important;
             overflow: visible !important;
+            background: #fff !important;
           }
           .doc-preview-overlay { background: transparent !important; }
           .doc-preview-modal {
@@ -625,18 +676,20 @@ export function DocumentPreviewModal({
             border-radius: 0 !important;
           }
           .doc-preview-toolbar { display: none !important; }
-          .doc-preview-modal > div:last-child {
+          .doc-preview-stage {
             overflow: visible !important;
             padding: 0 !important;
+            background: #fff !important;
           }
           .doc-preview-paper {
             box-shadow: none !important;
             margin: 0 !important;
-            min-height: 0 !important;
-            overflow: visible !important;
-            padding: 4mm !important;
+            border-radius: 0 !important;
+            width: ${sheet.width} !important;
+            min-height: ${sheet.height} !important;
             max-width: none !important;
-            width: 100% !important;
+            padding: ${A4_PAGE_PAD} !important;
+            overflow: visible !important;
           }
           .doc-table-scroll {
             overflow: visible !important;
@@ -656,13 +709,13 @@ export function DocumentPreviewModal({
         style={{
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
           display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-          zIndex: 9000, padding: '24px 16px', overflowY: 'auto',
+          zIndex: 9000, padding: '20px 12px', overflowY: 'auto',
         }}
       >
         <div
           className="doc-preview-modal"
           style={{
-            background: '#f0f0f0', borderRadius: 8, width: '100%', maxWidth: isWideDoc ? 1180 : 900,
+            background: '#e8eaed', borderRadius: 8, width: 'fit-content', maxWidth: '100%',
             boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
             display: 'flex', flexDirection: 'column', minHeight: 0,
           }}
@@ -674,6 +727,7 @@ export function DocumentPreviewModal({
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '12px 16px', borderBottom: '1px solid #d1d5db',
               background: '#fff', borderRadius: '12px 12px 0 0', flexShrink: 0,
+              minWidth: isWideDoc ? 640 : 420,
             }}
           >
             <div style={{ flex: 1 }}>
@@ -683,6 +737,9 @@ export function DocumentPreviewModal({
                   ? '✓ Approved — final document'
                   : 'Draft preview — pending approval'
                 }
+                <span style={{ marginLeft: 8, fontSize: 12, color: '#9ca3af' }}>
+                  A4 {sheet.orientation}
+                </span>
               </div>
             </div>
 
@@ -720,24 +777,22 @@ export function DocumentPreviewModal({
             </button>
           </div>
 
-          {/* Paper */}
-          <div style={{ overflowY: 'auto', padding: isWideDoc ? '16px' : '24px', flex: 1 }}>
-            <div
-              className="doc-preview-paper"
-              style={{
-                background: '#fff', borderRadius: 4,
-                boxShadow: '0 2px 12px rgba(0,0,0,0.12)',
-                padding: isWideDoc ? '28px 24px 36px' : '40px 48px 48px',
-                position: 'relative', overflow: 'visible',
-                minHeight: 900, margin: '0 auto',
-                maxWidth: isWideDoc ? '100%' : undefined,
-              }}
-            >
-              <Watermark label={isApproved ? 'APPROVED' : 'DRAFT'} />
-              <div style={{ position: 'relative', zIndex: 1 }}>
-                {renderDoc()}
-              </div>
-            </div>
+          {/* A4 sheet stage */}
+          <div
+            className="doc-preview-stage"
+            style={{
+              overflow: 'auto',
+              padding: '20px 16px 28px',
+              flex: 1,
+              background: '#e8eaed',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'flex-start',
+            }}
+          >
+            <A4PaperSheet docType={schema.docType} isApproved={isApproved}>
+              {renderDoc()}
+            </A4PaperSheet>
           </div>
         </div>
       </div>
@@ -774,26 +829,8 @@ export function GeneratedDocumentPaper({
   }
 
   return (
-    <div
-      className="doc-preview-paper"
-      style={{
-        background: '#fff',
-        borderRadius: 4,
-        boxShadow: '0 2px 12px rgba(0,0,0,0.12)',
-        padding: schema.docType === 'packing-list' || schema.docType === 'outward-pl' || schema.docType === 'draft-boe'
-          ? '28px 24px 36px'
-          : '40px 48px 48px',
-        position: 'relative',
-        overflow: 'visible',
-        minHeight: 900,
-        margin: '0 auto',
-        maxWidth: '100%',
-      }}
-    >
-      <Watermark label={isApproved ? 'APPROVED' : 'DRAFT'} />
-      <div style={{ position: 'relative', zIndex: 1 }}>
-        {renderDoc()}
-      </div>
-    </div>
+    <A4PaperSheet docType={schema.docType} isApproved={isApproved}>
+      {renderDoc()}
+    </A4PaperSheet>
   );
 }

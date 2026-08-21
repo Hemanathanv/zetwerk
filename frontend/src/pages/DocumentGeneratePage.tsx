@@ -810,7 +810,11 @@ function LineItemTable({ docType, section, rows, sourceDocs, manualValues, onMan
                 fontWeight: kind === 'calculated' ? 700 : undefined,
                 ...(col.mono ? MONO : {}),
               }}>
-                {ci === 0 ? 'TOTAL' : col.mappingType === 'derived' ? `SUM(${col.targetLabel})` : ''}
+                {ci === 0
+                  ? 'TOTAL'
+                  : col.mappingType === 'derived' && col.targetField !== 'netWeightKgs'
+                    ? `SUM(${col.targetLabel})`
+                    : ''}
               </td>
               );
             })}
@@ -1937,17 +1941,6 @@ function StickyReviewFooter({ schema, manualValues, computedFields, computedRowM
         <Eye size={13} />
         {isApproved ? 'View Document' : 'Preview Draft'}
       </button>
-
-      {/* Send for review */}
-      {!isApproved && !isBlocked && (
-        <button style={{
-          fontSize: 12.5, fontWeight: 500, color: FG,
-          background: 'transparent', border: `1px solid ${BORDER}`,
-          borderRadius: 7, padding: '7px 14px', cursor: 'pointer', whiteSpace: 'nowrap',
-        }}>
-          Send for review
-        </button>
-      )}
 
       {/* Approve CTA */}
       {!isBlocked && (
