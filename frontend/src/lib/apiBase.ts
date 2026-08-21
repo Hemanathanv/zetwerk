@@ -28,11 +28,41 @@ function isSameBackendOrigin(url: URL): boolean {
   return Boolean((backendOrigin && url.origin === backendOrigin) || (browserOrigin && url.origin === browserOrigin));
 }
 
+function toSameOriginApiPath(url: URL): string {
+  return `${normalizeApiPath(url.pathname)}${url.search}${url.hash}`;
+}
+
+/**
+ * Resolve API paths for the browser.
+ *
+ * Always prefer same-origin `/api/...` URLs in the browser so:
+ * - Vite (dev) or nginx (prod) can proxy to the real backend
+ * - httpOnly session cookies set on the app origin are sent
+ *
+ * Rewriting to VITE_BACKEND_API_BASE (cross-origin) drops those cookies,
+ * causes 401s on roles/notifications, and triggers a login redirect loop.
+ */
 export function resolveApiUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) {
     try {
       const url = new URL(path);
-      if (isSameBackendOrigin(url)) {
+      if (typeof window !== 'undefined') {
+        const backendOrigin = BACKEND_API_BASE
+          ? (() => {
+              try {
+                return new URL(BACKEND_API_BASE).origin;
+              } catch {
+                return '';
+              }
+            })()
+          : '';
+        if (
+          url.origin === window.location.origin ||
+          (backendOrigin && url.origin === backendOrigin)
+        ) {
+          return toSameOriginApiPath(url);
+        }
+      } else if (isSameBackendOrigin(url)) {
         url.pathname = normalizeApiPath(url.pathname);
         return url.toString();
       }
@@ -44,6 +74,9 @@ export function resolveApiUrl(path: string): string {
 
   const normalizedPath = normalizeApiPath(path);
   if (normalizedPath.startsWith('/api/')) {
+    if (typeof window !== 'undefined') {
+      return normalizedPath;
+    }
     return BACKEND_API_BASE ? `${BACKEND_API_BASE}${normalizedPath}` : normalizedPath;
   }
   return `${API_BASE_URL}${normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`}`;

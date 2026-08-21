@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useUpload } from '@/contexts/UploadContext';
 import { StatusPill } from '@/components/vs';
 import { apiGet, apiPost, apiPut, getAuthToken } from '@/lib/api';
+import { documentApi } from '@/auth/api';
 import { useShipmentDocuments, useAccountingTickets } from '@/hooks/useOperationalData';
 import { RequireActivity } from '@/components/PermissionGate';
 import { Badge } from '@/components/ui/badge';
@@ -53,9 +54,9 @@ interface ApiShipment {
   loadMode?: string | null; incoterm?: string | null; incotermPort?: string | null;
   template?: { id: string; name: string } | null;
   documents: { id: string; documentType: string; ocrStatus: string; approvedAt?: string | null; documentNumber?: string | null; isGenerated?: boolean }[];
-  containers: { id: string; containerNumber: string; containerSize?: string | null; containerType?: string | null; grossWeightKg?: number | null }[];
+  containers: { id: string; containerNumber: string; containerSize?: string | null; containerType?: string | null; grossWeightKg?: number | string | null; netWeightKg?: number | string | null; packageCount?: number | string | null }[];
   tickets: { id: string; ticketNumber: string; entryType: string; amount: string | number; currency: string; status: string; vendorName?: string | null; erpVoucherNumber?: string | null; postedAt?: string | null }[];
-  inventoryItems: { bundleCount?: number | null; netWeightKg?: string | number | null }[];
+  inventoryItems: { bundleCount?: number | null; netWeightKg?: string | number | null; grossWeightKg?: string | number | null }[];
   dndAlerts: { id: string; containerNumber: string; lfd?: string | null; status: string; demurrageTotal?: number | null; detentionTotal?: number | null; totalCharge?: number | null }[];
   partnerTags?: ApiPartnerTag[];
   packingListItems?: { id: string; productCode?: string | null; productDescription?: string | null; productSpecification?: string | null; hsnCode?: string | null; noOfBundles?: string | null; totalQtyInPcs?: string | null; netWeightKgs?: string | null; grossWeightKgs?: string | null }[];
@@ -75,6 +76,93 @@ interface ApiMilestoneTracking {
 
 const SHIPMENT_GATE_LABELS = DOCUMENT_GATE_LABELS;
 const SHIPMENT_EXPECTED_DOCS_BY_GATE = DOCUMENT_EXPECTED_DOCS_BY_GATE;
+
+function parseCargoNumber(value: string | number | null | undefined): number {
+  if (value == null || value === '') return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const match = String(value).replace(/,/g, '').match(/-?\d+(?:\.\d+)?/);
+  if (!match) return 0;
+  const n = Number.parseFloat(match[0]);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function pickCargoField(row: Record<string, unknown>, ...keys: string[]): string | number | null {
+  for (const key of keys) {
+    const value = row[key];
+    if (value != null && value !== '') return value as string | number;
+  }
+  return null;
+}
+
+function normalizeCargoLineItems(rows: unknown[]): NonNullable<ApiShipment['packingListItems']> {
+  return rows
+    .filter((row): row is Record<string, unknown> => !!row && typeof row === 'object')
+    .map((row, index) => ({
+      id: String(row.id ?? `cargo-${index}`),
+      productCode: (pickCargoField(row, 'productCode', 'product_code') as string | null) ?? null,
+      productDescription: (pickCargoField(row, 'productDescription', 'productDesc', 'product_description', 'description') as string | null) ?? null,
+      productSpecification: (pickCargoField(row, 'productSpecification', 'product_specification') as string | null) ?? null,
+      hsnCode: (pickCargoField(row, 'hsnCode', 'hsn_code') as string | null) ?? null,
+      noOfBundles: pickCargoField(row, 'noOfBundles', 'no_of_bundles', 'bundles', 'bundleCount', 'packageCount', 'packages') != null
+        ? String(pickCargoField(row, 'noOfBundles', 'no_of_bundles', 'bundles', 'bundleCount', 'packageCount', 'packages'))
+        : null,
+      totalQtyInPcs: pickCargoField(row, 'totalQtyInPcs', 'total_qty_in_pcs', 'quantity') != null
+        ? String(pickCargoField(row, 'totalQtyInPcs', 'total_qty_in_pcs', 'quantity'))
+        : null,
+      netWeightKgs: pickCargoField(row, 'netWeightKgs', 'net_weight_kgs', 'netWeightKg', 'netWeight') != null
+        ? String(pickCargoField(row, 'netWeightKgs', 'net_weight_kgs', 'netWeightKg', 'netWeight'))
+        : null,
+      grossWeightKgs: pickCargoField(row, 'grossWeightKgs', 'gross_weight_kgs', 'grossWeightKg', 'grossWeight', 'gross_weight') != null
+        ? String(pickCargoField(row, 'grossWeightKgs', 'gross_weight_kgs', 'grossWeightKg', 'grossWeight', 'gross_weight'))
+        : null,
+    }));
+}
+
+function cargoDocPriority(docType: string): number {
+  const t = docType.toUpperCase();
+  if (t === 'PACKING_LIST' || t === 'PL') return 0;
+  if (t.includes('PACKING_LIST') && !t.includes('OUTWARD')) return 1;
+  if (t === 'SALES_INVOICE' || t === 'SI') return 2;
+  if (t.includes('SALES_INVOICE')) return 3;
+  return 99;
+}
+
+async function loadCargoLineItemsFromDocuments(
+  docs: Array<{ id?: string; documentType?: string; docType?: string }>,
+): Promise<NonNullable<ApiShipment['packingListItems']>> {
+  const candidates = docs
+    .map((doc) => ({
+      id: String(doc.id ?? ''),
+      type: String(doc.documentType ?? doc.docType ?? ''),
+    }))
+    .filter((doc) => doc.id && cargoDocPriority(doc.type) < 99)
+    .sort((a, b) => cargoDocPriority(a.type) - cargoDocPriority(b.type));
+
+  for (const candidate of candidates.slice(0, 3)) {
+    try {
+      const { data } = await documentApi.getById(candidate.id);
+      const extraction = data?.extraction as {
+        lineItems?: unknown[] | null;
+        arrays?: Record<string, unknown[] | null> | null;
+        rawData?: Record<string, unknown> | null;
+      } | null;
+      const lineItems =
+        extraction?.lineItems
+        ?? extraction?.arrays?.lineItems
+        ?? extraction?.arrays?.invoiceLines
+        ?? (Array.isArray(extraction?.rawData?.lineItems) ? extraction?.rawData?.lineItems : null)
+        ?? [];
+      const normalized = normalizeCargoLineItems(lineItems);
+      if (normalized.some((item) => parseCargoNumber(item.noOfBundles) > 0 || parseCargoNumber(item.grossWeightKgs) > 0 || parseCargoNumber(item.netWeightKgs) > 0)) {
+        return normalized;
+      }
+      if (normalized.length > 0) return normalized;
+    } catch {
+      // try next candidate
+    }
+  }
+  return [];
+}
 
 // ─── Color tokens ─────────────────────────────────────────────────────────────
 const TEAL  = 'hsl(var(--vs-teal))';
@@ -693,14 +781,26 @@ function InventoryJourneyPanel({ scData, milestones, shipment, inventoryItems, p
           sublabel: m.notes ?? undefined, isActual: !!m.completedAt,
         }));
 
-  const invBundles = inventoryItems.reduce((a, i) => a + (i.bundleCount ?? 0), 0);
-  const invKg      = inventoryItems.reduce((a, i) => a + parseFloat(String(i.netWeightKg ?? 0)), 0);
-  // Fall back to packing list totals when inventory items have no data yet
-  const plBundles  = packingListItems.reduce((a, i) => a + (parseInt(i.noOfBundles ?? '0') || 0), 0);
-  const plGrossKg  = packingListItems.reduce((a, i) => a + (parseInt(i.grossWeightKgs ?? '0') || 0), 0);
-  const totalBundles = invBundles > 0 ? invBundles : plBundles;
-  const totalKg      = invKg      > 0 ? invKg      : plGrossKg;
-  const containers   = shipment?.containers ?? [];
+  const containers = shipment?.containers ?? [];
+  const invBundles = inventoryItems.reduce((a, i) => a + (Number(i.bundleCount) || 0), 0);
+  // Prefer gross weight for the GROSS WT KPI; fall back to net only if gross is missing.
+  const invGrossKg = inventoryItems.reduce((a, i) => {
+    const gross = parseCargoNumber(i.grossWeightKg);
+    return a + (gross > 0 ? gross : parseCargoNumber(i.netWeightKg));
+  }, 0);
+  // Fall back to packing list / BOL container totals when inventory items have no data yet
+  const plBundles = packingListItems.reduce((a, i) => a + parseCargoNumber(i.noOfBundles), 0);
+  const plGrossKg = packingListItems.reduce((a, i) => {
+    const gross = parseCargoNumber(i.grossWeightKgs);
+    return a + (gross > 0 ? gross : parseCargoNumber(i.netWeightKgs));
+  }, 0);
+  const containerPackages = containers.reduce((a, c) => a + parseCargoNumber(c.packageCount), 0);
+  const containerGrossKg = containers.reduce((a, c) => {
+    const gross = parseCargoNumber(c.grossWeightKg);
+    return a + (gross > 0 ? gross : parseCargoNumber(c.netWeightKg));
+  }, 0);
+  const totalBundles = invBundles > 0 ? invBundles : plBundles > 0 ? plBundles : containerPackages;
+  const totalKg = invGrossKg > 0 ? invGrossKg : plGrossKg > 0 ? plGrossKg : containerGrossKg;
 
   // Group items that share a journey phase into one accordion section each,
   // ordered by the canonical journey sequence (not by when they first appear —
@@ -1361,8 +1461,7 @@ function uploadQueueDocTypeFilter(docType: string): string {
 
 function DocRow360({ docType, docs, isLast }: { docType: string; docs: any[]; isLast: boolean }) {
   const pill = docGroupStatusPill(docs);
-  const count = docs.length;
-  const label = `${docLabel(docType)}${count > 1 ? ` (${count})` : ''}`;
+  const label = docLabel(docType);
   const href = `/documents/upload/queue?docType=${encodeURIComponent(uploadQueueDocTypeFilter(docType))}`;
   return (
     <Link href={href} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '10px 13px', borderBottom: isLast ? 'none' : `1px solid ${BDR}`, textDecoration: 'none', color: 'inherit' }}>
@@ -1640,15 +1739,10 @@ function DocumentsPanel360({ documents, loading, gates = [] }: { documents: any[
     gateGroups.flatMap(g => g.entries.flatMap(e => e.docs.map(doc => doc.id)).filter((id): id is string => !!id))
   );
   const ungatedDocs = uniqueDocuments.filter(d => !assignedDocIds.has(d.id));
-  const expectedCount = gateGroups.reduce((sum, group) => sum + group.entries.length, 0) + ungatedDocs.length;
-  const validatedCount = gateGroups.reduce(
-    (sum, group) => sum + group.entries.filter(entry => entry.docs.length > 0 && entry.docs.every(isDocumentAvailable)).length,
-    0,
-  ) + ungatedDocs.filter(isDocumentAvailable).length;
 
   return (
     <Card style={{ padding: '14px 16px', marginBottom: 13 }}>
-      <SectionLabel right={<span style={{ fontSize: 11.5, fontWeight: 700, color: expectedCount > 0 && validatedCount === expectedCount ? GREEN : MUTED }}>{validatedCount} OF {expectedCount} AVAILABLE</span>}>
+      <SectionLabel>
         <FileText size={10} style={{ display: 'inline', marginRight: 4 }} />Documents
       </SectionLabel>
 
@@ -2573,6 +2667,7 @@ export function ShipmentDetailPage() {
   const [shipment,   setShipment]   = useState<ApiShipment | null>(null);
   const [gates,      setGates]      = useState<ApiGate[]>([]);
   const [milestones, setMilestones] = useState<ApiMilestoneTracking[]>([]);
+  const [cargoLineItems, setCargoLineItems] = useState<NonNullable<ApiShipment['packingListItems']>>([]);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState<string | null>(null);
   const [acting,        setActing]        = useState(false);
@@ -2634,6 +2729,36 @@ export function ShipmentDetailPage() {
   }, [shipmentId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function resolveCargoLines() {
+      const embedded = shipment?.packingListItems ?? [];
+      const hasEmbeddedTotals = embedded.some(
+        (item) => parseCargoNumber(item.noOfBundles) > 0
+          || parseCargoNumber(item.grossWeightKgs) > 0
+          || parseCargoNumber(item.netWeightKgs) > 0,
+      );
+      if (hasEmbeddedTotals) {
+        if (!cancelled) setCargoLineItems(embedded);
+        return;
+      }
+
+      const sourceDocs = [
+        ...(shipment?.documents ?? []),
+        ...documents,
+      ];
+      const fromDocs = await loadCargoLineItemsFromDocuments(sourceDocs);
+      if (!cancelled) setCargoLineItems(fromDocs.length > 0 ? fromDocs : embedded);
+    }
+
+    if (!shipment) {
+      setCargoLineItems([]);
+      return;
+    }
+    resolveCargoLines();
+    return () => { cancelled = true; };
+  }, [shipment, documents]);
 
   async function handleShipmentAction(action: 'hold' | 'resume' | 'cancel') {
     if (action === 'cancel' && !confirm('Cancel this shipment? This cannot be undone.')) return;
@@ -2857,9 +2982,9 @@ export function ShipmentDetailPage() {
             <Card><div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{[1,2,3,4,5].map(i => <SkeletonRow key={i} width={224} />)}</div></Card>
           ) : (
             <>
-              <InventoryJourneyPanel scData={scData} milestones={milestones} shipment={shipment} inventoryItems={inventoryItems} packingListItems={shipment?.packingListItems ?? []} />
+              <InventoryJourneyPanel scData={scData} milestones={milestones} shipment={shipment} inventoryItems={inventoryItems} packingListItems={cargoLineItems} />
               {(containers.length > 0 || shipment?.loadMode === 'FCL') && (
-                <ContainerGridPanel containers={containers} scData={scData} dndAlerts={dndAlerts} viewState={cvState} packingListItems={shipment?.packingListItems ?? []} />
+                <ContainerGridPanel containers={containers} scData={scData} dndAlerts={dndAlerts} viewState={cvState} packingListItems={cargoLineItems} />
               )}
             </>
           )}
