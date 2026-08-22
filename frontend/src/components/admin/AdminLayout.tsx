@@ -3,7 +3,7 @@ import { useLocation, Link } from 'wouter';
 import {
   Users, Shield, Building2, GitBranch, ShieldCheck,
   Calculator, Container, Warehouse, PackageSearch,
-  ScrollText, Settings, ArrowLeft, ClipboardCheck,
+  ScrollText, Settings, ArrowLeft, ClipboardCheck, Timer,
 } from 'lucide-react';
 import { EwmsScrollArea } from '@/components/ewms/Media';
 
@@ -24,6 +24,7 @@ const ADMIN_NAV: NavGroup[] = [
     items: [
       { label: 'Users',            icon: Users,      href: '/admin/users'            },
       { label: 'Roles & Permissions', icon: Shield,  href: '/admin/roles'            },
+      { label: 'Escalation & SLA',    icon: Timer,   href: '/admin/escalation'     },
       { label: 'Organisations',    icon: Building2,  href: '/admin/organisations'    },
     ],
   },

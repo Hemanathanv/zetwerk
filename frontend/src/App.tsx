@@ -54,6 +54,7 @@ import { WarehouseInventoryPage } from '@/pages/inventory/WarehouseInventoryPage
 import { DndManagementPage } from '@/pages/inventory/DndManagementPage';
 import { AdminUsersPage } from '@/pages/admin/AdminUsersPage';
 import { AdminRolesPage } from '@/pages/admin/AdminRolesPage';
+import { AdminEscalationPage } from '@/pages/admin/AdminEscalationPage';
 import { AdminOrgsPage } from '@/pages/admin/AdminOrgsPage';
 import { AdminTemplatesPage } from '@/pages/admin/AdminTemplatesPage';
 import { AdminValidationPage } from '@/pages/admin/AdminValidationPage';
@@ -489,7 +490,7 @@ function AdminArea() {
               <Route path="/admin/templates" component={AdminTemplatesPage} />
               <Route path="/admin/validation-rules" component={AdminValidationPage} />
               <Route path="/admin/accounting" component={AdminAccountingPage} />
-              <Route path="/admin/escalation"><Redirect to="/admin/roles" /></Route>
+              <Route path="/admin/escalation" component={AdminEscalationPage} />
               <Route path="/admin/inventory" component={AdminInventoryPage} />
               <Route path="/admin/warehouses" component={AdminWarehousesPage} />
               <Route path="/admin/products" component={AdminProductsPage} />

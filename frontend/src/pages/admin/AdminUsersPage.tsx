@@ -355,7 +355,10 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
   const [roleChangeWarning, setRoleChangeWarning] = useState(false);
 
   const selectedRole = useMemo(() => roleMap[form.roleId], [roleMap, form.roleId]);
-  const allowedLevels = useMemo(() => selectedRole?.allowedLevels ?? LEVELS, [selectedRole]);
+  const inheritedLevel = useMemo(() => {
+    const levels = selectedRole?.allowedLevels ?? [];
+    return levels[0] ?? 'L1';
+  }, [selectedRole]);
 
   function setFormField(field: string, value: any) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -364,19 +367,9 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
   function onRoleChange(roleId: string) {
     if (modalMode === 'edit' && editingUser?.roleId !== roleId) setRoleChangeWarning(true);
     const role = roleMap[roleId];
-    const levels = role?.allowedLevels ?? LEVELS;
-    const defaultLevel = levels[0] ?? 'L1';
     setForm((prev) => ({
       ...prev, roleId,
-      level: levels.includes(prev.level) ? prev.level : defaultLevel,
       dataScope: role?.defaultDataScope ?? 'TEAM',
-    }));
-  }
-
-  function onLevelChange(level: string) {
-    setForm((prev) => ({
-      ...prev, level,
-      dataScope: !canUseAllScope(level) && prev.dataScope === 'ALL' ? 'TEAM' : prev.dataScope,
     }));
   }
 
@@ -416,7 +409,7 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
     try {
       const payload: any = {
         fullName: form.fullName, phone: form.phone || null,
-        roleId: form.roleId, level: form.level, dataScope: form.dataScope,
+        roleId: form.roleId, dataScope: form.dataScope,
         teamId: form.teamId || null, orgId: form.orgId || undefined,
         geographyOrigin: form.geographyOrigin || null,
         geographyDestination: form.geographyDestination || null,
@@ -898,7 +891,7 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
         open={modalMode !== null}
         onClose={() => setModalMode(null)}
         title={modalMode === 'create' ? 'Add new user' : `Edit user: ${editingUser?.fullName ?? ''}`}
-        description={modalMode === 'create' ? 'Create a user and assign role, level, and team' : editingUser?.email}
+        description={modalMode === 'create' ? 'Create a user and assign role and team' : editingUser?.email}
         size="lg"
         footer={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -976,20 +969,14 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
                 </button>
               )}
             </FieldRow>
-            <FieldRow label="Hierarchy Level" required>
-              <Select value={form.level}
-                onValueChange={onLevelChange}
-                disabled={allowedLevels.length <= 1}>
-                <SelectTrigger style={{ fontSize: 14.5 }}>
-                  <SelectValue placeholder="Select level…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(allowedLevels.length > 0 ? allowedLevels : LEVELS).map((l) => (
-                    <SelectItem key={l} value={l}>{l}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {allowedLevels.length === 1 && <p style={helpText}>This role only permits {allowedLevels[0]}</p>}
+            <FieldRow label="Hierarchy Level">
+              <div style={{ fontSize: 14.5, padding: '8px 0', color: 'hsl(var(--foreground))' }}>
+                {selectedRole ? (
+                  <span>{inheritedLevel} <span style={{ color: 'hsl(var(--muted-foreground))' }}>(from {selectedRole.name})</span></span>
+                ) : (
+                  <span style={{ color: 'hsl(var(--muted-foreground))' }}>Select a role to see level</span>
+                )}
+              </div>
             </FieldRow>
             <FieldRow label="Data Scope" required>
               <RadioGroup value={form.dataScope} onValueChange={(v) => setFormField('dataScope', v)}
@@ -999,7 +986,7 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
                   { value: 'TEAM', label: 'Team', help: 'Sees shipments assigned to their team', needsL3: false },
                   { value: 'TAGGED', label: 'Tagged', help: 'Sees only shipments explicitly tagged to them', needsL3: false },
                 ].map((opt) => {
-                  const disabled = opt.needsL3 && !canUseAllScope(form.level);
+                  const disabled = opt.needsL3 && !canUseAllScope(inheritedLevel);
                   return (
                     <div key={opt.value} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, opacity: disabled ? 0.4 : 1 }}>
                       <RadioGroupItem value={opt.value} id={`scope-${opt.value}`} disabled={disabled} style={{ marginTop: 2 }} />

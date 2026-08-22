@@ -2217,10 +2217,41 @@ def _user_attr(user: dict, key: str, default: str = "") -> str:
     return _attr_value(_user_attrs(user), key, default)
 
 
+def _highest_level(levels: list[str]) -> str:
+    return sorted(levels or ["L1"], key=lambda item: int(str(item).replace("L", "") or "1"))[-1]
+
+
+def _role_level_and_scope(role_attrs: dict, role_name: str) -> tuple[str, str]:
+    canonical_role = _canonical_role_name(role_name)
+    role_defaults = ROLE_DEFAULTS.get(canonical_role, {})
+    role_levels = _attr_values(role_attrs, "ewms.levels") or list(role_defaults.get("allowedLevels", []))
+    level = _highest_level(role_levels)
+    data_scope = _normalize_data_scope(
+        _attr_value(role_attrs, "ewms.dataScope", str(role_defaults.get("defaultDataScope") or "TEAM"))
+    )
+    return level, data_scope
+
+
+def _apply_inherited_user_defaults(attrs: dict[str, list[str]], role_attrs: dict, role_name: str) -> dict[str, list[str]]:
+    level, data_scope = _role_level_and_scope(role_attrs, role_name)
+    merged = dict(attrs)
+    merged["ewms.level"] = [level]
+    if not merged.get("ewms.dataScope"):
+        merged["ewms.dataScope"] = [data_scope]
+    return merged
+
+
+def _primary_role_name(keycloak_admin, user_id: str) -> str:
+    for role in keycloak_admin.get_realm_roles_of_user(user_id):
+        name = str(role.get("name") or "")
+        if name and not name.startswith("default-roles-") and name not in {"offline_access", "uma_authorization"}:
+            return name
+    return ""
+
+
 def _user_attributes_from_request(request: AdminUserRequest, existing: dict | None = None) -> dict[str, list[str]]:
     attrs = {key: list(value) if isinstance(value, list) else [str(value)] for key, value in (_user_attrs(existing or {}) or {}).items()}
     field_map = {
-        "level": ("ewms.level", request.level),
         "dataScope": ("ewms.dataScope", request.dataScope),
         "orgId": ("ewms.orgId", request.orgId),
         "teamId": ("ewms.teamId", request.teamId),
@@ -3741,6 +3772,13 @@ async def create_admin_user(request: AdminUserRequest, _user=Depends(get_admin_u
     prisma = await get_prisma()
     first_name, last_name = _split_full_name(full_name)
     try:
+        role = _ensure_keycloak_role(keycloak_admin, role_name)
+        role_attrs = role.get("attributes") or {}
+        attrs = _apply_inherited_user_defaults(
+            _user_attributes_from_request(request),
+            role_attrs,
+            str(role.get("name") or role_name),
+        )
         user_id = keycloak_admin.get_user_id(email)
         payload = {
             "username": email,
@@ -3749,7 +3787,7 @@ async def create_admin_user(request: AdminUserRequest, _user=Depends(get_admin_u
             "lastName": last_name,
             "enabled": request.status != "inactive",
             "emailVerified": True,
-            "attributes": _user_attributes_from_request(request),
+            "attributes": attrs,
         }
         if user_id:
             keycloak_admin.update_user(user_id, payload)
@@ -3796,6 +3834,18 @@ async def update_admin_user(user_id: str, request: AdminUserRequest, _user=Depen
         enabled = existing.get("enabled", True)
         if request.status:
             enabled = request.status == "active"
+        if request.roleId:
+            _assign_primary_role(keycloak_admin, user_id, request.roleId)
+        role_name_for_level = request.roleId or _primary_role_name(keycloak_admin, user_id)
+        if role_name_for_level:
+            role = _ensure_keycloak_role(keycloak_admin, role_name_for_level)
+            attrs = _apply_inherited_user_defaults(
+                _user_attributes_from_request(request, existing),
+                role.get("attributes") or {},
+                str(role.get("name") or role_name_for_level),
+            )
+        else:
+            attrs = _user_attributes_from_request(request, existing)
         payload = {
             "email": existing.get("email") or existing.get("username"),
             "username": existing.get("username") or existing.get("email"),
@@ -3803,13 +3853,11 @@ async def update_admin_user(user_id: str, request: AdminUserRequest, _user=Depen
             "lastName": last_name,
             "enabled": enabled,
             "emailVerified": True,
-            "attributes": _user_attributes_from_request(request, existing),
+            "attributes": attrs,
         }
         keycloak_admin.update_user(user_id, payload)
         if request.password:
             keycloak_admin.set_user_password(user_id, request.password, temporary=False)
-        if request.roleId:
-            _assign_primary_role(keycloak_admin, user_id, request.roleId)
         if request.teamId is not None:
             _sync_user_team(keycloak_admin, user_id, request.teamId)
         await _sync_keycloak_user_to_local(prisma, keycloak_admin, user_id)
@@ -3953,10 +4001,7 @@ async def create_admin_role(request: RoleProfileRequest, _user=Depends(get_admin
     payload = _role_payload_from_request(request)
     if not modules and _canonical_role_name(request.name) not in {"Super Admin", "Org Admin"}:
         return {"ok": False, "error": "Select at least one module for this role."}
-    activity_sla = _activity_sla_from_request(request)
     try:
-        prisma = await get_prisma()
-        await _upsert_activity_sla_configs(prisma, activity_sla)
         keycloak_admin.create_realm_role(payload, skip_exists=False)
         role = keycloak_admin.get_realm_role(payload["name"])
         return {"ok": True, "data": _role_profile_from_keycloak(role, detail=True)}
@@ -3980,9 +4025,6 @@ async def update_admin_role(role_id: str, request: RoleProfileRequest, _user=Dep
             payload = _role_payload_from_request(request, role_id=update_role_name)
         if not _enabled_modules_from_request(request) and _canonical_role_name(update_role_name) not in {"Super Admin", "Org Admin"}:
             return {"ok": False, "error": "Select at least one module for this role."}
-        activity_sla = _activity_sla_from_request(request)
-        prisma = await get_prisma()
-        await _upsert_activity_sla_configs(prisma, activity_sla)
         _update_keycloak_role(keycloak_admin, existing, payload)
         role = keycloak_admin.get_realm_role(update_role_name)
         return {"ok": True, "data": _role_profile_from_keycloak(role, detail=True)}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { RotateCcw, Bell, Mail, Headphones, Loader2, Plus, Trash2 } from 'lucide-react';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { AdminFormSection } from '@/components/admin/AdminFormSection';
@@ -318,6 +318,8 @@ interface SlaRowProps {
   onSave: (id: string, data: Partial<EscalationConfig>) => Promise<void>;
   onAdd: (config: EscalationConfig, scopeCode: string, scopeOptions: DocOption[]) => Promise<void>;
   onRemove: (config: EscalationConfig) => Promise<void>;
+  onSelect?: () => void;
+  isActive?: boolean;
   docTypes: ConfigDocType[];
   generationSourceOptions: DocOption[];
   generatedDocOptions: DocOption[];
@@ -332,6 +334,8 @@ function SlaRow({
   onSave,
   onAdd,
   onRemove,
+  onSelect,
+  isActive = false,
   docTypes,
   generationSourceOptions,
   generatedDocOptions,
@@ -539,9 +543,17 @@ function SlaRow({
   return (
     <>
       <tr
+        onClick={onSelect}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => { if (!editing) setHovered(false); }}
-        style={{ background: hovered ? 'hsl(var(--muted) / 0.25)' : 'hsl(var(--card))', transition: 'background 0.15s' }}
+        style={{
+          background: isActive
+            ? 'hsl(var(--primary) / 0.08)'
+            : hovered ? 'hsl(var(--muted) / 0.25)' : 'hsl(var(--card))',
+          transition: 'background 0.15s',
+          cursor: onSelect ? 'pointer' : 'default',
+          outline: isActive ? '2px solid hsl(var(--primary) / 0.35)' : 'none',
+        }}
       >
         {/* Activity type */}
         <td style={{ ...tdBase, width: 230, minWidth: 230 }}>
@@ -979,11 +991,12 @@ export function AdminEscalationPage() {
   const generatedDocOptions = useMemo(() => buildGeneratedDocOptions(docTypes), [docTypes]);
   const [configs,  setConfigs]  = useState<EscalationConfig[]>([]);
   const [loading,  setLoading]  = useState(true);
-  const [channels, setChannels] = useState<ChannelConfig>(DEFAULT_CHANNELS);
-  const [targets,  setTargets]  = useState<TargetsConfig>({});
+  const [activeConfigId, setActiveConfigId] = useState<string | null>(null);
 
-  const savingChannels = useRef(false);
-  const savingTargets  = useRef(false);
+  const activeConfig = useMemo(
+    () => configs.find(c => c.id === activeConfigId) ?? configs[0] ?? null,
+    [configs, activeConfigId],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -992,9 +1005,7 @@ export function AdminEscalationPage() {
       if (escRes.ok) {
         const cfgs: EscalationConfig[] = escRes.data ?? [];
         setConfigs(cfgs);
-        const first = cfgs[0];
-        if (first?.channels)  setChannels(first.channels as ChannelConfig);
-        if (first?.targets)   setTargets(first.targets   as TargetsConfig);
+        setActiveConfigId(prev => (prev && cfgs.some(c => c.id === prev) ? prev : (cfgs[0]?.id ?? null)));
       }
     } finally {
       setLoading(false);
@@ -1024,8 +1035,8 @@ export function AdminEscalationPage() {
       warningPct: config.warningPct,
       escalationPct: config.escalationPct,
       blockerPct: config.blockerPct,
-      channels,
-      targets,
+      channels: config.channels ?? DEFAULT_CHANNELS,
+      targets: config.targets ?? {},
     };
     const res = await apiPost<any>('/api/admin/escalation', payload);
     if (res.ok) {
@@ -1069,34 +1080,33 @@ export function AdminEscalationPage() {
       .flatMap(c => getSelectedDocCodes(c.scope, options, generatedActivity));
   }
 
-  async function handleChannelChange(level: keyof ChannelConfig, ch: string, val: boolean) {
-    const next: ChannelConfig = {
-      ...channels,
-      [level]: { ...(channels[level] ?? {}), [ch]: val },
-    };
-    setChannels(next);
-    if (savingChannels.current) return;
-    savingChannels.current = true;
-    try {
-      await Promise.all(configs.map(c => apiPut(`/api/admin/escalation/${c.id}`, { channels: next })));
-      toast({ title: 'Channel updated' });
-    } catch {
-      toast({ title: 'Channel save failed', variant: 'destructive' });
-    }
-    savingChannels.current = false;
+  async function saveChannelsForConfig(configId: string, next: ChannelConfig) {
+    await saveConfig(configId, { channels: next });
+    toast({ title: 'Channel updated' });
   }
 
-  async function handleTargetsChange(next: TargetsConfig) {
-    setTargets(next);
-    if (savingTargets.current) return;
-    savingTargets.current = true;
-    try {
-      await Promise.all(configs.map(c => apiPut(`/api/admin/escalation/${c.id}`, { targets: next })));
-      toast({ title: 'Escalation targets saved' });
-    } catch {
+  async function saveTargetsForConfig(configId: string, next: TargetsConfig) {
+    await saveConfig(configId, { targets: next });
+    toast({ title: 'Escalation targets saved' });
+  }
+
+  function handleChannelChange(level: keyof ChannelConfig, ch: string, val: boolean) {
+    if (!activeConfig) return;
+    const current = (activeConfig.channels ?? DEFAULT_CHANNELS) as ChannelConfig;
+    const next: ChannelConfig = {
+      ...current,
+      [level]: { ...(current[level] ?? {}), [ch]: val },
+    };
+    void saveChannelsForConfig(activeConfig.id, next).catch(() => {
+      toast({ title: 'Channel save failed', variant: 'destructive' });
+    });
+  }
+
+  function handleTargetsChange(next: TargetsConfig) {
+    if (!activeConfig) return;
+    void saveTargetsForConfig(activeConfig.id, next).catch(() => {
       toast({ title: 'Targets save failed', variant: 'destructive' });
-    }
-    savingTargets.current = false;
+    });
   }
 
   const thStyle: React.CSSProperties = {
@@ -1186,6 +1196,8 @@ export function AdminEscalationPage() {
                         onSave={saveConfig}
                         onAdd={addConfigForScope}
                         onRemove={removeConfig}
+                        onSelect={() => setActiveConfigId(c.id)}
+                        isActive={activeConfig?.id === c.id}
                         docTypes={docTypes}
                         generationSourceOptions={generationSourceOptions}
                         generatedDocOptions={generatedDocOptions}
@@ -1202,18 +1214,33 @@ export function AdminEscalationPage() {
           {/* ── Notification Channels ── */}
           <AdminFormSection
             title="Notification Channels"
-            description="Configure which channels are used at each escalation level"
+            description={activeConfig
+              ? `Configure channels for ${activeConfig.activityName ?? activeConfig.activityType}${activeConfig.scope ? ` · ${activeConfig.scope}` : ''} (select a row above)`
+              : 'Select an activity row above to configure channels'}
           >
-            <ChannelMatrix channels={channels} onChange={handleChannelChange} />
+            {activeConfig ? (
+              <ChannelMatrix
+                channels={(activeConfig.channels ?? DEFAULT_CHANNELS) as ChannelConfig}
+                onChange={handleChannelChange}
+              />
+            ) : null}
           </AdminFormSection>
 
           {/* ── Escalation Targets ── */}
           <AdminFormSection
             title="Escalation Targets"
-            description="Who receives notifications at each escalation level"
+            description={activeConfig
+              ? `Targets for ${activeConfig.activityName ?? activeConfig.activityType}${activeConfig.scope ? ` · ${activeConfig.scope}` : ''}`
+              : 'Select an activity row above to configure targets'}
             isLast
           >
-            <TargetCards targets={targets} roles={roles} onChange={handleTargetsChange} />
+            {activeConfig ? (
+              <TargetCards
+                targets={(activeConfig.targets ?? {}) as TargetsConfig}
+                roles={roles}
+                onChange={handleTargetsChange}
+              />
+            ) : null}
           </AdminFormSection>
         </>
       )}

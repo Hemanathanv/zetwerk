@@ -12,6 +12,7 @@ from db import get_prisma
 from helpers.config import settings
 from helpers.dependencies import get_current_user
 from task_engine import TaskEngine
+from task_engine.producers import _sla_config_for_activity
 from task_engine.repository import ensure_task_engine_tables
 
 
@@ -465,18 +466,19 @@ async def create_task(request: TaskCreateRequest, user=Depends(get_current_user)
     if not sla_config:
         return {"ok": False, "error": f"No SLA is defined for activity '{activity_code}'. Define an SLA before creating tasks or notifications for it."}
     base_sla_hours = float(sla_config.get("base_sla_hours") or 0)
+    metadata = json.dumps({"escalationConfigId": str(sla_config.get("id") or "")})
     await _execute_raw(
         prisma,
         """
         INSERT INTO "public"."task_instances" (
           "id", "title", "description", "category", "activity_code", "status", "urgency",
           "assigned_role", "assigned_user_id", "shipment_id", "entity_type", "entity_id",
-          "sla_deadline", "created_by"
+          "sla_deadline", "metadata", "created_by"
         )
         VALUES (
           $1::uuid, $2, $3, $4, $5, 'ASSIGNED', $6,
           $7, $8, NULLIF($9, '')::uuid, $10, $11,
-          COALESCE(NULLIF($12, '')::timestamptz, NOW() + ($13::double precision * INTERVAL '1 hour')), $14
+          COALESCE(NULLIF($12, '')::timestamptz, NOW() + ($13::double precision * INTERVAL '1 hour')), $14::jsonb, $15
         )
         """,
         task_id,
@@ -492,6 +494,7 @@ async def create_task(request: TaskCreateRequest, user=Depends(get_current_user)
         request.entityId,
         request.slaDeadline or "",
         base_sla_hours,
+        metadata,
         _user_id(user),
     )
     tasks = await _task_rows(prisma, 'WHERE t."id" = $1::uuid', task_id)

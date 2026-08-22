@@ -902,24 +902,6 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
       Object.entries(docTypeScopes).filter(([activityCode]) => strictSelectedActs.has(activityCode))
     );
     const derivedDocumentScope = [...new Set(Object.values(strictDocTypeScopes).flat())].sort();
-    const activitySla = requiredSlaRows.map((row) => {
-      const thresholds = slaThresholdsByKey[row.key] ?? { reminderPct: '50', warningPct: '75', escalationPct: '100', blockerPct: '150' };
-      return {
-        activityCode: row.activityCode,
-        activityType: row.activityType,
-        activityName: row.activityName,
-        description: row.description,
-        scope: row.scopeLabel,
-        baseDoc: slaBaseDocByKey[row.key] || row.baseDoc || row.scopeLabel,
-        baseSlaHours: positiveHours(slaHoursByKey[row.key]),
-        taskEnabled: slaTaskEnabledByKey[row.key] ?? row.taskEnabled ?? true,
-        reminderPct: Number(thresholds.reminderPct),
-        warningPct: Number(thresholds.warningPct),
-        escalationPct: Number(thresholds.escalationPct),
-        blockerPct: Number(thresholds.blockerPct),
-        channels: normalizeChannelConfig(channels),
-      };
-    });
     try {
       const payload = {
         name: roleName.trim(), description: description || null, roleCategory: category,
@@ -927,7 +909,6 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
         documentScope: derivedDocumentScope,
         docTypeScopes: strictDocTypeScopes,
         activityCodes: strictActivityCodes,
-        activitySla,
       };
       const res = await saveRoleMutation.mutateAsync(payload);
       if (!res.ok) { toast({ title: res.error ?? 'Save failed', variant: 'destructive' }); return; }
@@ -970,19 +951,8 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
         {editorStep === 'permissions' ? (
           <>
             <Button variant="outline" size="sm" onClick={onBack}>Cancel</Button>
-            <Button
-              size="sm"
-              onClick={() => {
-                if (roleSaveBlockedReason) {
-                  toast({ title: roleSaveBlockedReason, variant: 'destructive' });
-                  return;
-                }
-                setEditorStep('sla');
-              }}
-              title={roleSaveBlockedReason ?? undefined}
-              style={{ minWidth: 92 }}
-            >
-              Next
+            <Button size="sm" disabled={saving} onClick={handleSave} title={roleSaveBlockedReason ?? undefined} style={{ minWidth: 110 }}>
+              {saving ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite', marginRight: 6 }} />Saving...</> : 'Save changes'}
             </Button>
           </>
         ) : (
@@ -1100,6 +1070,13 @@ function RoleEditor({ roleId, roles, activities, docTypes, sysModules, onBack, o
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
           {editorStep === 'permissions' ? (
           <>
+          <div style={{
+            padding: '10px 14px', borderRadius: 8, border: '1px solid hsl(var(--border))',
+            background: 'hsl(var(--muted) / 0.35)', fontSize: 14, color: 'hsl(var(--muted-foreground))',
+          }}>
+            Activity SLA and escalation targets are configured on{' '}
+            <a href="/admin/escalation" style={{ color: 'hsl(173 58% 39%)', fontWeight: 600 }}>Escalation &amp; SLA</a>.
+          </div>
 
           {/* Tier 1: Module toggles */}
           <AdminFormSection title="Module Access" defaultOpen>

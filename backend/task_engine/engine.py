@@ -134,10 +134,22 @@ class TaskEngine:
                         AND LOWER(COALESCE(NULLIF(TRIM(ec."scope"), ''), 'validation')) NOT IN ('validation', 'document', 'generated documents')
                       )
                     )
+                    AND (
+                      COALESCE(NULLIF(TRIM(COALESCE(t."metadata"->>'docType', t."metadata"->>'targetDocType')), ''), '') = ''
+                      OR COALESCE(NULLIF(TRIM(ec."scope"), ''), '') = ''
+                      OR LOWER(ec."scope") = LOWER(COALESCE(
+                        NULLIF(TRIM(t."metadata"->>'docType'), ''),
+                        NULLIF(TRIM(t."metadata"->>'targetDocType'), '')
+                      ))
+                    )
                   )
                 )
               ORDER BY
                 CASE WHEN ec."id" = COALESCE(t."metadata"->>'escalationConfigId', '') THEN 0 ELSE 1 END,
+                CASE WHEN LOWER(COALESCE(ec."scope", '')) = LOWER(COALESCE(
+                  NULLIF(TRIM(t."metadata"->>'docType'), ''),
+                  NULLIF(TRIM(t."metadata"->>'targetDocType'), '')
+                )) THEN 0 ELSE 1 END,
                 CASE WHEN COALESCE(ec."scope", '') = '' THEN 1 ELSE 0 END,
                 ec."id" ASC
               LIMIT 1
