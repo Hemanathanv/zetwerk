@@ -353,6 +353,8 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [roleChangeWarning, setRoleChangeWarning] = useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [searchAutofillLock, setSearchAutofillLock] = useState(true);
 
   const selectedRole = useMemo(() => roleMap[form.roleId], [roleMap, form.roleId]);
   const allowedLevels = useMemo(() => selectedRole?.allowedLevels ?? LEVELS, [selectedRole]);
@@ -383,6 +385,7 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
   function openCreate() {
     setForm({ ...EMPTY_FORM });
     setFormError(''); setRoleChangeWarning(false);
+    setShowResetPassword(false);
     setEditingUser(null); setModalMode('create');
   }
 
@@ -400,6 +403,7 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
       password: '',
     });
     setFormError(''); setRoleChangeWarning(false);
+    setShowResetPassword(false);
     setEditingUser(user); setModalMode('edit');
   }
 
@@ -705,8 +709,25 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ position: 'relative', flex: '1 1 200px', minWidth: 160 }}>
           <Search size={13} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'hsl(var(--muted-foreground))', pointerEvents: 'none' }} />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name or email…" style={{ paddingLeft: 28, height: 34, fontSize: 14.5 }} />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onFocus={(e) => {
+              e.currentTarget.removeAttribute('readOnly');
+              setSearchAutofillLock(false);
+            }}
+            type="search"
+            name="people-user-filter"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            readOnly={searchAutofillLock}
+            data-1p-ignore="true"
+            data-lpignore="true"
+            placeholder="Search name or email…"
+            style={{ paddingLeft: 28, height: 34, fontSize: 14.5 }}
+          />
         </div>
         <div style={{ flex: '0 0 160px' }}>
           <MultiSelect
@@ -896,7 +917,7 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
 
       <AdminModal
         open={modalMode !== null}
-        onClose={() => setModalMode(null)}
+        onClose={() => { setModalMode(null); setShowResetPassword(false); setFormField('password', ''); }}
         title={modalMode === 'create' ? 'Add new user' : `Edit user: ${editingUser?.fullName ?? ''}`}
         description={modalMode === 'create' ? 'Create a user and assign role, level, and team' : editingUser?.email}
         size="lg"
@@ -923,24 +944,43 @@ export function AdminUsersPage({ compact = false, triggerCreate = 0 }: { compact
           <div style={{ display: 'grid', gap: 12 }}>
             <FieldRow label="Full Name" required>
               <Input value={form.fullName} onChange={(e) => setFormField('fullName', e.target.value)}
-                placeholder="Enter full name" style={{ fontSize: 14.5 }} />
+                autoComplete="off" name="user-full-name" placeholder="Enter full name" style={{ fontSize: 14.5 }} />
             </FieldRow>
             <FieldRow label="Email" required>
               <Input value={form.email} onChange={(e) => setFormField('email', e.target.value)}
-                type="email" placeholder="user@company.com"
+                type="email" autoComplete="off" name="user-email" placeholder="user@company.com"
                 readOnly={modalMode === 'edit'}
                 style={{ fontSize: 14.5, opacity: modalMode === 'edit' ? 0.6 : 1, background: modalMode === 'edit' ? 'hsl(var(--muted))' : undefined }} />
               {modalMode === 'edit' && <p style={helpText}>Email cannot be changed after creation</p>}
             </FieldRow>
             <FieldRow label="Phone">
               <Input value={form.phone} onChange={(e) => setFormField('phone', e.target.value)}
-                placeholder="+91 98765 43210" style={{ fontSize: 14.5 }} />
+                autoComplete="off" placeholder="+91 98765 43210" style={{ fontSize: 14.5 }} />
               <p style={helpText}>Used for WhatsApp escalation notifications</p>
             </FieldRow>
-            <FieldRow label={modalMode === 'create' ? 'Password' : 'Reset Password'} required={modalMode === 'create'}>
-              <Input value={form.password} onChange={(e) => setFormField('password', e.target.value)}
-                type="password" placeholder={modalMode === 'create' ? 'Set initial password' : 'Leave blank to keep current password'} style={{ fontSize: 14.5 }} />
-            </FieldRow>
+            {modalMode === 'create' ? (
+              <FieldRow label="Password" required>
+                <Input value={form.password} onChange={(e) => setFormField('password', e.target.value)}
+                  type="password" autoComplete="new-password" name="new-user-password"
+                  placeholder="Set initial password" style={{ fontSize: 14.5 }} />
+              </FieldRow>
+            ) : showResetPassword ? (
+              <FieldRow label="Reset Password">
+                <Input value={form.password} onChange={(e) => setFormField('password', e.target.value)}
+                  type="password" autoComplete="new-password" name="reset-user-password"
+                  placeholder="Leave blank to keep current password" style={{ fontSize: 14.5 }} />
+              </FieldRow>
+            ) : (
+              <FieldRow label="Password">
+                <button
+                  type="button"
+                  onClick={() => setShowResetPassword(true)}
+                  style={{ ...iconBtn, width: 'fit-content', gap: 6, padding: '5px 10px', fontSize: 14 }}
+                >
+                  Set a new password
+                </button>
+              </FieldRow>
+            )}
           </div>
         </AdminFormSection>
 
