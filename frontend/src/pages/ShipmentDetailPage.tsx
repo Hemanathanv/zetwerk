@@ -2267,6 +2267,9 @@ type DndInputsDraft = {
   excludeHolidays: boolean;
   carrierState: 'matched' | 'unrecognized' | 'no-tariff';
   chargeTypes: string[];
+  savedBy?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
 type DndMatchedOptions = {
@@ -2287,12 +2290,15 @@ type DndMatchedTariff = {
   pricingMethods?: DndPricingMethods | string[];
 };
 type DndTariffOptionSource = DndMatchedTariff & {
+  id?: string;
   status?: string;
   cargo?: string;
   freeTime?: Array<{ event?: string; days?: number[] }>;
   exclusionDefault?: { weekends?: boolean; holidays?: boolean };
   chargeTypes?: string[];
 };
+
+type DndCarrierMaster = { id: string; carrierName: string; scac?: string | null; isActive?: boolean };
 const EMPTY_DND_OPTIONS: DndMatchedOptions = {
   events: [],
   freeDaysByEvent: {},
@@ -2421,18 +2427,24 @@ export function ShipmentDndInputsDialog({
   open,
   shipmentId,
   bolCarrierName,
+  safeCubeCarrierName,
+  useCarrierMasterFallback = false,
   origin,
   destination,
   cargo,
   onOpenChange,
+  onSaved,
 }: {
   open: boolean;
   shipmentId: string;
   bolCarrierName?: string | null;
+  safeCubeCarrierName?: string | null;
+  useCarrierMasterFallback?: boolean;
   origin?: string | null;
   destination?: string | null;
   cargo?: string | null;
   onOpenChange: (open: boolean) => void;
+  onSaved?: (saved: Partial<DndInputsDraft>) => void;
 }) {
   const [draft, setDraft] = useState<DndInputsDraft>(blankDndInputsDraft);
   const [saveNote, setSaveNote] = useState<string | null>(null);
@@ -2441,11 +2453,18 @@ export function ShipmentDndInputsDialog({
   const [matchedOptions, setMatchedOptions] = useState<DndMatchedOptions>(EMPTY_DND_OPTIONS);
   const [matchedTariff, setMatchedTariff] = useState<DndMatchedTariff | null>(null);
   const [fallbackTariffs, setFallbackTariffs] = useState<DndTariffOptionSource[]>([]);
+  const [carrierMasters, setCarrierMasters] = useState<DndCarrierMaster[]>([]);
   const freeDays = freeDayCount(draft.freeDays);
   const lastFreeDay = addDays(draft.startDate, freeDays);
   const isActivated = draft.dndStatus === 'ACTIVATED' || Boolean(draft.startEvent && draft.freeDays && draft.pricingMethod && matchStatus === 'matched');
   const chargeableRate = dndChargeableRate(matchedTariff ?? firstTariffWithPricingMethod(fallbackTariffs, draft.pricingMethod), draft.pricingMethod);
-  const displayCarrierName = draft.carrierName || bolCarrierName;
+  const safeCubeCarrier = String(safeCubeCarrierName || '').trim();
+  const displayCarrierName = draft.carrierName || safeCubeCarrier || bolCarrierName;
+  const carrierMasterNames = useMemo(
+    () => Array.from(new Set(carrierMasters.map((carrier) => String(carrier.carrierName || '').trim()).filter(Boolean))).sort(),
+    [carrierMasters],
+  );
+  const shouldSelectCarrierFromMaster = useCarrierMasterFallback && !safeCubeCarrier;
   const startEventOptions = useMemo(
     () => Array.from(new Set([draft.startEvent, ...matchedOptions.events].filter(Boolean))),
     [draft.startEvent, matchedOptions.events],
@@ -2470,27 +2489,79 @@ export function ShipmentDndInputsDialog({
             ? 'No exact tariff match was found, so these options are shown from active D&D Master tariffs.'
         : '';
 
+  async function matchCarrierForDnd(
+    carrierName: string,
+    effectiveOrigin: string | null,
+    effectiveDestination: string | null,
+    effectiveCargo: string | null,
+    chargeTypes: string[],
+  ) {
+    const fallbackOptions = dndOptionsFromTariffs(fallbackTariffs, effectiveCargo);
+    const carrierForMatch = carrierName.trim();
+    const matchResponse = carrierForMatch
+      ? await apiPost<{ data: { status: string; tariff: any | null; options: DndMatchedOptions } }>('/dnd/tariffs/match', {
+          carrierName: carrierForMatch,
+          origin: effectiveOrigin,
+          destination: effectiveDestination,
+          cargo: effectiveCargo || 'FCL',
+          chargeTypes,
+        }).catch(() => ({ data: { status: 'NO_MATCHING_TARIFF', tariff: null, options: EMPTY_DND_OPTIONS } }))
+      : { data: { status: 'CARRIER_REVIEW', tariff: null, options: EMPTY_DND_OPTIONS } };
+    const options = matchResponse.data.status === 'MATCHED' ? (matchResponse.data.options ?? EMPTY_DND_OPTIONS) : fallbackOptions;
+    return {
+      options,
+      tariff: matchResponse.data.tariff ?? null,
+      matchedTariffId: matchResponse.data.tariff?.id ?? null,
+      status: matchResponse.data.status === 'MATCHED' ? 'matched' as const : carrierForMatch ? 'no-match' as const : 'carrier-review' as const,
+    };
+  }
+
+  async function selectCarrierFromMaster(carrierName: string) {
+    const effectiveOrigin = origin || draft.origin || null;
+    const effectiveDestination = destination || draft.destination || null;
+    const effectiveCargo = cargo || draft.cargo || 'FCL';
+    const chargeTypes = draft.chargeTypes?.length ? draft.chargeTypes : ['Demurrage', 'Detention'];
+    setDraft((current) => ({ ...current, carrierName, startEvent: '', freeDays: '', pricingMethod: '' }));
+    const result = await matchCarrierForDnd(carrierName, effectiveOrigin, effectiveDestination, effectiveCargo, chargeTypes);
+    setMatchedOptions(result.options);
+    setMatchedTariff(result.tariff);
+    setMatchStatus(result.status);
+    setDraft((current) => ({
+      ...current,
+      carrierName,
+      matchedTariffId: result.matchedTariffId,
+      carrierState: result.status === 'matched' ? 'matched' : 'no-tariff',
+      excludeWeekends: result.options.exclusionDefault.weekends ?? current.excludeWeekends,
+      excludeHolidays: result.options.exclusionDefault.holidays ?? current.excludeHolidays,
+    }));
+  }
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    const baseDraft = { ...blankDndInputsDraft(), carrierName: bolCarrierName ?? '' };
+    const baseDraft = { ...blankDndInputsDraft(), carrierName: safeCubeCarrier || (useCarrierMasterFallback ? '' : bolCarrierName ?? '') };
     setSaveNote(null);
     setShowRules(false);
     setMatchStatus('idle');
     setMatchedOptions(EMPTY_DND_OPTIONS);
     setMatchedTariff(null);
     setFallbackTariffs([]);
+    setCarrierMasters([]);
     Promise.all([
       apiGet<{ data: Partial<DndInputsDraft> | null }>(`/dnd/inputs/${shipmentId}`).catch(() => ({ data: null })),
       apiGet<{ data: DndTariffOptionSource[] }>('/dnd/tariffs').catch(() => ({ data: [] })),
+      apiGet<{ data: DndCarrierMaster[] }>('/dnd/carriers').catch(() => ({ data: [] })),
     ])
-      .then(async ([inputsResponse, tariffsResponse]) => {
+      .then(async ([inputsResponse, tariffsResponse, carriersResponse]) => {
         const savedInputs = inputsResponse.data ?? {};
         const effectiveOrigin = origin || savedInputs.origin || null;
         const effectiveDestination = destination || savedInputs.destination || null;
         const effectiveCargo = cargo || savedInputs.cargo || 'FCL';
-        const fallbackOptions = dndOptionsFromTariffs(tariffsResponse.data ?? [], effectiveCargo);
-        const carrierForMatch = String(bolCarrierName || savedInputs.carrierName || '').trim();
+        const tariffs = tariffsResponse.data ?? [];
+        const fallbackOptions = dndOptionsFromTariffs(tariffs, effectiveCargo);
+        const savedCarrier = String(savedInputs.carrierName || '').trim();
+        const savedWasUserInput = Boolean(savedInputs.updatedAt || savedInputs.createdAt || savedInputs.savedBy);
+        const carrierForMatch = safeCubeCarrier || (useCarrierMasterFallback ? (savedWasUserInput ? savedCarrier : '') : String(bolCarrierName || savedCarrier || '').trim());
         const matchResponse = carrierForMatch
           ? await apiPost<{ data: { status: string; tariff: any | null; options: DndMatchedOptions } }>('/dnd/tariffs/match', {
               carrierName: carrierForMatch,
@@ -2503,7 +2574,8 @@ export function ShipmentDndInputsDialog({
         if (cancelled) return;
         const options = matchResponse.data.status === 'MATCHED' ? (matchResponse.data.options ?? EMPTY_DND_OPTIONS) : fallbackOptions;
         const matchedTariffId = matchResponse.data.tariff?.id ?? null;
-        setFallbackTariffs(tariffsResponse.data ?? []);
+        setFallbackTariffs(tariffs);
+        setCarrierMasters(carriersResponse.data ?? []);
         setMatchedOptions(options);
         setMatchedTariff(matchResponse.data.tariff ?? null);
         setMatchStatus(matchResponse.data.status === 'MATCHED' ? 'matched' : carrierForMatch ? 'no-match' : 'carrier-review');
@@ -2513,26 +2585,29 @@ export function ShipmentDndInputsDialog({
           excludeHolidays: options.exclusionDefault.holidays ?? baseDraft.excludeHolidays,
           ...savedInputs,
           carrierName: carrierForMatch,
+          carrierState: matchResponse.data.status === 'MATCHED' ? 'matched' : carrierForMatch ? 'no-tariff' : 'unrecognized',
           matchedTariffId,
         });
       });
     return () => {
       cancelled = true;
     };
-  }, [open, shipmentId, bolCarrierName, origin, destination, cargo]);
+  }, [open, shipmentId, bolCarrierName, safeCubeCarrier, useCarrierMasterFallback, origin, destination, cargo]);
 
   async function saveInputs() {
     try {
       const payload = {
         ...draft,
-        carrierName: draft.carrierName || bolCarrierName || null,
+        carrierName: draft.carrierName || safeCubeCarrier || (!useCarrierMasterFallback ? bolCarrierName : null) || null,
         origin,
         destination,
         cargo: cargo || 'FCL',
         chargeTypes: matchedOptions.chargeTypes.length ? matchedOptions.chargeTypes : ['Demurrage', 'Detention'],
       };
       const response = await apiPut<{ data: Partial<DndInputsDraft> }>(`/dnd/inputs/${shipmentId}`, payload);
-      setDraft({ ...blankDndInputsDraft(), ...(response.data ?? payload) });
+      const saved = response.data ?? payload;
+      setDraft({ ...blankDndInputsDraft(), ...saved });
+      onSaved?.(saved);
       setSaveNote('D&D inputs saved for this BOL upload.');
     } catch (error) {
       setSaveNote(error instanceof Error ? error.message : 'Could not save D&D inputs.');
@@ -2551,7 +2626,18 @@ export function ShipmentDndInputsDialog({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <DndFieldLabel>Shipment</DndFieldLabel>
-                <div className="text-[18px] font-semibold leading-tight">{displayCarrierName || 'Field not in the file (Carrier Name)'}</div>
+                {shouldSelectCarrierFromMaster ? (
+                  <Select value={draft.carrierName || undefined} onValueChange={(carrierName) => void selectCarrierFromMaster(carrierName)}>
+                    <SelectTrigger className="mt-1 min-w-[260px]"><SelectValue placeholder="Select carrier from D&D Master" /></SelectTrigger>
+                    <SelectContent>
+                      {carrierMasterNames.length
+                        ? carrierMasterNames.map((carrier) => <SelectItem key={carrier} value={carrier}>{carrier}</SelectItem>)
+                        : <SelectItem value="__no_carriers__" disabled>No active carrier master options</SelectItem>}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="text-[18px] font-semibold leading-tight">{displayCarrierName || 'Field not in the file (Carrier Name)'}</div>
+                )}
               </div>
               <Badge intent={draft.carrierState === 'matched' ? 'success' : 'warning'} size="sm">
                 {matchStatus === 'matched' ? 'Auto Detected' : matchStatus === 'carrier-review' ? 'Carrier Review' : 'No Matching Tariff'}
@@ -2559,7 +2645,9 @@ export function ShipmentDndInputsDialog({
             </div>
             {matchStatus === 'carrier-review' && (
               <div className="mt-3 rounded-md border border-destructive/20 bg-destructive/5 p-3 text-[10px] text-destructive">
-                Carrier could not be matched from the BOL. Logistics Admin review is required before D&D can be activated.
+                {useCarrierMasterFallback
+                  ? 'Carrier could not be matched from SafeCube. Select the carrier from D&D Master to continue.'
+                  : 'Carrier could not be matched from the BOL. Logistics Admin review is required before D&D can be activated.'}
               </div>
             )}
             {matchStatus === 'no-match' && (

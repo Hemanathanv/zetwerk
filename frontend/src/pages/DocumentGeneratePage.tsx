@@ -220,6 +220,10 @@ const DRAFT_BOE_OPTIONAL_FIELDS = new Set([
   'countryOfCast', 'isOwner', 'isPurchase',
 ]);
 
+const DRAFT_BOE_MANUAL_BILL_FIELDS = new Set([
+  'blOrAwbNumber', 'additionalBLs', 'houseBill',
+]);
+
 function isRequiredManualMapping(schema: DocGenSchema, mapping: FieldMapping): boolean {
   const isManual = mapping.mappingType === 'manual' || mapping.mappingType === 'conditional';
   return isManual && (schema.docType !== 'draft-boe' || !DRAFT_BOE_OPTIONAL_FIELDS.has(mapping.targetField));
@@ -2538,17 +2542,20 @@ function draftToSchema(baseSchema: DocGenSchema, draft: DraftPayload): DocGenSch
     const sections: GenSection[] = draft.sections.map(section => ({
       sectionLabel: section.sectionLabel,
       renderAs: 'fields',
-      mappings: section.fields.map(field => ({
-        targetField: field.targetField,
-        targetLabel: field.targetLabel,
-        sourceDoc: field.sourceDoc,
-        sourceField: field.sourceField ?? '',
-        sourceLabel: field.sourceLabel ?? field.sourceDoc,
-        mappingType: field.mappingType,
-        validation: field.validation ?? undefined,
-        validationSeverity: field.validationSeverity ?? undefined,
-        mono: field.mono,
-      })),
+      mappings: section.fields.map(field => {
+        const forceManualBillField = DRAFT_BOE_MANUAL_BILL_FIELDS.has(field.targetField);
+        return {
+          targetField: field.targetField,
+          targetLabel: field.targetLabel,
+          sourceDoc: forceManualBillField ? 'MANUAL' : field.sourceDoc,
+          sourceField: forceManualBillField ? '' : (field.sourceField ?? ''),
+          sourceLabel: forceManualBillField ? 'Manual' : (field.sourceLabel ?? field.sourceDoc),
+          mappingType: forceManualBillField ? 'manual' : field.mappingType,
+          validation: field.validation ?? undefined,
+          validationSeverity: field.validationSeverity ?? undefined,
+          mono: field.mono,
+        };
+      }),
     }));
     const tariffMappings: FieldMapping[] = [
       { targetField: 'lineNo', targetLabel: 'Line No', sourceDoc: 'CALCULATED', sourceField: 'row number', sourceLabel: 'Calculated', mappingType: 'derived', mono: true, isLineItem: true },
@@ -2566,7 +2573,12 @@ function draftToSchema(baseSchema: DocGenSchema, draft: DraftPayload): DocGenSch
       mappings: tariffMappings,
     });
     const fields = Object.fromEntries(
-      draft.sections.flatMap(section => section.fields.map(field => [field.targetField, stringifyDraftValue(field.value)])),
+      draft.sections.flatMap(section => section.fields.map(field => [
+        field.targetField,
+        DRAFT_BOE_MANUAL_BILL_FIELDS.has(field.targetField) && field.mappingType !== 'manual'
+          ? ''
+          : stringifyDraftValue(field.value),
+      ])),
     );
     return {
       ...baseSchema,

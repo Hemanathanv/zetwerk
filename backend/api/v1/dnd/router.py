@@ -70,6 +70,16 @@ class CarrierPayload(BaseModel):
     scac: str = Field(min_length=1)
 
 
+class SafeCubeCarrierMappingPayload(BaseModel):
+    safeCubeCarrierName: str = Field(min_length=1)
+    safeCubeScac: str | None = None
+    dndCarrierName: str | None = None
+    dndScac: str | None = None
+    trackingReference: str | None = None
+    source: str | None = "safecube"
+    rawData: dict[str, Any] | None = None
+
+
 class ShipmentInputsPayload(BaseModel):
     carrierName: str | None = None
     scac: str | None = None
@@ -217,6 +227,34 @@ async def _create_carrier(
         raise HTTPException(status_code=500, detail=f"Failed to save D&D carrier: {exc}") from exc
 
 
+async def _list_safecube_carrier_mappings(
+    user=Depends(get_current_user),
+    _authz=Depends(require_any_activity("dnd.tariff.view", "documents.dnd_inputs")),
+):
+    prisma = await get_prisma()
+    try:
+        return {"data": await dnd_logic.list_safecube_carrier_mappings(prisma)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to list SafeCube carrier mappings: {exc}") from exc
+
+
+async def _upsert_safecube_carrier_mapping(
+    payload: SafeCubeCarrierMappingPayload,
+    user=Depends(get_current_user),
+    _authz=Depends(require_activity("documents.dnd_inputs")),
+):
+    prisma = await get_prisma()
+    try:
+        mapping = await dnd_logic.upsert_safecube_carrier_mapping(
+            prisma,
+            payload.model_dump(mode="json"),
+            user_id=_user_id(user),
+        )
+        return {"data": mapping}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to save SafeCube carrier mapping: {exc}") from exc
+
+
 async def _get_shipment_inputs(
     shipment_id: str,
     user=Depends(get_current_user),
@@ -236,6 +274,21 @@ async def _save_shipment_inputs(
     _authz=Depends(require_activity("documents.dnd_inputs")),
 ):
     prisma = await get_prisma()
+    if shipment_id.startswith("bol-"):
+        bol_document_id = shipment_id.removeprefix("bol-").strip()
+        reference_rows = await dnd_logic.query_raw(
+            prisma,
+            """
+            SELECT 1
+            FROM aiextraction.bills_of_lading
+            WHERE document_id::text = $1::text
+              AND COALESCE(NULLIF(BTRIM(mbl_number), ''), NULLIF(BTRIM(booking_reference_number), '')) IS NOT NULL
+            LIMIT 1
+            """,
+            bol_document_id,
+        )
+        if not reference_rows:
+            raise HTTPException(status_code=409, detail="Save MBL/BR before saving D&D Inputs.")
     try:
         return {
             "data": await dnd_logic.save_shipment_inputs(
@@ -354,6 +407,8 @@ async def _record_return(
 for api_router in (router,):
     api_router.add_api_route("/carriers", _list_carriers, methods=["GET"])
     api_router.add_api_route("/carriers", _create_carrier, methods=["POST"])
+    api_router.add_api_route("/safecube-carrier-mappings", _list_safecube_carrier_mappings, methods=["GET"])
+    api_router.add_api_route("/safecube-carrier-mappings", _upsert_safecube_carrier_mapping, methods=["POST"])
     api_router.add_api_route("/inputs/{shipment_id}", _get_shipment_inputs, methods=["GET"])
     api_router.add_api_route("/inputs/{shipment_id}", _save_shipment_inputs, methods=["PUT"])
     api_router.add_api_route("/tariffs/match", _match_tariff, methods=["POST"])

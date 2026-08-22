@@ -29,6 +29,19 @@ const PROCESSING_QUEUE_ROUTE = '/documents/upload/queue';
 const UPLOAD_PROCESS_RETURN_PATH_KEY = 'ewms-upload-process-return-path';
 const BOL_REFERENCE_ACTION_FIELDS = new Set(['mblNumber', 'bookingReferenceNumber']);
 
+function hasText(value: unknown): boolean {
+  return String(value ?? '').trim().length > 0;
+}
+
+function safeCubeCarrierNameFromResponse(value: unknown): string | null {
+  const data = value && typeof value === 'object' && 'data' in value
+    ? (value as { data?: unknown }).data
+    : value;
+  if (!data || typeof data !== 'object') return null;
+  const carrierName = String((data as Record<string, unknown>).carrierName ?? '').trim();
+  return carrierName || null;
+}
+
 type PipelineStageState = 'done' | 'current' | 'current-spin' | 'future';
 type ExtractionFieldFilter = 'all' | 'issues' | 'edited' | 'critical' | `section:${string}` | `array:${string}` | 'additional';
 
@@ -887,49 +900,35 @@ function hasEnteredEditableValue(value: string): boolean {
   return !['', 'Field not in the file', 'Enter value', '—'].includes(value.trim());
 }
 
-function FieldCard({ field, rawData, comparison, isEdited = false, onSave, onDraftChange }: {
+function FieldCard({ field, rawData, comparison, isEdited = false, onDraftChange }: {
   field: FieldDef;
   rawData: JsonValue | null | undefined;
   comparison?: CbpComparisonField;
   isEdited?: boolean;
-  onSave?: (key: string, value: string | null) => Promise<void>;
   onDraftChange?: (key: string, value: string | null) => void;
 }) {
   const formattedValue = formatValue(findExtractionValue(rawData, field.key));
   const extractedValue = field.manual && formattedValue === 'Field not in the file' ? 'Enter value' : formattedValue;
-  const [isEditing, setIsEditing] = useState(false);
-  const [amendedValue, setAmendedValue] = useState<string | null>(null);
   const [draftValue, setDraftValue] = useState('');
 
   useEffect(() => {
-    setIsEditing(false);
-    setAmendedValue(null);
     setDraftValue(['Field not in the file', 'Enter value'].includes(extractedValue) ? '' : extractedValue);
   }, [field.key, extractedValue]);
 
-  const displayValue = amendedValue ?? extractedValue;
+  const isEditableField = Boolean(onDraftChange);
+  const displayValue = isEditableField
+    ? (draftValue.trim() ? draftValue : (field.manual ? 'Enter value' : 'Field not in the file'))
+    : extractedValue;
   const isEmpty = displayValue === 'Field not in the file';
   const isOptionalEmpty = isEmpty && field.optional;
   const isManualEmpty = field.manual && displayValue === 'Enter value';
-  const isAmended = amendedValue !== null || isEdited;
+  const originalDraft = ['Field not in the file', 'Enter value'].includes(extractedValue) ? '' : extractedValue;
+  const isAmended = isEdited || (isEditableField && draftValue !== originalDraft);
   const isMismatch = comparison?.status === 'mismatch';
   const isCompared = Boolean(comparison);
   const isMatched = comparison?.status === 'match';
-  const isEditableField = Boolean(onSave);
   const editableIsFilled = hasEnteredEditableValue(displayValue);
   const editableAccent = isEditableField ? (editableIsFilled ? GREEN : RED) : null;
-
-  function startEdit() {
-    setDraftValue(['Field not in the file', 'Enter value'].includes(displayValue) ? '' : displayValue);
-    setIsEditing(true);
-  }
-
-  async function saveEdit() {
-    const value = draftValue.trim() || null;
-    setAmendedValue(value ?? (field.manual ? 'Enter value' : 'Field not in the file'));
-    setIsEditing(false);
-    await onSave?.(field.key, value);
-  }
 
   return (
     <div
@@ -960,60 +959,39 @@ function FieldCard({ field, rawData, comparison, isEdited = false, onSave, onDra
             {isMismatch ? 'mismatch' : isMatched ? 'match' : 'blank'}
           </span>
         )}
-        {!isEditing && (
-          onSave ? (
-            <button
-              onClick={startEdit}
-              title={`Edit ${field.label}`}
-              style={{ width: 22, height: 22, borderRadius: 5, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
-            >
-              <Pencil size={12} />
-            </button>
-          ) : null
+        {isEditableField && (
+          <span
+            title={`Editing ${field.label}`}
+            aria-label={`${field.label} is editable`}
+            style={{ width: 22, height: 22, borderRadius: 5, border: `1px solid ${BLUE}55`, background: `${BLUE}0D`, color: BLUE, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+          >
+            <Pencil size={12} />
+          </span>
         )}
       </div>
-      {isEditing ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
-          <input
-            autoFocus
-            value={draftValue}
-            onChange={(event) => {
-              const value = event.target.value;
-              setDraftValue(value);
-              onDraftChange?.(field.key, value.trim() || null);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') void saveEdit();
-              if (event.key === 'Escape') setIsEditing(false);
-            }}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              border: `1.5px solid ${editableAccent ?? BLUE}`,
-              borderRadius: 6,
-              padding: '5px 8px',
-              fontSize: 12.5,
-              color: FG,
-              backgroundColor: editableAccent ? `${editableAccent}0A` : 'hsl(var(--background))',
-              outline: 'none',
-              fontFamily: field.mono ? 'var(--font-mono, monospace)' : undefined,
-            }}
-          />
-          <button
-            onClick={() => void saveEdit()}
-            title="Save field"
-            style={{ width: 28, height: 28, borderRadius: 6, border: 'none', backgroundColor: BLUE, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
-          >
-            <Check size={14} />
-          </button>
-          <button
-            onClick={() => setIsEditing(false)}
-            title="Cancel edit"
-            style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${BORDER}`, backgroundColor: 'transparent', color: MUTED, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
-          >
-            <X size={14} />
-          </button>
-        </div>
+      {isEditableField ? (
+        <input
+          value={draftValue}
+          onChange={(event) => {
+            const value = event.target.value;
+            setDraftValue(value);
+            onDraftChange?.(field.key, value.trim() || null);
+          }}
+          placeholder={field.manual ? 'Enter value' : 'Field not in the file'}
+          style={{
+            marginTop: 6,
+            width: '100%',
+            minWidth: 0,
+            border: `1.5px solid ${editableAccent ?? BLUE}`,
+            borderRadius: 6,
+            padding: '7px 9px',
+            fontSize: 12.5,
+            color: FG,
+            backgroundColor: editableAccent ? `${editableAccent}0A` : 'hsl(var(--background))',
+            outline: 'none',
+            fontFamily: field.mono ? 'var(--font-mono, monospace)' : undefined,
+          }}
+        />
       ) : (
         <div
           className={field.mono ? 'vs-mono' : undefined}
@@ -1047,27 +1025,70 @@ function BolSafeCubeInputsDialog({
   fields,
   rawData,
   saving,
+  onFetch,
   onClose,
   onSave,
 }: {
   fields: FieldDef[];
   rawData: JsonValue | null | undefined;
   saving: boolean;
+  onFetch: (values: Record<string, string | null>) => Promise<string | null>;
   onClose: () => void;
-  onSave: (values: Record<string, string | null>) => Promise<void>;
+  onSave: (values: Record<string, string | null>, carrierName: string | null) => Promise<void>;
 }) {
   const initialValues = useMemo(() => Object.fromEntries(fields.map((field) => {
     const formattedValue = formatValue(findExtractionValue(rawData, field.key));
     return [field.key, ['Field not in the file', 'Enter value'].includes(formattedValue) ? '' : formattedValue];
   })), [fields, rawData]);
   const [draftValues, setDraftValues] = useState<Record<string, string>>(initialValues);
+  const [fetching, setFetching] = useState(false);
+  const [fetchedReference, setFetchedReference] = useState('');
+  const [fetchedCarrierName, setFetchedCarrierName] = useState<string | null>(null);
+  const [fetchMessage, setFetchMessage] = useState('');
+  const hasTrackingReference = fields.some((field) => BOL_REFERENCE_ACTION_FIELDS.has(field.key) && hasText(draftValues[field.key]));
+  const currentReference = String(draftValues.mblNumber || draftValues.bookingReferenceNumber || '').trim();
+  const isCurrentReferenceFetched = Boolean(currentReference) && fetchedReference === currentReference;
 
   useEffect(() => {
     setDraftValues(initialValues);
+    setFetchedReference('');
+    setFetchedCarrierName(null);
+    setFetchMessage('');
   }, [initialValues]);
 
+  function normalizedValues() {
+    return Object.fromEntries(Object.entries(draftValues).map(([key, value]) => [key, value.trim() || null]));
+  }
+
+  async function fetchCarrier() {
+    const values = normalizedValues();
+    const trackingReference = String(values.mblNumber || values.bookingReferenceNumber || '').trim();
+    if (!trackingReference) return;
+    setFetching(true);
+    setFetchMessage('');
+    try {
+      const carrierName = await onFetch(values);
+      setFetchedReference(trackingReference);
+      setFetchedCarrierName(carrierName);
+      setFetchMessage(carrierName
+        ? `Carrier found: ${carrierName}`
+        : 'Carrier Name was not found. D&D Inputs will use the carrier master dropdown.');
+    } catch (error) {
+      setFetchedReference(trackingReference);
+      setFetchedCarrierName(null);
+      setFetchMessage(error instanceof Error
+        ? `${error.message} D&D Inputs will use the carrier master dropdown.`
+        : 'Carrier lookup was unavailable. D&D Inputs will use the carrier master dropdown.');
+    } finally {
+      setFetching(false);
+    }
+  }
+
   async function saveEdit() {
-    await onSave(Object.fromEntries(Object.entries(draftValues).map(([key, value]) => [key, value.trim() || null])));
+    const values = normalizedValues();
+    const hasTrackingReference = fields.some((field) => BOL_REFERENCE_ACTION_FIELDS.has(field.key) && hasText(values[field.key]));
+    if (!hasTrackingReference || !isCurrentReferenceFetched) return;
+    await onSave(values, fetchedCarrierName);
   }
 
   return (
@@ -1076,7 +1097,7 @@ function BolSafeCubeInputsDialog({
         <div style={{ padding: '16px 18px', borderBottom: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 750, color: FG }}>MBL/BR No.</div>
-            <div style={{ marginTop: 4, fontSize: 12, color: MUTED }}>Enter either MBL No or Booking Ref No for tracking.</div>
+            <div style={{ marginTop: 4, fontSize: 12, color: MUTED }}>Enter a reference, fetch its carrier, then save the BOL setup.</div>
           </div>
           <button type="button" onClick={onClose} style={{ border: 'none', background: 'transparent', color: MUTED, cursor: 'pointer' }}><X size={18} /></button>
         </div>
@@ -1087,9 +1108,14 @@ function BolSafeCubeInputsDialog({
               <input
                 autoFocus={index === 0}
                 value={draftValues[field.key] ?? ''}
-                onChange={(event) => setDraftValues((current) => ({ ...current, [field.key]: event.target.value }))}
+                onChange={(event) => {
+                  setDraftValues((current) => ({ ...current, [field.key]: event.target.value }));
+                  setFetchedReference('');
+                  setFetchedCarrierName(null);
+                  setFetchMessage('');
+                }}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') void saveEdit();
+                  if (event.key === 'Enter') void (isCurrentReferenceFetched ? saveEdit() : fetchCarrier());
                   if (event.key === 'Escape') onClose();
                 }}
                 className={field.mono ? 'vs-mono' : undefined}
@@ -1098,11 +1124,20 @@ function BolSafeCubeInputsDialog({
             </label>
           ))}
         </div>
+        <div style={{ padding: '0 18px 12px', fontSize: 11, color: !hasTrackingReference ? RED : fetchedCarrierName ? GREEN : MUTED }}>
+          {!hasTrackingReference
+            ? 'Enter either MBL No or Booking Ref No, then fetch the carrier.'
+            : fetchMessage || 'Fetch the carrier before saving.'}
+        </div>
         <div style={{ padding: 12, borderTop: `1px solid ${BORDER}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <Button type="button" variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button type="button" size="sm" disabled={saving} onClick={() => void saveEdit()}>
-            {saving ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite', marginRight: 6 }} /> : null}
-            Save Inputs
+          <Button type="button" variant="outline" size="sm" disabled={saving || fetching || !hasTrackingReference} onClick={() => void fetchCarrier()}>
+            {fetching ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite', marginRight: 6 }} /> : null}
+            Fetch carrier
+          </Button>
+          <Button type="button" size="sm" disabled={saving || fetching || !isCurrentReferenceFetched} onClick={() => void saveEdit()}>
+            {saving ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite', marginRight: 6 }} /> : <Check size={14} style={{ marginRight: 6 }} />}
+            Save MBL/BR
           </Button>
         </div>
       </div>
@@ -1116,7 +1151,6 @@ function LineItemsTable({
   comparisonRows,
   editable = true,
   isColumnEditable = canManuallyEditExtractionField,
-  onSave,
   onDraftChange,
 }: {
   rows: Array<Record<string, JsonValue>>;
@@ -1124,12 +1158,9 @@ function LineItemsTable({
   comparisonRows?: NonNullable<CbpComparisonResponse['tables']>[string]['rows'];
   editable?: boolean;
   isColumnEditable?: (column: string) => boolean;
-  onSave?: (rows: Array<Record<string, JsonValue>>) => Promise<void>;
   onDraftChange?: (rows: Array<Record<string, JsonValue>>) => void;
 }) {
   const [draftRows, setDraftRows] = useState(rows);
-  const [saving, setSaving] = useState(false);
-
   useEffect(() => {
     setDraftRows(rows);
   }, [rows]);
@@ -1144,21 +1175,10 @@ function LineItemsTable({
 
   if (!draftRows.length || !columns.length) return null;
 
-  async function saveRows() {
-    if (!onSave || saving) return;
-    setSaving(true);
-    try {
-      await onSave(draftRows);
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
     <section>
       <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>
         {labelFromKey(title)}
-        {saving && <span style={{ marginLeft: 8, color: BLUE, textTransform: 'none' }}>Saving…</span>}
       </div>
       <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'auto', backgroundColor: 'hsl(var(--card))' }}>
         <table style={{ width: '100%', minWidth: Math.max(600, columns.length * 140), borderCollapse: 'collapse', tableLayout: 'auto' }}>
@@ -1211,7 +1231,6 @@ function LineItemsTable({
                             el.style.height = 'auto';
                             el.style.height = `${el.scrollHeight}px`;
                           }}
-                          onBlur={() => void saveRows()}
                           style={{
                             width: '100%', minWidth: column === 'itemIndex' ? 60 : 110, minHeight: 46, resize: 'none', overflow: 'hidden',
                             border: `1px solid ${editableAccent ?? (isMismatch ? 'hsla(0,84%,60%,0.50)' : isEmpty ? `${RED}45` : BORDER)}`,
@@ -1264,29 +1283,23 @@ function BolContainerMappingModal({
   onUnmappedFilterChange: (enabled: boolean) => Promise<void>;
 }) {
   const [rows, setRows] = useState<ContainerMappingRow[]>([]);
-  const [edits, setEdits] = useState<Record<string, string | null>>({});
-  useEffect(() => {
-    const containers = new Set(mapping?.containers ?? []);
-    setRows((mapping?.rows ?? []).map(row => ({
-      ...row,
-      containerNo: edits[row.lineItemId] ?? (row.containerNo && containers.has(row.containerNo) ? row.containerNo : null),
-    })));
-  }, [mapping, edits]);
   const numericValue = (value: string | null | undefined) => {
     const parsed = Number(String(value ?? '').replace(/,/g, '').replace(/[^0-9.-]/g, ''));
     return Number.isFinite(parsed) ? parsed : 0;
   };
   const formatInputValue = (value: string | null | undefined) => String(value ?? '');
   const formatMaybeNumber = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 3 });
-  const rowSourceKey = (row: ContainerMappingRow, index: number) => (
-    String(row._sourceLineKey || [
+  const rowSourceKey = (row: ContainerMappingRow, index: number) => {
+    const explicit = String(row._sourceLineKey ?? '').trim();
+    if (explicit) return explicit;
+    const baseLineItemId = row.lineItemId.includes(':split:') ? row.lineItemId.split(':split:')[0] : row.lineItemId;
+    return [
       row.packingListDocumentId,
       row.invoiceNumber,
       row.productCode,
-      row.containerNo,
-      row.lineItemId.includes(':split:') ? row.lineItemId.split(':split:')[0] : row.lineItemId || index,
-    ].map(value => String(value ?? '').trim().toUpperCase()).join('|'))
-  );
+      baseLineItemId || index,
+    ].map(value => String(value ?? '').trim().toUpperCase()).join('|');
+  };
   const withSourceTotals = (row: ContainerMappingRow, index: number): ContainerMappingRow => ({
     ...row,
     _sourceLineKey: rowSourceKey(row, index),
@@ -1295,6 +1308,13 @@ function BolContainerMappingModal({
     _sourceNetWeightKgs: row._sourceNetWeightKgs ?? row.netWeightKgs,
     _sourceGrossWeightKgs: row._sourceGrossWeightKgs ?? row.grossWeightKgs,
   });
+  useEffect(() => {
+    const containers = new Set(mapping?.containers ?? []);
+    setRows((mapping?.rows ?? []).map((row, index) => withSourceTotals({
+      ...row,
+      containerNo: row.containerNo && containers.has(row.containerNo) ? row.containerNo : null,
+    }, index)));
+  }, [mapping]);
   const splitFields = [
     { key: 'totalQtyInPcs', sourceKey: '_sourceTotalQtyInPcs', label: 'quantity' },
     { key: 'totalBundles', sourceKey: '_sourceTotalBundles', label: 'bundles' },
@@ -1321,6 +1341,7 @@ function BolContainerMappingModal({
       const splitRow: ContainerMappingRow = {
         ...base,
         lineItemId: `${base.lineItemId}:split:${Date.now()}`,
+        containerNo: null,
         totalQtyInPcs: null,
         totalBundles: null,
         qtyPerBundle: null,
@@ -1333,21 +1354,66 @@ function BolContainerMappingModal({
       return next;
     });
   };
+  const removeSplitRow = (rowIndex: number) => {
+    setRows(current => {
+      const removed = current[rowIndex];
+      if (!removed || String(removed._splitRow ?? '').toLowerCase() !== 'true') return current;
+      const sourceKey = rowSourceKey(removed, rowIndex);
+      const next = current.filter((_, index) => index !== rowIndex);
+      const originalIndex = next.findIndex((row, index) => (
+        String(row._splitRow ?? '').toLowerCase() !== 'true' && rowSourceKey(row, index) === sourceKey
+      ));
+      const hasRemainingSplit = next.some((row, index) => (
+        String(row._splitRow ?? '').toLowerCase() === 'true' && rowSourceKey(row, index) === sourceKey
+      ));
+      if (originalIndex < 0 || hasRemainingSplit) return next;
+      return next.map((row, index) => {
+        if (index !== originalIndex) return row;
+        const restoredQty = row._sourceTotalQtyInPcs ?? row.totalQtyInPcs;
+        const restoredBundles = row._sourceTotalBundles ?? row.totalBundles;
+        const qty = numericValue(restoredQty);
+        const bundles = numericValue(restoredBundles);
+        return {
+          ...row,
+          totalQtyInPcs: restoredQty ?? null,
+          totalBundles: restoredBundles ?? null,
+          qtyPerBundle: qty > 0 && bundles > 0 ? formatMaybeNumber(qty / bundles) : row.qtyPerBundle,
+          netWeightKgs: row._sourceNetWeightKgs ?? row.netWeightKgs,
+          grossWeightKgs: row._sourceGrossWeightKgs ?? row.grossWeightKgs,
+        };
+      });
+    });
+  };
   const splitIssues = (() => {
-    const grouped = new Map<string, Array<ContainerMappingRow>>();
+    const grouped = new Map<string, Array<{ row: ContainerMappingRow; index: number }>>();
     rows.forEach((row, index) => {
       const key = rowSourceKey(row, index);
-      grouped.set(key, [...(grouped.get(key) ?? []), row]);
+      grouped.set(key, [...(grouped.get(key) ?? []), { row, index }]);
     });
     const issues: string[] = [];
+    rows.forEach((row, index) => {
+      const netWeight = numericValue(row.netWeightKgs);
+      const grossWeight = numericValue(row.grossWeightKgs);
+      if (netWeight > 0 && grossWeight > 0 && grossWeight <= netWeight) {
+        const label = row.productCode || row.description || `line ${index + 1}`;
+        issues.push(`${label}: gross weight must be greater than net weight`);
+      }
+    });
     grouped.forEach((group) => {
-      if (group.length <= 1) return;
-      const source = group.find(row => String(row._splitRow ?? '').toLowerCase() !== 'true') ?? group[0];
+      const source = group.find(item => String(item.row._splitRow ?? '').toLowerCase() !== 'true')?.row ?? group[0].row;
       const label = source.productCode || source.description || 'line item';
       for (const field of splitFields) {
         const sourceTotal = numericValue((source as Record<string, unknown>)[field.sourceKey] as string | null | undefined ?? (source as Record<string, unknown>)[field.key] as string | null | undefined);
         if (!sourceTotal) continue;
-        const splitTotal = group.reduce((sum, row) => sum + numericValue((row as Record<string, unknown>)[field.key] as string | null | undefined), 0);
+        if (group.length <= 1) {
+          const visibleTotal = numericValue((group[0].row as Record<string, unknown>)[field.key] as string | null | undefined);
+          if (!visibleTotal) continue;
+          if (Math.abs(visibleTotal - sourceTotal) > 0.01) {
+            issues.push(`${label}: ${field.label} ${formatMaybeNumber(visibleTotal)} must match Packing List ${formatMaybeNumber(sourceTotal)}`);
+          }
+          continue;
+        }
+        const splitTotal = group.reduce((sum, item) => sum + numericValue((item.row as Record<string, unknown>)[field.key] as string | null | undefined), 0);
         if (Math.abs(splitTotal - sourceTotal) > 0.01) {
           issues.push(`${label}: ${field.label} split total ${formatMaybeNumber(splitTotal)} must equal Packing List ${formatMaybeNumber(sourceTotal)}`);
         }
@@ -1434,24 +1500,37 @@ function BolContainerMappingModal({
               <table style={{ width: '100%', minWidth: 1280, borderCollapse: 'collapse' }}>
                 <thead><tr>{['', 'Container no', 'Product code', 'Description', 'Specification', 'TOTAL QTY IN PCS', 'Qty per bundle', 'Total bundle', 'Net weight (kg)', 'Gross weight (kg)'].map(label => <th key={label || 'split'} style={{ padding: 10, border: `1px solid ${BORDER}`, textAlign: 'left', fontSize: 11, color: MUTED, whiteSpace: 'nowrap' }}>{label}</th>)}</tr></thead>
                 <tbody>{rows.map((row, index) => (
-                  <tr key={row.lineItemId} style={row._splitRow ? { background: 'hsla(173,58%,39%,0.12)' } : undefined}>
+                  <tr key={row.lineItemId} style={String(row._splitRow ?? '').toLowerCase() === 'true' ? { background: 'hsla(173,58%,39%,0.12)' } : undefined}>
                     <td style={{ padding: 6, border: `1px solid ${BORDER}`, width: 44 }}>
-                      <button
-                        type="button"
-                        disabled={approved}
-                        onClick={() => addSplitRow(index)}
-                        title="Add split row from Packing List line"
-                        style={{ width: 32, height: 32, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: TEAL, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: approved ? 'default' : 'pointer', opacity: approved ? 0.45 : 1 }}
-                      >
-                        <Plus size={14} />
-                      </button>
+                      {String(row._splitRow ?? '').toLowerCase() === 'true' ? (
+                        <button
+                          type="button"
+                          disabled={approved}
+                          onClick={() => removeSplitRow(index)}
+                          title="Remove split row"
+                          aria-label="Remove split row"
+                          style={{ width: 32, height: 32, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: RED, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: approved ? 'default' : 'pointer', opacity: approved ? 0.45 : 1 }}
+                        >
+                          <X size={14} />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={approved}
+                          onClick={() => addSplitRow(index)}
+                          title="Add split row from Packing List line"
+                          aria-label="Add split row"
+                          style={{ width: 32, height: 32, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: TEAL, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: approved ? 'default' : 'pointer', opacity: approved ? 0.45 : 1 }}
+                        >
+                          <Plus size={14} />
+                        </button>
+                      )}
                     </td>
                     <td style={{ padding: 8, border: `1px solid ${BORDER}` }}>
-                      <select value={row.containerNo ?? ''} onChange={event => {
+                      <select disabled={approved} value={row.containerNo ?? ''} onChange={event => {
                         const containerNo = event.target.value || null;
-                        setEdits(current => ({ ...current, [row.lineItemId]: containerNo }));
                         setRows(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, containerNo } : item));
-                      }} style={{ width: '100%', padding: 7, border: `1px solid ${row.containerNo ? BORDER : 'hsl(38 92% 50%)'}`, borderRadius: 5, background: 'hsl(var(--background))', color: FG }}>
+                      }} style={{ width: '100%', padding: 7, border: `1px solid ${row.containerNo ? BORDER : 'hsl(38 92% 50%)'}`, borderRadius: 5, background: 'hsl(var(--background))', color: FG, opacity: approved ? 0.7 : 1 }}>
                         <option value="">Select container</option>
                         {mapping.containers.map(container => <option key={container} value={container}>{container}</option>)}
                       </select>
@@ -1466,7 +1545,11 @@ function BolContainerMappingModal({
                     ] as Array<[keyof ContainerMappingRow, string | null]>).map(([key, value]) => {
                       const canEditCell = canEditMappingValue(row, index, key);
                       const cellHasValue = hasEnteredEditableValue(formatInputValue(value));
-                      const editableAccent = canEditCell ? (cellHasValue ? GREEN : RED) : null;
+                      const netWeight = numericValue(row.netWeightKgs);
+                      const grossWeight = numericValue(row.grossWeightKgs);
+                      const hasWeightOrderError = netWeight > 0 && grossWeight > 0 && grossWeight <= netWeight;
+                      const isWeightErrorCell = hasWeightOrderError && (key === 'netWeightKgs' || key === 'grossWeightKgs');
+                      const editableAccent = isWeightErrorCell ? RED : canEditCell ? (cellHasValue ? GREEN : RED) : null;
                       return (
                         <td key={key} style={{ padding: 0, border: `1px solid ${editableAccent ?? BORDER}`, fontSize: 12, color: editableAccent ?? FG, background: editableAccent ? `${editableAccent}0F` : undefined }}>
                           {key === 'qtyPerBundle' ? (
@@ -1484,11 +1567,16 @@ function BolContainerMappingModal({
                               value={formatInputValue(value)}
                               onChange={event => updateRowValue(index, key, event.target.value || null)}
                               placeholder="Enter..."
-                              style={{ width: '100%', minWidth: 95, border: 'none', outline: 'none', background: 'transparent', color: FG, padding: '9px 10px', fontSize: 12, fontWeight: 700 }}
+                              style={{ width: '100%', minWidth: 95, border: 'none', outline: 'none', background: 'transparent', color: isWeightErrorCell ? RED : FG, padding: '9px 10px', fontSize: 12, fontWeight: 700 }}
                             />
                           ) : (
-                            <div style={{ minWidth: 95, padding: '9px 10px', fontSize: 12, fontWeight: 700, color: value ? FG : MUTED }}>
+                            <div style={{ minWidth: 95, padding: '9px 10px', fontSize: 12, fontWeight: 700, color: isWeightErrorCell ? RED : value ? FG : MUTED }}>
                               {value || '—'}
+                            </div>
+                          )}
+                          {isWeightErrorCell && key === 'grossWeightKgs' && (
+                            <div style={{ padding: '0 10px 7px', fontSize: 10.5, color: RED, fontWeight: 800, whiteSpace: 'nowrap' }}>
+                              Must be &gt; net
                             </div>
                           )}
                         </td>
@@ -1634,7 +1722,7 @@ export function DocumentDetailPage() {
   const [documentDetail, setDocumentDetail] = useState<DocumentDetailRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [actionLoading, setActionLoading] = useState<'approve' | 'retry' | 'revert' | null>(null);
+  const [actionLoading, setActionLoading] = useState<'approve' | 'edit' | 'save' | 'retry' | 'revert' | null>(null);
   const [sourcePreviewOpen, setSourcePreviewOpen] = useState(false);
   const [sourcePreviewUrl, setSourcePreviewUrl] = useState<string | null>(null);
   const [documentPreviewUrl, setDocumentPreviewUrl] = useState<string | null>(null);
@@ -1650,8 +1738,10 @@ export function DocumentDetailPage() {
   const [containerMapping, setContainerMapping] = useState<ContainerMappingResponse | null>(null);
   const [containerMappingUnmappedOnly, setContainerMappingUnmappedOnly] = useState(false);
   const [dndInputsOpen, setDndInputsOpen] = useState(false);
+  const [dndInputsActivated, setDndInputsActivated] = useState(false);
   const [safeCubeInputsOpen, setSafeCubeInputsOpen] = useState(false);
   const [safeCubeInputsSaving, setSafeCubeInputsSaving] = useState(false);
+  const [bolSafeCubeCarrierName, setBolSafeCubeCarrierName] = useState<string | null>(null);
   const [warehouseMappingOpen, setWarehouseMappingOpen] = useState(false);
   const [warehouseMappingLoading, setWarehouseMappingLoading] = useState(false);
   const [warehouseMappingSaving, setWarehouseMappingSaving] = useState(false);
@@ -1675,6 +1765,18 @@ export function DocumentDetailPage() {
     : UPLOAD_PROCESS_ROUTE;
   const canUseDndInputs = activities.includes('documents.dnd_inputs');
   const canUseContainerMapping = activities.includes('documents.map_container_to_sku') && canDoDocType('BILL_OF_LADING', 'container_mapping');
+  const refreshDndInputsStatus = useCallback(async () => {
+    if (!documentDetail || documentDetail.docType !== 'BILL_OF_LADING') {
+      setDndInputsActivated(false);
+      return;
+    }
+    try {
+      const response = await apiGet<{ data: { dndStatus?: string | null } | null }>(`/dnd/inputs/bol-${documentDetail.id}`);
+      setDndInputsActivated(String(response.data?.dndStatus ?? '').toUpperCase() === 'ACTIVATED');
+    } catch {
+      setDndInputsActivated(false);
+    }
+  }, [documentDetail?.docType, documentDetail?.id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1732,21 +1834,28 @@ export function DocumentDetailPage() {
   const configuredFieldKeys = new Set(
     config?.sections.flatMap((section) => section.fields.map((field) => field.key)) ?? [],
   );
+  const normalizedDocumentStatus = String(documentDetail?.status ?? '').toUpperCase();
+  const activeEditLock = documentDetail?.editLock ?? null;
+  const isDocumentEditing = isApprovalRoute && activeEditLock?.ownedByCurrentUser === true;
+  const isDocumentLockedByOtherUser = isApprovalRoute && Boolean(activeEditLock && !activeEditLock.ownedByCurrentUser);
+  const hasPendingExtractionEdits = Object.keys(pendingFieldEdits).length > 0 || Object.keys(pendingArrayEdits).length > 0;
   const isExtractionApproved = (
     Boolean(extraction?.reviewedAt)
-    || ['REVIEWED', 'ARCHIVED'].includes(String(documentDetail?.status ?? '').toUpperCase())
+    || ['REVIEWED', 'ARCHIVED'].includes(normalizedDocumentStatus)
   );
   const canReprocessCurrentDoc = (
     activities.includes('documents.reprocess_ocr')
     && Boolean(documentDetail?.docType)
     && canDoDocType(String(documentDetail?.docType ?? ''), 'reprocess_ocr')
   );
-  const canEditCurrentExtraction = Boolean(documentDetail?.docType)
+  const canEditCurrentExtractionPermission = Boolean(documentDetail?.docType)
     && !isExtractionApproved
     && (
       (activities.includes('documents.edit_extracted') && canDoDocType(String(documentDetail?.docType ?? ''), 'edit_extracted'))
       || (activities.includes('documents.override_approved_fields') && canDoDocType(String(documentDetail?.docType ?? ''), 'override_approved_fields'))
     );
+  const canStartDocumentEditing = isApprovalRoute && Boolean(extraction) && canEditCurrentExtractionPermission && !isExtractionApproved && !isDocumentLockedByOtherUser;
+  const canEditCurrentExtraction = canStartDocumentEditing && isDocumentEditing;
   const canApproveCurrentExtraction = (
     activities.includes('documents.approve_draft')
     && Boolean(documentDetail?.docType)
@@ -1760,8 +1869,27 @@ export function DocumentDetailPage() {
     ? normalizedRawData.containerMappingRows.filter(isJsonRecord)
     : [];
   const containerMappingApproved = normalizedRawData.containerMappingApproved === true;
-  const productBreakingDone = approvedContainerMappingRows.some((row) => String(row._splitRow ?? '').toLowerCase() === 'true');
-  const canEditCurrentExtractionField = (key: string) => canEditExtractionFieldNow(key, productBreakingDone);
+  const bolSetupState = isJsonRecord(normalizedRawData.bolSetup) ? normalizedRawData.bolSetup : {};
+  const persistedSafeCubeCarrierName = hasText(bolSetupState.safeCubeCarrierName)
+    ? String(bolSetupState.safeCubeCarrierName).trim()
+    : null;
+  const extractionRecord = extraction && typeof extraction === 'object' ? extraction as Record<string, unknown> : {};
+  const bolHasTrackingReference = documentDetail?.docType !== 'BILL_OF_LADING' || (
+    hasText(extractionRecord.mblNumber)
+    || hasText(extractionRecord.bookingReferenceNumber)
+    || hasText(findExtractionValue(extraction?.rawData, 'mblNumber'))
+    || hasText(findExtractionValue(extraction?.rawData, 'bookingReferenceNumber'))
+  );
+  const effectiveSafeCubeCarrierName = bolSafeCubeCarrierName ?? persistedSafeCubeCarrierName;
+  const bolApprovalBlockers = documentDetail?.docType === 'BILL_OF_LADING'
+    ? [
+        !bolHasTrackingReference ? 'Enter MBL No or Booking Ref No' : null,
+        !dndInputsActivated ? 'Complete and save D&D Inputs' : null,
+        !containerMappingApproved ? 'Approve the BOL container mapping' : null,
+      ].filter((item): item is string => Boolean(item))
+    : [];
+  const bolApprovalBlockedReason = bolApprovalBlockers.length ? bolApprovalBlockers.join('; ') : '';
+  const canEditCurrentExtractionField = (_key: string) => canEditCurrentExtraction;
   const goodsDescriptionRows = extraction?.arrays?.goodsDescriptionItems ?? [];
   const hasStructuredGoodsDescription = (
     documentDetail?.docType === 'BILL_OF_LADING'
@@ -1776,6 +1904,10 @@ export function DocumentDetailPage() {
     ))
     .map(([key]) => ({ key, label: labelFromKey(key) }));
   const isImagePreview = Boolean(documentDetail?.contentType?.startsWith('image/'));
+
+  useEffect(() => {
+    void refreshDndInputsStatus();
+  }, [refreshDndInputsStatus]);
 
   const fetchCbpComparison = useCallback(async () => {
     if (!documentDetail || !isCbpComparisonDocument) {
@@ -1799,6 +1931,16 @@ export function DocumentDetailPage() {
     setEditedExtractionFields(new Set());
     setDocumentOverviewCollapsed(false);
   }, [documentDetail?.id]);
+
+  useEffect(() => {
+    if (!isDocumentEditing || !hasPendingExtractionEdits) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDocumentEditing, hasPendingExtractionEdits]);
 
   useEffect(() => {
     if (!isCbpComparisonDocument) {
@@ -1934,11 +2076,79 @@ export function DocumentDetailPage() {
     }
   }
 
+  async function beginEditDocument() {
+    if (!documentDetail || actionLoading || !canStartDocumentEditing) return;
+    setActionLoading('edit');
+    try {
+      const response = await documentApi.beginEdit(documentDetail.id);
+      const acquiredLock = response.data.data.editLock ?? {
+        editingById: 'current-user',
+        editingStartedAt: new Date().toISOString(),
+        editingExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+        ownedByCurrentUser: true,
+      };
+      const acquiredVersion = response.data.data.editVersion ?? documentDetail.editVersion ?? 1;
+      setDocumentDetail((current) => current ? {
+        ...current,
+        editVersion: acquiredVersion,
+        editLock: acquiredLock,
+      } : current);
+      try {
+        const { data } = await documentApi.getById(documentDetail.id);
+        setDocumentDetail({
+          ...data,
+          editVersion: data.editVersion ?? acquiredVersion,
+          editLock: data.editLock ?? acquiredLock,
+        });
+      } catch {
+        // The lock-acquisition response is authoritative; a refresh failure must not hide editing mode.
+      }
+      setPendingFieldEdits({});
+      setPendingArrayEdits({});
+      toast({ title: 'Editing enabled', description: 'Make changes, then click Save before approving.' });
+    } catch (err) {
+      toast({ title: 'Could not start editing', description: getApiErrorMessage(err, 'Unable to open this document for editing.'), variant: 'destructive' });
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function saveDocumentEdits() {
+    if (!documentDetail || actionLoading || !isDocumentEditing) return;
+    setActionLoading('save');
+    try {
+      await flushPendingExtractionEdits(true);
+      const { data } = await documentApi.getById(documentDetail.id);
+      setDocumentDetail(data);
+      await fetchCbpComparison();
+      toast({
+        title: hasPendingExtractionEdits ? 'Edits saved' : 'Edit session saved',
+        description: 'Approval is enabled again.',
+      });
+    } catch (err) {
+      toast({ title: 'Save failed', description: getApiErrorMessage(err, 'Unable to save document edits.'), variant: 'destructive' });
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   async function approveAllFields() {
     if (!documentDetail || actionLoading) return;
+    if (isDocumentEditing) {
+      toast({ title: 'Save required', description: 'Save your edits before approving this document.', variant: 'destructive' });
+      return;
+    }
+    if (isDocumentLockedByOtherUser) {
+      const owner = activeEditLock?.editingByName || activeEditLock?.editingByEmail || 'another user';
+      toast({ title: 'Document is locked', description: `This document is being edited by ${owner}.`, variant: 'destructive' });
+      return;
+    }
+    if (bolApprovalBlockedReason) {
+      toast({ title: 'Approval blocked', description: bolApprovalBlockedReason, variant: 'destructive' });
+      return;
+    }
     setActionLoading('approve');
     try {
-      await flushPendingExtractionEdits();
       const approval = await documentApi.approve(documentDetail.id);
       const validation = approval.data?.validation;
       const blockers = Number(validation?.blockingFailures ?? 0);
@@ -2092,54 +2302,6 @@ export function DocumentDetailPage() {
     }
   }
 
-  async function saveArrayRows(
-    arrayName: string,
-    rows: Array<Record<string, JsonValue>>,
-  ) {
-    if (!documentDetail) return;
-    try {
-      await documentApi.updateExtraction(documentDetail.id, {
-        arrays: { [arrayName]: rows },
-      });
-      setPendingArrayEdits((current) => {
-        const next = { ...current };
-        delete next[arrayName];
-        return next;
-      });
-      const { data } = await documentApi.getById(documentDetail.id);
-      setDocumentDetail(data);
-      await fetchCbpComparison();
-    } catch (err) {
-      toast({
-        title: `Could not save ${labelFromKey(arrayName)}`,
-        description: err instanceof Error ? err.message : 'Unable to save table edits.',
-        variant: 'destructive',
-      });
-    }
-  }
-
-  async function saveFieldValue(key: string, value: string | null) {
-    if (!documentDetail) return;
-    try {
-      await documentApi.updateExtraction(documentDetail.id, { fields: { [key]: value } });
-      setPendingFieldEdits((current) => {
-        const next = { ...current };
-        delete next[key];
-        return next;
-      });
-      setEditedExtractionFields((current) => {
-        const next = new Set(current);
-        next.add(key);
-        return next;
-      });
-      const { data } = await documentApi.getById(documentDetail.id);
-      setDocumentDetail(data);
-      await fetchCbpComparison();
-    } catch (err) {
-      toast({ title: `Could not save ${labelFromKey(key)}`, description: err instanceof Error ? err.message : 'Unable to save field.', variant: 'destructive' });
-      throw err;
-    }
-  }
 
   function rememberFieldDraft(key: string, value: string | null) {
     setPendingFieldEdits((current) => ({ ...current, [key]: value }));
@@ -2149,17 +2311,19 @@ export function DocumentDetailPage() {
     setPendingArrayEdits((current) => ({ ...current, [arrayName]: rows }));
   }
 
-  async function flushPendingExtractionEdits() {
+  async function flushPendingExtractionEdits(requireEditLock = false) {
     if (!documentDetail) return;
     const fields = Object.fromEntries(
       Object.entries(pendingFieldEdits).map(([key, value]) => [key, typeof value === 'string' ? value.trim() || null : value]),
     );
     const arrays = { ...pendingArrayEdits };
-    if (!Object.keys(fields).length && !Object.keys(arrays).length) return;
+    const hasChanges = Object.keys(fields).length > 0 || Object.keys(arrays).length > 0;
+    if (!hasChanges && !requireEditLock) return;
 
     await documentApi.updateExtraction(documentDetail.id, {
       ...(Object.keys(fields).length ? { fields } : {}),
       ...(Object.keys(arrays).length ? { arrays } : {}),
+      ...(requireEditLock ? { requireEditLock: true, expectedEditVersion: documentDetail.editVersion ?? null } : {}),
     });
     setPendingFieldEdits({});
     setPendingArrayEdits({});
@@ -2175,18 +2339,58 @@ export function DocumentDetailPage() {
     await fetchCbpComparison();
   }
 
-  async function saveSafeCubeInputs(values: Record<string, string | null>) {
+  async function fetchSafeCubeCarrier(values: Record<string, string | null>): Promise<string | null> {
+    const mblNumber = String(values.mblNumber ?? '').trim();
+    const bookingReferenceNumber = String(values.bookingReferenceNumber ?? '').trim();
+    const trackingReference = mblNumber || bookingReferenceNumber;
+    if (!trackingReference) throw new Error('Enter either MBL No or Booking Ref No.');
+
+    const token = getAuthToken();
+    const response = await readJsonResponse(await fetch(apiUrl('/api/shipments/track'), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        trackingReference,
+        shipmentType: mblNumber ? 'BL' : 'BK',
+      }),
+    }));
+    return safeCubeCarrierNameFromResponse(response);
+  }
+
+  async function saveSafeCubeInputs(values: Record<string, string | null>, carrierName: string | null) {
     if (!documentDetail) return;
+    const mblNumber = String(values.mblNumber ?? '').trim();
+    const bookingReferenceNumber = String(values.bookingReferenceNumber ?? '').trim();
+    if (!mblNumber && !bookingReferenceNumber) {
+      toast({ title: 'MBL/BR number required', description: 'Enter either MBL No or Booking Ref No before saving.', variant: 'destructive' });
+      return;
+    }
     setSafeCubeInputsSaving(true);
     try {
-      await documentApi.updateExtraction(documentDetail.id, { fields: values });
+      await documentApi.updateExtraction(documentDetail.id, {
+        fields: {
+          ...values,
+          carrierCompanyName: carrierName,
+        },
+      });
+      setBolSafeCubeCarrierName(carrierName);
+
       const { data } = await documentApi.getById(documentDetail.id);
       setDocumentDetail(data);
       await fetchCbpComparison();
       setSafeCubeInputsOpen(false);
-      toast({ title: 'MBL/BR number saved' });
+      toast({
+        title: 'MBL/BR setup saved',
+        description: carrierName
+          ? `carrier name saved: ${carrierName}`
+          : 'Reference saved. Select the carrier from D&D Master in the next step.',
+      });
     } catch (err) {
-      toast({ title: 'Could not save MBL/BR number', description: err instanceof Error ? err.message : 'Unable to save tracking references.', variant: 'destructive' });
+      toast({ title: 'Could not save MBL/BR setup', description: err instanceof Error ? err.message : 'Unable to save tracking references.', variant: 'destructive' });
       throw err;
     } finally {
       setSafeCubeInputsSaving(false);
@@ -2478,7 +2682,7 @@ export function DocumentDetailPage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
                 {section.fields.map((field) => (
-                  <FieldCard key={field.key} field={field} rawData={extraction.rawData} comparison={cbpComparison?.fields?.[field.key]} isEdited={editedExtractionFields.has(field.key)} onSave={canEditCurrentExtraction && canEditCurrentExtractionField(field.key) ? saveFieldValue : undefined} onDraftChange={canEditCurrentExtraction && canEditCurrentExtractionField(field.key) ? rememberFieldDraft : undefined} />
+                  <FieldCard key={field.key} field={field} rawData={extraction.rawData} comparison={cbpComparison?.fields?.[field.key]} isEdited={editedExtractionFields.has(field.key)} onDraftChange={canEditCurrentExtraction && canEditCurrentExtractionField(field.key) ? rememberFieldDraft : undefined} />
                 ))}
               </div>
             </div>
@@ -2509,7 +2713,7 @@ export function DocumentDetailPage() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
                 {filteredAdditionalPrismaFields.map((field) => (
-                  <FieldCard key={field.key} field={field} rawData={extraction.rawData} comparison={cbpComparison?.fields?.[field.key]} isEdited={editedExtractionFields.has(field.key)} onSave={canEditCurrentExtraction && canEditCurrentExtractionField(field.key) ? saveFieldValue : undefined} onDraftChange={canEditCurrentExtraction && canEditCurrentExtractionField(field.key) ? rememberFieldDraft : undefined} />
+                  <FieldCard key={field.key} field={field} rawData={extraction.rawData} comparison={cbpComparison?.fields?.[field.key]} isEdited={editedExtractionFields.has(field.key)} onDraftChange={canEditCurrentExtraction && canEditCurrentExtractionField(field.key) ? rememberFieldDraft : undefined} />
                 ))}
               </div>
             </div>
@@ -2526,7 +2730,6 @@ export function DocumentDetailPage() {
                       comparisonRows={cbpTableComparisonRows(cbpComparison, arrayName)}
                       editable={canEditCurrentExtraction}
                       isColumnEditable={canEditCurrentExtractionField}
-                      onSave={canEditCurrentExtraction ? (updatedRows) => saveArrayRows(arrayName, updatedRows) : undefined}
                       onDraftChange={canEditCurrentExtraction ? (updatedRows) => rememberArrayDraft(arrayName, updatedRows) : undefined}
                     />
                   )
@@ -2539,7 +2742,6 @@ export function DocumentDetailPage() {
                   comparisonRows={cbpComparison?.tables?.lineItems?.rows}
                   editable={canEditCurrentExtraction}
                   isColumnEditable={canEditCurrentExtractionField}
-                  onSave={canEditCurrentExtraction ? (updatedRows) => saveArrayRows('lineItems', updatedRows) : undefined}
                   onDraftChange={canEditCurrentExtraction ? (updatedRows) => rememberArrayDraft('lineItems', updatedRows) : undefined}
                 />
               )
@@ -2555,6 +2757,71 @@ export function DocumentDetailPage() {
       )}
     </section>
   );
+
+  const approvedDocumentControl = (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+      <button
+        type="button"
+        disabled
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'not-allowed', fontSize: 12, fontWeight: 800, opacity: 0.95, whiteSpace: 'nowrap' }}
+      >
+        <CheckCircle2 size={14} />
+        Approved
+      </button>
+      <button
+        type="button"
+        disabled
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: MUTED, background: 'hsl(var(--muted) / 0.45)', border: `1px solid ${BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: 'not-allowed', fontSize: 12, fontWeight: 700, opacity: 0.72, whiteSpace: 'nowrap' }}
+      >
+        <Pencil size={14} />
+        Edit
+      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label="Approved details"
+            style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: MUTED, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'help' }}
+          >
+            <Info size={14} />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-xs text-[12px] leading-relaxed">
+          {extraction?.reviewedAt
+            ? `This extraction was approved on ${formatDateTime(extraction.reviewedAt)}. Fields are read-only.`
+            : 'This extraction is approved. Fields are read-only.'}
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  );
+
+  const editableDocumentControls = (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+      <button
+        type="button"
+        onClick={() => void (isDocumentEditing ? saveDocumentEdits() : beginEditDocument())}
+        disabled={!canStartDocumentEditing || actionLoading !== null}
+        title={isDocumentLockedByOtherUser ? `Being edited by ${activeEditLock?.editingByName || activeEditLock?.editingByEmail || 'another user'}` : undefined}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: isDocumentEditing ? '#fff' : FG, background: isDocumentEditing ? TEAL : 'hsl(var(--card))', border: `1px solid ${isDocumentEditing ? TEAL : BORDER}`, borderRadius: 8, padding: '7px 11px', cursor: !canStartDocumentEditing || actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 700, opacity: !canStartDocumentEditing || actionLoading ? 0.65 : 1, whiteSpace: 'nowrap', flexShrink: 0 }}
+      >
+        {actionLoading === 'edit' || actionLoading === 'save' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : isDocumentEditing ? <Check size={14} /> : <Pencil size={14} />}
+        {isDocumentEditing ? 'Save' : 'Edit'}
+      </button>
+      {canApproveCurrentExtraction ? (
+        <button
+          onClick={approveAllFields}
+          disabled={!extraction || actionLoading !== null || Boolean(bolApprovalBlockedReason) || isDocumentEditing || Boolean(activeEditLock)}
+          title={isDocumentEditing ? 'Save your edits before approving' : isDocumentLockedByOtherUser ? `Being edited by ${activeEditLock?.editingByName || activeEditLock?.editingByEmail || 'another user'}` : bolApprovalBlockedReason || undefined}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: bolApprovalBlockedReason || isDocumentEditing || activeEditLock ? MUTED : '#fff', background: bolApprovalBlockedReason || isDocumentEditing || activeEditLock ? 'hsl(var(--muted) / 0.45)' : GREEN, border: bolApprovalBlockedReason || isDocumentEditing || activeEditLock ? `1px solid ${BORDER}` : '1px solid transparent', borderRadius: 8, padding: '7px 12px', cursor: !extraction || actionLoading || bolApprovalBlockedReason || isDocumentEditing || activeEditLock ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 800, opacity: !extraction || actionLoading || bolApprovalBlockedReason || isDocumentEditing || activeEditLock ? 0.65 : 1, whiteSpace: 'nowrap', flexShrink: 0 }}
+        >
+          {actionLoading === 'approve' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : <CheckCircle2 size={14} />}
+          Approve all fields
+        </button>
+      ) : null}
+    </div>
+  );
+
+  const documentWorkflowControls = isExtractionApproved ? approvedDocumentControl : editableDocumentControls;
 
   useEffect(() => {
     if (!documentDetail) { setPageMeta(null); return; }
@@ -2628,7 +2895,7 @@ export function DocumentDetailPage() {
           onSave={saveWarehouseMapping}
         />
       )}
-      {shipmentAssignOpen && (
+      {/* {shipmentAssignOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.42)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ width: 'min(520px, 100%)', background: 'hsl(var(--card))', border: `1px solid ${BORDER}`, borderRadius: 8, boxShadow: '0 24px 70px rgba(15,23,42,0.28)', overflow: 'hidden' }}>
             <div style={{ padding: '16px 18px', borderBottom: `1px solid ${BORDER}` }}>
@@ -2678,17 +2945,24 @@ export function DocumentDetailPage() {
             </div>
           </div>
         </div>
-      )}
+      )} */}
       <ShipmentDndInputsDialog
         open={dndInputsOpen}
         shipmentId={`bol-${documentDetail.id}`}
-        onOpenChange={setDndInputsOpen}
+        safeCubeCarrierName={effectiveSafeCubeCarrierName}
+        useCarrierMasterFallback
+        onOpenChange={(open) => {
+          setDndInputsOpen(open);
+          if (!open) void refreshDndInputsStatus();
+        }}
+        onSaved={(saved) => setDndInputsActivated(String(saved.dndStatus ?? '').toUpperCase() === 'ACTIVATED')}
       />
       {safeCubeInputsOpen && (
         <BolSafeCubeInputsDialog
           fields={bolReferenceFields}
           rawData={extraction?.rawData}
           saving={safeCubeInputsSaving}
+          onFetch={fetchSafeCubeCarrier}
           onClose={() => setSafeCubeInputsOpen(false)}
           onSave={saveSafeCubeInputs}
         />
@@ -2753,21 +3027,64 @@ export function DocumentDetailPage() {
           </div>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap', marginLeft: 'auto' }}>
-          {(hasBolReferenceActionFields || documentDetail.docType === 'BILL_OF_LADING') && extraction && (
+          {documentDetail.docType === 'BILL_OF_LADING' && extraction && (
             <>
               {hasBolReferenceActionFields && (
-                <Button type="button" variant="outline" size="sm" onClick={() => setSafeCubeInputsOpen(true)} className="h-9 shrink-0 whitespace-nowrap">
-                  MBL/BR 
-                </Button>
+                <span style={{ position: 'relative', display: 'inline-flex' }}>
+                  {!bolHasTrackingReference && (
+                    <span
+                      aria-hidden="true"
+                      className="animate-pulse"
+                      style={{ position: 'absolute', zIndex: 1, top: -8, left: -7, width: 18, height: 18, borderRadius: 999, background: RED, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900, boxShadow: `0 0 0 4px ${RED}22` }}
+                    >
+                      !
+                    </span>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSafeCubeInputsOpen(true)}
+                    className="h-9 shrink-0 whitespace-nowrap"
+                    style={{
+                      borderColor: bolHasTrackingReference ? GREEN : RED,
+                      background: bolHasTrackingReference ? GREEN : `${RED}12`,
+                      color: bolHasTrackingReference ? '#fff' : RED,
+                    }}
+                  >
+                    {bolHasTrackingReference ? <CheckCircle2 size={14} /> : null}
+                    {bolHasTrackingReference ? 'MBL/BR saved' : 'MBL/BR required'}
+                  </Button>
+                </span>
               )}
               {canUseDndInputs && (
-                <Button type="button" variant="outline" size="sm" onClick={() => setDndInputsOpen(true)} className="h-9 shrink-0 whitespace-nowrap">
-                  D&D Inputs
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!bolHasTrackingReference}
+                  title={!bolHasTrackingReference ? 'Save MBL/BR before entering D&D Inputs' : undefined}
+                  onClick={() => setDndInputsOpen(true)}
+                  className="h-9 shrink-0 whitespace-nowrap"
+                  style={dndInputsActivated ? { borderColor: GREEN, background: GREEN, color: '#fff' } : undefined}
+                >
+                  {dndInputsActivated ? <CheckCircle2 size={14} /> : null}
+                  {dndInputsActivated ? 'D&D saved' : 'D&D Inputs'}
                 </Button>
               )}
               {canUseContainerMapping && (
-                <Button type="button" size="sm" onClick={() => void openContainerMapping()} className="h-9 shrink-0 whitespace-nowrap">
-                  {containerMappingApproved ? 'Mapping approved' : 'Container Mapping'}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!dndInputsActivated}
+                  title={!dndInputsActivated ? 'Save D&D Inputs before container mapping' : undefined}
+                  onClick={() => void openContainerMapping()}
+                  className="h-9 shrink-0 whitespace-nowrap"
+                  style={containerMappingApproved ? { borderColor: GREEN, background: GREEN, color: '#fff' } : undefined}
+                >
+                  {containerMappingApproved ? <CheckCircle2 size={14} /> : null}
+                  {containerMappingApproved ? 'Mapping saved' : 'Container Mapping'}
                 </Button>
               )}
             </>
@@ -2780,51 +3097,21 @@ export function DocumentDetailPage() {
               Warehouse Mapping
             </button>
           )}
-          {isApprovalRoute && canApproveCurrentExtraction && !documentDetail.shipmentId && (
-            <Button type="button" variant="outline" size="sm" disabled={actionLoading !== null} onClick={() => void openShipmentAssignment()} className="h-9 shrink-0 whitespace-nowrap">
-              <Ship size={14} />
-              Assign shipment
-            </Button>
-          )}
-          {!isApprovalRoute && !isExtractionApproved && canApproveCurrentExtraction && (
-            <button
+          {!isApprovalRoute && canApproveCurrentExtraction && extraction && !isExtractionApproved && (
+            <Button
+              type="button"
+              size="sm"
+              disabled={documentDetail.docType === 'BILL_OF_LADING' && Boolean(bolApprovalBlockedReason)}
+              title={documentDetail.docType === 'BILL_OF_LADING' ? bolApprovalBlockedReason || undefined : undefined}
               onClick={() => {
                 sessionStorage.setItem(UPLOAD_PROCESS_RETURN_PATH_KEY, PROCESSING_QUEUE_ROUTE);
                 navigate(`/documents/upload/${documentDetail.id}/approve`);
               }}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', flexShrink: 0 }}
+              className="h-9 shrink-0 whitespace-nowrap"
             >
               <CheckCircle2 size={14} />
               Approve
-            </button>
-          )}
-          {!isApprovalRoute && isExtractionApproved && (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-              <button
-                type="button"
-                disabled
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'not-allowed', fontSize: 12, fontWeight: 800, opacity: 0.95, whiteSpace: 'nowrap' }}
-              >
-                <CheckCircle2 size={14} />
-                Approved
-              </button>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label="Approved details"
-                    style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: MUTED, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'help' }}
-                  >
-                    <Info size={14} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" className="max-w-xs text-[12px] leading-relaxed">
-                  {extraction?.reviewedAt
-                    ? `This extraction was approved on ${formatDateTime(extraction.reviewedAt)}. Fields are read-only.`
-                    : 'This extraction is approved. Fields are read-only.'}
-                </TooltipContent>
-              </Tooltip>
-            </div>
+            </Button>
           )}
           {isApprovalRoute && (
             <>
@@ -2848,43 +3135,7 @@ export function DocumentDetailPage() {
                   Revert approval
                 </button>
               )}
-              {isExtractionApproved ? (
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                  <button
-                    type="button"
-                    disabled
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'not-allowed', fontSize: 12, fontWeight: 800, opacity: 0.95, whiteSpace: 'nowrap' }}
-                  >
-                    <CheckCircle2 size={14} />
-                    Approved
-                  </button>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label="Approved details"
-                        style={{ width: 28, height: 28, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'hsl(var(--card))', color: MUTED, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'help' }}
-                      >
-                        <Info size={14} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-xs text-[12px] leading-relaxed">
-                      {extraction?.reviewedAt
-                        ? `This extraction was approved on ${formatDateTime(extraction.reviewedAt)}. Fields are read-only.`
-                        : 'This extraction is approved. Fields are read-only.'}
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-              ) : canApproveCurrentExtraction ? (
-                <button
-                  onClick={approveAllFields}
-                  disabled={!extraction || actionLoading !== null}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', background: GREEN, border: 'none', borderRadius: 8, padding: '7px 12px', cursor: !extraction || actionLoading ? 'not-allowed' : 'pointer', fontSize: 12, fontWeight: 800, opacity: !extraction || actionLoading ? 0.65 : 1, whiteSpace: 'nowrap', flexShrink: 0 }}
-                >
-                  {actionLoading === 'approve' ? <Loader2 size={14} style={{ animation: 'spin 0.9s linear infinite' }} /> : <CheckCircle2 size={14} />}
-                  Approve all fields
-                </button>
-              ) : null}
+              {documentWorkflowControls}
             </>
           )}
         </div>

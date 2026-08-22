@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import asyncio
 import json
@@ -11,6 +11,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
+from prisma import Json
 
 from db import get_prisma
 from documents_ocr.queue import (
@@ -233,6 +234,8 @@ class DocumentDetailItem(BaseModel):
     docType: str
     status: str
     shipmentId: str | None = None
+    editVersion: int = 1
+    editLock: dict[str, Any] | None = None
     issuerName: str | None = None
     sourceName: str | None = None
     validationStatus: str | None = None
@@ -291,6 +294,8 @@ class StopOcrResponse(BaseModel):
 class UpdateExtractionRequest(BaseModel):
     fields: dict[str, Any] = Field(default_factory=dict)
     arrays: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    requireEditLock: bool = False
+    expectedEditVersion: int | None = None
 
 
 def _is_quantity_or_bundle_extraction_edit_field(field_name: str) -> bool:
@@ -452,6 +457,124 @@ CBP_BROKER_TARIFF_LINE_FIELDS: Final[tuple[tuple[str, str], ...]] = (
     ("rate", "rate"),
     ("dutyAmount", "duty_amount"),
 )
+
+
+
+
+EDIT_LOCK_MINUTES: Final[int] = 15
+
+
+def _as_aware_utc(value: Any) -> datetime | None:
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if normalized.endswith("Z"):
+            normalized = f"{normalized[:-1]}+00:00"
+        try:
+            value = datetime.fromisoformat(normalized)
+        except ValueError:
+            return None
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _lock_is_active(lock: dict[str, Any] | None) -> bool:
+    if not lock or not lock.get("editing_by_id"):
+        return False
+    expires_at = _as_aware_utc(lock.get("editing_expires_at"))
+    return bool(expires_at and expires_at > datetime.now(timezone.utc))
+
+
+async def _document_edit_lock(prisma, document_id: str) -> dict[str, Any]:
+    rows = await _query_raw(
+        prisma,
+        """
+        SELECT
+          d."editing_by_id" AS editing_by_id,
+          u."name" AS editing_by_name,
+          u."email" AS editing_by_email,
+          d."editing_started_at" AS editing_started_at,
+          d."editing_expires_at" AS editing_expires_at,
+          COALESCE(d."edit_version", 1)::int AS edit_version
+        FROM "public"."documents" d
+        LEFT JOIN "auth"."users" u ON u."id"::text = d."editing_by_id"::text
+        WHERE d."id"::text = $1::text
+        LIMIT 1
+        """,
+        document_id,
+    )
+    return rows[0] if rows else {"edit_version": 1}
+
+
+def _serialize_document_edit_lock(lock: dict[str, Any], current_user_id: str) -> dict[str, Any] | None:
+    active = _lock_is_active(lock)
+    owner_id = str(lock.get("editing_by_id") or "") if active else ""
+    if not active:
+        return None
+    return {
+        "editingById": owner_id,
+        "editingByName": lock.get("editing_by_name"),
+        "editingByEmail": lock.get("editing_by_email"),
+        "editingStartedAt": _to_iso(lock.get("editing_started_at")),
+        "editingExpiresAt": _to_iso(lock.get("editing_expires_at")),
+        "ownedByCurrentUser": owner_id == str(current_user_id),
+    }
+
+
+async def _clear_expired_document_edit_lock(prisma, document_id: str, lock: dict[str, Any]) -> None:
+    if lock.get("editing_by_id") and not _lock_is_active(lock):
+        await _execute_raw(
+            prisma,
+            """
+            UPDATE "public"."documents"
+            SET "editing_by_id" = NULL,
+                "editing_started_at" = NULL,
+                "editing_expires_at" = NULL
+            WHERE "id"::text = $1::text
+              AND "editing_by_id" IS NOT NULL
+            """,
+            document_id,
+        )
+
+
+async def _require_document_edit_lock(prisma, document_id: str, current_user_id: str, expected_version: int | None = None) -> dict[str, Any]:
+    lock = await _document_edit_lock(prisma, document_id)
+    if not _lock_is_active(lock):
+        await _clear_expired_document_edit_lock(prisma, document_id, lock)
+        raise HTTPException(status_code=409, detail="Click Edit before saving extraction fields.")
+    owner_id = str(lock.get("editing_by_id") or "")
+    if owner_id != str(current_user_id):
+        owner = lock.get("editing_by_name") or lock.get("editing_by_email") or "another user"
+        raise HTTPException(status_code=423, detail=f"This document is being edited by {owner}.")
+    edit_version = int(lock.get("edit_version") or 1)
+    if expected_version is not None and expected_version != edit_version:
+        raise HTTPException(status_code=409, detail="This document was updated by someone else. Refresh before saving.")
+    return lock
+
+
+async def _release_document_edit_lock(prisma, document_id: str, current_user_id: str, increment_version: bool) -> int:
+    rows = await _query_raw(
+        prisma,
+        f"""
+        UPDATE "public"."documents"
+        SET "editing_by_id" = NULL,
+            "editing_started_at" = NULL,
+            "editing_expires_at" = NULL,
+            "edit_version" = "edit_version" + CASE WHEN $3::boolean THEN 1 ELSE 0 END,
+            "updated_at" = NOW()
+        WHERE "id"::text = $1::text
+          AND "editing_by_id"::text = $2::text
+        RETURNING "edit_version"::int AS edit_version
+        """,
+        document_id,
+        str(current_user_id),
+        bool(increment_version),
+    )
+    return int((rows[0] if rows else {}).get("edit_version") or 1)
 
 
 def _storage_path(bucket: str, object_key: str) -> str:
@@ -2403,11 +2526,17 @@ async def get_document(document_id: str, user=Depends(get_current_user)):
         )
         status = await _status_from_db_with_stale_recovery(prisma=prisma, row=row)
         validation_snapshot = (await _document_validation_snapshots(prisma, [str(row.id)])).get(str(row.id), {})
+        edit_lock_row = await _document_edit_lock(prisma, str(row.id))
+        await _clear_expired_document_edit_lock(prisma, str(row.id), edit_lock_row)
+        if edit_lock_row.get("editing_by_id") and not _lock_is_active(edit_lock_row):
+            edit_lock_row = await _document_edit_lock(prisma, str(row.id))
         return DocumentDetailItem(
             id=str(row.id),
             docType=str(row.docType),
             status=status,
             shipmentId=shipment_rows[0].get("shipment_id") if shipment_rows else None,
+            editVersion=int(edit_lock_row.get("edit_version") or 1),
+            editLock=_serialize_document_edit_lock(edit_lock_row, str(user.id)),
             issuerName=_extract_display_issuer(extraction_obj),
             sourceName=_extract_display_issuer(extraction_obj),
             validationStatus=validation_snapshot.get("status"),
@@ -2758,6 +2887,79 @@ async def assign_document_shipment(
     }
 
 
+@router.post("/documents/{document_id}/edit")
+async def begin_document_editing(
+    document_id: str,
+    user=Depends(get_current_user),
+    _authz=Depends(require_any_activity("documents.edit_extracted", "documents.override_approved_fields")),
+):
+    prisma = await get_prisma()
+    where = document_prisma_where(user)
+    where["id"] = document_id
+    document = await prisma.document.find_first(where=where)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    doc_type = str(document.docType)
+    document_status = str(getattr(document, "status", "") or "").upper()
+    if document_status in {"REVIEWED", "ARCHIVED"}:
+        raise HTTPException(status_code=400, detail="Approved documents are read-only")
+    if document_status in {"QUEUED", "PROCESSING", "REPROCESSING"}:
+        raise HTTPException(status_code=409, detail="This document is still being processed.")
+    _require_doc_type_action(user, "edit_extracted", doc_type)
+
+    accessor_name = DOC_TYPE_TO_EXTRACTION_ACCESSOR.get(doc_type)
+    model_accessor = getattr(prisma, accessor_name, None) if accessor_name else None
+    if model_accessor is None:
+        raise HTTPException(status_code=400, detail=f"Editing is not configured for {doc_type}")
+    extraction = await model_accessor.find_unique(where={"documentId": document_id})
+    if not extraction:
+        raise HTTPException(status_code=404, detail="Extraction data not found for this document")
+
+    lock = await _document_edit_lock(prisma, document_id)
+    if _lock_is_active(lock):
+        owner_id = str(lock.get("editing_by_id") or "")
+        if owner_id != str(user.id):
+            owner = lock.get("editing_by_name") or lock.get("editing_by_email") or "another user"
+            raise HTTPException(status_code=423, detail=f"This document is being edited by {owner}.")
+    else:
+        await _clear_expired_document_edit_lock(prisma, document_id, lock)
+
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=EDIT_LOCK_MINUTES)
+    rows = await _query_raw(
+        prisma,
+        """
+        UPDATE "public"."documents"
+        SET "editing_by_id" = $2::text,
+            "editing_started_at" = NOW(),
+            "editing_expires_at" = $3::timestamptz,
+            "updated_at" = NOW()
+        WHERE "id"::text = $1::text
+        RETURNING "edit_version"::int AS edit_version, "editing_started_at" AS editing_started_at, "editing_expires_at" AS editing_expires_at
+        """,
+        document_id,
+        str(user.id),
+        expires_at,
+    )
+    edit_version = int((rows[0] if rows else {}).get("edit_version") or lock.get("edit_version") or 1)
+    return {
+        "ok": True,
+        "data": {
+            "documentId": document_id,
+            "status": document_status,
+            "editVersion": edit_version,
+            "editLock": {
+                "editingById": str(user.id),
+                "editingByName": getattr(user, "name", None),
+                "editingByEmail": getattr(user, "email", None),
+                "editingStartedAt": _to_iso((rows[0] if rows else {}).get("editing_started_at")),
+                "editingExpiresAt": _to_iso((rows[0] if rows else {}).get("editing_expires_at")),
+                "ownedByCurrentUser": True,
+            },
+        },
+    }
+
+
 @router.patch("/documents/{document_id}/extraction")
 async def update_document_extraction(
     document_id: str,
@@ -2777,12 +2979,21 @@ async def update_document_extraction(
     doc_type = str(document.docType)
     document_status = str(getattr(document, "status", "") or "").upper()
     is_approved_document = document_status in {"REVIEWED", "ARCHIVED"}
-    activity_set = set(authz.get("activities") or [])
-    role_name = str(authz.get("role") or "").upper().replace("-", "_").replace(" ", "_")
-    is_admin = role_name in {"ADMIN", "ORG_ADMIN", "SPR_ADMIN", "SUPER_ADMIN", "SUPER_ADMINISTRATOR"}
-    if is_approved_document and "documents.override_approved_fields" not in activity_set and not is_admin:
-        raise HTTPException(status_code=403, detail="Permission denied: missing activity documents.override_approved_fields")
-    _require_doc_type_action(user, "override_approved_fields" if is_approved_document else "edit_extracted", doc_type)
+    if is_approved_document:
+        raise HTTPException(status_code=400, detail="Approved documents are read-only")
+    if document_status in {"QUEUED", "PROCESSING", "REPROCESSING"}:
+        raise HTTPException(status_code=409, detail="This document is still being processed.")
+    _require_doc_type_action(user, "edit_extracted", doc_type)
+    if payload.requireEditLock:
+        await _require_document_edit_lock(prisma, document_id, str(user.id), payload.expectedEditVersion)
+        if not payload.fields and not payload.arrays:
+            edit_version = await _release_document_edit_lock(prisma, document_id, str(user.id), increment_version=False)
+            return {
+                "ok": True,
+                "documentId": document_id,
+                "extractionId": None,
+                "editVersion": edit_version,
+            }
     parent_model = DOC_TYPE_TO_PRISMA_PARENT_MODEL.get(doc_type)
     accessor_name = DOC_TYPE_TO_EXTRACTION_ACCESSOR.get(doc_type)
     if not parent_model or not accessor_name:
@@ -2801,39 +3012,11 @@ async def update_document_extraction(
             },
         )
 
-    blocked_fields = sorted(
-        field_name
-        for field_name in payload.fields
-        if not _is_manual_extraction_edit_field(field_name)
-    )
-    if blocked_fields:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "message": "Only quantity, bundles, net weight, and gross weight fields can be edited manually",
-                "fields": blocked_fields,
-            },
-        )
-
     current_extraction = await _fetch_extraction_direct(
         prisma=prisma,
         doc_type=doc_type,
         document_id=document_id,
     )
-    product_breaking_done = _has_product_breaking_done(current_extraction)
-    blocked_before_break_fields = sorted(
-        field_name
-        for field_name in payload.fields
-        if _is_quantity_or_bundle_extraction_edit_field(field_name) and not product_breaking_done
-    )
-    if blocked_before_break_fields:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "message": "Quantity and bundles can be edited only after product breaking is done",
-                "fields": blocked_before_break_fields,
-            },
-        )
     current_arrays = await _fetch_extraction_child_arrays(
         prisma=prisma,
         doc_type=doc_type,
@@ -2844,15 +3027,19 @@ async def update_document_extraction(
         key: _manual_extraction_value(value)
         for key, value in payload.fields.items()
     }
-    blocked_array_fields: list[str] = []
+    if doc_type == "BILL_OF_LADING" and ({"mblNumber", "bookingReferenceNumber"} & set(payload.fields)):
+        current_mbl = _non_empty_text(getattr(current_extraction, "mblNumber", None))
+        current_booking = _non_empty_text(getattr(current_extraction, "bookingReferenceNumber", None))
+        next_mbl = _non_empty_text(extraction_data.get("mblNumber") if "mblNumber" in extraction_data else current_mbl)
+        next_booking = _non_empty_text(extraction_data.get("bookingReferenceNumber") if "bookingReferenceNumber" in extraction_data else current_booking)
+        if not next_mbl and not next_booking:
+            raise HTTPException(
+                status_code=400,
+                detail="Enter either MBL number or booking reference number before saving.",
+            )
     for array_name, rows in payload.arrays.items():
         allowed = set(schema.array_item_fields.get(array_name, []))
-        editable = {
-            field_name
-            for field_name in allowed
-            if _is_weight_extraction_edit_field(field_name)
-            or (product_breaking_done and _is_quantity_or_bundle_extraction_edit_field(field_name))
-        }
+        editable = allowed - {"id", "documentId", "extractionId", "createdAt", "updatedAt"}
         current_rows = current_arrays.get(array_name, [])
         if current_rows and len(rows) != len(current_rows):
             raise HTTPException(
@@ -2866,30 +3053,12 @@ async def update_document_extraction(
         merged_rows: list[dict[str, Any]] = []
         for index, row in enumerate(rows):
             current_row = dict(current_rows[index]) if index < len(current_rows) else {}
-            for key, value in row.items():
-                if key not in allowed or key in editable:
-                    continue
-                if current_row:
-                    changed = not _manual_extraction_values_equal(value, current_row.get(key))
-                else:
-                    changed = _manual_extraction_value(value) is not None
-                if changed:
-                    blocked_array_fields.append(f"{array_name}.{key}")
             merged_row = dict(current_row)
             for key, value in row.items():
                 if key in editable:
                     merged_row[key] = _manual_extraction_value(value)
             merged_rows.append(merged_row)
         extraction_data[array_name] = merged_rows
-
-    if blocked_array_fields:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "message": "Only quantity, bundles, net weight, and gross weight fields can be edited manually",
-                "fields": sorted(set(blocked_array_fields)),
-            },
-        )
 
     extraction = await upsert_extraction_with_children(
         prisma=prisma,
@@ -2899,10 +3068,31 @@ async def update_document_extraction(
         extraction_data=extraction_data,
         strict_children=True,
     )
+    if (
+        doc_type == "BILL_OF_LADING"
+        and ({"mblNumber", "bookingReferenceNumber"} & set(payload.fields))
+        and "carrierCompanyName" in payload.fields
+    ):
+        raw_data = getattr(current_extraction, "rawData", None)
+        next_raw_data = dict(raw_data) if isinstance(raw_data, dict) else {}
+        safe_cube_carrier_name = _non_empty_text(extraction_data.get("carrierCompanyName")) or None
+        next_raw_data["bolSetup"] = {
+            "safeCubeLookupCompleted": True,
+            "safeCubeCarrierName": safe_cube_carrier_name,
+            "trackingReference": next_mbl or next_booking,
+        }
+        extraction = await model_accessor.update(
+            where={"documentId": document_id},
+            data={"rawData": Json(next_raw_data)},
+        )
+    edit_version = None
+    if payload.requireEditLock:
+        edit_version = await _release_document_edit_lock(prisma, document_id, str(user.id), increment_version=True)
     return {
         "ok": True,
         "documentId": document_id,
         "extractionId": str(extraction.id),
+        "editVersion": edit_version,
     }
 
 
@@ -2939,9 +3129,21 @@ async def update_bol_container_mapping(
     _authz=Depends(require_activity("documents.map_container_to_sku")),
 ):
     _require_doc_type_action(user, "container_mapping", "BILL_OF_LADING")
+    prisma = await get_prisma()
+    extraction = await _fetch_extraction_direct(
+        prisma=prisma,
+        doc_type="BILL_OF_LADING",
+        document_id=document_id,
+    )
+    if not extraction:
+        raise HTTPException(status_code=404, detail="BOL extraction not found")
+    if not _bol_has_tracking_reference(extraction):
+        raise HTTPException(status_code=409, detail="Save MBL/BR before saving container mapping.")
+    if not await _bol_dnd_inputs_activated(prisma, document_id):
+        raise HTTPException(status_code=409, detail="Save D&D Inputs before saving container mapping.")
     try:
         return await save_container_mapping(
-            prisma=await get_prisma(),
+            prisma=prisma,
             bol_document_id=document_id,
             uploaded_by=str(user.id),
             assignments=[assignment.model_dump() for assignment in payload.assignments],
@@ -3860,10 +4062,10 @@ async def _bol_approval_blockers(prisma, document_id: str, extraction: Any) -> l
     blockers: list[str] = []
     if not _bol_has_tracking_reference(extraction):
         blockers.append("enter SafeCube Inputs: either MBL number or booking reference number")
-    #if not await _bol_dnd_inputs_activated(prisma, document_id):
-     #   blockers.append("complete and save D&D Inputs")
-    # if not _bol_container_mapping_approved(extraction):
-    #     blockers.append("approve the BOL container mapping")
+    if not await _bol_dnd_inputs_activated(prisma, document_id):
+        blockers.append("complete and save D&D Inputs")
+    if not _bol_container_mapping_approved(extraction):
+        blockers.append("approve the BOL container mapping")
     return blockers
 
 
@@ -4629,6 +4831,17 @@ async def auto_review_and_validate_document(
         where={"id": document_id},
         data={"status": "REVIEWED"},
     )
+    await _execute_raw(
+        prisma,
+        """
+        UPDATE "public"."documents"
+        SET "editing_by_id" = NULL,
+            "editing_started_at" = NULL,
+            "editing_expires_at" = NULL
+        WHERE "id"::text = $1::text
+        """,
+        document_id,
+    )
     await _mark_public_document_approved(prisma, document_id=document_id, reviewed_at=reviewed_at)
     if doc_type == "BILL_OF_LADING":
         try:
@@ -4791,6 +5004,15 @@ async def approve_document_extraction(
     extraction = await model_accessor.find_unique(where={"documentId": document_id})
     if not extraction:
         raise HTTPException(status_code=404, detail="Extraction data not found for this document")
+
+    lock = await _document_edit_lock(prisma, document_id)
+    if _lock_is_active(lock):
+        owner_id = str(lock.get("editing_by_id") or "")
+        if owner_id == str(user.id):
+            raise HTTPException(status_code=409, detail="Save your edits before approving this document.")
+        owner = lock.get("editing_by_name") or lock.get("editing_by_email") or "another user"
+        raise HTTPException(status_code=423, detail=f"This document is being edited by {owner}.")
+    await _clear_expired_document_edit_lock(prisma, document_id, lock)
 
     if doc_type == "BILL_OF_LADING":
         await _raise_bol_approval_blockers(prisma, document_id, extraction)

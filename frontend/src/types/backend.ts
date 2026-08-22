@@ -242,6 +242,15 @@ export type DocumentDetailRecord = {
   docType: DocType;
   status: DocumentStatus;
   shipmentId?: string | null;
+  editVersion?: number;
+  editLock?: {
+    editingById: string;
+    editingByName?: string | null;
+    editingByEmail?: string | null;
+    editingStartedAt?: string | null;
+    editingExpiresAt?: string | null;
+    ownedByCurrentUser?: boolean;
+  } | null;
   validationStatus?: "PASSED" | "WARNING" | "BLOCKED" | "WAITING" | string | null;
   validationSummary?: DocumentRecord["validationSummary"];
   validationResults?: DocumentRecord["validationResults"];
