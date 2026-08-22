@@ -23,7 +23,6 @@ import { FilterChips }   from '@/components/vs/FilterChips';
 import { useToast } from '@/hooks/use-toast';
 import type { ContainerMappingResponse, ContainerMappingRow } from '@/types/backend';
 import { ShipmentDndInputsDialog } from '@/pages/ShipmentDetailPage';
-import { EwmsShipLoader } from '@/components/EwmsShipLoader';
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const TEAL   = 'hsl(173 58% 39%)';
@@ -3396,8 +3395,19 @@ export function UploadProcessPage() {
           {/* ── Queue content ── */}
           <div style={{ position: 'relative' }}>
           {queueLoading ? (
-            <div style={{ minHeight: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <EwmsShipLoader compact />
+            <div style={{
+              minHeight: 220,
+              backgroundColor: 'hsl(var(--card))',
+              borderRadius: 8,
+              border: `1px solid ${BORDER}`,
+              padding: '40px 24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 10,
+            }}>
+              <Loader2 size={18} style={{ color: TEAL, flexShrink: 0, animation: 'spin 0.9s linear infinite' }} />
+              <p style={{ fontSize: 15, color: MUTED, margin: 0 }}>Loading documents...</p>
             </div>
           ) : queueError ? (
             <div style={{ padding: 24, border: `1px solid ${RED}40`, borderRadius: 8, color: RED }}>{queueError}</div>
