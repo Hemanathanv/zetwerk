@@ -23,6 +23,7 @@ import { FilterChips }   from '@/components/vs/FilterChips';
 import { useToast } from '@/hooks/use-toast';
 import type { ContainerMappingResponse, ContainerMappingRow } from '@/types/backend';
 import { ShipmentDndInputsDialog } from '@/pages/ShipmentDetailPage';
+import { EwmsShipLoader } from '@/components/EwmsShipLoader';
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
 const TEAL   = 'hsl(173 58% 39%)';
@@ -2235,7 +2236,6 @@ export function UploadProcessPage() {
       return response.data;
     },
     enabled: !routedDetail || !routedDetail.isGenerated,
-    placeholderData: (previousData) => previousData,
     staleTime: 30_000,
     refetchInterval: (query) => {
       const data = query.state.data as { documents?: any[] } | undefined;
@@ -2280,7 +2280,7 @@ export function UploadProcessPage() {
     [activities, documentsQuery.data, queueSection],
   );
   const queuePagination = documentsQuery.data?.pagination ?? null;
-  const queueLoading = documentsQuery.isLoading || (documentsQuery.isFetching && !documentsQuery.data);
+  const documentsLoading = documentsQuery.isPending || (documentsQuery.isFetching && documentsQuery.data == null);
   const queueError = documentsQuery.isError ? 'Could not load documents from the backend.' : null;
 
   useEffect(() => {
@@ -2316,12 +2316,13 @@ export function UploadProcessPage() {
         .sort((a, b) => Date.parse(b.createdAt ?? '') - Date.parse(a.createdAt ?? ''));
     },
     enabled: !routedDetail || routedDetail.isGenerated,
-    placeholderData: (previousData) => previousData,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
 
   const liveGeneratedDocs = generatedDocsQuery.data ?? [];
+  const generatedLoading = generatedDocsQuery.isPending || (generatedDocsQuery.isFetching && generatedDocsQuery.data == null);
+  const queueLoading = documentsLoading || ((queueSection === 'all' || queueSection === 'draft-review') && generatedLoading);
   const routedDetailCard = useMemo(
     () => routedDetail
       ? (routedDetail.isGenerated ? liveGeneratedDocs : liveDocs).find(item => item.docId === routedDetail.id) ?? null
@@ -2646,7 +2647,7 @@ export function UploadProcessPage() {
   }, []);
 
   // Queue and completed sections are derived exclusively from backend records.
-  const QUEUE_CARDS: QueueCard[] = [...liveDocs, ...liveGeneratedDocs];
+  const QUEUE_CARDS: QueueCard[] = queueLoading ? [] : [...liveDocs, ...liveGeneratedDocs];
   const uploadSuccessCard = uploadSuccess?.id
     ? liveDocs.find(card => card.docId === uploadSuccess.id)
     : undefined;
@@ -3302,7 +3303,10 @@ export function UploadProcessPage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
             <select
               value={queueDocTypeFilter}
-              onChange={(event) => setQueueDocTypeFilter(event.target.value)}
+              onChange={(event) => {
+                setQueueDocTypeFilter(event.target.value);
+                setQueuePage(1);
+              }}
               aria-label="Filter queue by document type"
               style={{
                 height: 38,
@@ -3381,7 +3385,10 @@ export function UploadProcessPage() {
                 { label: 'Waiting for BOL',  count: statsCount.waitingForBol },
               ]}
               activeIndex={activeChip}
-              onSelect={setActiveChip}
+              onSelect={(index) => {
+                setActiveChip(index);
+                setQueuePage(1);
+              }}
               size="compact"
             />
           </div>
@@ -3389,9 +3396,8 @@ export function UploadProcessPage() {
           {/* ── Queue content ── */}
           <div style={{ position: 'relative' }}>
           {queueLoading ? (
-            <div style={{ minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: MUTED, fontSize: 14 }}>
-              <Loader2 size={18} style={{ animation: 'spin 1s linear infinite', color: TEAL }} />
-              Loading document queue...
+            <div style={{ minHeight: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <EwmsShipLoader compact />
             </div>
           ) : queueError ? (
             <div style={{ padding: 24, border: `1px solid ${RED}40`, borderRadius: 8, color: RED }}>{queueError}</div>
@@ -3466,7 +3472,7 @@ export function UploadProcessPage() {
             </div>
           )}
 
-          {queuePagination && queueTotalPages > 1 && (
+          {!queueLoading && queuePagination && queueTotalPages > 1 && (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, padding: '14px 0 2px', flexWrap: 'wrap' }}>
               <button
                 onClick={() => goToQueuePage((queuePagination.page ?? queuePage) - 1)}
