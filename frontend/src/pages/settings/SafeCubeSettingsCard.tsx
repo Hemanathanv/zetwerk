@@ -302,7 +302,7 @@ export function SafeCubeSettingsCard() {
           </button>
         </div>
         <p className="text-[13px] text-muted-foreground mt-1">
-          Register this URL with SafeCube to receive real-time push updates. Set the shared secret above.
+          Register this URL with vessel tracking service to receive real-time push updates. Set the shared secret above.
         </p>
       </div>
 
@@ -373,7 +373,7 @@ export function SafeCubeSettingsCard() {
 
         {!shipmentsLoading && shipments.length === 0 ? (
           <p className="text-[13px] text-muted-foreground">
-            No shipments linked yet. SafeCube tracking auto-links when a BOL is matched or approved.
+            No shipments linked yet. Vessel tracking auto-links when a BOL is matched or approved.
           </p>
         ) : (
           <div style={{ overflowX: 'auto' }}>

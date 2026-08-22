@@ -2639,6 +2639,17 @@ export function UploadProcessPage() {
   }, [location, routedDetail]);
 
   useEffect(() => {
+    const scrollMainToTop = () => {
+      const scroller = document.querySelector('main.ewms-scrollarea');
+      if (scroller instanceof HTMLElement) scroller.scrollTop = 0;
+      window.scrollTo(0, 0);
+    };
+    scrollMainToTop();
+    const frame = window.requestAnimationFrame(scrollMainToTop);
+    return () => window.cancelAnimationFrame(frame);
+  }, [pageTab]);
+
+  useEffect(() => {
     if (sessionStorage.getItem(UPLOAD_PROCESS_RETURN_PATH_KEY) === PROCESSING_QUEUE_ROUTE) {
       sessionStorage.removeItem(UPLOAD_PROCESS_RETURN_PATH_KEY);
       setPageTab('queue');
@@ -2872,7 +2883,7 @@ export function UploadProcessPage() {
   }, [setPageMeta]);
 
   return (
-    <div className="ewms-page-shell">
+    <div className="ewms-page-shell" style={{ overflowAnchor: 'none' }}>
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes recentUploadMarquee {
@@ -3469,7 +3480,9 @@ export function UploadProcessPage() {
               border: `1px solid ${BORDER}`, overflow: 'hidden',
             }}>
               <QueueRowHeader />
-              {/* Virtual list */}
+              {/* Mount only while the queue tab is visible so hidden 0-height
+                  measurements cannot jump the page scroll. */}
+              {pageTab === 'queue' && (
               <VirtualList
                 cards={filteredCards}
                 onApproveClick={(card) => needsReviewApproval(card) ? () => openApprovalPanel(card) : undefined}
@@ -3479,6 +3492,7 @@ export function UploadProcessPage() {
                 onDetailsClick={handleDetailsClick}
                 escalationConfigs={escalationConfigs}
               />
+              )}
             </div>
           )}
 
@@ -3548,84 +3562,84 @@ export function UploadProcessPage() {
           )}
 
           </div>
-        </div>
-      </div>
 
-      {/* ── Recently Completed Strip ── */}
-      <div style={{ marginTop: 32, borderTop: `1px solid ${BORDER}`, paddingTop: 20 }}>
-        <button
-          onClick={() => setRecentExpanded(!recentExpanded)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-            width: '100%', textAlign: 'left',
-          }}
-        >
-          <span style={{ fontSize: 14, fontWeight: 600, color: FG }}>
-            Recently completed (last 24 hours)
-          </span>
-          <span style={{ fontSize: 14, color: MUTED }}>12 documents</span>
-          <div style={{ marginLeft: 'auto' }}>
-            {recentExpanded
-              ? <ChevronDown size={16} color={MUTED} />
-              : <ChevronRight size={16} color={MUTED} />}
-          </div>
-        </button>
-
-        {recentExpanded && (
-          <div style={{
-            backgroundColor: 'hsl(var(--card))', borderRadius: 8,
-            border: `1px solid ${BORDER}`, overflow: 'hidden', marginTop: 12,
-          }}>
-            <QueueRowHeader />
-            {QUEUE_CARDS.filter(card => card.statusCategory === 'done').map((card) => (
-              <QueueRowEl
-                key={card.id}
-                card={card}
-                onApproveClick={undefined}
-                onStopClick={undefined}
-                onRetryClick={undefined}
-                onRowClick={() => handleRowClick(card)}
-                onDetailsClick={() => handleDetailsClick(card)}
-                slaConfig={escalationConfigForCard(card, escalationConfigs)}
-              />
-            ))}
-          </div>
-        )}
-
-        {false && recentExpanded && (
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 12,
-          }}
-               className="grid-cols-1 md:grid-cols-3"
-          >
-            {COMPLETED.map((item, i) => (
-              <div key={i} style={{
-                backgroundColor: 'hsl(var(--card))', borderRadius: 8,
-                padding: '10px 14px', border: `1px solid ${BORDER}`,
+          {/* ── Recently Completed Strip ── */}
+          <div style={{ marginTop: 32, borderTop: `1px solid ${BORDER}`, paddingTop: 20 }}>
+            <button
+              onClick={() => setRecentExpanded(!recentExpanded)}
+              style={{
                 display: 'flex', alignItems: 'center', gap: 10,
-              }}>
-                <DocBadge code={item.code} size="sm" />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ fontSize: 14, fontWeight: 500, color: FG, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {item.label}
-                    </span>
-                    {item.generated && <Sparkles size={10} style={{ color: GOLD, flexShrink: 0 }} />}
-                  </div>
-                  <span className="vs-mono" style={{ fontSize: 14, color: MUTED, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {item.number}
-                  </span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                    <CheckCircle2 size={10} style={{ color: GREEN }} />
-                    <span style={{ fontSize: 14.5, color: GREEN }}>Closed · {item.checks}</span>
-                  </div>
-                </div>
-                <span style={{ fontSize: 14.5, color: MUTED, flexShrink: 0 }}>{item.time}</span>
+                background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                width: '100%', textAlign: 'left',
+              }}
+            >
+              <span style={{ fontSize: 14, fontWeight: 600, color: FG }}>
+                Recently completed (last 24 hours)
+              </span>
+              <span style={{ fontSize: 14, color: MUTED }}>12 documents</span>
+              <div style={{ marginLeft: 'auto' }}>
+                {recentExpanded
+                  ? <ChevronDown size={16} color={MUTED} />
+                  : <ChevronRight size={16} color={MUTED} />}
               </div>
-            ))}
+            </button>
+
+            {recentExpanded && (
+              <div style={{
+                backgroundColor: 'hsl(var(--card))', borderRadius: 8,
+                border: `1px solid ${BORDER}`, overflow: 'hidden', marginTop: 12,
+              }}>
+                <QueueRowHeader />
+                {QUEUE_CARDS.filter(card => card.statusCategory === 'done').map((card) => (
+                  <QueueRowEl
+                    key={card.id}
+                    card={card}
+                    onApproveClick={undefined}
+                    onStopClick={undefined}
+                    onRetryClick={undefined}
+                    onRowClick={() => handleRowClick(card)}
+                    onDetailsClick={() => handleDetailsClick(card)}
+                    slaConfig={escalationConfigForCard(card, escalationConfigs)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {false && recentExpanded && (
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginTop: 12,
+              }}
+                   className="grid-cols-1 md:grid-cols-3"
+              >
+                {COMPLETED.map((item, i) => (
+                  <div key={i} style={{
+                    backgroundColor: 'hsl(var(--card))', borderRadius: 8,
+                    padding: '10px 14px', border: `1px solid ${BORDER}`,
+                    display: 'flex', alignItems: 'center', gap: 10,
+                  }}>
+                    <DocBadge code={item.code} size="sm" />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ fontSize: 14, fontWeight: 500, color: FG, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {item.label}
+                        </span>
+                        {item.generated && <Sparkles size={10} style={{ color: GOLD, flexShrink: 0 }} />}
+                      </div>
+                      <span className="vs-mono" style={{ fontSize: 14, color: MUTED, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {item.number}
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                        <CheckCircle2 size={10} style={{ color: GREEN }} />
+                        <span style={{ fontSize: 14.5, color: GREEN }}>Closed · {item.checks}</span>
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 14.5, color: MUTED, flexShrink: 0 }}>{item.time}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

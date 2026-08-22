@@ -469,7 +469,7 @@ export default function SettingsShell({ defaultSection }: { defaultSection?: str
                   Vessel Tracking
                 </h2>
                 <p style={{ fontSize: 14, color: T.slate500, marginTop: 4, fontFamily: 'var(--app-font-sans)' }}>
-                  Connect SafeCube to surface live AIS position, ETA, and schedule status on all shipments.
+                  Connect vessel tracking service to surface live AIS position, ETA, and schedule status on all shipments.
                 </p>
               </div>
               <div className="bg-card border rounded-lg p-5" style={{ borderColor: T.border }}>

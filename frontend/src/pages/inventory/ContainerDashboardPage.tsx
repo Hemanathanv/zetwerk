@@ -294,7 +294,7 @@ function ScBadge({ containers }: { containers: any[] }) {
   );
 
   if (noneLinked || someLinked) {
-    return <a href="/settings" title="Configure SafeCube in Settings - Vessel Tracking" className="no-underline">{inner}</a>;
+    return <a href="/settings" title="Configure vessel tracking" className="no-underline">{inner}</a>;
   }
 
   return inner;
