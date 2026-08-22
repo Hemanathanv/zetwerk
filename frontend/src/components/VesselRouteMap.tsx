@@ -214,7 +214,7 @@ export default function VesselRouteMap({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 256, borderRadius: 6, background: '#071e32', border: '1px solid rgba(255,255,255,0.05)' }}>
         <div style={{ textAlign: 'center' }}>
           <p style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.4)', margin: 0 }}>Awaiting tracking data</p>
-          <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 3 }}>Vessel position will appear once SafeCube sync runs</p>
+          <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 3 }}>Vessel position will appear once sync runs</p>
         </div>
       </div>
     )
