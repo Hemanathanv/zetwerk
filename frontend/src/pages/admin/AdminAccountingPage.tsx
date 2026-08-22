@@ -901,6 +901,7 @@ function ERPTab({ initialData, onSave }: ERPTabProps) {
   const [alertAfter,    setAlertAfter]    = useState(init.alertAfter);
   const [freshdeskOn,   setFreshdeskOn]   = useState(init.freshdeskOn);
   const [fdKey,         setFdKey]         = useState('');
+  const [showFdKey,     setShowFdKey]     = useState(false);
   const [fdPriority,    setFdPriority]    = useState(init.fdPriority);
   const [fdType,        setFdType]        = useState(init.fdType);
   const [fdGroup,       setFdGroup]       = useState(init.fdGroup);
@@ -1075,8 +1076,27 @@ function ERPTab({ initialData, onSave }: ERPTabProps) {
           <>
             <div style={fieldS}>
               <label style={labelS}>API Key</label>
-              <input style={inputS} type="password" value={fdKey}
-                onChange={e => setFdKey(e.target.value)} placeholder="API key" />
+              <div style={{ position: 'relative' }}>
+                <input
+                  style={{ ...inputS, paddingRight: 36 }}
+                  type={showFdKey ? 'text' : 'password'}
+                  value={fdKey}
+                  onChange={e => setFdKey(e.target.value)}
+                  placeholder="API key"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowFdKey(v => !v)}
+                  aria-label={showFdKey ? 'Hide API key' : 'Show API key'}
+                  style={{
+                    position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'hsl(var(--muted-foreground))', display: 'flex', alignItems: 'center',
+                  }}
+                >
+                  {showFdKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
               <div style={fieldS}>
