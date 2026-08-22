@@ -2998,6 +2998,9 @@ async def update_document_extraction(
     accessor_name = DOC_TYPE_TO_EXTRACTION_ACCESSOR.get(doc_type)
     if not parent_model or not accessor_name:
         raise HTTPException(status_code=400, detail=f"Editing is not configured for {doc_type}")
+    model_accessor = getattr(prisma, accessor_name, None)
+    if model_accessor is None:
+        raise HTTPException(status_code=500, detail=f"Extraction model is unavailable for {doc_type}")
 
     schema = load_extraction_schema(parent_model=parent_model)
     unknown_fields = set(payload.fields) - set(schema.scalar_fields)
