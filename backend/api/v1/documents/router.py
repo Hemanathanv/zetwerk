@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,19 @@ from helpers.config import settings
 from helpers.dependencies import get_current_user
 from helpers.shipment_operational import ensure_operational_shipment_tables, link_documents_to_shipment_by_keys
 from shipment_360.safecube import infer_shipment_type, track_container
+
+
+def _load_dnd_logic():
+    logic_path = Path(__file__).resolve().parents[3] / "D&D" / "logic.py"
+    spec = importlib.util.spec_from_file_location("ewms_dnd_logic_documents", logic_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load D&D backend logic from {logic_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+dnd_logic = _load_dnd_logic()
 
 
 router = APIRouter(tags=["Documents"])
@@ -41,6 +55,65 @@ class TrackShipmentRequest(BaseModel):
 
 def _json(value: Any) -> str:
     return json.dumps(value, default=str)
+
+
+def _user_id(user: Any) -> str | None:
+    value = getattr(user, "id", None)
+    if value is None and isinstance(user, dict):
+        value = user.get("id")
+    return str(value) if value else None
+
+
+def _text_at_path(value: Any, path: tuple[str, ...]) -> str | None:
+    current = value
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    text = str(current or "").strip()
+    return text or None
+
+
+def _safecube_carrier_payload(summary: dict[str, Any], tracking_reference: str | None = None) -> dict[str, Any] | None:
+    paths_name = (
+        ("auto_detect", "shipping_line", "selected", "name"),
+        ("details", "shipping_line", "attributes", "name"),
+        ("shipping_line", "attributes", "name"),
+        ("shipping_line", "name"),
+        ("metadata", "shippingLineName"),
+        ("metadata", "carrierName"),
+    )
+    paths_scac = (
+        ("auto_detect", "shipping_line", "selected", "scac"),
+        ("details", "shipping_line", "attributes", "scac"),
+        ("shipping_line", "attributes", "scac"),
+        ("shipping_line", "scac"),
+        ("metadata", "shippingLineScac"),
+        ("metadata", "scac"),
+        ("scac_used",),
+    )
+    carrier_name = next((value for path in paths_name for value in [_text_at_path(summary, path)] if value), None)
+    scac = next((value for path in paths_scac for value in [_text_at_path(summary, path)] if value), None)
+    if not carrier_name:
+        return None
+    return {
+        "safeCubeCarrierName": carrier_name,
+        "safeCubeScac": scac,
+        "trackingReference": tracking_reference,
+        "source": "safecube",
+        "rawData": {
+            "autoDetect": summary.get("auto_detect"),
+            "shippingLine": summary.get("shipping_line") or (summary.get("details") or {}).get("shipping_line") if isinstance(summary.get("details"), dict) else summary.get("shipping_line"),
+            "metadata": summary.get("metadata"),
+        },
+    }
+
+
+async def _store_safecube_dnd_carrier_mapping(prisma, summary: dict[str, Any], tracking_reference: str | None, user: Any) -> dict[str, Any] | None:
+    payload = _safecube_carrier_payload(summary, tracking_reference)
+    if not payload:
+        return None
+    return await dnd_logic.upsert_safecube_carrier_mapping(prisma, payload, user_id=_user_id(user))
 
 
 def _parse_json(value: Any) -> Any:
@@ -1650,6 +1723,7 @@ async def link_shipment_safecube(shipment_id: str, payload: dict[str, Any] | Non
         ),
         summary,
     )
+    await _store_safecube_dnd_carrier_mapping(prisma, summary, tracking_reference, user)
     await _update_public_shipment_from_bol_and_tracking(prisma, shipment, bol, row)
     events = await _tracking_events_for_sc_row(prisma, str(row["id"]))
     return {"ok": True, "data": _safecube_ui_payload(row, events)}
@@ -1690,6 +1764,7 @@ async def sync_shipment_safecube(shipment_id: str, payload: dict[str, Any] | Non
         ),
         summary,
     )
+    await _store_safecube_dnd_carrier_mapping(prisma, summary, tracking_reference, user)
     await _update_public_shipment_from_bol_and_tracking(prisma, shipment, bol, row)
     events = await _tracking_events_for_sc_row(prisma, str(row["id"]))
     return {"ok": True, "data": _safecube_ui_payload(row, events)}
@@ -1709,6 +1784,7 @@ async def track_shipment(payload: TrackShipmentRequest, user=Depends(get_current
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"SafeCube tracking failed: {exc}") from exc
     row = await _store_tracking(prisma, payload, summary)
+    carrier_mapping = await _store_safecube_dnd_carrier_mapping(prisma, summary, payload.trackingReference, user)
     events = await _query_raw(
         prisma,
         """
@@ -1718,7 +1794,10 @@ async def track_shipment(payload: TrackShipmentRequest, user=Depends(get_current
         """,
         row["id"],
     )
-    return {"data": _row_to_shipment(row, events)}
+    data = _row_to_shipment(row, events)
+    data["carrierName"] = (carrier_mapping or {}).get("safeCubeCarrierName")
+    data["carrierScac"] = (carrier_mapping or {}).get("safeCubeScac")
+    return {"data": data}
 
 
 @router.get(settings.API_SLUG + "/shipments/{shipment_id}/gates")

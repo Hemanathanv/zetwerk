@@ -152,6 +152,41 @@ async def ensure_dnd_tables(prisma) -> None:
     await execute_raw(
         prisma,
         """
+        CREATE TABLE IF NOT EXISTS public.dnd_safecube_carrier_mappings (
+          id TEXT PRIMARY KEY,
+          safecube_carrier_name TEXT NOT NULL,
+          safecube_scac TEXT,
+          dnd_carrier_name TEXT,
+          dnd_scac TEXT,
+          tracking_reference TEXT,
+          source TEXT NOT NULL DEFAULT 'safecube',
+          raw_data JSONB,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_by TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """,
+    )
+    await execute_raw(
+        prisma,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_dnd_safecube_carrier_mapping_key
+        ON public.dnd_safecube_carrier_mappings (
+          upper(safecube_carrier_name), COALESCE(upper(safecube_scac), '')
+        )
+        """,
+    )
+    await execute_raw(
+        prisma,
+        """
+        CREATE INDEX IF NOT EXISTS idx_dnd_safecube_carrier_mapping_dnd
+        ON public.dnd_safecube_carrier_mappings (dnd_carrier_name, dnd_scac, is_active)
+        """,
+    )
+    await execute_raw(
+        prisma,
+        """
         CREATE TABLE IF NOT EXISTS public.dnd_shipment_inputs (
           shipment_id TEXT PRIMARY KEY,
           carrier_name TEXT,
@@ -615,6 +650,168 @@ async def list_alerts(prisma) -> dict[str, list[dict[str, Any]]]:
             "createdAt": item["updatedAt"],
         })
     return {"notifications": notifications, "audits": []}
+
+
+
+def normalize_safecube_carrier_mapping_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row.get("id"),
+        "safeCubeCarrierName": row.get("safecube_carrier_name"),
+        "safeCubeScac": row.get("safecube_scac"),
+        "dndCarrierName": row.get("dnd_carrier_name"),
+        "dndScac": row.get("dnd_scac"),
+        "trackingReference": row.get("tracking_reference"),
+        "source": row.get("source"),
+        "isActive": row.get("is_active"),
+        "createdBy": row.get("created_by"),
+        "createdAt": iso(row.get("created_at")),
+        "updatedAt": iso(row.get("updated_at")),
+    }
+
+
+async def _carrier_master_for_safecube(prisma, carrier_name: str, scac: str | None) -> dict[str, Any] | None:
+    if scac:
+        rows = await query_raw(
+            prisma,
+            """
+            SELECT *
+            FROM public.dnd_carrier_master
+            WHERE is_active = TRUE AND upper(scac) = upper($1)
+            ORDER BY updated_at DESC NULLS LAST
+            LIMIT 1
+            """,
+            scac,
+        )
+        if rows:
+            return normalize_carrier_row(rows[0])
+    rows = await query_raw(
+        prisma,
+        """
+        SELECT *
+        FROM public.dnd_carrier_master
+        WHERE is_active = TRUE AND upper(carrier_name) = upper($1)
+        ORDER BY updated_at DESC NULLS LAST
+        LIMIT 1
+        """,
+        carrier_name,
+    )
+    return normalize_carrier_row(rows[0]) if rows else None
+
+
+async def upsert_safecube_carrier_mapping(
+    prisma,
+    payload: dict[str, Any],
+    user_id: str | None = None,
+) -> dict[str, Any] | None:
+    await ensure_dnd_tables(prisma)
+    safe_name = str(
+        payload.get("safeCubeCarrierName")
+        or payload.get("safecubeCarrierName")
+        or payload.get("carrierName")
+        or ""
+    ).strip()
+    safe_scac = str(payload.get("safeCubeScac") or payload.get("safecubeScac") or payload.get("scac") or "").strip().upper()
+    if not safe_name:
+        return None
+
+    master = await _carrier_master_for_safecube(prisma, safe_name, safe_scac or None)
+    dnd_carrier_name = str(payload.get("dndCarrierName") or (master or {}).get("carrierName") or safe_name).strip().upper()
+    dnd_scac = str(payload.get("dndScac") or (master or {}).get("scac") or safe_scac or "").strip().upper() or None
+    tracking_reference = str(payload.get("trackingReference") or "").strip() or None
+    source = str(payload.get("source") or "safecube").strip() or "safecube"
+    raw_data = payload.get("rawData") if isinstance(payload.get("rawData"), dict) else None
+
+    existing = await query_raw(
+        prisma,
+        """
+        SELECT id
+        FROM public.dnd_safecube_carrier_mappings
+        WHERE upper(safecube_carrier_name) = upper($1)
+          AND COALESCE(upper(safecube_scac), '') = COALESCE(upper($2), '')
+        LIMIT 1
+        """,
+        safe_name,
+        safe_scac or None,
+    )
+    mapping_id = str(existing[0]["id"] if existing else uuid4())
+    raw_json = json.dumps(raw_data, default=str) if raw_data is not None else None
+    if existing:
+        await execute_raw(
+            prisma,
+            """
+            UPDATE public.dnd_safecube_carrier_mappings
+            SET dnd_carrier_name = $2,
+                dnd_scac = $3,
+                tracking_reference = COALESCE($4, tracking_reference),
+                source = $5,
+                raw_data = COALESCE($6::jsonb, raw_data),
+                is_active = TRUE,
+                updated_at = NOW()
+            WHERE id = $1
+            """,
+            mapping_id,
+            dnd_carrier_name,
+            dnd_scac,
+            tracking_reference,
+            source,
+            raw_json,
+        )
+    else:
+        await execute_raw(
+            prisma,
+            """
+            INSERT INTO public.dnd_safecube_carrier_mappings (
+              id, safecube_carrier_name, safecube_scac, dnd_carrier_name, dnd_scac,
+              tracking_reference, source, raw_data, is_active, created_by, created_at, updated_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, TRUE, $9, NOW(), NOW())
+            """,
+            mapping_id,
+            safe_name,
+            safe_scac or None,
+            dnd_carrier_name,
+            dnd_scac,
+            tracking_reference,
+            source,
+            raw_json,
+            user_id,
+        )
+
+    rows = await query_raw(
+        prisma,
+        """
+        SELECT *
+        FROM public.dnd_safecube_carrier_mappings
+        WHERE id = $1
+        LIMIT 1
+        """,
+        mapping_id,
+    )
+    mapping = normalize_safecube_carrier_mapping_row(rows[0])
+    await record_audit(
+        prisma,
+        action="safecube_carrier_mapping_upsert",
+        description=f"Mapped SafeCube carrier {mapping['safeCubeCarrierName']} to D&D carrier {mapping['dndCarrierName']}",
+        entity_type="safecube_carrier_mapping",
+        entity_id=mapping_id,
+        user_id=user_id,
+        metadata={"safeCubeScac": mapping.get("safeCubeScac"), "dndScac": mapping.get("dndScac")},
+    )
+    return mapping
+
+
+async def list_safecube_carrier_mappings(prisma) -> list[dict[str, Any]]:
+    await ensure_dnd_tables(prisma)
+    rows = await query_raw(
+        prisma,
+        """
+        SELECT *
+        FROM public.dnd_safecube_carrier_mappings
+        WHERE is_active = TRUE
+        ORDER BY updated_at DESC NULLS LAST, safecube_carrier_name ASC
+        """,
+    )
+    return [normalize_safecube_carrier_mapping_row(row) for row in rows]
 
 
 async def list_carriers(prisma) -> list[dict[str, Any]]:

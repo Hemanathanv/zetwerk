@@ -217,6 +217,12 @@ model Document {
   uploadedBy  String         @map("uploaded_by")
   isDeleted   Boolean        @default(false) @map("is_deleted")
   deletedAt   DateTime?      @map("deleted_at")
+
+  editingById        String?   @map("editing_by_id")
+  editingStartedAt   DateTime? @map("editing_started_at")
+  editingExpiresAt   DateTime? @map("editing_expires_at")
+  editVersion        Int       @default(1) @map("edit_version")
+
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
@@ -250,6 +256,8 @@ model Document {
   @@index([docType])
   @@index([status])
   @@index([uploadedBy])
+  @@index([editingById], map: "idx_documents_editing_by_id")
+  @@index([editingExpiresAt], map: "idx_documents_editing_expires_at")
   @@schema("public")
   @@map("documents")
 }
@@ -628,6 +636,26 @@ model DndCarrierMaster {
   @@index([carrierName, isActive], map: "idx_dnd_carrier_master_name")
   @@schema("public")
   @@map("dnd_carrier_master")
+}
+
+model DndSafeCubeCarrierMapping {
+  id                  String   @id
+  safeCubeCarrierName String   @map("safecube_carrier_name")
+  safeCubeScac        String?  @map("safecube_scac")
+  dndCarrierName      String?  @map("dnd_carrier_name")
+  dndScac             String?  @map("dnd_scac")
+  trackingReference   String?  @map("tracking_reference")
+  source              String   @default("safecube")
+  rawData             Json?    @map("raw_data")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdBy           String?  @map("created_by")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([safeCubeCarrierName, safeCubeScac], map: "idx_dnd_safecube_carrier_mapping_lookup")
+  @@index([dndCarrierName, dndScac, isActive], map: "idx_dnd_safecube_carrier_mapping_dnd")
+  @@schema("public")
+  @@map("dnd_safecube_carrier_mappings")
 }
 
 model DndShipmentInput {

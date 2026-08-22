@@ -693,8 +693,19 @@ const documentApi = {
     payload: {
       fields?: Record<string, unknown>;
       arrays?: Record<string, Array<Record<string, unknown>>>;
+      requireEditLock?: boolean;
+      expectedEditVersion?: number | null;
     },
   ) => api.patch(`/uploads/documents/${documentId}/extraction`, payload),
+  beginEdit: (documentId: string) => api.post<{
+    ok: boolean;
+    data: {
+      documentId: string;
+      status: string;
+      editVersion?: number;
+      editLock?: NonNullable<DocumentDetailRecord['editLock']>;
+    };
+  }>(`/uploads/documents/${documentId}/edit`),
   approve: (documentId: string) => api.post<ApproveDocumentResponse>(`/uploads/documents/${documentId}/approve`),
   revertApproval: (documentId: string) => api.post<{ ok: boolean; data: { documentId: string; status: string } }>(`/uploads/documents/${documentId}/revert-approval`),
   assignShipment: (documentId: string, shipmentId: string) =>

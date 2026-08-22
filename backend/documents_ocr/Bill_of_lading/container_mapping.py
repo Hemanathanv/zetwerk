@@ -49,7 +49,6 @@ def _source_line_key(row: dict[str, Any], index: int) -> str:
         row.get("packingListDocumentId"),
         row.get("invoiceNumber"),
         row.get("productCode"),
-        row.get("containerNo"),
         base_id,
     ]
     return "|".join(re.sub(r"[^A-Z0-9.:-]+", "", str(value or "").upper()) for value in parts)
@@ -71,6 +70,13 @@ def _validate_container_split_rows(rows: list[dict[str, Any]]) -> None:
         key = _source_line_key(row, index)
         grouped.setdefault(key, []).append(row)
 
+    for index, row in enumerate(rows):
+        net_weight = _number(row.get("netWeightKgs"))
+        gross_weight = _number(row.get("grossWeightKgs"))
+        if net_weight > 0 and gross_weight > 0 and gross_weight <= net_weight:
+            label = row.get("productCode") or row.get("description") or f"line {index + 1}"
+            raise ValueError(f"{label}: gross weight must be greater than net weight")
+
     checks = (
         ("totalQtyInPcs", "_sourceTotalQtyInPcs", "quantity"),
         ("totalBundles", "_sourceTotalBundles", "bundles"),
@@ -78,13 +84,20 @@ def _validate_container_split_rows(rows: list[dict[str, Any]]) -> None:
         ("grossWeightKgs", "_sourceGrossWeightKgs", "gross weight"),
     )
     for group in grouped.values():
-        if len(group) <= 1:
-            continue
         source = next((row for row in group if str(row.get("_splitRow") or "").lower() != "true"), group[0])
         label = source.get("productCode") or source.get("description") or "line item"
         for value_key, source_key, label_key in checks:
             source_total = _number(source.get(source_key) or source.get(value_key))
             if source_total == 0:
+                continue
+            if len(group) <= 1:
+                visible_total = _number(group[0].get(value_key))
+                if visible_total == 0:
+                    continue
+                if abs(visible_total - source_total) > 0.01:
+                    raise ValueError(
+                        f"{label}: {label_key} {visible_total:g} must match Packing List {source_total:g}"
+                    )
                 continue
             split_total = sum(_number(row.get(value_key)) for row in group)
             if abs(split_total - source_total) > 0.01:
@@ -104,6 +117,7 @@ def _approved_snapshot_response(
     paginate: bool,
     unmapped_only: bool,
 ) -> dict[str, Any]:
+    enriched_rows = [_with_source_totals(row, index) for index, row in enumerate(rows) if isinstance(row, dict)]
     normalized_rows = [
         {
             "lineItemId": str(row.get("lineItemId") or f"approved:{index}"),
@@ -125,10 +139,8 @@ def _approved_snapshot_response(
             "_sourceGrossWeightKgs": row.get("_sourceGrossWeightKgs"),
             "_splitRow": row.get("_splitRow"),
         }
-        for index, row in enumerate(rows)
-        if isinstance(row, dict)
+        for index, row in enumerate(enriched_rows)
     ]
-    rows = [_with_source_totals(row, index) for index, row in enumerate(rows)]
 
     allowed_containers = set(containers)
     unmapped_count = sum(
@@ -257,48 +269,36 @@ async def build_container_mapping(
         if _normalize_invoice_number(_value(packing_list, "invoiceNo")) in wanted
     ]
 
-    rows: list[dict[str, Any]] = []
-    for packing_list in matched:
-        items = await prisma.packinglistlineitem.find_many(
-            where={"packingListId": packing_list.id}
-        )
-        rows.extend({
-            "lineItemId": str(item.id),
-            "packingListDocumentId": str(packing_list.documentId),
-            "invoiceNumber": _value(packing_list, "invoiceNo"),
-            "containerNo": _value(item, "containerNo"),
-            "productCode": _value(item, "productCode"),
-            "description": _value(item, "productDescription"),
-            "specification": _value(item, "productSpecification"),
-            "totalQtyInPcs": _value(item, "totalQtyInPcs"),
-            "qtyPerBundle": _value(item, "qtyPerBundle"),
-            "totalBundles": _value(item, "noOfBundles"),
-            "netWeightKgs": _value(item, "netWeightKgs"),
-            "grossWeightKgs": _value(item, "grossWeightKgs"),
-        } for item in items)
-
     generated_drafts = await prisma.query_raw(
         """
-        SELECT id, rendered_payload
+        SELECT id, rendered_payload, updated_at, created_at
         FROM docgen.drafts
         WHERE generated_doc_type = 'PACKING_LIST'
           AND status = 'GENERATED'::docgen."DocGenerationStatus"
-        ORDER BY created_at ASC
+        ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
         """
     )
-    matched_generated = 0
+    generated_rows: list[dict[str, Any]] = []
+    generated_invoice_keys: set[str] = set()
+    selected_generated_by_invoice: dict[str, dict[str, Any]] = {}
     for draft in generated_drafts:
         payload = draft.get("rendered_payload") or {}
         if not isinstance(payload, dict):
             continue
         invoice_number = _draft_field(payload, "invoiceNo")
-        if _normalize_invoice_number(invoice_number) not in wanted:
+        invoice_key = _normalize_invoice_number(invoice_number)
+        if invoice_key not in wanted or invoice_key in selected_generated_by_invoice:
             continue
-        matched_generated += 1
+        selected_generated_by_invoice[invoice_key] = draft
+    matched_generated = len(selected_generated_by_invoice)
+    for invoice_key, draft in selected_generated_by_invoice.items():
+        payload = draft.get("rendered_payload") or {}
+        invoice_number = _draft_field(payload, "invoiceNo")
+        generated_invoice_keys.add(invoice_key)
         for index, item in enumerate(payload.get("lineItems") or []):
             if not isinstance(item, dict):
                 continue
-            rows.append({
+            generated_rows.append({
                 "lineItemId": f"draft:{draft['id']}:{index}",
                 "packingListDocumentId": str(draft["id"]),
                 "invoiceNumber": invoice_number,
@@ -311,7 +311,43 @@ async def build_container_mapping(
                 "totalBundles": item.get("noOfBundles"),
                 "netWeightKgs": item.get("netWeightKgs") or item.get("netWeight"),
                 "grossWeightKgs": item.get("grossWeightKgs") or item.get("grossWeight"),
+                "_sourceLineKey": item.get("_sourceLineKey"),
+                "_sourceTotalQtyInPcs": item.get("_sourceTotalQtyInPcs"),
+                "_sourceTotalBundles": item.get("_sourceNoOfBundles") or item.get("_sourceTotalBundles"),
+                "_sourceNetWeightKgs": item.get("_sourceNetWeightKgs"),
+                "_sourceGrossWeightKgs": item.get("_sourceGrossWeightKgs"),
+                "_splitRow": item.get("_splitRow"),
             })
+
+    rows: list[dict[str, Any]] = []
+    for packing_list in matched:
+        invoice_number = _value(packing_list, "invoiceNo")
+        if _normalize_invoice_number(invoice_number) in generated_invoice_keys:
+            continue
+        items = await prisma.packinglistlineitem.find_many(
+            where={"packingListId": packing_list.id}
+        )
+        rows.extend({
+            "lineItemId": str(item.id),
+            "packingListDocumentId": str(packing_list.documentId),
+            "invoiceNumber": invoice_number,
+            "containerNo": _value(item, "containerNo"),
+            "productCode": _value(item, "productCode"),
+            "description": _value(item, "productDescription"),
+            "specification": _value(item, "productSpecification"),
+            "totalQtyInPcs": _value(item, "totalQtyInPcs"),
+            "qtyPerBundle": _value(item, "qtyPerBundle"),
+            "totalBundles": _value(item, "noOfBundles"),
+            "netWeightKgs": _value(item, "netWeightKgs"),
+            "grossWeightKgs": _value(item, "grossWeightKgs"),
+        } for item in items)
+    rows.extend(generated_rows)
+    matched_extraction_count = sum(
+        1 for packing_list in matched
+        if _normalize_invoice_number(_value(packing_list, "invoiceNo")) not in generated_invoice_keys
+    )
+
+    rows = [_with_source_totals(row, index) for index, row in enumerate(rows)]
 
     allowed_containers = set(containers)
     unmapped_count = sum(
@@ -343,7 +379,7 @@ async def build_container_mapping(
         "bolDocumentId": bol_document_id,
         "invoiceNumbers": invoice_numbers,
         "containers": containers,
-        "matchedPackingLists": len(matched) + matched_generated,
+        "matchedPackingLists": matched_extraction_count + matched_generated,
         "unmappedCount": unmapped_count,
         "rows": visible_rows,
         "totals": totals,
